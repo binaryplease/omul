@@ -1,0 +1,107 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches:
+      - main
+      - workbatch/**
+      - task/**
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Compute branch info
+        id: branch
+        run: |
+          # For pull_request events, github.sha points to a synthetic merge commit
+          # (refs/pull/N/merge) which is the PR head merged onto base branch HEAD at
+          # workflow-trigger time. That commit doesn't exist on any real branch, can't
+          # be looked up later, and silently mixes in whatever was on main at that moment.
+          # We always want to tag and build the actual PR head commit instead.
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            RAW_BRANCH="${{ github.head_ref }}"
+            ACTUAL_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            RAW_BRANCH="${{ github.ref_name }}"
+            ACTUAL_SHA="${{ github.sha }}"
+          fi
+          SAFE_BRANCH=$(echo "$RAW_BRANCH" | sed 's|/|-|g' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
+          TIMESTAMP=$(date -u '+%Y%m%d%H%M%S')
+          SHORT_SHA=$(echo "$ACTUAL_SHA" | cut -c1-7)
+          echo "safe_branch=${SAFE_BRANCH}" >> $GITHUB_OUTPUT
+          echo "timestamp=${TIMESTAMP}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "actual_sha=${ACTUAL_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.branch.outputs.actual_sha }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # Tag events: semver
+            type=semver,pattern={{version}},latest=false
+            type=semver,pattern={{major}}.{{minor}},latest=false
+            # Branch pushes: <branch>-<timestamp>-<sha> and <branch>-latest
+            type=raw,value=${{ steps.branch.outputs.safe_branch }}-${{ steps.branch.outputs.timestamp }}-${{ steps.branch.outputs.short_sha }},enable=${{ github.ref_type == 'branch' && github.event_name != 'pull_request' }}
+            type=raw,value=${{ steps.branch.outputs.safe_branch }}-latest,enable=${{ github.ref_type == 'branch' && github.event_name != 'pull_request' }}
+            # Main branch: also tag as latest
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+            # PR builds
+            type=raw,value=pr-${{ github.event.number }}-${{ steps.branch.outputs.timestamp }}-${{ steps.branch.outputs.short_sha }},enable=${{ github.event_name == 'pull_request' }}
+            type=raw,value=pr-${{ github.event.number }}-latest,enable=${{ github.event_name == 'pull_request' }}
+
+      - name: Compute VERSION build arg
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            SHORT_SHA=$(echo "${{ steps.branch.outputs.actual_sha }}" | cut -c1-8)
+            echo "version=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

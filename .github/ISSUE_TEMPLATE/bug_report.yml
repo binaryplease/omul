@@ -1,0 +1,82 @@
+name: Bug report
+description: Something behaves differently from how it is documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Not for security problems.** A vulnerability goes to one of the two
+        private routes in [SECURITY.md](../blob/main/SECURITY.md), never into a
+        public issue.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: The shortest sequence of steps that shows the problem.
+      placeholder: |
+        1. Create a deck with a word-cloud slide
+        2. Join with the 6-digit code from a second device
+        3. …
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where does it happen
+      options:
+        - Presenter view
+        - Participant view
+        - Results or export
+        - Admin surface (/api/admin/*)
+        - Server startup or deployment
+        - Somewhere else / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: A release tag, or the commit SHA you are running.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: how-run
+    attributes:
+      label: How are you running it
+      options:
+        - "`nix develop` (development)"
+        - The published container image
+        - A container image I built myself
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: >
+        Server log lines around the failure, or the browser console. This is
+        pasted into a code block automatically — no backticks needed.
+      render: shell
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else
+      description: >
+        Screenshots, the deck that triggers it, what you already ruled out.
+        **Please remove secrets first** — `BETTER_AUTH_SECRET`, API keys and
+        session cookies have a habit of riding along in pasted environments.

@@ -1,0 +1,66 @@
+name: Feature request
+description: Something omul should do and does not
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Work in this project is tracked as requirements in `docs/requirements/`,
+        one file per requirement. A request that is accepted becomes one of
+        those — so the more this issue reads like a requirement, the shorter the
+        road is. `bun scripts/triage.ts list --status pending` shows what is
+        already queued; please check it first.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What are you trying to do, and what stops you today? Describe the
+        situation rather than the feature — the solution is easier to judge
+        against a problem than against itself.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like it to do
+      description: Concretely, from the point of view of whoever uses it.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Who is it for
+      options:
+        - The presenter running a session
+        - A participant joining with a code
+        - The operator self-hosting the instance
+        - Someone integrating with the API
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: >
+        Workarounds, other slide types, another tool. "Nothing yet" is a fine
+        answer.
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Please confirm
+      options:
+        - label: >
+            This does not require omul to call an external service. Exactly one
+            such call exists (optional deck generation) and adding a second is
+            an architecture decision, not a feature.
+          required: false
+        - label: >
+            I have read the licence position in the README and understand this
+            is a self-hosted project.
+          required: false

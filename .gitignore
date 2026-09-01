@@ -1,0 +1,11 @@
+node_modules/
+dist/
+data/
+.direnv/
+result/
+.env
+*.age
+.playwright-cli
+.data
+result
+.notes/

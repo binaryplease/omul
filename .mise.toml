@@ -1,0 +1,106 @@
+[tools]
+bun = "1"
+
+[env]
+PORT = "3000"
+NODE_ENV = "development"
+# zodstore SQLite database file (bun:sqlite). Use ":memory:" for an
+# ephemeral in-process store; a file path persists between restarts.
+DATABASE_PATH = "data/omul.sqlite"
+# Abuse limits on create, join and vote (REQ145, server/rate-limit.ts). "true"
+# turns them off for a self-hoster on a trusted network; anything else — this
+# default included — leaves them on.
+OMUL_RATE_LIMITS_DISABLED = "false"
+# Which model drafts a deck from a prompt (REQ007, server/deck-generator.ts).
+# A floating "latest" alias rather than a pinned snapshot (ADR-0009).
+OMUL_GENERATION_MODEL = "gemini-flash-latest"
+# The credential that model is reached with is deliberately NOT set here: it is a
+# secret, and setting it in this file would both commit one and clobber whatever
+# a developer exported. Export GOOGLE_GENERATIVE_AI_API_KEY to switch generation
+# on; unset — the default — it stays off and every other way to start a deck
+# works unchanged.
+# Who may spend that credential. Generation is the one route whose cost is a
+# third party's bill, and OMUL_RATE_LIMITS_DISABLED above would take its budget
+# off with everything else's — so it carries a second control that switch cannot
+# reach: an account is required unless this is exactly "true". Dev leaves it at
+# the restrictive default, same as a deployment would.
+OMUL_GENERATION_ALLOW_ANONYMOUS = "false"
+# How many reverse-proxy hops may be believed when reading X-Forwarded-For to
+# identify a rate-limit client ("true" = 1). Dev talks to the server directly,
+# so "0"; a deployment behind a reverse proxy MUST set its hop count or every
+# visitor collapses into the proxy's single bucket.
+OMUL_TRUST_PROXY = "0"
+
+# Who may use the admin surface (REQ164, server/admins.ts) is deliberately NOT
+# set here either. It is a comma-separated list of sign-in addresses read once at
+# startup, and it ships empty: unset means nobody is an administrator and every
+# /api/admin/* route answers 403, which is the fail-closed default a deployment
+# opts out of by naming someone. Setting it in this file would both put a list in
+# the source — the defect REQ164 closed — and clobber whatever a developer
+# exported. Export OMUL_ADMIN_EMAILS with your own dev account's address to
+# work on the admin surface; unset, everything else works unchanged.
+
+# The dev tasks below carry OMUL_ALLOW_INSECURE_DEV_AUTH_SECRET as a prefix
+# rather than declaring it in [env] above, and that placement is the point
+# (REQ171, server/auth-secret.ts). It is the one switch that permits the
+# development signing secret, so no task that *builds* may ever see it: a
+# bundler that constant-folded it out of a build that had it set would bake a
+# permanently-open gate into dist/server/index.js. [env] would hand it to `build`
+# along with everything else; a prefix hands it only to the process that runs the
+# dev server. `mise run test` gets it from server/test-preload.ts instead, which
+# sets it in-process and so cannot be baked into anything.
+[tasks.dev]
+description = "Start dev servers (Elysia + Vite) concurrently"
+run = 'OMUL_ALLOW_INSECURE_DEV_AUTH_SECRET=true bunx concurrently -k -n server,client "bun --watch server/index.ts" "bunx vite"'
+
+[tasks."dev:server"]
+description = "Start Elysia server in watch mode"
+run = "OMUL_ALLOW_INSECURE_DEV_AUTH_SECRET=true bun --watch server/index.ts"
+
+[tasks."dev:client"]
+description = "Start Vite dev server"
+run = "bunx vite"
+
+[tasks.build]
+description = "Build client (Vite) and server (Bun)"
+run = """
+bunx vite build
+NODE_ENV=production bun build server/index.ts --outdir dist/server --target bun
+"""
+
+[tasks.start]
+description = "Start production server"
+run = "NODE_ENV=production bun dist/server/index.js"
+
+[tasks."preview:email"]
+description = "Preview the transactional email templates in the browser (dev-only, port 3999)"
+run = "bun scripts/email-preview.ts"
+
+[tasks.test]
+description = "Run tests"
+run = "bun test"
+
+[tasks.check]
+description = "Run frontend ADR convention guards (ADR-0022/0026/0028) + publication-residue guard + requirement checks"
+run = [
+  "bun scripts/guard-frontend-conventions.ts",
+  # REQ163 class 2: the private sibling repository's slug. Swept by hand twice
+  # and back both times, because a sweep is a measurement and nothing failed
+  # when the vocabulary returned. This is the control. It held the internal
+  # work queue's task identifiers too until the owner retired that class on
+  # 2026-08-31; they are ordinary text here now.
+  "bun scripts/guard-publication-residue.ts",
+  "bun scripts/triage.ts validate",
+  # Names the directory rather than sweeping: a bare `index check` only walks
+  # directories that still carry an index file, so a deleted docs/Requirements.md
+  # would make this pass (ADR-0040).
+  "index check docs/requirements",
+]
+
+[tasks.triage]
+description = "Filter and triage omul requirements in docs/requirements/ (see scripts/triage.ts help)"
+run = "bun scripts/triage.ts"
+
+[tasks."requirements:index"]
+description = "Regenerate the requirements index (docs/Requirements.md) with the shared `index` CLI"
+run = "index build docs/requirements"

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" class="auto">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>omul</title>
+  <!-- The tab icon and the home-screen tile are the closed-ring signet
+       (REQ167), pointed at the drawn file rather than at a second copy of it. -->
+  <link rel="icon" type="image/svg+xml" href="/brand/omul-icon-ring.svg" />
+  <link rel="apple-touch-icon" href="/brand/omul-icon-ring-512.png" />
+  <link rel="stylesheet" href="./index.css" />
+  <!-- Paint the scheme before the bundle loads, so no reload flashes the wrong
+       one. This runs before anything is imported, so it spells the key that
+       src/storage.ts owns (THEME_KEY) rather than importing it. -->
+  <script>
+    ;(() => {
+      var t = localStorage.getItem('omul-theme') ?? 'auto';
+      document.documentElement.className = t;
+      var cs = t === 'auto' ? 'light dark' : t;
+      document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', cs);
+    })();
+  </script>
+</head>
+
+<body class="w-full min-h-svh">
+  <div id="root" class="w-full min-h-full"></div>
+  <script type="module" src="./index.tsx"></script>
+</body>
+
+</html>

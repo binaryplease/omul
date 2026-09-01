@@ -1,0 +1,932 @@
+@import "tailwindcss";
+@import "@fontsource-variable/sora";
+@import "@fontsource/dm-mono";
+
+/* ── Design system: "Signal" ──────────────────────────────────
+ * Aesthetic: Broadcast / signal / pulse
+ * Dark-first, neutral base with one blue accent per scheme (REQ166).
+ * Inspired by live broadcast control rooms and data dashboards.
+ *
+ * The accent is rationed to what is interactive, active or measured — bar fill,
+ * ring, link, focus ring. Heavy emphasis in the light scheme is carried by the
+ * ink instead, which is why the primary button is ink on light and stays the
+ * glowing accent surface on dark. Glow is a dark-scheme device: in the light
+ * scheme depth comes from the 1px hairline plus `--shadow-panel`, and elevation
+ * runs *toward white* — a card is lighter than the ground it sits on.
+ */
+
+@theme {
+	--font-display: "Sora Variable", system-ui, sans-serif;
+	--font-mono: "DM Mono", "Menlo", monospace;
+
+	/* Ink and paper — the mark's two values (REQ167), which are also this
+	   system's Text in the light scheme and its Ground in the dark one. Held
+	   once and referenced from both, so the drawn wordmark and the chrome around
+	   it cannot drift apart. */
+	--color-ink: #09090b;
+	--color-paper: #fafafa;
+
+	--color-void: var(--color-ink);
+	--color-surface: #131316;
+	--color-surface-raised: #1c1c20;
+	--color-surface-hover: #26262c;
+	--color-border: #2a2a30;
+	--color-border-subtle: #1c1c20;
+	--color-text: #f4f4f5;
+	--color-text-muted: #a1a1aa;
+	--color-text-dim: #71717a;
+
+	/* The colour the wordmark is drawn in: the paper on dark, the ink on light,
+	   which is exactly what the mark's inverse form does (REQ167). Never the
+	   accent — that belongs to the interface. */
+	--color-mark: var(--color-paper);
+
+	/* Accent: one value per scheme, no arithmetic between them (REQ166). */
+	--color-accent: #2e5cff;
+	--color-accent-hover: #4b74ff;
+
+	/* The label on top of an accent surface — the table's `On accent`, one value
+	   for both schemes because the accent is dark enough in both: white measures
+	   6.71:1 on the light accent and 5.13:1 on the dark one, where the ink it
+	   replaces measures 2.96:1 and 3.88:1. A deck re-points this at its own ink
+	   below, since a deck accent may be pale and its chips already read
+	   correctly. */
+	--color-on-accent: #ffffff;
+
+	/* The wash behind something active or selected. Opaque on light, where it is
+	   its own tuned violet-leaning tone rather than an alpha of the accent. */
+	--color-accent-dim: rgba(46, 92, 255, 0.12);
+
+	/* Glow, and the wider soft halo under it. Both go to `transparent` in the
+	   light scheme: glow is how the dark scheme carries depth, and the light one
+	   carries it with a hairline and `--shadow-panel` instead. Kept apart from
+	   `--color-accent-dim` because that token is now an opaque wash on light and
+	   an opaque tone inside a 60px shadow is a smear, not a glow. */
+	--color-accent-glow: rgba(46, 92, 255, 0.3);
+	--color-accent-glow-soft: rgba(46, 92, 255, 0.1);
+
+	/* Heavy emphasis — the filled primary button, and anything else that has to
+	   be the loudest thing on the surface. The accent on dark; the ink on light,
+	   where the accent is kept for what is interactive, active or measured
+	   (REQ166). A deck theme re-asserts these from its own accent — see the
+	   `.deck-theme` rule below. */
+	--color-primary: var(--color-accent);
+	--color-primary-hover: var(--color-accent-hover);
+	--color-on-primary: #ffffff;
+
+	/* The accent when it is *words* rather than a surface, a border or a glow
+	   (REQ157). The accent is built to sit behind white text and to glow; the
+	   dark one reads 3.61:1 against Card, which clears the 3:1 graphics ask but
+	   not the 4.5:1 text ask. So accent-coloured text goes through this token
+	   instead — one name, per-scheme value, so a join code or an "Add option"
+	   link never has to know which scheme it is being drawn in. Ratios against
+	   `--color-surface`: dark 7.11:1 / hover 9.92:1, light 6.71:1 / hover
+	   9.34:1; the quietest surface either sits on (Raised) still measures
+	   6.52:1 dark / 6.11:1 light. */
+	--color-accent-text: #7c9cff;
+	--color-accent-text-hover: #a5bcff;
+
+	/* Semantic */
+	--color-success: #34d399;
+	--color-success-dim: rgba(52, 211, 153, 0.15);
+	--color-warning: #fbbf24;
+	--color-error: #f87171;
+	--color-info: #60a5fa;
+
+	/* Poll option colors. The first series is the accent itself — a bar fill is
+	   the measured thing the accent is for (REQ166) — so it follows the scheme
+	   rather than holding a second copy of the value. */
+	--color-poll-1: var(--color-accent);
+	--color-poll-2: #60a5fa;
+	--color-poll-3: #34d399;
+	--color-poll-4: #fbbf24;
+	--color-poll-5: #c084fc;
+	--color-poll-6: #f87171;
+	--color-poll-7: #22d3ee;
+	--color-poll-8: #fb923c;
+}
+
+/* ── Depth ─────────────────────────────────────────────────── */
+
+/* The one-pixel shadow the light scheme builds elevation with, *beside* the 1px
+   hairline (REQ166) — the pair is the device, and neither half carries depth
+   alone at these values: `--color-border` measures 1.23:1 against Card and
+   1.18:1 against Ground. Nothing on dark, where depth is the surface ramp and
+   the glow. Written as a transparent shadow rather than `none` because the
+   rules below compose it in a comma list beside the glow, and `none` is not a
+   legal member of one.
+ *
+ * Deliberately NOT a `@theme` entry. Tailwind inlines a `--shadow-*` theme
+ * value into the utility it generates (`--tw-shadow: 0 0 0 0 …`), so a
+ * `shadow-panel` built that way would freeze at the dark value and never see
+ * the light-scheme override. The `@utility` below reads the custom property at
+ * use time instead, which is the whole point — one token, resolved per scheme,
+ * reaching a card built out of Tailwind classes rather than only the four
+ * control classes this file happens to own. */
+:root {
+	--shadow-panel: 0 0 0 0 transparent;
+}
+
+@utility shadow-panel {
+	box-shadow: var(--shadow-panel);
+}
+
+/* ── Light mode token overrides ────────────────────────────── */
+
+/* Elevation runs *toward white* here: Card is lighter than the Ground it sits
+   on, which is the reverse of what this file used to do (REQ166). */
+:root.light,
+:root.auto {
+	--color-void: var(--color-paper);
+	--color-surface: #ffffff;
+	--color-surface-raised: #f4f4f5;
+	--color-surface-hover: #eaeaed;
+	--color-border: #e7e7ea;
+	--color-border-subtle: #efeff1;
+	--color-text: var(--color-ink);
+	--color-text-muted: #4e4e57;
+	--color-text-dim: #8a8a93;
+
+	--color-mark: var(--color-ink);
+
+	--color-accent: #1f3bff;
+	--color-accent-hover: #0a25d6;
+	--color-accent-dim: #eceaff;
+	--color-accent-glow: transparent;
+	--color-accent-glow-soft: transparent;
+	--color-success-dim: rgba(52, 211, 153, 0.1);
+
+	/* Heavy emphasis is the ink here, not the accent (REQ166): paper on ink
+	   measures 19.06:1. */
+	--color-primary: var(--color-ink);
+	--color-primary-hover: #27272e;
+	--color-on-primary: var(--color-paper);
+
+	/* The light accent reads 6.71:1 against Card, so it is its own text value;
+	   only the hover state deepens (REQ157). */
+	--color-accent-text: #1f3bff;
+	--color-accent-text-hover: #0a25d6;
+
+	--shadow-panel: 0 1px 2px rgba(9, 9, 11, 0.05);
+}
+
+/* Auto mode: only apply light overrides when OS prefers dark */
+@media (prefers-color-scheme: dark) {
+	:root.auto {
+		--color-void: var(--color-ink);
+		--color-surface: #131316;
+		--color-surface-raised: #1c1c20;
+		--color-surface-hover: #26262c;
+		--color-border: #2a2a30;
+		--color-border-subtle: #1c1c20;
+		--color-text: #f4f4f5;
+		--color-text-muted: #a1a1aa;
+		--color-text-dim: #71717a;
+
+		--color-mark: var(--color-paper);
+
+		--color-accent: #2e5cff;
+		--color-accent-hover: #4b74ff;
+		--color-accent-dim: rgba(46, 92, 255, 0.12);
+		--color-accent-glow: rgba(46, 92, 255, 0.3);
+		--color-accent-glow-soft: rgba(46, 92, 255, 0.1);
+		--color-success-dim: rgba(52, 211, 153, 0.15);
+
+		--color-primary: var(--color-accent);
+		--color-primary-hover: var(--color-accent-hover);
+		--color-on-primary: #ffffff;
+
+		--color-accent-text: #7c9cff;
+		--color-accent-text-hover: #a5bcff;
+
+		--shadow-panel: 0 0 0 0 transparent;
+	}
+}
+
+/* ── A deck with a palette of its own keeps its own accent ─── */
+
+/* `<DeckThemeScope/>` writes `--color-accent` and its companions onto the
+   subtree it wraps. The three token families the chrome grew for REQ166 —
+   emphasis, accent-as-text, and the soft halo — are not part of that vocabulary,
+   so without this rule a themed slide would take the *application's* blue for
+   its primary button and its accent-coloured words. Re-skinning the chrome must
+   not re-skin a deck that already chose how it looks: each of these follows the
+   deck's own accent, which is exactly what those surfaces drew before.
+
+   The house theme is the one deck this does *not* reach, and `DeckThemeScope`
+   leaves the class off for it: since REQ168 that theme's palette is the one
+   above, to the digit, so there is no "own accent" to protect and nothing to
+   re-point. It inherits all five from `:root` instead — which is what keeps the
+   accent-as-text seam, the measured `On accent` label and the light scheme's
+   depth device working inside an unthemed deck exactly as they do around it. */
+.deck-theme {
+	--color-primary: var(--color-accent);
+	--color-primary-hover: var(--color-accent-hover);
+	--color-on-primary: #ffffff;
+	--color-accent-text: var(--color-accent);
+	--color-accent-text-hover: var(--color-accent-hover);
+	--color-accent-glow-soft: var(--color-accent-dim);
+	--color-on-accent: var(--color-ink);
+
+	/* And the light scheme's depth device is switched off in here for the same
+	   reason: a deck brings its own surfaces, and "exactly as it did before"
+	   includes not growing a shadow the deck never asked for. */
+	--shadow-panel: 0 0 0 0 transparent;
+}
+
+/* ── Base ──────────────────────────────────────────────────── */
+
+* {
+	box-sizing: border-box;
+}
+
+html {
+	font-family: var(--font-display);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+body {
+	background: var(--color-void);
+	color: var(--color-text);
+	margin: 0;
+}
+
+/* ── Background effects ───────────────────────────────────── */
+
+.bg-grid {
+	background-image:
+		linear-gradient(var(--color-border-subtle) 1px, transparent 1px),
+		linear-gradient(90deg, var(--color-border-subtle) 1px, transparent 1px);
+	background-size: 48px 48px;
+	background-attachment: fixed;
+}
+
+.bg-noise {
+	position: relative;
+}
+
+.bg-noise::before {
+	content: "";
+	position: fixed;
+	inset: 0;
+	opacity: 0.03;
+	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+	pointer-events: none;
+	z-index: 0;
+}
+
+:root.light .bg-noise::before,
+:root.auto .bg-noise::before {
+	opacity: 0.02;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root.auto .bg-noise::before {
+		opacity: 0.03;
+	}
+}
+
+/* ── Glow effects ─────────────────────────────────────────── */
+
+.glow-accent {
+	box-shadow:
+		0 0 20px var(--color-accent-glow),
+		0 0 60px var(--color-accent-glow-soft);
+}
+
+.glow-pulse {
+	animation: glow-pulse 2s ease-in-out infinite;
+}
+
+@keyframes glow-pulse {
+	0%,
+	100% {
+		box-shadow: 0 0 20px var(--color-accent-glow);
+	}
+	50% {
+		box-shadow:
+			0 0 40px var(--color-accent-glow),
+			0 0 80px var(--color-accent-glow-soft);
+	}
+}
+
+/* ── Live indicator ───────────────────────────────────────── */
+
+.live-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--color-error);
+	animation: live-blink 1.5s ease-in-out infinite;
+}
+
+@keyframes live-blink {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.3;
+	}
+}
+
+/* ── Bar chart animation ──────────────────────────────────── */
+
+.bar-fill {
+	transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bar-fill-vertical {
+	transition: height 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Pie / donut slices (REQ010) ──────────────────────────── */
+
+/* Slices are drawn with stroke-dasharray in pathLength units, so growing a
+   slice as votes land is a transition on the dash pair and its offset —
+   the circular equivalent of .bar-fill's width transition. */
+.slice-grow {
+	transition:
+		stroke-dasharray 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+		stroke-dashoffset 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.slice-grow {
+		transition: none;
+	}
+}
+
+/* ── Word cloud ───────────────────────────────────────────── */
+
+.word-cloud-word {
+	transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+	display: inline-block;
+}
+
+/* ── Slide-in animation ───────────────────────────────────── */
+
+.slide-in {
+	animation: slide-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+	opacity: 0;
+}
+
+@keyframes slide-in {
+	from {
+		opacity: 0;
+		transform: translateY(20px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.slide-in-delay-1 {
+	animation-delay: 0.05s;
+}
+.slide-in-delay-2 {
+	animation-delay: 0.1s;
+}
+.slide-in-delay-3 {
+	animation-delay: 0.15s;
+}
+.slide-in-delay-4 {
+	animation-delay: 0.2s;
+}
+.slide-in-delay-5 {
+	animation-delay: 0.25s;
+}
+
+/* ── Reaction float (REQ077) ──────────────────────────────── */
+/*
+ * One reaction crossing the screen. It rises, drifts a little to one side and
+ * fades — the drift is what stops a burst of five reading as one thick column.
+ *
+ * The duration is set inline from REACTION_LIFETIME_MS (src/reactions.ts) rather
+ * than written here, so the icon leaves the screen at the same moment the state
+ * behind it expires. Two numbers would eventually disagree and leave a frozen
+ * heart on the projector.
+ */
+.reaction-float {
+	animation: reaction-float linear forwards;
+	opacity: 0;
+	will-change: transform, opacity;
+}
+
+@keyframes reaction-float {
+	0% {
+		opacity: 0;
+		transform: translate(0, 0) scale(0.6);
+	}
+	12% {
+		opacity: 1;
+		transform: translate(0, -10%) scale(1.15);
+	}
+	70% {
+		opacity: 0.9;
+		transform: translate(1.5rem, -420%) scale(1);
+	}
+	100% {
+		opacity: 0;
+		transform: translate(-0.5rem, -680%) scale(0.85);
+	}
+}
+
+/*
+ * Reduced motion: the reaction still appears and still goes, because that is the
+ * information — somebody reacted, just now — but it does not travel.
+ */
+@media (prefers-reduced-motion: reduce) {
+	.reaction-float {
+		animation: reaction-fade linear forwards;
+	}
+	@keyframes reaction-fade {
+		0% {
+			opacity: 0;
+		}
+		15% {
+			opacity: 1;
+		}
+		80% {
+			opacity: 1;
+		}
+		100% {
+			opacity: 0;
+		}
+	}
+}
+
+/* ── Scale animation (for vote feedback) ──────────────────── */
+
+.vote-pop {
+	animation: vote-pop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes vote-pop {
+	0% {
+		transform: scale(0.8);
+		opacity: 0.5;
+	}
+	50% {
+		transform: scale(1.05);
+	}
+	100% {
+		transform: scale(1);
+		opacity: 1;
+	}
+}
+
+/* ── Count-up animation ───────────────────────────────────── */
+
+.count-up {
+	animation: count-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes count-up {
+	from {
+		transform: translateY(10px);
+		opacity: 0;
+	}
+	to {
+		transform: translateY(0);
+		opacity: 1;
+	}
+}
+
+/* ── Dots cluster (omul-style results) ───────────────── */
+
+.dots-cluster {
+	/* Soft drop shadow under the whole swarm — gives the cluster physical
+	   weight without darkening individual dots. */
+	filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.12))
+		drop-shadow(0 1px 1px rgba(0, 0, 0, 0.08));
+}
+
+.dot {
+	/* Subtle inner highlight via a slight tonal shift; mostly here so the
+	   class exists for hover / future polish. */
+	transition: transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.dots-halo {
+	transform-box: fill-box;
+	transform-origin: center;
+	animation: dots-halo-breathe 3.6s ease-in-out infinite;
+}
+
+@keyframes dots-halo-breathe {
+	0%,
+	100% {
+		transform: scale(1);
+		opacity: 0.07;
+	}
+	50% {
+		transform: scale(1.04);
+		opacity: 0.12;
+	}
+}
+
+/* New dots fly in from outside the cluster along their final radial
+   direction, then bounce into place. CSS variables --from-x / --from-y
+   are set inline per-dot so each dot has its own entry vector.
+   transform-box: view-box keeps translate values in SVG user units (matching
+   our computed offsets) and uses an absolute transform-origin in user units. */
+.dot-fly {
+	animation: dot-fly 0.6s cubic-bezier(0.34, 1.5, 0.64, 1) backwards;
+	transform-box: view-box;
+}
+
+@keyframes dot-fly {
+	0% {
+		transform: translate(var(--from-x, 0), var(--from-y, 0)) scale(0.2);
+		opacity: 0;
+	}
+	55% {
+		transform: translate(0, 0) scale(1.35);
+		opacity: 1;
+	}
+	75% {
+		transform: translate(0, 0) scale(0.92);
+	}
+	100% {
+		transform: translate(0, 0) scale(1);
+		opacity: 1;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.dot-fly {
+		animation: dot-fly-reduced 0.2s ease-out backwards;
+	}
+	.dots-halo {
+		animation: none;
+	}
+	@keyframes dot-fly-reduced {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+}
+
+/* ── Button styles ────────────────────────────────────────── */
+
+/* The loudest control on the surface: the accent on dark, the ink on light
+   (REQ166). Both readings come from `--color-primary`, so a deck theme that
+   re-points that token at its own accent repaints this button with it. */
+.btn-primary {
+	background: var(--color-primary);
+	color: var(--color-on-primary);
+	font-weight: 600;
+	padding: 0.625rem 1.5rem;
+	border-radius: 0.5rem;
+	border: none;
+	cursor: pointer;
+	transition: all 0.2s;
+	font-family: var(--font-display);
+	box-shadow: var(--shadow-panel);
+}
+
+.btn-primary:hover {
+	background: var(--color-primary-hover);
+	box-shadow:
+		0 0 20px var(--color-accent-glow),
+		var(--shadow-panel);
+}
+
+.btn-primary:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+	box-shadow: none;
+}
+
+.btn-secondary {
+	background: var(--color-surface-raised);
+	color: var(--color-text);
+	font-weight: 500;
+	padding: 0.625rem 1.5rem;
+	border-radius: 0.5rem;
+	border: 1px solid var(--color-border);
+	cursor: pointer;
+	transition: all 0.2s;
+	font-family: var(--font-display);
+	box-shadow: var(--shadow-panel);
+}
+
+.btn-secondary:hover {
+	background: var(--color-surface-hover);
+	border-color: var(--color-text-dim);
+}
+
+.btn-secondary:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+/* ── Input styles ─────────────────────────────────────────── */
+
+.input {
+	background: var(--color-surface);
+	color: var(--color-text);
+	border: 1px solid var(--color-border);
+	border-radius: 0.5rem;
+	padding: 0.625rem 1rem;
+	font-family: var(--font-display);
+	font-size: 0.875rem;
+	transition: border-color 0.2s;
+	outline: none;
+	width: 100%;
+}
+
+.input:focus {
+	border-color: var(--color-accent);
+	box-shadow: 0 0 0 2px var(--color-accent-dim);
+}
+
+.input::placeholder {
+	color: var(--color-text-dim);
+}
+
+/* A search field wears its magnifier and its clear control *inside* the box, so
+   the text has to start and stop clear of both. Declared here beside `.input`
+   rather than as utilities on the element: it is the same field with room made
+   in it, and the padding `.input` sets would otherwise win on source order. */
+.input-search {
+	padding-left: 2.25rem;
+	padding-right: 2.25rem;
+}
+
+/* The browser's own clear widget for `type="search"`, suppressed: the field
+   carries an always-present clear control of its own, disabled when there is
+   nothing to clear (ADR-0025). Two of them side by side, one of which vanishes,
+   is exactly the affordance that rule is about. */
+.input-search::-webkit-search-cancel-button {
+	display: none;
+}
+
+/* A field that cannot be edited right now stays on screen, dimmed, with its
+   reason stated beside it (ADR-0025) — never removed. Owned here so every
+   surface wears the same disabled input (ADR-0028). */
+.input:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+/* ── Join code input (big) ────────────────────────────────── */
+
+.join-code-input {
+	font-family: var(--font-mono);
+	font-size: 2.5rem;
+	letter-spacing: 0.4em;
+	text-align: center;
+	background: var(--color-surface);
+	color: var(--color-accent);
+	border: 2px solid var(--color-border);
+	border-radius: 1rem;
+	padding: 1rem 1.5rem;
+	width: 100%;
+	max-width: 360px;
+	outline: none;
+	transition: all 0.2s;
+}
+
+.join-code-input::placeholder {
+	color: var(--color-text-dim);
+	opacity: 0.3;
+	letter-spacing: 0.3em;
+}
+
+/* The ring is what the light scheme focuses with — the glow beside it is
+   transparent there (REQ166), so a focus state drawn in glow alone would be a
+   border-colour change and nothing else. */
+.join-code-input:focus {
+	border-color: var(--color-accent);
+	box-shadow:
+		0 0 0 3px var(--color-accent-dim),
+		0 0 30px var(--color-accent-glow);
+}
+
+/* ── Scrollbar ────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--color-border);
+	border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--color-text-dim);
+}
+
+/* Light mode scrollbar uses same tokens — already adaptive via custom props */
+
+/* ── Selection ────────────────────────────────────────────── */
+
+::selection {
+	background: var(--color-accent);
+	color: #fff;
+}
+
+/* ── Participant view overrides (mobile-first) ────────────── */
+
+.participant-view {
+	min-height: 100svh;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: 1rem;
+	position: relative;
+	overflow: hidden;
+}
+
+.option-card {
+	background: var(--color-surface-raised);
+	border: 2px solid var(--color-border);
+	border-radius: 1rem;
+	padding: 1.25rem 1.5rem;
+	cursor: pointer;
+	transition: all 0.2s;
+	width: 100%;
+	text-align: center;
+	font-size: 1.125rem;
+	font-weight: 500;
+	box-shadow: var(--shadow-panel);
+}
+
+.option-card:hover {
+	border-color: var(--color-accent);
+	background: var(--color-surface-hover);
+}
+
+.option-card.selected {
+	border-color: var(--color-accent);
+	background: var(--color-accent-dim);
+	box-shadow:
+		0 0 20px var(--color-accent-glow),
+		var(--shadow-panel);
+}
+
+/* ── Scale slider ─────────────────────────────────────────── */
+
+input[type="range"] {
+	-webkit-appearance: none;
+	appearance: none;
+	width: 100%;
+	height: 8px;
+	background: var(--color-surface-raised);
+	border-radius: 4px;
+	outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	appearance: none;
+	width: 28px;
+	height: 28px;
+	border-radius: 50%;
+	background: var(--color-accent);
+	cursor: pointer;
+	box-shadow:
+		0 0 10px var(--color-accent-glow),
+		var(--shadow-panel);
+	transition: box-shadow 0.2s;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+	box-shadow:
+		0 0 20px var(--color-accent-glow),
+		var(--shadow-panel);
+}
+
+/* ── QR Scanner ──────────────────────────────────────────── */
+
+@keyframes scan-line {
+	0%,
+	100% {
+		transform: translateY(0);
+		opacity: 0.6;
+	}
+	50% {
+		transform: translateY(240px);
+		opacity: 1;
+	}
+}
+
+/* ── The deck's theme wash (REQ079) ───────────────────────── */
+
+/* The light a theme paints behind every slide, under whatever the slide itself
+   carries. The value is written by `<DeckThemeScope/>` onto the subtree as
+   `--deck-slide-background`; a surface outside any scope simply gets `none`,
+   which is why the fallback is spelled out rather than assumed. Owned here, and
+   composed by `SlideBackground` alone (ADR-0028). */
+.deck-slide-wash {
+	background-image: var(--deck-slide-background, none);
+}
+
+/* ── Slide with background image: contrast helpers ───────── */
+
+/* The scrim painted over a slide's background image, and the words that sit on
+   it (REQ071). Both values are written by `<SlideAppearanceScope/>` as
+   `--slide-scrim` / `--slide-overlay-text` / `--slide-overlay-shadow`, which
+   pairs the scrim's tone with the slide's own text colour and checks the
+   contrast between them (`slideScrimFor`).
+
+   The per-scheme values below are the fallbacks a surface outside any scope
+   gets — a darkening scrim under light words in dark mode, a whitening one
+   under dark words in light mode — which is what this app drew before a slide
+   could recolour its own text. They are repeated inside the scheme rules rather
+   than declared once because a scheme rule out-specifies the base one: the
+   token has to be resolved again in each, or a slide's own scrim would lose to
+   `:root.light`. */
+.slide-scrim {
+	backdrop-filter: blur(4px);
+	-webkit-backdrop-filter: blur(4px);
+	background: var(
+		--slide-scrim,
+		linear-gradient(180deg, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.78) 100%)
+	);
+}
+
+:root.light .slide-scrim,
+:root.auto .slide-scrim {
+	background: var(
+		--slide-scrim,
+		linear-gradient(
+			180deg,
+			rgba(255, 255, 255, 0.7) 0%,
+			rgba(255, 255, 255, 0.82) 100%
+		)
+	);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root.auto .slide-scrim {
+		background: var(
+			--slide-scrim,
+			linear-gradient(180deg, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.78) 100%)
+		);
+	}
+}
+
+/* Title block sitting directly on top of the background image. Apply this
+   only to the question/header area — NOT to the slide wrapper, otherwise the
+   white colour cascades into result cards (Q&A cards, MC option cards, scale
+   statement rows) and makes their themed text invisible on light surfaces. */
+.slide-title-overlay {
+	color: var(--slide-overlay-text, #ffffff);
+}
+
+.slide-title-overlay h1,
+.slide-title-overlay h2,
+.slide-title-overlay h3,
+.slide-title-overlay p,
+.slide-title-overlay span,
+.slide-title-overlay label {
+	color: var(--slide-overlay-text, #ffffff);
+	text-shadow: var(--slide-overlay-shadow, 0 1px 3px rgba(0, 0, 0, 0.65));
+}
+
+/* Light mode: pair the whitening scrim with dark text for legibility. */
+:root.light .slide-title-overlay,
+:root.auto .slide-title-overlay,
+:root.light .slide-title-overlay h1,
+:root.light .slide-title-overlay h2,
+:root.light .slide-title-overlay h3,
+:root.light .slide-title-overlay p,
+:root.light .slide-title-overlay span,
+:root.light .slide-title-overlay label,
+:root.auto .slide-title-overlay h1,
+:root.auto .slide-title-overlay h2,
+:root.auto .slide-title-overlay h3,
+:root.auto .slide-title-overlay p,
+:root.auto .slide-title-overlay span,
+:root.auto .slide-title-overlay label {
+	color: var(--slide-overlay-text, #09090b);
+	text-shadow: var(--slide-overlay-shadow, 0 1px 3px rgba(255, 255, 255, 0.65));
+}
+
+@media (prefers-color-scheme: dark) {
+	:root.auto .slide-title-overlay,
+	:root.auto .slide-title-overlay h1,
+	:root.auto .slide-title-overlay h2,
+	:root.auto .slide-title-overlay h3,
+	:root.auto .slide-title-overlay p,
+	:root.auto .slide-title-overlay span,
+	:root.auto .slide-title-overlay label {
+		color: var(--slide-overlay-text, #ffffff);
+		text-shadow: var(--slide-overlay-shadow, 0 1px 3px rgba(0, 0, 0, 0.65));
+	}
+}

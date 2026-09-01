@@ -1,0 +1,5 @@
+[test]
+# Switches the abuse limits (REQ145) off for the whole test run — see
+# server/test-preload.ts for why, and server/rate-limit.test.ts for the suite
+# that turns them back on.
+preload = ["./server/test-preload.ts"]

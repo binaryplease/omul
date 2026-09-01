@@ -1,0 +1,12 @@
+# Local Caddy reverse proxy.
+# Run: caddy run --config Caddyfile
+
+:8800 {
+	handle /_bun/* {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	handle /* {
+		reverse_proxy 127.0.0.1:3000
+	}
+}

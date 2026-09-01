@@ -1,0 +1,17 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/binaryplease/omul/security/advisories/new
+    about: >
+      Never in a public issue. Report privately here, or email
+      support@hyhyve.com with "omul security" in the subject.
+  - name: Commercial licence or trademark question
+    url: https://github.com/binaryplease/omul/blob/main/LICENSE-COMMERCIAL
+    about: >
+      omul is AGPL-3.0-only for everyone, free of charge. Write to
+      support@hyhyve.com only if you cannot meet the AGPL's conditions.
+  - name: How do I run this
+    url: https://github.com/binaryplease/omul/blob/main/docs/deployment.md
+    about: >
+      Container packaging, the state directory, and every environment variable
+      with what breaks if it is unset.

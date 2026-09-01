@@ -1,0 +1,31 @@
+# Build artifacts and local state
+node_modules
+dist
+.data
+data
+.mise
+result
+
+# Editor / local
+.direnv
+.envrc.local
+.env
+.env.*
+.DS_Store
+
+# Git
+.git
+.github
+
+# Nix (no longer part of the docker build)
+flake.nix
+flake.lock
+
+# Tasks, docs, dev-only files
+task
+docs
+scripts
+Caddyfile
+update-deps-hash.sh
+README.md
+AGENTS.md

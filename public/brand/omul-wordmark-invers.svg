@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-40 0 1584 646" width="1584" height="646" role="img" aria-label="omul">
+	<title>omul — invers</title>
+	<g fill="none" stroke="#FAFAFA" stroke-width="88" stroke-linecap="butt">
+		<circle cx="186" cy="420" r="142"/>
+		<path d="M 456 600 L 456 386 A 108 108 0 0 1 672 386 L 672 600"/>
+		<path d="M 672 386 A 108 108 0 0 1 888 386 L 888 600"/>
+		<path d="M 1032 240 L 1032 420 A 142 142 0 0 0 1316 420 L 1316 240"/>
+		<path d="M 1460 40 L 1460 600"/>
+	</g>
+</svg>

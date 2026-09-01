@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="omul">
+	<title>omul — Signet, offener Ring</title>
+	<rect width="512" height="512" rx="112" fill="#09090B"/>
+	<path d="M 126 86 L 126 256 A 130 130 0 0 0 386 256 L 386 86"
+	      fill="none" stroke="#FAFAFA" stroke-width="80" stroke-linecap="butt"/>
+</svg>
