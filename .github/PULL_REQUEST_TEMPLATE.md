@@ -1,7 +1,8 @@
 <!--
 Please read CONTRIBUTING.md first. One thing there is worth repeating here:
-contribution terms (DCO / CLA / neither) are not settled yet, so pull requests
-are reviewed but held rather than merged. That is not about your change.
+the contribution terms are a Contributor License Agreement, and its text is
+still being drafted, so pull requests are reviewed but held rather than merged
+until it is published. That is not about your change.
 -->
 
 ## What this changes
