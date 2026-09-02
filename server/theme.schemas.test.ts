@@ -36,6 +36,7 @@ import {
 	deckThemeIdFor,
 	EMPTY_DECK_BRAND,
 	PresentationSchema,
+	RETIRED_DECK_FONT_IDS,
 	StoredPresentationSchema,
 } from "./schemas";
 
@@ -250,6 +251,78 @@ describe("a theme the deck defines for itself (REQ080, REQ135)", () => {
 				).themeBrand.font,
 			).toBe(font);
 		}
+	});
+});
+
+describe("a retired face id folds forward, it does not lock a deck out (REQ178)", () => {
+	// The set is closed and the docstore gate re-parses on every read, so an id
+	// simply deleted from it would not degrade a deck's typography — it would stop
+	// the deck opening. What is asserted here is the other outcome: the deck opens,
+	// and it opens in the face that replaced the one it named.
+
+	test("every retired id names a face this build still ships", () => {
+		// A fold onto an id nobody ships would be the same lockout one indirection
+		// later, so the map's own values are held to the closed set.
+		for (const [retired, replacement] of Object.entries(RETIRED_DECK_FONT_IDS)) {
+			expect([retired, DECK_FONT_IDS.includes(replacement)]).toEqual([
+				retired,
+				true,
+			]);
+			expect([retired, DECK_FONT_IDS as readonly string[]]).toEqual([
+				retired,
+				expect.not.arrayContaining([retired]),
+			]);
+		}
+	});
+
+	test("a document stored under `sora` parses, and reads back as the house face", () => {
+		// Both schemas, because the two are different call sites: a deck written
+		// before the face moved is read through the stored one and handed to a room
+		// through the public one.
+		for (const schema of [PresentationSchema, StoredPresentationSchema]) {
+			expect(
+				schema.parse(
+					deck({
+						code: "1",
+						theme: CUSTOM_DECK_THEME_ID,
+						themeBrand: { accent: "#0f62fe", font: "sora" },
+					}),
+				).themeBrand,
+			).toEqual({
+				name: "",
+				accent: "#0f62fe",
+				canvas: "",
+				text: "",
+				font: DEFAULT_DECK_FONT,
+			});
+		}
+	});
+
+	test("the resolvers agree with the gate", () => {
+		// `deckFontIdFor` is what every surface reads through, so a fold the schema
+		// performs and the resolver does not would put one face on the projector and
+		// another on the phones.
+		expect(deckFontIdFor("sora")).toBe(DEFAULT_DECK_FONT);
+		expect(deckFontIdFor("  sora  ")).toBe(DEFAULT_DECK_FONT);
+		expect(
+			deckBrandFor({
+				theme: CUSTOM_DECK_THEME_ID,
+				themeBrand: { font: "sora" },
+			})?.font,
+		).toBe(DEFAULT_DECK_FONT);
+	});
+
+	test("a retired id is accepted at the door and never comes back out", () => {
+		// Accepted, because a client built against the old vocabulary is not a
+		// malformed client; folded, because nothing downstream should have to know
+		// the old id ever existed.
+		const created = CreatePresentationSchema.parse({
+			title: "Deck",
+			slides: [{ id: "s", type: "text", question: "Hi" }],
+			theme: CUSTOM_DECK_THEME_ID,
+			themeBrand: { font: "sora" },
+		});
+		expect(created.themeBrand.font).toBe(DEFAULT_DECK_FONT);
 	});
 });
 

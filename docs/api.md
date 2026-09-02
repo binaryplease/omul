@@ -938,7 +938,7 @@ participants' door.
 | `accent` | `#rgb` / `#rrggbb`, or `""` | `""` | The brand colour: bars, links, everything live, the wash behind a slide |
 | `canvas` | `#rgb` / `#rrggbb`, or `""` | `""` | The surface a slide is drawn on |
 | `text` | `#rgb` / `#rrggbb`, or `""` | `""` | The words on that canvas; derived from the canvas when empty |
-| `font` | one of `sora`, `system`, `serif`, `mono` | `sora` | The face the theme's text is set in (REQ092) |
+| `font` | one of `figtree`, `system`, `serif`, `mono` | `figtree` | The face the theme's text is set in (REQ092). The retired id `sora` is also accepted and reads back as `figtree` (REQ178) |
 
 **A built-in theme stores only its id.** What `pulse` *looks* like — its palette
 in both colour schemes, the wash behind a slide — lives on the client, in
@@ -957,9 +957,17 @@ So a hand-built request can paint a room in its own colours — which is the poi
 **The face is an id because of what REQ092 asks for.** "Loaded so every surface
 resolves the same face" cannot be true of a family name each machine looks up in
 its own font book, and ADR-0016 forbids fetching one at runtime — so a theme
-picks from what the bundle already ships (`sora`, `mono`) or from a generic stack
-every system resolves (`system`, `serif`). The stacks themselves stay on the
-client beside the palettes.
+picks from what the bundle already ships (`figtree`, `mono`) or from a generic
+stack every system resolves (`system`, `serif`). The stacks themselves stay on
+the client beside the palettes.
+
+**One id is retired rather than refused: `sora`.** It named the house face until
+REQ178 moved that face to Figtree, and the set is closed — so dropping it
+outright would have made every deck that had chosen the house face fail the
+docstore's schema gate and stop opening. It is folded onto `figtree` at the
+boundary instead, on the way in and on the way out, so a document stored under it
+reads back as `figtree` and a request still sending it is accepted rather than
+4xx'd. It is not offered in the editor and no response ever contains it.
 
 **Three authored colours become a whole palette, twice.** The client derives the
 remaining tokens — raised surfaces, borders, the muted and dim text ramps, the

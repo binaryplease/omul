@@ -134,6 +134,24 @@ describe("an email's words clear AA on the card it is set on", () => {
 	});
 });
 
+describe("no email fetches an asset from a third party (ADR-0016, REQ178)", () => {
+	// The app's faces are bundled and resolve offline; an email cannot carry a
+	// bundle, so the only way to put one in an inbox is a stylesheet the reader's
+	// mail client fetches from a font host when the mail is opened. That is a
+	// third-party runtime asset dependency for first-party chrome, and it tells
+	// the host who opened our mail and when. The mail therefore ships no font
+	// reference at all and leans on `theme`'s system fallbacks — which is a
+	// promise about the rendered HTML, so it is held there.
+	for (const preview of emailPreviews) {
+		test(`${preview.id} imports nothing and links no stylesheet`, async () => {
+			const html = await render(preview.element);
+			expect(html).not.toMatch(/@import/i);
+			expect(html).not.toMatch(/fonts\.googleapis\.com|fonts\.gstatic\.com/i);
+			expect(html).not.toMatch(/<link[^>]+stylesheet/i);
+		});
+	}
+});
+
 describe("an email names the product omul (REQ167)", () => {
 	test("every subject line carries the product's name", () => {
 		for (const preview of emailPreviews) {

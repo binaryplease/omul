@@ -240,8 +240,20 @@ describe("Deck theme integration", () => {
 			accent: "",
 			canvas: "",
 			text: "",
-			font: "sora",
+			font: "figtree",
 		});
+	});
+
+	test("a deck naming the retired face id gets the face that replaced it (REQ178)", async () => {
+		// A client built against the old vocabulary is not a malformed client, so
+		// `sora` is accepted rather than 4xx'd — and it is folded on the way in, so
+		// the room is never handed an id for a face this build no longer carries.
+		const pres = await created({
+			theme: "custom",
+			themeBrand: { accent: "#0f62fe", font: "sora" },
+		});
+		expect(pres.themeBrand.font).toBe("figtree");
+		expect((await asParticipant(pres.code)).themeBrand.font).toBe("figtree");
 	});
 
 	test("a colour nobody could draw is refused before it is stored", async () => {

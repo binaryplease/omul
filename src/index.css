@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "@fontsource-variable/sora";
+@import "@fontsource-variable/figtree";
 @import "@fontsource/dm-mono";
 
 /* ── Design system: "Signal" ──────────────────────────────────
@@ -16,7 +16,7 @@
  */
 
 @theme {
-	--font-display: "Sora Variable", system-ui, sans-serif;
+	--font-display: "Figtree Variable", system-ui, sans-serif;
 	--font-mono: "DM Mono", "Menlo", monospace;
 
 	/* Ink and paper — the mark's two values (REQ167), which are also this

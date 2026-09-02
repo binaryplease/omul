@@ -121,6 +121,45 @@ function chromeTokens(): Record<"dark" | "light", Record<string, string>> {
 	return { dark: resolvedValues(dark), light: resolvedValues(light) };
 }
 
+/**
+ * Every family this build actually ships, read the long way round: the
+ * `@fontsource*` packages `src/index.css` imports, each one asked what
+ * `font-family` its own `@font-face` blocks declare.
+ *
+ * Two hops rather than one because both can drift independently. An `@import`
+ * that was never added ships no file; a family name spelled from memory —
+ * `"Figtree"` where the package declares `"Figtree Variable"` — ships the file
+ * and resolves past it to the fallback anyway, which looks like working software
+ * on a machine that happens to have the face installed.
+ */
+function bundledFamilies(): Set<string> {
+	const css = readFileSync(join(import.meta.dir, "..", "index.css"), "utf8");
+	const families = new Set<string>();
+	for (const [, specifier] of css.matchAll(
+		/@import\s+"(@fontsource[^"]+)";/g,
+	)) {
+		const faceCss = readFileSync(
+			join(import.meta.dir, "..", "..", "node_modules", specifier, "index.css"),
+			"utf8",
+		);
+		for (const [, family] of faceCss.matchAll(/font-family:\s*'([^']+)'/g)) {
+			families.add(family);
+		}
+	}
+	return families;
+}
+
+/**
+ * The family a stack leads with, when that is a *name* — `null` when it leads
+ * with a generic (`system-ui`, `ui-serif`, `ui-monospace`), which every system
+ * resolves and no build has to ship.
+ */
+function leadingNamedFamily(families: string): string | null {
+	const lead = families.split(",")[0].trim();
+	const quoted = lead.match(/^"(.+)"$/);
+	return quoted ? quoted[1] : null;
+}
+
 /** The `--property: value;` pairs of the block a marker opens. */
 function declarationsIn(css: string, marker: string): Record<string, string> {
 	const opensAt = css.indexOf(marker);
@@ -441,6 +480,44 @@ describe("every face is a face this build ships (REQ092)", () => {
 		expect(deckFontOptions().map((option) => option.value)).toEqual([
 			...DECK_FONT_IDS,
 		]);
+	});
+
+	test("a stack that leads with a named family leads with a bundled one", () => {
+		// The claim REQ092 actually makes — "loaded so every surface resolves the
+		// same face" — is about what the *first* entry of a stack resolves to. A
+		// generic lead (`system-ui`, `ui-serif`) promises nothing and is exempt;
+		// a quoted family name is a promise, and it is only true if this build
+		// ships the file. Read out of `index.css` and the packages it imports
+		// rather than listed here, so retiring a face without retiring its `@import`
+		// — or the other way round, which is how REQ178 could have gone wrong —
+		// fails here instead of on somebody's projector.
+		const bundled = bundledFamilies();
+		expect(bundled.size).toBeGreaterThan(0);
+		for (const font of DECK_FONT_IDS) {
+			const stack = DECK_FONT_STACKS[font];
+			for (const families of [stack.display, stack.mono]) {
+				const lead = leadingNamedFamily(families);
+				if (lead === null) continue;
+				expect([font, families, lead, bundled.has(lead)]).toEqual([
+					font,
+					families,
+					lead,
+					true,
+				]);
+			}
+		}
+	});
+
+	test("the chrome and the house face are one decision (REQ178)", () => {
+		// `index.css` resolves `--font-display` on `<html>` and the house deck
+		// theme re-declares it inside every scope, so the two are the same face
+		// spelled in two files. Held equal for the same reason REQ168 holds the
+		// house palette equal to that file: a swap applied to one and not the
+		// other is a deck that changes typeface the moment it is wrapped.
+		const chrome = chromeTokens().dark;
+		const house = DECK_FONT_STACKS[DEFAULT_DECK_FONT];
+		expect(chrome["--font-display"]).toBe(house.display);
+		expect(chrome["--font-mono"]).toBe(house.mono);
 	});
 });
 

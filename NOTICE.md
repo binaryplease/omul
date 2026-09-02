@@ -90,7 +90,7 @@ Two typefaces ship inside the built client as `.woff2`/`.woff` files under
 
 | Font | Package | Copyright | License |
 | --- | --- | --- | --- |
-| Sora | `@fontsource-variable/sora` | Copyright 2019 The Sora Project Authors | OFL-1.1 |
+| Figtree | `@fontsource-variable/figtree` | Copyright 2022 The Figtree Project Authors | OFL-1.1 |
 | DM Mono | `@fontsource/dm-mono` | Copyright 2020 The DM Mono Project Authors | OFL-1.1 |
 
 The OFL requires the copyright notice and the license text to travel with the

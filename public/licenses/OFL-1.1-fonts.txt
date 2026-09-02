@@ -9,9 +9,9 @@ Both are licensed under the SIL Open Font License, Version 1.1, which requires
 that these copyright notices and the license text travel with the fonts. That
 is what this file is.
 
-  Sora
-  Copyright 2019 The Sora Project Authors (https://github.com/sora-xor/sora-font)
-  Bundled via the npm package @fontsource-variable/sora.
+  Figtree
+  Copyright 2022 The Figtree Project Authors (https://github.com/erikdkennedy/figtree)
+  Bundled via the npm package @fontsource-variable/figtree.
 
   DM Mono
   Copyright 2020 The DM Mono Project Authors (https://www.github.com/googlefonts/dm-mono)

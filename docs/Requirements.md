@@ -193,6 +193,7 @@ Prose outside the markers is preserved.
 | [REQ175.md](requirements/REQ175.md) | The names on the wire, in browser storage and in an exported file carry the product's name | Access & Sharing | P2 | done | BR147 |
 | [REQ176.md](requirements/REQ176.md) | The working name is gone from the tree, history included | Platform & Operations | P2 | done | BR147 |
 | [REQ177.md](requirements/REQ177.md) | The storage layer is the published zodstore package, not a vendored snapshot | Platform & Operations | P2 | done | internal |
+| [REQ178.md](requirements/REQ178.md) | The app is set in one sans typeface, Figtree | Rendering & Theming | P2 | done | internal |
 
-_175 entries — one row per file in `requirements/`._
+_176 entries — one row per file in `requirements/`._
 <!-- index:end -->

@@ -4,7 +4,7 @@
  * Every omul email speaks the same brand language as the app shell's "Signal"
  * design system — a light content card for readable prose, capped by a dark
  * "broadcast control room" masthead carrying the blue accent (REQ166), the
- * Sora display face and DM Mono for the uppercase button/label chrome — so the
+ * Figtree display face and DM Mono for the uppercase button/label chrome — so the
  * palette and the reusable style blocks live here once and are composed by every
  * template (ADR-0028: interaction/brand styling is a shared token, owned by one
  * module, never re-hand-rolled per surface). React Email renders components to
@@ -63,11 +63,14 @@ export const palette = {
 	accentBright: "#7c9cff",
 } as const;
 
-// Sora is the app's display/body face; DM Mono drives its uppercase button +
-// label chrome. Email clients that can't load a web font fall through to the
-// platform sans / mono, so both keep robust system fallbacks.
+// Figtree is the app's display/body face; DM Mono drives its uppercase button +
+// label chrome. Neither is *delivered* to the inbox — see the note on the mail
+// shell's `<Head>` for why an email fetches no webfont at all — so what these
+// stacks really do is prefer the brand face on the rare client that already has
+// it and fall through to the platform sans / mono everywhere else. The
+// fallbacks are therefore the load-bearing half, not the courtesy half.
 const bodyFont =
-	'"Sora",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif';
+	'"Figtree",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif';
 const monoFont = '"DM Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace';
 
 /** Font stacks, exported so templates/shell can reference them directly. */
@@ -99,7 +102,7 @@ export const theme = {
 		margin: "0 auto",
 	} satisfies CSSProperties,
 
-	// ── Brand lockup: the product's name set in Sora beside the mono,
+	// ── Brand lockup: the product's name set in the body face beside the mono,
 	// wide-tracked descriptor. Deliberately *typeset* rather than the drawn
 	// wordmark (REQ167) — mail clients strip inline SVG and a hosted raster would
 	// be a third-party fetch from the reader's inbox, so the mark stays on the

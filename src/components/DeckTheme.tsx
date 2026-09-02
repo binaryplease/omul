@@ -123,7 +123,7 @@ export type DeckFontStack = {
  * spelled out.
  *
  * Every entry resolves to something this build already carries or the reader's
- * own system already has: `Sora Variable` and `DM Mono` are bundled by
+ * own system already has: `Figtree Variable` and `DM Mono` are bundled by
  * `src/index.css` through `@fontsource*`, and the rest are generic families no
  * download can fail. A theme that named Satoshi would be a theme that renders as
  * the fallback on every machine but the designer's — which is exactly what "so
@@ -131,10 +131,10 @@ export type DeckFontStack = {
  * fixing with a runtime fetch.
  */
 export const DECK_FONT_STACKS: Record<DeckFontId, DeckFontStack> = {
-	sora: {
-		label: "Sora",
+	figtree: {
+		label: "Figtree",
 		description: "The house face — bundled with the app.",
-		display: '"Sora Variable", system-ui, sans-serif',
+		display: '"Figtree Variable", system-ui, sans-serif',
 		mono: '"DM Mono", "Menlo", monospace',
 	},
 	system: {
@@ -190,9 +190,9 @@ export const DECK_THEME_APPEARANCE: Record<
 	signal: {
 		label: "Signal",
 		description:
-			"The house look — signal blue on a neutral canvas, set in Sora.",
+			"The house look — signal blue on a neutral canvas, set in Figtree.",
 		swatch: { canvas: "#131316", accent: "#2e5cff" },
-		font: "sora",
+		font: "figtree",
 		dark: {
 			tokens: {
 				"--color-void": "#09090b",
@@ -245,7 +245,7 @@ export const DECK_THEME_APPEARANCE: Record<
 		label: "Pulse",
 		description: "The house palette — Pulse Blue on a Deep Ink canvas.",
 		swatch: { canvas: "#141820", accent: "#3b82f6" },
-		font: "sora",
+		font: "figtree",
 		dark: {
 			tokens: {
 				"--color-void": "#0c0f14",
@@ -294,7 +294,7 @@ export const DECK_THEME_APPEARANCE: Record<
 		label: "Ember",
 		description: "Amber into tangerine over a warm canvas — the Warmth row.",
 		swatch: { canvas: "#1a160f", accent: "#f59e0b" },
-		font: "sora",
+		font: "figtree",
 		dark: {
 			tokens: {
 				"--color-void": "#12100c",
