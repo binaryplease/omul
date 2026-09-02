@@ -7,8 +7,6 @@ data
 result
 
 # Editor / local
-.direnv
-.envrc.local
 .env
 .env.*
 .DS_Store
