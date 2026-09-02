@@ -4,28 +4,45 @@ Thanks for looking. This file is the short version; [AGENTS.md](AGENTS.md) is
 the project's own operating manual and it is authoritative wherever the two
 disagree.
 
-## Contribution terms — a CLA is coming, and code is on hold until it lands
+## Contribution terms — sign the CLA once
 
 omul is **dual-licensed**: AGPL-3.0-only for everyone, or a separate commercial
 agreement (see [LICENSE-COMMERCIAL](LICENSE-COMMERCIAL)). That second half is
 the reason this section exists. Under a dual license, the copyright holder can
 only offer the commercial half over code they hold the rights to offer — so
-contributed code needs a **Contributor License Agreement (CLA)**: a document in
-which you grant the maintainer the right to license your contribution under
-both halves, while keeping your own copyright and your own right to use your
-work however else you like.
+contributed code needs a **Contributor License Agreement**, and omul's is
+[CLA.md](CLA.md). Read it; it is short and it explains itself before it starts
+imposing terms.
 
-**A CLA is the decided instrument, and its text is being drafted with legal
-advice rather than assembled from a template.** Until it is published here:
+The shape of it, which is not a substitute for reading it:
 
-- **Issues, bug reports, questions and discussion are open and very welcome.**
-  Nothing in this section applies to them.
-- **Pull requests will be read and reviewed, but not merged.** We would rather
-  say so plainly than take your work and sit on it without explanation.
+- **You keep your copyright.** It is a license, not an assignment, and it is
+  non-exclusive — your contribution stays yours to use, publish and relicense
+  anywhere else, on any terms, without asking anybody.
+- **You grant the maintainer the right to license your contribution** under
+  both halves of the dual license, and under whatever the project takes later.
+- **The maintainer promises back that your contribution stays free software** —
+  always available to the public under AGPL-3.0-only or another OSI- and
+  FSF-approved license, with the commercial half offered beside it and never
+  instead of it (CLA §5).
 
-If you want to send code now, open an issue first and say so. When the CLA
-lands, this section is replaced by it and by the instructions for accepting it,
-and held pull requests can go ahead.
+**How to sign: open the pull request first, then reply to the bot.** A check
+runs on every pull request and comments if an author has not signed. Replying
+with the one sentence it quotes — the same sentence CLA.md gives — is the
+signature. There is nothing to print and nothing to email, you do it once, and
+every later pull request from that account is covered.
+
+Two cases worth knowing before you write code rather than after:
+
+- **If your employer or client owns what you write**, the agreement has to be
+  accepted by them, not by you — CLA §7 gives the two routes. This is the most
+  common reason a contribution cannot be accepted.
+- **If part of your change is not yours** — a snippet, a vendored file,
+  generated output that reproduces its source — say so in the pull request and
+  name its license (CLA §6.3). Submit it separately from your own work.
+
+Issues, bug reports, questions and discussion need none of this and are open to
+everyone.
 
 ## Getting the project running
 
