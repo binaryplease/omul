@@ -4523,18 +4523,58 @@ export const DEFAULT_DECK_THEME: BuiltInDeckThemeId = "signal";
  * a convenience: "loaded so every surface resolves the same face" cannot be true
  * of a name each machine looks up in its own font book, and ADR-0016 forbids
  * fetching one at runtime. So a theme picks from what the bundle already
- * carries — `@fontsource-variable/sora` and `@fontsource/dm-mono`, imported by
- * `src/index.css` — or from a generic stack every system resolves to something.
- * The stacks themselves live beside the palettes on the client (ADR-0032); what
- * crosses the wire is which of them was chosen.
+ * carries — `@fontsource-variable/figtree` and `@fontsource/dm-mono`, imported
+ * by `src/index.css` — or from a generic stack every system resolves to
+ * something. The stacks themselves live beside the palettes on the client
+ * (ADR-0032); what crosses the wire is which of them was chosen.
  */
-export const DECK_FONT_IDS = ["sora", "system", "serif", "mono"] as const;
+export const DECK_FONT_IDS = ["figtree", "system", "serif", "mono"] as const;
 
 export const DeckFontIdEnum = z.enum(DECK_FONT_IDS);
 export type DeckFontId = z.infer<typeof DeckFontIdEnum>;
 
 /** The house face — what a theme that names none is set in. */
-export const DEFAULT_DECK_FONT: DeckFontId = "sora";
+export const DEFAULT_DECK_FONT: DeckFontId = "figtree";
+
+/**
+ * An id that named the house face before it moved, and the id it names now
+ * (REQ178).
+ *
+ * The set above is a *closed* vocabulary the docstore gate enforces on every
+ * read, so dropping an id from it without saying where it went would mean every
+ * deck that had chosen the house face fails to parse — the deck would not open
+ * at all, which is a far worse answer than the face it is set in. A retired id
+ * is therefore folded onto its replacement at the boundary, once, and no surface
+ * below has to know the old one existed.
+ *
+ * This is not {@link deckFontIdFor}'s fallback wearing a second hat. That one
+ * answers *this is not a face we ship* with the house face; this one answers
+ * *this was the house face* with what the house face has become. They agree
+ * today only because the id that was retired happened to be the house one.
+ */
+export const RETIRED_DECK_FONT_IDS: Readonly<Record<string, DeckFontId>> = {
+	sora: "figtree",
+};
+
+/** A retired id read forward onto its replacement; anything else, untouched. */
+function foldRetiredDeckFontId(font: unknown): unknown {
+	if (typeof font !== "string") return font;
+	return RETIRED_DECK_FONT_IDS[font.trim()] ?? font;
+}
+
+/**
+ * The face field as it is stored and as it crosses the wire: the closed set
+ * above, with a retired id folded onto its replacement before the gate sees it.
+ *
+ * The fold sits *inside* the schema rather than beside it on purpose — a deck
+ * authored before the house face moved has to survive `StoredPresentationSchema`
+ * as much as it has to survive a POST body, and those are two different call
+ * sites of one schema.
+ */
+export const DeckFontFieldSchema = z.preprocess(
+	foldRetiredDeckFontId,
+	DeckFontIdEnum,
+);
 
 /**
  * Which face a theme's text renders in (REQ092), read through here rather than
@@ -4543,7 +4583,7 @@ export const DEFAULT_DECK_FONT: DeckFontId = "sora";
  * to whatever each one's fallback stack happened to end at.
  */
 export function deckFontIdFor(font: string | null | undefined): DeckFontId {
-	const parsed = DeckFontIdEnum.safeParse((font ?? "").trim());
+	const parsed = DeckFontFieldSchema.safeParse((font ?? "").trim());
 	return parsed.success ? parsed.data : DEFAULT_DECK_FONT;
 }
 
@@ -4589,7 +4629,7 @@ export const DeckBrandSchema = z.object({
 	/** The words on that canvas. Derived from the canvas when unauthored. */
 	text: DeckBrandColorSchema,
 	/** The face the text is set in (REQ092), from the set this build ships. */
-	font: DeckFontIdEnum.default(DEFAULT_DECK_FONT),
+	font: DeckFontFieldSchema.default(DEFAULT_DECK_FONT),
 });
 
 export type DeckBrand = z.infer<typeof DeckBrandSchema>;

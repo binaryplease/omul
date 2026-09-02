@@ -28,7 +28,7 @@ function docOf(...slides: Slide[]): EditorDocument {
 		chatEnabled: false,
 		requireParticipantName: false,
 		theme: "signal",
-		themeBrand: { name: "", accent: "", canvas: "", text: "", font: "sora" },
+		themeBrand: { name: "", accent: "", canvas: "", text: "", font: "figtree" },
 		themeLogoUrl: "",
 		themeLogoAlt: "",
 		slides,

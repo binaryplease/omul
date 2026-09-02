@@ -35,19 +35,22 @@ export interface EmailShellProps {
 	children: ReactNode;
 }
 
-// Pull the app's brand faces where the client honours web fonts (e.g. Apple
-// Mail); everything else falls through to the system stacks in `theme`.
-const fontImport = `@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap');`;
-
 export function EmailShell({ preheader, eyebrow, children }: EmailShellProps) {
 	return (
 		<Html lang="en">
-			<Head>
-				<style
-					// static, no interpolation
-					dangerouslySetInnerHTML={{ __html: fontImport }}
-				/>
-			</Head>
+			{/*
+			 * The `<Head>` carries no webfont import, and that is a decision rather
+			 * than an omission (REQ178). The app's faces are bundled into the client
+			 * and resolve offline; an email cannot carry a bundle, so the only way to
+			 * deliver one to an inbox is a stylesheet the reader's mail client fetches
+			 * from a font host at open time — a third-party runtime asset dependency
+			 * for first-party chrome, which ADR-0016 forbids, and which would tell
+			 * that host who opened our mail and when. The brand survives the loss:
+			 * what carries it in the inbox is the card, the masthead and the accent,
+			 * not the face, and `theme`'s stacks still name the brand faces first for
+			 * the reader who happens to have them installed.
+			 */}
+			<Head />
 			<Preview>{preheader}</Preview>
 			<Body style={theme.body}>
 				<Container style={theme.outer}>
