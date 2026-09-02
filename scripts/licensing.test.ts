@@ -1,13 +1,14 @@
 /**
- * The license claim has to be true, and it is spread over eight files.
+ * The license claim has to be true, and it is spread over nine files.
  *
  * REQ161 and REQ170 put a dual-license instrument, a third-party enumeration
- * and a trademark reservation into the tree. None of that is executed by
- * anything, so nothing else in this repository notices when one of the copies
- * drifts — and publication is one-way, so a contradiction that reaches the
- * public tree cannot be withdrawn from the clones.
+ * and a trademark reservation into the tree, and REQ162 added the contributor
+ * license agreement that keeps the dual half offerable. None of that is
+ * executed by anything, so nothing else in this repository notices when one of
+ * the copies drifts — and publication is one-way, so a contradiction that
+ * reaches the public tree cannot be withdrawn from the clones.
  *
- * Four drifts are held here, each of which has already happened once:
+ * Five drifts are held here. The first four have each already happened once:
  *
  *   - **The storage layer's license going unstated.** It was a vendored source
  *     tree whose manifest said the repository's dual license while its own
@@ -24,6 +25,12 @@
  *     AGPL-3.0 §7(e) permits declining to grant *trademark* rights; §10 forbids
  *     imposing further restrictions, so pulling Corresponding Source out of the
  *     copyright grant is the one shape this file must not take.
+ *   - **The CLA's signing sentence drifting from the bot that accepts it.**
+ *     The fifth, and the only one written before it happened: the sentence
+ *     lives in CLA.md and twice in `.github/workflows/cla.yaml`, and a
+ *     contributor who copies it out of the document and gets no acknowledgement
+ *     has no route at all — the check that blocks the merge is the same one
+ *     that would have recorded the signature.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -186,16 +193,17 @@ describe("the mark position is a trademark reservation, not a copyright carve-ou
 	});
 });
 
-describe("the contact route is real, singular and identical in both files", () => {
-	// Two files are the only route a reader has: LICENSE-COMMERCIAL is the only
-	// way to reach the commercial half of the dual license, and TRADEMARK.md the
-	// only way to ask whether a use of the name is permitted. A dead or drifting
-	// address in either one is a route that silently discards every message, and
-	// publishing it does not reverse.
+describe("the contact route is real, singular and identical in every file", () => {
+	// Three files are the only route a reader has: LICENSE-COMMERCIAL is the only
+	// way to reach the commercial half of the dual license, TRADEMARK.md the only
+	// way to ask whether a use of the name is permitted, and CLA.md the only way
+	// to sign without a GitHub account or to send an employer's waiver. A dead or
+	// drifting address in any of them is a route that silently discards every
+	// message, and publishing it does not reverse.
 	const CONTACT = "support@hyhyve.com";
 	const ANY_ADDRESS = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
-	for (const file of ["LICENSE-COMMERCIAL", "TRADEMARK.md"]) {
+	for (const file of ["LICENSE-COMMERCIAL", "TRADEMARK.md", "CLA.md"]) {
 		test(`${file} names the contact and nothing else`, () => {
 			const text = readRepoFile(file);
 			expect(text).toContain(CONTACT);
@@ -207,4 +215,84 @@ describe("the contact route is real, singular and identical in both files", () =
 			expect(readRepoFile(file)).not.toContain("UNRESOLVED");
 		});
 	}
+});
+
+describe("the CLA and the check that enforces it say the same thing", () => {
+	// The commercial half of the dual license is only offerable over code whose
+	// rights the holder holds, so one unsigned outside commit on `main` removes
+	// that option for those lines permanently. The document alone does not stop
+	// that — the pull-request check does, and the two have to agree on the exact
+	// sentence a contributor replies with, because that string is compared
+	// literally by the action and by its own `if:` guard.
+	const cla = readRepoFile("CLA.md");
+	const workflow = readRepoFile(".github/workflows/cla.yaml");
+
+	/** The signature. Changing it here is changing it in three places at once. */
+	const SIGN_SENTENCE =
+		"I have read the CLA Document and I hereby sign the CLA";
+
+	test("CLA.md quotes the sentence a contributor has to reply with", () => {
+		expect(cla).toContain(SIGN_SENTENCE);
+	});
+
+	test("the workflow guards on it and configures the action with it", () => {
+		// Once in the `if:` that keeps unrelated comments from starting a job,
+		// once as `custom-pr-sign-comment`. Both, or the bot answers a sentence
+		// nobody was told to write.
+		const occurrences = workflow.split(SIGN_SENTENCE).length - 1;
+		expect(occurrences).toBe(2);
+	});
+
+	test("the workflow points contributors at the document in this tree", () => {
+		expect(workflow).toContain("path-to-document:");
+		expect(workflow).toMatch(/path-to-document:.*\/CLA\.md\s*$/m);
+	});
+
+	test("the grant is a license and never an assignment", () => {
+		// The whole contributor-facing promise, in CONTRIBUTING.md and README.md
+		// as well as in §4. A CLA that quietly became an assignment would keep
+		// every other test in this file green.
+		expect(cla).toMatch(/This agreement is a license, not an assignment/);
+		expect(cla).toMatch(/You retain all right, title and interest/);
+		expect(cla).not.toMatch(/\bYou (hereby )?assign\b/);
+	});
+
+	test("§5 keeps the contribution available as free software", () => {
+		// The consideration the contributor gets back. Without it the agreement
+		// is a one-way grant, and the summary in CONTRIBUTING.md and README.md
+		// that promises it would be false.
+		// `\s+` rather than a space: the document is hard-wrapped, so either
+		// name can straddle a line break and does.
+		expect(cla).toContain("AGPL-3.0-only");
+		expect(cla).toMatch(/Open\s+Source\s+Initiative/);
+		expect(cla).toMatch(/Free\s+Software\s+Foundation/);
+	});
+
+	test("the contributor-facing files point at it and describe it the same way", () => {
+		for (const file of ["CONTRIBUTING.md", "README.md"]) {
+			const text = readRepoFile(file);
+			expect(text).toContain("CLA.md");
+			expect(text).toMatch(/license, not an assignment/i);
+		}
+		// The pull-request template is where a contributor meets the requirement
+		// at the moment it applies to them.
+		expect(readRepoFile(".github/PULL_REQUEST_TEMPLATE.md")).toContain(
+			"CLA.md",
+		);
+	});
+
+	test("nothing still says the terms are unsettled", () => {
+		// Three files said so until the text landed, and one of them contradicted
+		// another for a week. The claim is false now wherever it survives.
+		for (const file of [
+			"CONTRIBUTING.md",
+			"README.md",
+			".github/PULL_REQUEST_TEMPLATE.md",
+		]) {
+			const text = readRepoFile(file);
+			expect(text).not.toMatch(/terms are not settled/i);
+			expect(text).not.toMatch(/being drafted/i);
+			expect(text).not.toMatch(/held rather than merged/i);
+		}
+	});
 });

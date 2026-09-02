@@ -177,7 +177,7 @@ Prose outside the markers is preserved.
 | [REQ159.md](requirements/REQ159.md) | Rendering a deck must cost time proportional to what a deck may hold | Platform & Operations | P0 | done | internal |
 | [REQ160.md](requirements/REQ160.md) | A slide comment lands on the slide it was written about | Accounts & Workspaces | P0 | done | internal |
 | [REQ161.md](requirements/REQ161.md) | The repository carries a license and a provenance claim it can stand behind | Platform & Operations | P0 | in-progress | internal |
-| [REQ162.md](requirements/REQ162.md) | A published repository has a reporting path and a contribution surface | Platform & Operations | P0 | pending | internal |
+| [REQ162.md](requirements/REQ162.md) | A published repository has a reporting path and a contribution surface | Platform & Operations | P0 | in-progress | internal |
 | [REQ163.md](requirements/REQ163.md) | The publishable tree carries no internal-estate or deployment detail | Platform & Operations | P0 | in-progress | internal |
 | [REQ164.md](requirements/REQ164.md) | The administrator allowlist is deployment-supplied, not compiled in | Platform & Operations | P0 | done | internal |
 | [REQ165.md](requirements/REQ165.md) | Publication ships a fresh repository, because this remote still serves an unreferenced commit | Platform & Operations | P0 | pending | internal |

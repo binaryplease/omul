@@ -1,0 +1,68 @@
+name: CLA
+
+# Every author of every commit in a pull request has to have signed CLA.md
+# before that pull request can be merged. This is the check that enforces it;
+# CONTRIBUTING.md states the requirement and CLA.md is the document.
+#
+# Why the enforcement has to be mechanical rather than a review habit: omul is
+# dual-licensed, and the commercial half is only offerable over code whose
+# rights the copyright holder holds. One unsigned outside commit merged into
+# `main` removes that option for those lines permanently — there is no fix
+# after the fact short of asking the author individually or deleting the code.
+
+on:
+  # `pull_request_target` rather than `pull_request`: the job needs a token that
+  # can write the signature file and set a status, and a fork's `pull_request`
+  # token is read-only. It runs the workflow from the *base* branch and checks
+  # out nothing from the fork, so an untrusted pull request cannot alter what
+  # runs here.
+  pull_request_target:
+    types: [opened, synchronize, reopened, closed]
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+
+concurrency:
+  # Signatures are appended to one JSON file on one branch, so two jobs racing
+  # would lose one of them. Never cancel a run in flight: it may be mid-commit.
+  group: cla-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  cla:
+    name: Check the contributor license agreement
+    runs-on: ubuntu-latest
+    # The comment condition keeps every unrelated issue comment in the
+    # repository from starting a job; the sentence is the one CLA.md tells a
+    # contributor to reply with, and must stay identical to the one in that file
+    # and in `custom-pr-sign-comment` below.
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      github.event.comment.body == 'recheck' ||
+      github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
+    steps:
+      - name: CLA assistant
+        uses: contributor-assistant/github-action@v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Stored in this repository on a branch of its own, so the record is
+          # public and auditable by anyone deciding whether to rely on the grant
+          # in CLA.md §2, and so `main` does not collect signature commits.
+          path-to-signatures: signatures/v1/cla.json
+          branch: cla-signatures
+          path-to-document: https://github.com/binaryplease/omul/blob/main/CLA.md
+          # Versioned path and versioned document: CLA.md §10 says a new version
+          # is not retroactive, so v1 signatures stay where they are and a v2
+          # would be collected beside them rather than into them.
+          custom-pr-sign-comment: I have read the CLA Document and I hereby sign the CLA
+          custom-allsigned-prcomment: Every author on this pull request has signed the CLA. Thank you.
+          # The copyright holder cannot sign an agreement with themselves, and a
+          # bot has no copyright to grant.
+          allowlist: binaryplease,bot*,*[bot]
+          lock-pullrequest-aftermerge: false
