@@ -1,0 +1,24 @@
+# Only the `github-actions` ecosystem, and only because of one pin.
+#
+# `.github/workflows/cla.yaml` runs a third-party action on
+# `pull_request_target` with a token that can push anywhere in this repository,
+# so it is pinned to a full commit SHA rather than to a mutable tag. A SHA pin
+# that nobody maintains is a frozen dependency, not a maintained one: this file
+# is what turns it back into something that gets bumped and alerted on.
+#
+# Dependabot's pull requests will show the CLA check red — the workflow carries
+# no allowlist, on purpose, and the reason is written above `permissions:` in
+# that file. Merge them on the maintainer's own authority; a bot has no
+# copyright to grant and nothing is being waived.
+#
+# The npm ecosystem is deliberately absent. NOTICE.md §5 is a measured
+# enumeration of the installed dependency set, and a stream of automated bumps
+# would put it out of date faster than anyone re-measures it.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore

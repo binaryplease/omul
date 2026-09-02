@@ -29,8 +29,10 @@ The shape of it, which is not a substitute for reading it:
 **How to sign: open the pull request first, then reply to the bot.** A check
 runs on every pull request and comments if an author has not signed. Replying
 with the one sentence it quotes — the same sentence CLA.md gives — is the
-signature. There is nothing to print and nothing to email, you do it once, and
-every later pull request from that account is covered.
+signature. There is nothing to print and no form to fill in, you do it once, and
+every later pull request from that account is covered. Two cases do use email —
+an employer's waiver, and a signer who cannot use a GitHub account — and CLA.md's
+*How to sign* covers both.
 
 Two cases worth knowing before you write code rather than after:
 

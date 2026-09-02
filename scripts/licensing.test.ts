@@ -221,9 +221,9 @@ describe("the CLA and the check that enforces it say the same thing", () => {
 	// The commercial half of the dual license is only offerable over code whose
 	// rights the holder holds, so one unsigned outside commit on `main` removes
 	// that option for those lines permanently. The document alone does not stop
-	// that — the pull-request check does, and the two have to agree on the exact
-	// sentence a contributor replies with, because that string is compared
-	// literally by the action and by its own `if:` guard.
+	// that — the pull-request check does, and the two have to quote the same
+	// sentence: the action compares a reply against `custom-pr-sign-comment`,
+	// and a contributor copies it out of CLA.md.
 	const cla = readRepoFile("CLA.md");
 	const workflow = readRepoFile(".github/workflows/cla.yaml");
 
@@ -243,18 +243,29 @@ describe("the CLA and the check that enforces it say the same thing", () => {
 		expect(occurrences).toBe(2);
 	});
 
-	test("the workflow points contributors at the document in this tree", () => {
-		expect(workflow).toContain("path-to-document:");
-		expect(workflow).toMatch(/path-to-document:.*\/CLA\.md\s*$/m);
+	test("the signed document is pinned to a commit, not to a moving ref", () => {
+		// The signature record stores no document version, so this URL is the
+		// only evidence of what a signer agreed to — and CLA.md §10 makes a new
+		// version non-retroactive, which `blob/main/` cannot express because
+		// `main` moves. Matching only `/CLA.md` would also accept a URL into
+		// somebody else's repository, so the owner and repo are pinned too.
+		expect(workflow).toMatch(
+			/path-to-document: https:\/\/github\.com\/binaryplease\/omul\/blob\/[0-9a-f]{40}\/CLA\.md\s*$/m,
+		);
+		expect(workflow).not.toMatch(/path-to-document:.*\/blob\/(main|master)\//);
 	});
 
 	test("the grant is a license and never an assignment", () => {
 		// The whole contributor-facing promise, in CONTRIBUTING.md and README.md
 		// as well as in §4. A CLA that quietly became an assignment would keep
-		// every other test in this file green.
+		// every other test in this file green. The positive pair is what carries
+		// this; the negative is case-insensitive and covers the phrasings an
+		// assignment clause is actually written in, rather than one literal.
 		expect(cla).toMatch(/This agreement is a license, not an assignment/);
 		expect(cla).toMatch(/You retain all right, title and interest/);
-		expect(cla).not.toMatch(/\bYou (hereby )?assign\b/);
+		expect(cla).not.toMatch(
+			/\b(you|contributor)\s+(do\s+)?(hereby\s+)?(irrevocably\s+)?assigns?\b/i,
+		);
 	});
 
 	test("§5 keeps the contribution available as free software", () => {
@@ -266,6 +277,17 @@ describe("the CLA and the check that enforces it say the same thing", () => {
 		expect(cla).toContain("AGPL-3.0-only");
 		expect(cla).toMatch(/Open\s+Source\s+Initiative/);
 		expect(cla).toMatch(/Free\s+Software\s+Foundation/);
+	});
+
+	test("§5 keeps the remedy that makes that promise enforceable", () => {
+		// The undertaking without the reversion is a preference, not a term: it
+		// is the clause that costs the Owner something if the free grant stops.
+		// Deleting it leaves every other assertion above green.
+		expect(cla).toMatch(/If the Owner ever fails to keep this undertaking/);
+		expect(cla).toMatch(/revert to a\s+license under AGPL-3\.0-only alone/);
+		// Sublicenses already granted have to survive the reversion, or the
+		// clause would retroactively break third parties who relied on §2.
+		expect(cla).toMatch(/a sublicense already given stays given/i);
 	});
 
 	test("the contributor-facing files point at it and describe it the same way", () => {
@@ -294,5 +316,87 @@ describe("the CLA and the check that enforces it say the same thing", () => {
 			expect(text).not.toMatch(/being drafted/i);
 			expect(text).not.toMatch(/held rather than merged/i);
 		}
+	});
+});
+
+describe("the CLA check decides on things GitHub authenticates", () => {
+	// A security review of this workflow (NST10690) found that its *shape* was
+	// right — no `actions/checkout`, no attacker-controlled value reaching a
+	// shell, so the `pull_request_target` code-execution class is structurally
+	// absent — while its *decision logic* was not. Every assertion below is one
+	// of that review's failure scenarios, held so the fix cannot be undone by
+	// someone restoring a convenience.
+	const workflow = readRepoFile(".github/workflows/cla.yaml");
+
+	test("no allowlist, because every allowlist entry is self-declarable", () => {
+		// The bypass: when a commit author's email is linked to no GitHub
+		// account the action falls through to the raw git author object, so the
+		// name it matches is whatever `git config user.name` was set to. A
+		// pattern containing `*` is compiled to an *unanchored* regex, so
+		// `bot*` matched any name merely containing "bot"; a pattern without one
+		// is an exact compare a spoofed display name satisfies just as easily.
+		// `git config user.name robot` with an unlinked email was enough to make
+		// this check report green with nothing signed.
+		expect(workflow).not.toMatch(/^\s*allowlist:/m);
+	});
+
+	test("the third-party action is pinned to a commit, not to a tag", () => {
+		// The job holds a token that can push anywhere in this repository, and a
+		// tag is mutable: whoever can move it runs code with that token on every
+		// pull request.
+		expect(workflow).toMatch(
+			/uses: contributor-assistant\/github-action@[0-9a-f]{40} # v\d+\.\d+\.\d+/,
+		);
+		expect(workflow).not.toMatch(/uses:.*@v\d/);
+	});
+
+	test("the pin is maintained rather than frozen", () => {
+		// A SHA nobody bumps is not hardening, it is an unmonitored dependency.
+		const dependabot = readRepoFile(".github/dependabot.yml");
+		expect(dependabot).toMatch(/package-ecosystem:\s*github-actions/);
+	});
+
+	test("the comment gate is no stricter than the matcher it guards", () => {
+		// The action accepts `body.trim().toLowerCase()`, so an exact-equality
+		// gate would drop a reply with a trailing newline before the job started
+		// — no comment, no check update, no error, and the contributor has no
+		// route at all. `contains` fails in the safe direction instead.
+		expect(workflow).toMatch(/contains\(github\.event\.comment\.body,/);
+		expect(workflow).not.toMatch(/github\.event\.comment\.body\s*==/);
+	});
+
+	test("a pull request longer than the action can enumerate is refused", () => {
+		// The action reads one `commits(first: 100)` page and never follows
+		// `pageInfo`, so authors of commits 101+ go unchecked: pad with 100
+		// innocuous commits, put the unsigned one last.
+		expect(workflow).toMatch(/github\.event\.pull_request\.commits > 100/);
+		expect(workflow).toMatch(/exit 1/);
+	});
+
+	test("the concurrency group is the file, not the pull request", () => {
+		// Two pull requests keyed separately read-modify-write the same
+		// signature file at once; the loser takes a 409 and a contributor who
+		// signed correctly sees a red check.
+		expect(workflow).toMatch(/^\s*group: cla-signatures$/m);
+		expect(workflow).toMatch(/^\s*cancel-in-progress: false$/m);
+	});
+
+	test("every granted permission has a code path behind it", () => {
+		// The action never calls the commit-status or checks APIs, so
+		// `statuses: write` was reach with nothing behind it. `actions` stays at
+		// `read`: the rerun convenience lists workflows and runs unguarded on
+		// the signing path, while the rerun itself needs a PAT this workflow
+		// does not supply and is already caught.
+		expect(workflow).not.toMatch(/^\s*statuses:/m);
+		expect(workflow).toMatch(/^\s*actions: read$/m);
+		expect(workflow).not.toMatch(/^\s*actions: write$/m);
+	});
+
+	test("nothing checks out or runs the pull request's own code", () => {
+		// The one property that keeps `pull_request_target` safe at all. The
+		// only `run:` in the file is the commit-count bound, whose script
+		// interpolates nothing.
+		expect(workflow).not.toMatch(/uses: actions\/checkout/);
+		expect(workflow).not.toMatch(/\$\{\{\s*github\.event\.(comment|pull_request)\.[a-z_.]*(body|title|ref|label)/);
 	});
 });

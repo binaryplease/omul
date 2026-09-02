@@ -1,7 +1,7 @@
 name: CLA
 
 # Every author of every commit in a pull request has to have signed CLA.md
-# before that pull request can be merged. This is the check that enforces it;
+# before that pull request can be merged. This is the check that reports it;
 # CONTRIBUTING.md states the requirement and CLA.md is the document.
 #
 # Why the enforcement has to be mechanical rather than a review habit: omul is
@@ -9,45 +9,118 @@ name: CLA
 # rights the copyright holder holds. One unsigned outside commit merged into
 # `main` removes that option for those lines permanently — there is no fix
 # after the fact short of asking the author individually or deleting the code.
+#
+# TWO THINGS THIS FILE CANNOT DO ON ITS OWN, both owed before publication:
+#
+#   1. **Bootstrap the signature store.** The action reads
+#      `signatures/v1/cla.json` on the `cla-signatures` branch and its own
+#      create-on-404 path is dead in v2.6.1 (it compares `error.status`, a
+#      number, against the string `"404"`), so without the branch every run
+#      fails with `Could not retrieve repository contents. Status: 404`. Create
+#      it once, from a checkout of this repository:
+#
+#        gh api -X POST repos/binaryplease/omul/git/refs \
+#          -f ref=refs/heads/cla-signatures \
+#          -f sha="$(gh api repos/binaryplease/omul/git/ref/heads/main --jq .object.sha)"
+#        gh api -X PUT repos/binaryplease/omul/contents/signatures/v1/cla.json \
+#          -f branch=cla-signatures \
+#          -f message='chore: bootstrap the CLA signature store' \
+#          -f content="$(printf '{"signedContributors": []}\n' | base64 -w0)"
+#
+#   2. **Make this check blocking.** `main` carries no protection and no
+#      ruleset, so a red CLA check does not stop a merge — it is advisory until
+#      a required-status-check rule names this job:
+#
+#        gh api -X POST repos/binaryplease/omul/rulesets --input - <<'JSON'
+#        {"name":"main: CLA required","target":"branch","enforcement":"active",
+#         "conditions":{"ref_name":{"include":["refs/heads/main"],"exclude":[]}},
+#         "rules":[{"type":"required_status_checks","parameters":{
+#           "strict_required_status_checks_policy":false,
+#           "required_status_checks":[
+#             {"context":"Check the contributor license agreement"}]}}]}
+#        JSON
+#
+# THERE IS DELIBERATELY NO `allowlist:` INPUT, and adding one re-opens a full
+# bypass. The action matches allowlist entries against a name that comes from
+# `author.user.login` only when the commit author's email is linked to a GitHub
+# account; when it is not, it falls through to the raw git author object, whose
+# `name` the author sets with `git config user.name` and which GitHub never
+# authenticates. An entry containing `*` becomes an *unanchored* regex, so
+# `bot*` matches any name merely containing "bot", and an entry without one is
+# an exact string compare a spoofed display name satisfies just as easily.
+# Either way a stranger turns this check green with no signature. With no
+# allowlist, an unlinked author carries `id: ''`, matches no signed record and
+# stays in `notSigned` — the check fails closed, which is the whole point.
+# The cost is real and accepted: Dependabot's own pull requests will show this
+# check red, and a maintainer merges them on their own authority.
 
 on:
   # `pull_request_target` rather than `pull_request`: the job needs a token that
-  # can write the signature file and set a status, and a fork's `pull_request`
-  # token is read-only. It runs the workflow from the *base* branch and checks
-  # out nothing from the fork, so an untrusted pull request cannot alter what
-  # runs here.
+  # can write the signature file, and a fork's `pull_request` token is
+  # read-only. It runs the workflow from the *base* branch and checks out
+  # nothing from the fork, so an untrusted pull request cannot alter what runs
+  # here. Keep it that way — no `actions/checkout` belongs in this file.
   pull_request_target:
     types: [opened, synchronize, reopened, closed]
   issue_comment:
     types: [created]
 
+# The action never calls the commit-status or checks APIs — it signals purely
+# through the job's exit status — so `statuses: write` would be reach with no
+# code path behind it. `actions` is `read` rather than `write` for a subtler
+# reason: on `issue_comment` the action's rerun convenience lists this
+# repository's workflows and runs *unguarded* (a 403 there would fail the
+# signing path), while the rerun call itself needs a PAT this workflow does not
+# supply and is already wrapped in its own `.catch`. Read satisfies the first
+# and denies the second.
 permissions:
-  actions: write
+  actions: read
   contents: write
   pull-requests: write
-  statuses: write
 
 concurrency:
-  # Signatures are appended to one JSON file on one branch, so two jobs racing
-  # would lose one of them. Never cancel a run in flight: it may be mid-commit.
-  group: cla-${{ github.event.issue.number || github.event.pull_request.number }}
+  # The shared resource is one JSON file on one branch, not the pull request, so
+  # the group is constant across every pull request. Keyed per pull request,
+  # two runs would read-modify-write the same file concurrently and the loser
+  # would take a 409 — the signature is not lost, but the contributor who signed
+  # correctly sees a red check and has to know to comment `recheck`.
+  # Never cancel a run in flight: it may be mid-commit.
+  group: cla-signatures
   cancel-in-progress: false
 
 jobs:
   cla:
     name: Check the contributor license agreement
     runs-on: ubuntu-latest
-    # The comment condition keeps every unrelated issue comment in the
-    # repository from starting a job; the sentence is the one CLA.md tells a
-    # contributor to reply with, and must stay identical to the one in that file
-    # and in `custom-pr-sign-comment` below.
+    # `contains` rather than `==`: the action's own matcher compares
+    # `body.trim().toLowerCase()`, so a reply with a trailing newline or
+    # different capitalisation is one it would accept. An exact-equality gate
+    # here would reject that reply before the job ever starts, and the
+    # contributor would get no comment, no check update and no error — the
+    # silent dead end CLA.md's signing instructions promise cannot happen. The
+    # gate must never be stricter than the matcher it guards.
     if: >-
       github.event_name == 'pull_request_target' ||
-      github.event.comment.body == 'recheck' ||
-      github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
+      contains(github.event.comment.body, 'recheck') ||
+      contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA')
     steps:
+      # The action enumerates a pull request's authors with a single
+      # `commits(first: 100)` GraphQL page and never follows `pageInfo`, so on a
+      # longer pull request the authors of commits 101 and beyond are never
+      # checked at all. Bound the input rather than trust the enumeration.
+      # Nothing attacker-controlled is interpolated here: the condition reads an
+      # integer from the event payload and the script is two literal lines.
+      - name: Refuse a pull request with more than 100 commits
+        if: github.event.pull_request.commits > 100
+        run: |
+          echo "::error::This pull request has more than 100 commits. The CLA check can only enumerate the first 100 authors, so it cannot be trusted here. Please split or squash it."
+          exit 1
+
+      # Pinned to the commit `v2.6.1` resolved to on 2026-09-02, not to the tag:
+      # a tag is mutable, and this job holds a token that can push anywhere in
+      # this repository. Dependabot maintains the pin (.github/dependabot.yml).
       - name: CLA assistant
-        uses: contributor-assistant/github-action@v2.6.1
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -56,13 +129,14 @@ jobs:
           # in CLA.md §2, and so `main` does not collect signature commits.
           path-to-signatures: signatures/v1/cla.json
           branch: cla-signatures
-          path-to-document: https://github.com/binaryplease/omul/blob/main/CLA.md
-          # Versioned path and versioned document: CLA.md §10 says a new version
-          # is not retroactive, so v1 signatures stay where they are and a v2
-          # would be collected beside them rather than into them.
+          # A commit permalink, not `blob/main/`: the signature record stores no
+          # document version, so this URL is the only evidence of what a signer
+          # actually agreed to, and CLA.md §10 makes a new version
+          # non-retroactive. Re-pin this to the commit that carries the new text
+          # whenever CLA.md changes, and move the signature path to `v2/`.
+          path-to-document: https://github.com/binaryplease/omul/blob/25b4710a37001bbd33ee3949039ee0697e122721/CLA.md
+          # Must stay byte-identical to the sentence quoted in CLA.md and to the
+          # one in the `if:` gate above; scripts/licensing.test.ts locks all three.
           custom-pr-sign-comment: I have read the CLA Document and I hereby sign the CLA
           custom-allsigned-prcomment: Every author on this pull request has signed the CLA. Thank you.
-          # The copyright holder cannot sign an agreement with themselves, and a
-          # bot has no copyright to grant.
-          allowlist: binaryplease,bot*,*[bot]
           lock-pullrequest-aftermerge: false
