@@ -226,7 +226,7 @@ export const FORM_RESULTS_VISIBILITY: SlideResultsVisibility = "private";
  *   picture participants are aiming at, so its posture is whatever
  *   {@link withPinAreaEnabled} would author — asked of that function rather than
  *   restated, so the rule that tightens the reveal and the rule that reads it
- *   back cannot drift apart (ADR-0026).
+ *   back cannot drift apart.
  */
 export function defaultResultsVisibilityFor(
 	slide: Pick<Slide, "type" | "pinArea">,

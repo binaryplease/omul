@@ -4,11 +4,11 @@
  * Taking one answer off a word cloud or an open-ended slide is one affordance
  * worn by two renderings — a card in the response wall, a row under the cloud —
  * so what is asserted here is the single descriptor both of them compose
- * (ADR-0026) and the three answers it has to get right:
+ * and the three answers it has to get right:
  *
  *   - **an editor** gets a live control;
  *   - **a spectator** gets the control drawn and inert, carrying the reason
- *     (ADR-0025) — not a screen quietly missing a button;
+ *     — not a screen quietly missing a button;
  *   - **a surface with nothing stored behind it**, or a slide type the boundary
  *     refuses, gets no control at all — that is relevance, not availability.
  *
@@ -49,7 +49,7 @@ describe("answerModerationFor (REQ027)", () => {
 		expect(moderation?.onDelete).toBe(onDelete);
 	});
 
-	test("a spectator gets the control, inert, with the reason on it (ADR-0025)", () => {
+	test("a spectator gets the control, inert, with the reason on it", () => {
 		const moderation = answerModerationFor({
 			slideType: "open-text",
 			canControl: false,
@@ -65,7 +65,7 @@ describe("answerModerationFor (REQ027)", () => {
 	test("a surface with nothing stored behind it draws nothing at all", () => {
 		// The dry run (REQ103/REQ104): its answers were generated for it and never
 		// written, so deleting one would delete nothing. Relevance, not
-		// availability (ADR-0025 §5).
+		// availability.
 		expect(
 			answerModerationFor({
 				slideType: "word-cloud",
@@ -99,7 +99,7 @@ describe("answerModerationFor (REQ027)", () => {
 	});
 
 	test("the reason names the action and why it is unavailable", () => {
-		// ADR-0025 §2: a disabled control states why, not merely that.
+		// A disabled control states why, not merely that.
 		expect(ANSWER_MODERATION_DENIED).toContain("Delete this answer");
 		expect(ANSWER_MODERATION_DENIED).toContain("cannot edit this presentation");
 	});

@@ -106,7 +106,7 @@ describe("the catalog is a set of usable decks (REQ005)", () => {
 		}
 	});
 
-	test("no entry points at media this deployment would have to fetch (ADR-0016)", () => {
+	test("no entry points at media this deployment would have to fetch", () => {
 		// A template that shipped an image URL would make a first-run deck depend
 		// on somebody else's asset host — and render as a blank frame offline.
 		for (const template of DECK_TEMPLATES) {

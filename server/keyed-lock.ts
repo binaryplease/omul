@@ -50,7 +50,7 @@ export interface KeyedLock {
 function ignoreOutcome(): void {}
 
 /**
- * A keyed lock (ADR-0007 — factory over class).
+ * A keyed lock (factory over class).
  *
  * Each key holds the tail of its own promise chain, and a section is appended to
  * it. There is no timer and no cleanup pass: the key is dropped as soon as the

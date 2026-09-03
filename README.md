@@ -43,9 +43,36 @@ One container, no database sidecar, no cache and no queue — all state is
 `.github/workflows/build.yaml` and published to
 `ghcr.io/binaryplease/omul`.
 
+Two files here are the whole deployment — [compose.yaml](compose.yaml) and
+[.env.example](.env.example) — and this is the path from a clone to a running
+instance:
+
+```sh
+cp .env.example .env
+openssl rand -base64 32     # paste the output into BETTER_AUTH_SECRET= in .env
+docker compose up -d
+```
+
+That serves a working instance at `http://localhost:3000` **on the machine you
+ran it on, and nowhere else**: the container is published on the host's
+loopback, so exposing it stays a deliberate step rather than something you get
+by not thinking about it. It is already complete — sign up, build a deck, put
+the 6-digit code on screen, and anything that can reach that port can join.
+
+To serve it to other people, put a TLS-terminating reverse proxy in front of
+that port under a name of yours, and add two lines to `.env`:
+
+```sh
+OMUL_BASE_HOST=omul.example.com   # bare host, no scheme and no path
+OMUL_TRUST_PROXY=true             # trusted proxy hops; "true" is 1
+```
+
+`docker compose up -d` again picks them up. Without compose, the same
+deployment spelled out by hand:
+
 ```sh
 docker run -d --name omul \
-  -p 3000:3000 \
+  -p 127.0.0.1:3000:3000 \
   -v omul-data:/app/data \
   -e BETTER_AUTH_SECRET="$(openssl rand -base64 32)" \
   -e OMUL_BASE_HOST=omul.example.com \
@@ -54,12 +81,12 @@ docker run -d --name omul \
   ghcr.io/binaryplease/omul:latest
 ```
 
-Four things decide whether that instance works, and each fails in its own way:
+Four variables decide whether that instance works, and each fails in its own way:
 
 | Variable | What happens if you leave it out |
 |---|---|
-| `BETTER_AUTH_SECRET` | **The container refuses to start.** There is no fallback on purpose — a placeholder shipping in public source would let any reader forge a session. Generate one with `openssl rand -base64 32` and supply it the way your deployment supplies secrets |
-| `OMUL_BASE_HOST` | **Nobody can sign in.** A bare host, no scheme and no path. It is also what puts a working link in verification mail |
+| `BETTER_AUTH_SECRET` | **The container refuses to start**, wherever you run it. There is no fallback on purpose — a placeholder shipping in public source would let any reader forge a session. Generate one with `openssl rand -base64 32` and supply it the way your deployment supplies secrets |
+| `OMUL_BASE_HOST` | Fine on `localhost`, but on a public host **nobody can sign in**: the public origin is not among the ones allowed to drive auth until this names it. A bare host, no scheme and no path. It is also what puts a working link in verification mail, and what the `/api` index advertises |
 | `OMUL_TRUST_PROXY` | Behind a reverse proxy, every visitor shares one rate-limit bucket. Leave it unset for a directly-exposed container |
 | `OMUL_ADMIN_EMAILS` | **Nobody is an administrator** and `/api/admin/*` answers `403` to everyone. That is a complete instance — presenters and participants never touch the admin surface — so set it only if you want that surface |
 
@@ -69,11 +96,16 @@ file silently drops two of them. Nothing here backs that directory up, and
 copying a live WAL-mode SQLite file is not a backup — use `VACUUM INTO`, or copy
 with the container stopped.
 
+**`compose.yaml` needs no registry, either.** It pulls the published image by
+default, and uncommenting its one `build:` line builds the same image from this
+tree instead — so a clone is a complete deployment even without access to
+`ghcr.io`.
+
 [docs/deployment.md](docs/deployment.md) is the full reference: every
 environment variable with what breaks when it is unset, the state and backup
-position, the abuse limits, and the reverse-proxy notes. **No compose file or
-environment example ships yet** — that is tracked as `REQ172` and the command
-above is what stands in for it.
+position, the abuse limits, and the reverse-proxy notes. `.env.example`
+carries the subset a deployment actually decides, with the same warnings beside
+the lines they apply to.
 
 ## The one external service, and it is optional
 
@@ -82,7 +114,8 @@ deck from a prompt is the single exception**: it sends the prompt to a model
 provider (Google's Generative AI API, through the Vercel AI SDK) and turns the
 answer into slides.
 
-It is an intentional, documented exception to ADR-0016 — the remote service *is*
+It is an intentional, documented exception to the project's rule that
+production depends on no third-party runtime host — the remote service *is*
 the feature, there is no asset to bundle instead — and it is bounded:
 
 - **Off unless you configure it.** No `GOOGLE_GENERATIVE_AI_API_KEY`, no

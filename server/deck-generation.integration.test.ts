@@ -186,7 +186,7 @@ describe("Deck generation integration (REQ007)", () => {
 		}
 	});
 
-	// ── Is generation available? (ADR-0025) ─────────────────
+	// ── Is generation available? ─────────────────
 
 	describe("the capability route", () => {
 		test("a configured deployment says so, with an explicit null reason", async () => {
@@ -194,7 +194,7 @@ describe("Deck generation integration (REQ007)", () => {
 			expect(res.status).toBe(200);
 			const body = await res.json();
 			expect(body.available).toBe(true);
-			// ADR-0024 — present and null, never absent.
+			// Present and null, never absent.
 			expect(body).toHaveProperty("reason");
 			expect(body.reason).toBeNull();
 		});
@@ -210,8 +210,8 @@ describe("Deck generation integration (REQ007)", () => {
 			expect(res.status).toBe(200);
 			const body = await res.json();
 			expect(body.available).toBe(false);
-			// The reason is what the surface puts on the disabled control
-			// (ADR-0025), so it has to be a sentence rather than a flag.
+			// The reason is what the surface puts on the disabled control,
+			// so it has to be a sentence rather than a flag.
 			expect(typeof body.reason).toBe("string");
 			expect(body.reason.length).toBeGreaterThan(0);
 		});

@@ -134,7 +134,7 @@ import { getParticipantCount } from "../ws";
 /**
  * Project a stored presentation into its public response shape.
  *
- * Parsing through `PresentationSchema` does double duty (ADR-0024 / ADR-0029):
+ * Parsing through `PresentationSchema` does double duty:
  *   - It populates every declared key with its default, so the output shape is
  *     complete and stable record-to-record even for legacy documents that were
  *     persisted before a field existed.
@@ -153,7 +153,7 @@ import { getParticipantCount } from "../ws";
  *
  * Exported because a deck is created on one route outside this file — the
  * generation route (REQ007) — and there must be exactly one projection of a
- * stored presentation into a response (ADR-0026). A second one is how the
+ * stored presentation into a response. A second one is how the
  * hash stays stripped on one create path and not on the other.
  */
 export function sanitize(
@@ -653,14 +653,14 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				participantCount: getParticipantCount(pres.id as string),
 				serverNow: new Date().toISOString(),
 				// The caller's own standing (REQ075), so a surface can disable what
-				// this caller may not do and say why (ADR-0025) instead of letting
+				// this caller may not do and say why instead of letting
 				// them find out from a 403. `null` for a caller with no standing at
-				// all, emitted rather than omitted (ADR-0024). It is not a
+				// all, emitted rather than omitted. It is not a
 				// credential and grants nothing: the routes re-resolve it per request.
 				accessLevel: access.level,
 				// What the caller's account may do (REQ074) — what the comment
 				// threads are gated on. `null` for the edit-token holder with no
-				// account, emitted rather than omitted (ADR-0024). A report on the
+				// account, emitted rather than omitted. A report on the
 				// same terms as `accessLevel`.
 				commentAccess: accountAccess.level,
 			};
@@ -1452,7 +1452,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 	//
 	// One endpoint for both switches rather than one each: they are the same
 	// decision at two settings — what, besides an answer, this room may send —
-	// and the presenter's panel moves them from one place (ADR-0026).
+	// and the presenter's panel moves them from one place.
 	.post(
 		"/presentations/:id/channels",
 		async ({ params, body, request, set }) => {
@@ -1682,7 +1682,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Results"],
 				summary: "Get one participant's quiz scorecard",
 				description:
-					"Returns what the given participant scored across the deck's quiz slides (REQ054/REQ055/REQ056): every quiz question, how it was answered (`answerMode`), the option they picked (`optionId`) or the answer they typed (`answer`), whether they were right, the time they took, and the points it earned — plus the deck totals. Every quiz slide is listed whether answered or not, with explicit `null`s for an unanswered one (ADR-0024). Scores are derived from the votes and the slide as it stands now, so re-marking the correct answer — or adding an accepted spelling — re-scores immediately. It also carries this participant's place on the deck's leaderboard (REQ059): `entryId` and `label` are the one-way handle their row is named by on the anonymous board, `rank` their place (`null` until they have answered something) and `rankedCount` how many participants are ranked. 404 if the presentation is missing.",
+					"Returns what the given participant scored across the deck's quiz slides (REQ054/REQ055/REQ056): every quiz question, how it was answered (`answerMode`), the option they picked (`optionId`) or the answer they typed (`answer`), whether they were right, the time they took, and the points it earned — plus the deck totals. Every quiz slide is listed whether answered or not, with explicit `null`s for an unanswered one. Scores are derived from the votes and the slide as it stands now, so re-marking the correct answer — or adding an accepted spelling — re-scores immediately. It also carries this participant's place on the deck's leaderboard (REQ059): `entryId` and `label` are the one-way handle their row is named by on the anonymous board, `rank` their place (`null` until they have answered something) and `rankedCount` how many participants are ranked. 404 if the presentation is missing.",
 			},
 		},
 	)
@@ -1990,7 +1990,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Results"],
 				summary: "Read whether the deck has a results link",
 				description:
-					"Reports whether the deck currently has a results link (REQ098) and when it was minted. `resultsToken` is always an explicit `null` here (ADR-0024): the secret is stored only as a hash, so the mint is the one moment it exists in a response, and a browser that has lost its copy re-mints rather than re-reading it. `issuedAt` is what lets a surface tell the link it is holding from a newer one minted elsewhere. Requires `Authorization: Bearer <creatorToken>` (or deck ownership) — whether a deck hands out results is the organizer's business, not the room's.",
+					"Reports whether the deck currently has a results link (REQ098) and when it was minted. `resultsToken` is always an explicit `null` here: the secret is stored only as a hash, so the mint is the one moment it exists in a response, and a browser that has lost its copy re-mints rather than re-reading it. `issuedAt` is what lets a surface tell the link it is holding from a newer one minted elsewhere. Requires `Authorization: Bearer <creatorToken>` (or deck ownership) — whether a deck hands out results is the organizer's business, not the room's.",
 				security: [{ bearerAuth: [] }],
 			},
 		},

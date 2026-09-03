@@ -522,7 +522,7 @@ describe("REQ096 — the tallies are read, never recomputed", () => {
 		if (facts?.kind !== "facts") throw new Error("expected facts");
 		expect(facts.facts).toContainEqual({ label: "Guesses", value: "3" });
 		expect(facts.facts).toContainEqual({ label: "Average guess", value: "41.5" });
-		// A metric the payload does not carry stays an explicit absence (ADR-0024).
+		// A metric the payload does not carry stays an explicit absence.
 		expect(facts.facts).toContainEqual({ label: "Reference", value: EMPTY_VALUE });
 	});
 
@@ -595,7 +595,7 @@ describe("REQ096 — reading a value into words", () => {
 	test("an absent value is an explicit mark, never a blank", () => {
 		expect(cellText(null)).toBe(EMPTY_VALUE);
 		expect(cellText("")).toBe(EMPTY_VALUE);
-		// And zero is not absence: the two stay distinguishable (ADR-0024).
+		// And zero is not absence: the two stay distinguishable.
 		expect(cellText(0)).toBe("0");
 	});
 

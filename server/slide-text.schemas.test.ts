@@ -12,7 +12,7 @@
  *     organizer wrote, and the client's parser would then be rendering a string
  *     nobody typed.
  *   - **The size step has one reading.** `slideTextSizeFor` is the single read
- *     site (ADR-0026): a slide with no step, a half-built one from the editor
+ *     site: a slide with no step, a half-built one from the editor
  *     and a hand-built deck carrying nonsense all land on `medium`, which is the
  *     size every deck was drawn at before the setting existed.
  *
@@ -55,7 +55,7 @@ describe("authored text is stored exactly as written (REQ088, REQ089)", () => {
 	});
 
 	test("a body nobody wrote is an empty string, not a missing field", () => {
-		// ADR-0029: every non-identity field carries a default, so a read site
+		// Every non-identity field carries a default, so a read site
 		// never reaches for `??` to find out whether a slide has a body.
 		expect(slide({ id: "s1", type: "multiple-choice", question: "Q" }).body).toBe(
 			"",
@@ -110,8 +110,8 @@ describe("slideTextSizeFor — one reading of the step (REQ091)", () => {
 
 describe("the boundary refuses a size it cannot draw (REQ091)", () => {
 	test("an undefined step is not accepted as a slide field", () => {
-		// Loud at the boundary (ADR-0018's stance, applied to input): a deck
-		// posted with a size no surface implements is a bug in the caller, and
+		// Loud at the boundary, the same stance a missing required input gets: a
+		// deck posted with a size no surface implements is a bug in the caller, and
 		// silently storing it would defer the surprise to the projector.
 		expect(() =>
 			slide({ id: "s1", type: "text", question: "Q", textSize: "gigantic" }),

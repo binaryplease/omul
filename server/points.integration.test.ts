@@ -230,7 +230,7 @@ describe("100 Points question type integration", () => {
 		expect(Math.round(shareSum)).toBe(100);
 	});
 
-	test("an item nobody funded reports an explicit null average (ADR-0024)", async () => {
+	test("an item nobody funded reports an explicit null average", async () => {
 		const pres = await createAndStart([pointsSlide()]);
 		await allocate(pres.id, "p1", "a:50,b:50");
 		await allocate(pres.id, "p2", "a:50,b:50");

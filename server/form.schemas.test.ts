@@ -10,7 +10,7 @@
  *     still fits inside what `VoteSchema` accepts
  *
  * The codec is tested here rather than through the API because it is the
- * contract *both* ends share (ADR-0013): the participant surface writes the
+ * contract *both* ends share: the participant surface writes the
  * submission and the aggregation, the export and the results table read it back.
  */
 
@@ -97,7 +97,7 @@ describe("SlideSchema — form fields (REQ061)", () => {
 		expect(slide.formFields).toEqual([]);
 	});
 
-	test("an authored field lands with every default applied (ADR-0029)", () => {
+	test("an authored field lands with every default applied", () => {
 		const field = FormFieldSchema.parse({ id: "a", label: "Your name" });
 		expect(field).toEqual({
 			id: "a",
@@ -108,7 +108,7 @@ describe("SlideSchema — form fields (REQ061)", () => {
 		});
 	});
 
-	test("rejects a field with no id and one with no label (ADR-0018)", () => {
+	test("rejects a field with no id and one with no label", () => {
 		expect(FormFieldSchema.safeParse({ label: "No id" }).success).toBe(false);
 		expect(FormFieldSchema.safeParse({ id: "a" }).success).toBe(false);
 	});
@@ -150,7 +150,7 @@ describe("SlideSchema — form fields (REQ061)", () => {
 		expect(build(FORM_FIELD_OPTION_LIMIT + 1).success).toBe(false);
 	});
 
-	test("a stored deck round-trips a form slide (ADR-0013)", () => {
+	test("a stored deck round-trips a form slide", () => {
 		const stored = StoredPresentationSchema.parse({
 			id: "p1",
 			slides: [formSlide()],
@@ -231,7 +231,7 @@ describe("form submission codec (REQ061)", () => {
 		});
 	});
 
-	test("a field left blank decodes as an explicit empty string (ADR-0024)", () => {
+	test("a field left blank decodes as an explicit empty string", () => {
 		const fields = fieldsOf();
 		const value = encodeFormSubmission({
 			mail: "ada@example.org",

@@ -1,8 +1,8 @@
 /**
  * The workspace surface (REQ128, REQ129) — `/api/workspaces/*`.
  *
- * A route module of its own rather than a section of `routes/presentations.ts`
- * (ADR-0032): a workspace is not a presentation, it would still make sense if
+ * A route module of its own rather than a section of `routes/presentations.ts`:
+ * a workspace is not a presentation, it would still make sense if
  * decks were rewritten around it, and the one place the two meet — the decks a
  * workspace owns — is a read of the presentation service through the projection
  * that file already exports.
@@ -93,7 +93,8 @@ function readWorkspace(
  * The **email is withheld from a reader who cannot manage the roster**: a member
  * sees who they are working with by name, while the address somebody was invited
  * at is management data, and the narrower default is the one that ships (it is
- * emitted as an explicit `null` either way, ADR-0024, so no client learns a
+ * emitted as an explicit `null` either way rather than dropped, so no client
+ * learns a
  * second shape). An account that has since been deleted reads as a `null` name
  * rather than vanishing, so the membership stays visible to be removed.
  */
@@ -122,7 +123,7 @@ type WorkspaceStanding = {
 
 /**
  * Require that the caller holds a role in this workspace that satisfies
- * `authorizes` — the one gate every route below runs (ADR-0026).
+ * `authorizes` — the one gate every route below runs.
  *
  * `401` when there is no account behind the request at all, `403` when there is
  * one whose role does not open this door. A workspace that **does not exist**

@@ -94,8 +94,9 @@ export function emptyTestVoteSet(): TestVoteSet {
 
 /**
  * A small deterministic generator (mulberry32), because `Math.random()` would
- * make every poll a different room. Factory-shaped per ADR-0007: the state is
- * the closure, and each slide gets its own so adding a slide to a deck does not
+ * make every poll a different room. Factory-shaped rather than a class: the
+ * state is the closure, and each slide gets its own so adding a slide to a deck
+ * does not
  * reshuffle the answers on the slides before it.
  */
 function createRandom(seed: number): () => number {
@@ -244,7 +245,7 @@ function previewParticipantId(index: number): string {
 
 /**
  * Build one vote row, parsed through the stored schema so a synthetic response
- * is provably the shape a real one is (ADR-0013). Nothing here inserts it.
+ * is provably the shape a real one is. Nothing here inserts it.
  */
 function testVote(
 	run: TestVoteRun,

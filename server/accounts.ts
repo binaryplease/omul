@@ -1,17 +1,19 @@
 /**
  * User accounts — Better Auth (email + password) plus per-user API keys.
  *
- * ADR-0023 names Better Auth + MongoDB (replica set) as the org-wide default
- * auth stack. omul deliberately deviates to **bun:sqlite**: the whole app is a
- * single Bun binary whose domain data already lives in SQLite (zodstore),
- * so it is inherently single-node. Putting auth in MongoDB would mean running a
- * second storage system for an app that can never be truly multi-instance
- * anyway — exactly the "two stores for one app" cost ADR-0023 warns against, in
- * the other direction. Better Auth runs the same library on SQLite, so we keep
- * the single-binary model and gain nothing operational from Mongo here.
+ * Better Auth over MongoDB (replica set) is the auth stack this project would
+ * otherwise reach for. omul deliberately deviates to **bun:sqlite**: the whole
+ * app is a single Bun binary whose domain data already lives in SQLite
+ * (zodstore), so it is inherently single-node. Putting auth in MongoDB would
+ * mean running a second storage system for an app that can never be truly
+ * multi-instance anyway — exactly the "two stores for one app" cost that
+ * default exists to avoid, in the other direction. Better Auth runs the same
+ * library on SQLite, so we keep the single-binary model and gain nothing
+ * operational from Mongo here.
  *
- * The instance is built with a factory function per ADR-0007. It exposes the
- * standard Better Auth surface (`auth.handler`, `auth.api`, `auth.options`) plus
+ * The instance is built with a factory function rather than a class, like every
+ * other service module here. It exposes the standard Better Auth surface
+ * (`auth.handler`, `auth.api`, `auth.options`) plus
  * two helpers this app needs: `ensureAuthSchema` (idempotent runtime migration,
  * so a fresh DB self-provisions without a separate CLI step in the single-binary
  * deploy) and `resolveUserId` (the authenticated user behind a request — cookie
@@ -133,7 +135,7 @@ export function createAuth() {
 		// boot crash: this module is imported from `server/index.ts`, so the
 		// process never reaches `listen`. See `server/auth-secret.ts`.
 		secret: resolveAuthSecret(),
-		// Mount under /api/* alongside the rest of the HTTP surface (ADR-0003). This
+		// Mount under /api/* alongside the rest of the HTTP surface. This
 		// matches the Better Auth client default, so the client needs no path config.
 		basePath: "/api/auth",
 		// Explicit base URL when provided (prod behind Caddy); otherwise Better Auth

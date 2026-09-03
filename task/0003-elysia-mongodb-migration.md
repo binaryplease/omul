@@ -9,7 +9,7 @@ priority: high
 # Migrate to Elysia + MongoDB
 
 ## Context
-omul deviated from ADR-0003 by using Hono instead of Elysia (for WebSocket support).
+omul deviated from the default server framework by using Hono instead of Elysia (for WebSocket support).
 Elysia now has built-in WebSocket with pub/sub. Also migrating from bun:sqlite to MongoDB
 for a more scalable foundation, and removing SA.md to keep only feature-focused documentation.
 

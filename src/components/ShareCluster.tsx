@@ -5,8 +5,8 @@ import { Fragment, type ReactNode } from "react";
 //
 // The presenter offers the same set of share affordances on two surfaces —
 // a wide segmented bar (xl viewports) and a compact chip row (below xl) — that
-// differ only by chrome density and whether text labels are shown. Per
-// ADR-0026/0027 the affordance is expressed once: a pure descriptor
+// differ only by chrome density and whether text labels are shown. The
+// affordance is therefore expressed once: a pure descriptor
 // (`buildShareControls`) is the single source of truth for *which* controls
 // exist, their order, icons, labels, copied-state, and handlers; the
 // `ShareCluster` wrapper owns *how* they render and where they sit relative to
@@ -14,7 +14,7 @@ import { Fragment, type ReactNode } from "react";
 // re-derives the control set or re-arranges the cluster.
 
 /**
- * Shared interaction-state token (ADR-0028): the muted → accent hover treatment
+ * Shared interaction-state token: the muted → accent hover treatment
  * for an icon button. Composed by every share control on both variants — never
  * re-declared inline per surface. Each variant adds its own surface chrome
  * (background/border) on top; the *interaction state* itself lives here once.
@@ -141,7 +141,7 @@ function JoinCodeBody({
  * - `bar`: a segmented pill with dividers and text labels (wide viewports).
  * - `compact`: independent icon-only chips (narrow viewports).
  * `className` carries the surface-specific shell — visibility, position, and
- * outer padding — which is the only latitude a surface has (ADR-0026).
+ * outer padding — which is the only latitude a surface has.
  */
 export function ShareCluster({
 	variant,

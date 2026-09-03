@@ -25,10 +25,12 @@ It rides its own header, it is consulted in exactly one place, and the only
 thing it opens is the deck's tallies.
 
 **User accounts (Better Auth).** `server/accounts.ts` builds a Better Auth
-instance (email + password, per-user API keys, factory per ADR-0007) on a
+instance (email + password, per-user API keys, built by a factory function
+rather than a class, like every other service module here) on a
 **dedicated `bun:sqlite` file** (`$OMUL_AUTH_DB`, default an `auth.sqlite`
-sibling of the docstore file) — a documented deviation from ADR-0023's
-Mongo default, for the single-node reason this product is built around. It is mounted at
+sibling of the docstore file) — a documented deviation from the Better Auth
+store this project would otherwise reach for, Mongo, for the single-node reason
+this product is built around. It is mounted at
 `/api/auth/*` (`auth.handler`) and its schema is created/upgraded in-process at
 boot via `ensureAuthSchema()`. The surface it exposes: sign-up / sign-in /
 sign-out / session, **password reset** and **email verification** (soft — a
@@ -510,7 +512,7 @@ where `id` is the **membership's** own handle — what a role change or a remova
 names it by. The account id is dropped by the same construction that keeps
 `creatorId` off a deck: `WorkspaceMemberSchema` does not declare it. `email` is
 carried only for a reader whose role may manage the roster and is an explicit
-`null` otherwise (ADR-0024): a member sees who they are working with by name,
+`null` otherwise: a member sees who they are working with by name,
 while the address somebody was invited at is management data, and the narrower
 default is the one that ships.
 
@@ -593,7 +595,7 @@ those and searches the payload rather than taking it on trust.
 | `id` | The comment's own id — what a delete names it by |
 | `slideId` | The slide the thread is anchored to |
 | `body` | What was written, verbatim: trimmed and capped at 2000 characters at the boundary, and otherwise stored exactly as typed |
-| `authorName` | The author's display name, or an explicit `null` for an account that has since been deleted (ADR-0024) |
+| `authorName` | The author's display name, or an explicit `null` for an account that has since been deleted |
 | `mine` | Whether this caller wrote it, resolved per request from the credentials that request carries |
 | `createdAt` | When it was written |
 
@@ -673,7 +675,7 @@ and the shared-results page unchanged.
 Four things a consumer should know:
 
 - **The empty value is the layering.** A field is emitted on every slide,
-  always, even when nothing was authored (ADR-0024) — so no client has to tell
+  always, even when nothing was authored — so no client has to tell
   "on the theme" from "field missing", and none reaches for `??`. Re-theming a
   deck therefore re-themes every slide that did not disagree with it.
 - **A colour is `#rgb` or `#rrggbb`, and nothing else.** No `rgb()`, no named
@@ -727,7 +729,7 @@ Emptied to `""`, not dropped — the opposite of a withheld answer key, and for
 the opposite reason. A withheld mark has to be indistinguishable from an
 unmarked option, so it disappears; a slide with **no** notes is the ordinary
 case and already carries `""`, so the audience's view of a noted slide and an
-un-noted one are the same complete shape (ADR-0024) and no client reaches for
+un-noted one are the same complete shape and no client reaches for
 `??`.
 
 The preview (REQ103) projects its participant pane through the same function
@@ -874,10 +876,10 @@ is a fact about the *build*, not about the caller:
 ```
 
 A self-hosted deployment with no provider key is the **default** posture, not an
-error. `reason` is an explicit `null` when generation is available (ADR-0024), so
-a client reads one shape either way. Ask this before drawing the control: ADR-0025
-wants it drawn and disabled with the reason, and a reason that only arrives on the
-click is a button that looks broken.
+error. `reason` is an explicit `null` when generation is available, so
+a client reads one shape either way. Ask this before drawing the control: an
+unavailable control is drawn and disabled with its reason rather than hidden,
+and a reason that only arrives on the click is a button that looks broken.
 
 `requiresAccount` is the second thing a surface needs for that: it says whether
 this deployment will only draft for signed-in accounts, which is **true unless the
@@ -910,7 +912,8 @@ the same split the vote refusals use. A provider's own error text never reaches 
 carry a request id, a quota state or a fragment of the prompt); it goes to the
 server log.
 
-The remote provider is an intentional, documented exception to ADR-0016 — see
+The remote provider is this product's one intentional, documented exception to
+the rule that production depends on no third-party runtime host — see
 [deployment.md](deployment.md#generating-a-deck-from-a-prompt-req007) for the
 variables, the boot-time report and what does and does not leave the building.
 
@@ -956,7 +959,8 @@ So a hand-built request can paint a room in its own colours — which is the poi
 
 **The face is an id because of what REQ092 asks for.** "Loaded so every surface
 resolves the same face" cannot be true of a family name each machine looks up in
-its own font book, and ADR-0016 forbids fetching one at runtime — so a theme
+its own font book, and this product fetches no asset from a third-party host at
+runtime — so a theme
 picks from what the bundle already ships (`figtree`, `mono`) or from a generic
 stack every system resolves (`system`, `serif`). The stacks themselves stay on
 the client beside the palettes.
@@ -1102,13 +1106,13 @@ publish live.
 oversight. Applying `instant` publishes live on slides an earlier decision had
 pinned to `on-click` — a Pin on Image slide with a target area (REQ053) among
 them, whose target is drawn on the reveal this clears. The editor states the
-consequence and the number of slides affected beside the button that runs it
-(ADR-0025); what it must not do is apply to some slides and not others, which
+consequence and the number of slides affected beside the button that runs it;
+ what it must not do is apply to some slides and not others, which
 would leave the organizer believing the deck is uniform when it is not.
 
 The editor applies the identical function to its unsaved local document and
 persists it with the ordinary deck PATCH, so an authoring session and an API
-caller cannot disagree about what "apply to the whole deck" means (ADR-0026).
+caller cannot disagree about what "apply to the whole deck" means.
 
 ### Reaching a live room
 
@@ -1163,8 +1167,8 @@ and a closed slide says "Submissions closed" on the presenter's own copy of it.
 they are cleared.
 
 Both are **public**, and necessarily so. A phone that did not know a question was
-closed would offer a control the boundary is refusing — ADR-0025 asks a disabled
-control for the *true* reason, and this is where that reason comes from — and the
+closed would offer a control the boundary is refusing — a disabled control has to
+carry the *true* reason, and this is where that reason comes from — and the
 screen being projected may be a second browser (the read-only presenter view)
 rather than the presenter's own laptop.
 
@@ -1217,7 +1221,7 @@ Five properties worth stating outright:
   is what an unopened deck, a deck written before this field existed, and a deck
   whose presenter never touched the control all mean. Storing the open set would
   make "nothing recorded" read as "nothing takes answers" — a whole room silently
-  refused because a field defaulted (ADR-0029).
+  refused because a field defaulted.
 - **`open` is required.** This is where it parts company with `/reveal` next
   door, whose `reveal` defaults to `true`: a reveal has a natural direction, while
   opening and closing a question are two equally ordinary halves of one control,
@@ -1312,7 +1316,7 @@ The `answerId` is the id the results payload gives an answer:
   names none of the three rows), so this is the list a deletion can be pointed
   at. It carries no participant id, and it is `null` for every caller who cannot
   edit the deck — stated rather than absent, on the same terms a form slide's
-  rows are (ADR-0024).
+  rows are.
 
 Answers on other slide types are refused with `400` and a machine-readable
 `refused: "slide-type"`, decided by `slideAnswersAreDeletable` in
@@ -1392,7 +1396,7 @@ earns nothing:
 | `items[].rank` | 1-indexed place in that aggregated ranking |
 | `items[].points` | total Borda points |
 | `items[].rankedCount` / `notRanked` | ballots that placed this item / left it out |
-| `items[].averageRank` | mean 1-indexed position among ballots that placed it, or an explicit `null` when none did (ADR-0024) |
+| `items[].averageRank` | mean 1-indexed position among ballots that placed it, or an explicit `null` when none did |
 
 Ties break on the better average position, then on the authored item order, so
 the same votes always render the same way.
@@ -1432,7 +1436,7 @@ allocation (authored item order, zeros dropped).
 | `items[].points` | total points the room gave the item |
 | `items[].share` | those points as a percentage of `totalPoints`, to two decimals — the shares sum to 100% |
 | `items[].funderCount` / `notFunded` | ballots that gave the item at least one point / gave it nothing |
-| `items[].averagePoints` | mean points **among the ballots that funded it**, or an explicit `null` when none did (ADR-0024) |
+| `items[].averagePoints` | mean points **among the ballots that funded it**, or an explicit `null` when none did |
 
 `share` and `averagePoints` are deliberately different readings: `share` spreads
 an item's points across everyone, `averagePoints` across only its backers. A
@@ -1621,7 +1625,8 @@ empties to `[]` for the same reason and reads the same way. A typed question's
 `options` are emptied too: it offers none to anyone, and a question switched from
 `select` keeps the options it was authored with (deliberately — that is what
 makes the stale answers under it recognisable), with the correct one still
-spelled out among them. The tally keeps ADR-0024's explicit `null`, where the key
+spelled out among them. The tally keeps its explicit `null` rather than dropping
+the key, where the key
 is a documented part of the contract.
 
 A plain `multiple-choice` slide is unchanged (REQ013): it keeps no score, and a
@@ -1642,7 +1647,7 @@ answer.
 | `closed` | whether the question is past its window *now* (grace included). A question with no deadline is never closed |
 | `answeredCount` / `correctCount` | answers the tally scored, and how many were right |
 | `totalPoints` | what the room banked on this question |
-| `averagePoints` / `correctShare` | mean points (two decimals) and the correct percentage, both an explicit `null` until somebody has answered (ADR-0024) |
+| `averagePoints` / `correctShare` | mean points (two decimals) and the correct percentage, both an explicit `null` until somebody has answered |
 
 Beside `scoring`, a quiz tally carries `answerMode` (so a client picks a renderer
 from the payload it holds) and, on a typed question, `typedAnswers` — an explicit
@@ -1682,13 +1687,13 @@ the endpoint hands out nobody else's.
 | `slides[].answered` | whether they answered at all |
 | `slides[].answerMode` | how that question was answered (`select` / `type`) |
 | `slides[].optionId` / `answer` | what they picked, or what they typed (REQ055). Both keys are always emitted and only one is ever filled: an option id is not a typed answer, and a client rendering "you answered X" must not have to guess which it holds |
-| `slides[].isCorrect` / `elapsedMs` | whether it was right, and how long they took — explicit `null` when they did not answer (ADR-0024); a `false` for `isCorrect` would claim they answered and got it wrong |
+| `slides[].isCorrect` / `elapsedMs` | whether it was right, and how long they took — explicit `null` when they did not answer; a `false` for `isCorrect` would claim they answered and got it wrong |
 | `slides[].points` | what that answer scored (`0` when unanswered) |
 | `entryId` / `label` | the one-way handle their row is named by on the deck's leaderboard (REQ059), and what that row is called on screen. Always present, even before they have scored, so a client can match its own row the moment they do |
 | `rank` / `rankedCount` | their place on that board and how many participants are ranked — `rank` is an explicit `null` until they have answered something, because unranked is a standing too and a `0` would read as a place they hold |
 
 Both surfaces render the countdown from the same descriptor
-(`quizWindowFor` / `useQuizCountdown` in `src/components/QuizTimer.tsx`, ADR-0026).
+(`quizWindowFor` / `useQuizCountdown` in `src/components/QuizTimer.tsx`).
 The participant's verdict waits for the question to close — a verdict on screen
 mid-question is the answer itself, one whispered row away from the people still
 deciding — and rides the existing results-visibility gate (REQ102), so it can
@@ -1737,7 +1742,7 @@ board on.
 | `quizCount` / `maxPoints` | quiz questions the standings are summed over, and what they are worth at best |
 | `rankedCount` | **everyone** ranked, including the rows below the cut |
 | `size` | how many rows this slide asked for |
-| `totalVotes` | always `0` — a board collects nothing, and says so rather than omitting the key (ADR-0024) |
+| `totalVotes` | always `0` — a board collects nothing, and says so rather than omitting the key |
 | `entries[]` | the top `size` rows, each `{ rank, entryId, label, totalPoints, correctCount, answeredCount }` |
 
 **Nobody is named, and the size caps the view, not the ranking.** Two decisions
@@ -1795,7 +1800,7 @@ endpoints already behave.
 | `allowSkip` | whether "not assessable" was offered (REQ050) |
 | `xAxis` / `yAxis` | the axes as authored, so a client can draw the field without re-reading the slide |
 | `items[].placed` / `skipped` | placements the tally read / participants who marked it not assessable |
-| `items[].averageX` / `averageY` | the room's mean coordinate for that item, or an explicit `null` when nobody placed it (ADR-0024) |
+| `items[].averageX` / `averageY` | the room's mean coordinate for that item, or an explicit `null` when nobody placed it |
 | `items[].placements[]` | the individual `{ x, y }` behind the average — the cluster on the shared screen |
 
 Skips are counted, never averaged. A stored placement that is no longer a point
@@ -1855,7 +1860,7 @@ the picture, and reads identically at any aspect ratio. Every edge is
 | `pinCount` | pins the tally could read — the denominator behind the share |
 | `image` | `{ url, alt }`, so a client draws the canvas from the tally without re-reading the slide |
 | `pins[]` | every readable `{ x, y }`, in submission order — the distribution itself |
-| `averageX` / `averageY` | the centre of the cloud to two decimals, or an explicit `null` before anyone pins (ADR-0024) |
+| `averageX` / `averageY` | the centre of the cloud to two decimals, or an explicit `null` before anyone pins |
 | `correctArea` | the target area, or `null` — both when none is authored and while it is withheld |
 | `correctCount` | pins inside it; `null` on the same terms |
 | `correctShare` | those as a percentage of `pinCount`; `null` on the same terms **and** `null` while nobody has pinned |
@@ -1942,7 +1947,7 @@ what is stored is re-encoded from what the codec read.
 | `buckets[]` | the distribution, low to high; empty columns included |
 | `buckets[].from` / `to` | lowest and highest selectable value in the column (equal for a one-value column) |
 | `buckets[].count` / `share` | guesses in the column, and that as a percentage of `guessCount` (two decimals) |
-| `lowestGuess` / `highestGuess` | the extremes, or an explicit `null` before anyone guesses (ADR-0024) |
+| `lowestGuess` / `highestGuess` | the extremes, or an explicit `null` before anyone guesses |
 | `averageGuess` / `medianGuess` | mean (two decimals) and median, or `null` on the same terms |
 | `reference` / `tolerance` | the authored correct number and its window width — both `null` together when there is no reference |
 | `correctRange` | `{ min, max }` the tolerance accepts, inclusive at both ends; `null` with no reference |
@@ -1982,7 +1987,7 @@ re-attribute last month's email addresses to this month's job titles.
 | Setting | Meaning |
 |---|---|
 | `formFields[]` | the fields, capped at 6 (`FORM_FIELD_LIMIT`) |
-| `formFields[].id` / `label` | the field's stable id and what it asks — both required, no default (ADR-0018) |
+| `formFields[].id` / `label` | the field's stable id and what it asks — both required, no default |
 | `formFields[].type` | `text`, `email` or `choice` — what the boundary will accept as an answer |
 | `formFields[].required` | whether the form may be sent without this field answered; `false` by default |
 | `formFields[].options[]` | `{ id, text }` on a `choice` field, capped at 8 (`FORM_FIELD_OPTION_LIMIT`); empty on the other two |
@@ -2036,7 +2041,7 @@ and the per-type bound is applied where the slide type is known
 | `fieldCount` | fields the slide currently asks |
 | `fields[].fieldId` / `label` / `type` / `required` | the field as authored |
 | `fields[].answered` | readable submissions that wrote something into it |
-| `fields[].options[]` | `{ optionId, text, count }` on a `choice` field — the one part of a form that is a distribution; an empty list on the other two (ADR-0024) |
+| `fields[].options[]` | `{ optionId, text, count }` on a `choice` field — the one part of a form that is a distribution; an empty list on the other two |
 | `submissions[]` | what the room actually wrote, or an explicit `null` when this caller was not sent it |
 | `submissions[].participantName` | who filled it in, on a deck that asked the room for names (REQ076); an explicit `null` on a deck that did not, or for a row cast before it started asking. It travels only where the rows do, so a name can never arrive without the row it labels |
 
@@ -2377,7 +2382,7 @@ The exports read the names **unconditionally**, not behind the deck's switch: a
 deck whose organizer turned names off after a session still holds the ones it
 collected, and an export that dropped them would be a record of the session
 missing what the session recorded. A row with no name is an explicit `null` in
-the workbook and the document's `—` in the PDF (ADR-0024), never an empty cell.
+the workbook and the document's `—` in the PDF, never an empty cell.
 
 **What clears them.** A **reset** (REQ101) takes the names with the answers — a
 re-run is a different room, which is the same reason it clears the chat — and a
@@ -2509,7 +2514,7 @@ Three properties are worth stating, because each is load-bearing:
   describing, and a pivot over the sheet is immediately usable — which is what
   the requirement's stated goal, analysis outside the tool, actually needs.
 
-An empty cell is always a deliberate one (ADR-0024): "this participant did not
+An empty cell is always a deliberate one: "this participant did not
 answer this slide" and "the average is zero" are different readings and stay
 distinguishable.
 
@@ -2570,7 +2575,7 @@ Four properties are worth stating, because each is load-bearing:
   export. **REQ158** is the entry that replaces the fold with an embedded face.
 
 An absent number is drawn as an explicit `—` rather than left blank, for the
-reason the workbook keeps its `null` cells (ADR-0024).
+reason the workbook keeps its `null` cells.
 
 **The two exports are the two readings of one session, not a duplicate.** The
 workbook is the analysable one — every stored row, the per-participant matrix,
@@ -2601,7 +2606,7 @@ organizer's decision and nobody else's:
 |---|---|
 | `POST /api/presentations/:id/results-link` | Mint. Returns `{ active, issuedAt, resultsToken }` with the plaintext token **once** (`201`) |
 | `DELETE /api/presentations/:id/results-link` | Revoke. Returns the state it leaves behind, `{ active: false, issuedAt: null, resultsToken: null }` |
-| `GET /api/presentations/:id/results-link` | Status: `active`, `issuedAt`, and `resultsToken` as an explicit `null` (ADR-0024) — the secret is stored hashed, so the mint is the one response it exists in |
+| `GET /api/presentations/:id/results-link` | Status: `active`, `issuedAt`, and `resultsToken` as an explicit `null` — the secret is stored hashed, so the mint is the one response it exists in |
 
 The holder sends it as **`X-Omul-Results-Token`** on `GET …/results` and
 `GET …/results/:slideId`. Its own header rather than the `Authorization: Bearer`
@@ -2612,7 +2617,7 @@ trying both. The link itself is `/results/:id#link=<token>` — the token in the
 request line and stays out of access logs, proxy logs and `Referer` headers.
 
 Stored as `resultsTokenHash` + `resultsTokenIssuedAt` on the presentation, both
-`null` by default (ADR-0029) and neither declared by `PresentationSchema` — so
+`null` by default and neither declared by `PresentationSchema` — so
 neither can travel to a client, by the same construction that keeps
 `creatorTokenHash` in.
 
@@ -2770,7 +2775,7 @@ meaning.
 Anything else answers `400` with a `refused` code and the reason in words, the
 same sentence the picker draws under a disabled entry
 (`server/segmentation.ts`, `SEGMENT_REFUSAL_REASONS` — one descriptor, shared
-with the client, ADR-0026):
+with the client):
 
 | `refused` | When |
 |---|---|
@@ -2839,9 +2844,9 @@ conventionally uses.
 
 ### The surface
 
-`/results/:id` draws the control under each slide's chart, where it belongs
-(ADR-0031): every earlier slide as an entry, the ones that cannot group drawn
-**disabled with their reason** rather than dropped (ADR-0025), and each group
+`/results/:id` draws the control under each slide's chart, where it belongs:
+ every earlier slide as an entry, the ones that cannot group drawn
+**disabled with their reason** rather than dropped, and each group
 rendered by the same `ResultsDisplay` the unsegmented tally uses
 (`src/components/SegmentedResults.tsx`). The eligibility rule is imported from
 the server module that enforces it, so the picker cannot offer a grouping the API

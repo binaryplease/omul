@@ -186,7 +186,7 @@ describe("Multiple Choice settings integration", () => {
 		]);
 	});
 
-	test("a choice slide with no marked answer emits isCorrect: null (REQ013, ADR-0024)", async () => {
+	test("a choice slide with no marked answer emits isCorrect: null (REQ013)", async () => {
 		const pres = await createAndStart([mcSlide()]);
 		const payload = await results(pres.id, "mc");
 		for (const option of payload.options) {

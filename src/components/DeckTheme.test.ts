@@ -728,7 +728,7 @@ describe("deckThemeStyle — what reaches the DOM", () => {
 	});
 });
 
-describe("deckThemeOptions — the editor's picker (ADR-0026)", () => {
+describe("deckThemeOptions — the editor's picker", () => {
 	test("offers every built-in theme in the catalog's order, then the deck's own", () => {
 		expect(deckThemeOptions(null).map((option) => option.value)).toEqual([
 			...BUILT_IN_DECK_THEME_IDS,

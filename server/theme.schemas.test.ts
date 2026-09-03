@@ -88,7 +88,7 @@ describe("the built-in set is closed (REQ079)", () => {
 		).toBe(false);
 	});
 
-	test("an unstated theme is the house theme, on every write path (ADR-0029)", () => {
+	test("an unstated theme is the house theme, on every write path", () => {
 		// The default has to be the appearance existing decks already had — a
 		// document written before this field existed re-parses forward onto it.
 		expect(PresentationSchema.parse(deck()).theme).toBe(DEFAULT_DECK_THEME);
@@ -101,7 +101,7 @@ describe("the built-in set is closed (REQ079)", () => {
 		expect(DEFAULT_DECK_THEME).toBe("signal");
 	});
 
-	test("the logo fields are always present, never absent (ADR-0024/ADR-0029)", () => {
+	test("the logo fields are always present, never absent", () => {
 		const parsed = PresentationSchema.parse(deck());
 		expect(parsed.themeLogoUrl).toBe("");
 		expect(parsed.themeLogoAlt).toBe("");
@@ -140,7 +140,7 @@ describe("a theme the deck defines for itself (REQ080, REQ135)", () => {
 		}
 	});
 
-	test("an unstated brand is present and empty, never absent (ADR-0024/ADR-0029)", () => {
+	test("an unstated brand is present and empty, never absent", () => {
 		// A deck written before this field existed re-parses forward onto it, and
 		// the audience's view of a branded deck and an unbranded one are the same
 		// complete shape — so no client reaches for `??`.
@@ -233,9 +233,9 @@ describe("a theme the deck defines for itself (REQ080, REQ135)", () => {
 	});
 
 	test("a face this build does not ship never reaches storage (REQ092)", () => {
-		// ADR-0016 forbids fetching one at runtime, so a theme may only name what
-		// the bundle carries — a family string would be a face that resolves
-		// differently on every machine in the room.
+		// Nothing here is fetched from a third-party host at runtime, so a theme
+		// may only name what the bundle carries — a family string would be a face
+		// that resolves differently on every machine in the room.
 		expect(
 			PresentationSchema.safeParse(
 				deck({

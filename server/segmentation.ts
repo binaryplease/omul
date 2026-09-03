@@ -10,15 +10,15 @@
  * group's participants to the very same aggregation an unsegmented read goes
  * through. A segment's numbers are therefore the numbers that surface would have
  * drawn for a room of exactly those people, by construction rather than by two
- * implementations agreeing (the reason the preview seam exists too, ADR-0010).
+ * implementations agreeing (the reason the preview seam exists too).
  *
- * Three things live here, and they are the three both ends need (ADR-0026):
+ * Three things live here, and they are the three both ends need:
  *
  *  - {@link segmentSourcesFor} — the **descriptor**. Which earlier slides can
  *    group this one, and, for each that cannot, why not in words. The picker on
  *    the results surface is drawn from it and the endpoint validates against it,
  *    so a slide the UI offers is a slide the API accepts and a refusal the API
- *    gives is a refusal the UI already explained (ADR-0025 — the ineligible
+ *    gives is a refusal the UI already explained (the ineligible
  *    entries are drawn disabled with their reason, never dropped from the menu).
  *  - {@link segmentBucketsFor} — the **join**. One group per authored answer on
  *    the source slide, plus the explicit group of people who did not answer it.
@@ -28,7 +28,7 @@
  *
  * It depends on `./schemas` and nothing else — no store, no route, no clock — so
  * the browser composes the same descriptor the server enforces by importing it
- * (ADR-0032: a unit of code lives where its dependencies are).
+ * (a unit of code lives where its dependencies are).
  */
 
 import {
@@ -185,7 +185,7 @@ export type SegmentRefusal =
 	| "unsupported-type";
 
 /**
- * What each refusal says, in the words a person reads (ADR-0025).
+ * What each refusal says, in the words a person reads.
  *
  * One spelling, because the same sentence is owed in two places: the picker
  * draws it under a disabled entry, and the endpoint returns it when a request
@@ -279,7 +279,7 @@ export type SegmentSource = {
 	/** `null` when this slide can group the target; otherwise why it cannot. */
 	refusal: SegmentRefusal | null;
 	/**
-	 * The refusal in words, or an explicit `null` when there is none (ADR-0024) —
+	 * The refusal in words, or an explicit `null` when there is none —
 	 * so a client renders the sentence it was given rather than keeping its own
 	 * copy of the table.
 	 */
@@ -292,7 +292,7 @@ export type SegmentSource = {
  *
  * The list is the slides **before** the target that put a tally on screen
  * (`slideHasResults`). Those are the entries a picker draws — the eligible ones
- * live, the rest disabled with `reason` under them (ADR-0025). Slides *after*
+ * live, the rest disabled with `reason` under them. Slides *after*
  * the target are not in the list at all: they are not this control's options
  * that happen to be unavailable, they are outside what a breakdown means
  * (REQ020 — "an earlier slide"), and listing every later slide as a permanent
@@ -359,7 +359,7 @@ export function segmentRefusalFor(
  * The fields a stored vote row is joined on. Declared as a read model for the
  * same reason the spreadsheet export declares one: the aggregation deals in
  * untyped store rows, and restating the stored schema here would be a second
- * source of truth for it (ADR-0013).
+ * source of truth for it.
  */
 export type SegmentVoteRow = {
 	participantId?: unknown;

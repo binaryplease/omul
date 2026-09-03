@@ -208,7 +208,7 @@ describe("reactions on any slide (REQ077)", () => {
 		const pres = await createAndStart({ reactionsEnabled: true });
 		const res = await react(pres.id, "laugh");
 		expect(res.status).toBe(200);
-		// Reported as an explicit null rather than dropped from the body (ADR-0024).
+		// Reported as an explicit null rather than dropped from the body.
 		expect(await res.json()).toMatchObject({ ok: true, slideId: null });
 	});
 

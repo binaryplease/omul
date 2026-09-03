@@ -107,7 +107,7 @@ describe("audienceViewBlanked — the shared screen (REQ109)", () => {
 });
 
 describe("the stored and public shapes", () => {
-	test("both fields default to the state a deck was already in (ADR-0029)", () => {
+	test("both fields default to the state a deck was already in", () => {
 		// Every deck written before this slice re-parses forward onto a session
 		// with nothing closed and nothing blanked, which is the only pair that
 		// cannot refuse a room or darken a projector by omission.

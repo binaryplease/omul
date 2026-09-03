@@ -253,7 +253,7 @@ describe("Preview mode and test votes integration (REQ103, REQ104)", () => {
 		for (const entry of payload.slides) {
 			expect(entry.type).toBeDefined();
 			expect(entry.question).toBeDefined();
-			// ADR-0024 — both perspectives are always emitted. A content slide has no
+			// Both perspectives are always emitted. A content slide has no
 			// tally, and says so with an explicit shape rather than a missing key.
 			expect(entry).toHaveProperty("presenterResults");
 			expect(entry).toHaveProperty("audienceResults");
@@ -431,7 +431,7 @@ describe("Preview mode and test votes integration (REQ103, REQ104)", () => {
 		for (const entry of payload.slides) {
 			expect(entry.presenterResults.totalVotes).toBe(0);
 		}
-		// ADR-0024 — an empty room has no average, not an average of zero.
+		// An empty room has no average, not an average of zero.
 		expect(slideOf(payload, "gn").presenterResults.averageGuess).toBeNull();
 		expect(slideOf(payload, "qz").presenterResults.scoring.averagePoints).toBeNull();
 		expect(slideOf(payload, "rk").presenterResults.ballots).toBe(0);

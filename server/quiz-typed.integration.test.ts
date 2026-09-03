@@ -371,11 +371,11 @@ describe("typed quiz answers integration (REQ055)", () => {
 		// Stored as the participant wrote it, only trimmed — a verdict is shown
 		// under these words, so they have to be the participant's own.
 		expect(card.slides[0].answer).toBe("Zürich");
-		// ADR-0024: the option-id key is emitted as an explicit null, never dropped.
+		// The option-id key is emitted as an explicit null, never dropped.
 		expect(card.slides[0].optionId).toBe(null);
 	});
 
-	test("an unanswered typed question is spelled with explicit nulls (ADR-0024)", async () => {
+	test("an unanswered typed question is spelled with explicit nulls", async () => {
 		const pres = await createAndStart();
 		const card = await scorecard(pres.id, "nobody");
 		expect(card.slides[0].answered).toBe(false);
@@ -508,7 +508,7 @@ describe("typed quiz answers integration (REQ055)", () => {
 		// Every answer that lands re-broadcasts this payload to the whole room. On
 		// a typed question the answer most of the room gave is the answer, so the
 		// rows are withheld on the same gate as the key itself — as an explicit
-		// null (ADR-0024), never an empty list that would claim nobody answered.
+		// null, never an empty list that would claim nobody answered.
 		const pres = await createAndStart();
 		await answer(pres.id, "p1", "Zürich");
 

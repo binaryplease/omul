@@ -662,15 +662,15 @@ body {
 
 /* The browser's own clear widget for `type="search"`, suppressed: the field
    carries an always-present clear control of its own, disabled when there is
-   nothing to clear (ADR-0025). Two of them side by side, one of which vanishes,
+   nothing to clear. Two of them side by side, one of which vanishes,
    is exactly the affordance that rule is about. */
 .input-search::-webkit-search-cancel-button {
 	display: none;
 }
 
 /* A field that cannot be edited right now stays on screen, dimmed, with its
-   reason stated beside it (ADR-0025) — never removed. Owned here so every
-   surface wears the same disabled input (ADR-0028). */
+   reason stated beside it — never removed. Owned here so every
+   surface wears the same disabled input. */
 .input:disabled {
 	opacity: 0.4;
 	cursor: not-allowed;
@@ -831,7 +831,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
    carries. The value is written by `<DeckThemeScope/>` onto the subtree as
    `--deck-slide-background`; a surface outside any scope simply gets `none`,
    which is why the fallback is spelled out rather than assumed. Owned here, and
-   composed by `SlideBackground` alone (ADR-0028). */
+   composed by `SlideBackground` alone. */
 .deck-slide-wash {
 	background-image: var(--deck-slide-background, none);
 }

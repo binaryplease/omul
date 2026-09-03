@@ -6,10 +6,10 @@
  * `DATABASE_PATH`: `server/db.ts` (the zodstore file itself),
  * `server/accounts.ts` (Better Auth, an `auth.sqlite` sibling) and
  * `server/admin-events.ts` (an `admin.sqlite` sibling). Each used to spell the
- * default out for itself, which is three copies of one descriptor (ADR-0026) and
+ * default out for itself, which is three copies of one descriptor and
  * three places for a change to land in two of.
  *
- * This module depends on nothing but the environment (ADR-0032), which is what
+ * This module depends on nothing but the environment, which is what
  * lets `db.ts` compose it at module load, before any store exists.
  */
 

@@ -10,7 +10,7 @@ import { docstorePath } from "./store-path";
 
 // Persistence path for the zodstore SQLite database. `:memory:` gives an
 // ephemeral in-process store (used by tests); any other value is a file path.
-// Per ADR-0018 this is a fixed, known location read once at load — no silent
+// A fixed, known location read once at load — no silent
 // fallback to a different file if it is unwritable; bun:sqlite fails loudly.
 // `server/store-path.ts` owns the one reading of DATABASE_PATH, so the auth and
 // admin stores hang their siblings off the same answer (REQ174).
@@ -85,7 +85,7 @@ export interface Store {
  * called with it.
  *
  * Recorded because {@link createStore} declines the library's own per-collection
- * ADR-0029 walk (see below) and `server/stored-defaults.test.ts` re-implements it
+ * defaults walk (see below) and `server/stored-defaults.test.ts` re-implements it
  * over a hand-written list. A hand-written list is only a guard while it is
  * complete, and nothing about adding a twelfth `createStore` call makes anyone
  * add a twelfth entry — so the test reads this back and fails on a collection
@@ -99,20 +99,21 @@ export function openedCollectionNames(): string[] {
 }
 
 /**
- * Open a store over a named collection, gated by `schema` (ADR-0013). The schema
+ * Open a store over a named collection, gated by `schema`. The schema
  * is validated on every read and write; passing it at the call site keeps the
  * stored shape visible where the collection is used. `indexes` declares the
  * `json_extract` expression indexes over the fields the collection filters on.
  *
  * `enforceDefaults: false` opts out of the library's walk that refuses a
- * non-identity field with no `.default(...)`. The rule itself is ADR-0029 and
- * still holds — what does not hold here is the library's way of recognising an
- * identity field, which is the schema object `ref()` hands out. This catalog's
+ * non-identity field with no `.default(...)`. The rule itself — every
+ * non-identity stored field declares a default — still holds. What does not
+ * hold here is the library's way of recognising an identity field, which is the
+ * schema object `ref()` hands out. This catalog's
  * foreign keys are plain `z.string()` over `crypto.randomUUID()` values with no
  * `prefix_` on them, so `ref()` cannot express them and the walk reads all
  * eighteen of them — `presentationId`, `slideId`, `workspaceId`, `userId`,
  * `authorId`, `participantId`, `questionId`, `responseId`, spread over nine of
- * the eleven collections — as ordinary fields that forgot a default. ADR-0029's
+ * the eleven collections — as ordinary fields that forgot a default. The rule's
  * own exemption for identity fields covers exactly those, and
  * `server/stored-defaults.test.ts` enforces the rule over every collection with
  * that exemption spelled out — over every collection this function has actually

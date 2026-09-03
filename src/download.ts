@@ -3,7 +3,7 @@
 // Two surfaces now hand the user a file: the deck list saves a presentation as
 // JSON, and the presenter's screen downloads a session's results as a
 // spreadsheet (REQ095). The anchor-click dance that actually puts bytes in a
-// download folder is the same both times, so it lives here once (ADR-0026) —
+// download folder is the same both times, so it lives here once —
 // two copies is how one of them eventually forgets to revoke its object URL.
 //
 // Nothing here decides *what* is downloaded or *what it is called*: a caller
@@ -12,7 +12,7 @@
 // endpoint said it was rather than a second guess at the same slug. For a file
 // this browser builds itself, the name is slugged with `deckFilenameSlug` —
 // which lives in `server/schemas.ts` beside every other rule both sides of the
-// wire have to agree on (ADR-0026), so this module holds no copy of it.
+// wire have to agree on, so this module holds no copy of it.
 
 /**
  * Save a blob to the user's download folder under `filename`.

@@ -12,7 +12,7 @@
  *     and when the audience may be told about it at all
  *
  * The codec and the resolvers are tested here rather than through the API
- * because they are the contract *both* ends share (ADR-0013): the participant
+ * because they are the contract *both* ends share: the participant
  * surface writes the coordinates and the aggregation reads them back.
  */
 
@@ -135,7 +135,7 @@ describe("PinAreaSchema — the target area (REQ053)", () => {
 	});
 
 	test("every corner is required — a partial rectangle is not an area", () => {
-		// Defaultless on purpose (ADR-0018): a defaulted 0 would assert a target
+		// Defaultless on purpose: a defaulted 0 would assert a target
 		// nobody drew.
 		expect(PinAreaSchema.safeParse({ x: 10, y: 10, width: 10 }).success).toBe(
 			false,
@@ -152,7 +152,7 @@ describe("PinAreaSchema — the target area (REQ053)", () => {
 		).toBe(false);
 	});
 
-	test("a stored deck authored before pin slides existed re-parses forward (ADR-0029)", () => {
+	test("a stored deck authored before pin slides existed re-parses forward", () => {
 		const stored = StoredPresentationSchema.parse({
 			id: "p1",
 			slides: [{ id: "s1", type: "word-cloud", question: "Describe today" }],

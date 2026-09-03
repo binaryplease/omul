@@ -245,7 +245,7 @@ describe("Ranking question type integration", () => {
 		expect(itemIn(payload, "c").points).toBe(2);
 	});
 
-	test("an item nobody placed reports an explicit null average (ADR-0024)", async () => {
+	test("an item nobody placed reports an explicit null average", async () => {
 		const pres = await createAndStart([rankingSlide()]);
 		await rank(pres.id, "p1", ["a", "b"]);
 

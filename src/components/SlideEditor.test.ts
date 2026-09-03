@@ -306,9 +306,10 @@ describe("a reset never loosens a reveal the product tightened (REQ155)", () => 
 	});
 });
 
-describe("a group with nothing to reset draws no reset (ADR-0025)", () => {
+describe("a group with nothing to reset draws no reset", () => {
 	test("only the types that own an answer rule offer one", () => {
-		// Not the ADR-0025 case: there is no unavailable action to explain here,
+		// Not the disabled-with-a-reason case: there is no unavailable action to
+		// explain here,
 		// only an action that does not exist — so a quiz, a ranking or a form must
 		// not draw a control that is disabled forever.
 		const resettable = EVERY_SLIDE_TYPE.filter(

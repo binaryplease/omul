@@ -17,8 +17,9 @@ import { slideHasResults, slideTextSizeFor } from "../types";
 //
 // What a results link opens: every slide's tally, and nothing else. No
 // navigation, no reveal control, no reset, no export, no Q&A queue, no chat, no
-// vote — not disabled versions of them either (ADR-0025 is about a control whose
-// action is *currently* unavailable; these are not this page's controls at all,
+// vote — not disabled versions of them either (drawing a control disabled is for
+// one whose action is *currently* unavailable; these are not this page's
+// controls at all,
 // and drawing a greyed-out "End presentation" for a stakeholder reading a
 // summary would be inventing an affordance to take away). The page is a read,
 // and the only thing it can do is re-read.
@@ -219,8 +220,8 @@ export function SharedResultsPage({ id }: { id: string }) {
 										<ResultsDisplay slide={slide} results={results} />
 										{/* REQ020/REQ116 — the same tally, split by what these
 										    people answered earlier in the deck. Under the chart
-										    it re-draws, because that is what it changes
-										    (ADR-0031), and only where there is a chart: a slide
+										    it re-draws, because that is what it changes,
+										    and only where there is a chart: a slide
 										    whose numbers this reader cannot see has nothing to
 										    break down, and the sentence below says so already. */}
 										<SegmentedResults

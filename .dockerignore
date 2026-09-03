@@ -24,6 +24,7 @@ task
 docs
 scripts
 Caddyfile
+compose.yaml
 update-deps-hash.sh
 README.md
 AGENTS.md

@@ -3,7 +3,7 @@
 // The pure maths both theming layers do: the deck's own palette derivation
 // (`DeckTheme.tsx`, REQ079/REQ080) and a slide's override of it
 // (`SlideAppearance.tsx`, REQ087/REQ070/REQ071/REQ019). It is its own module
-// because it depends on neither of them (ADR-0032) — no DOM, no React, no
+// because it depends on neither of them — no DOM, no React, no
 // schema, no token vocabulary — which is also what makes every derivation
 // above it assertable without a browser.
 //
@@ -143,7 +143,7 @@ export function schemeOfCanvas(canvas: Rgb): "dark" | "light" {
  *
  * A `<input type="color">` has no "unset" — it always reports some colour — so
  * the two controls that author one field need a shared answer to "what does the
- * picker show when nothing is authored yet?", and this is it (ADR-0026). One
+ * picker show when nothing is authored yet?", and this is it. One
  * answer for both layers: a deck's brand colour and a slide's own are authored
  * by the same control.
  */

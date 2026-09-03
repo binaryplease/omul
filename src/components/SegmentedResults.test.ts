@@ -7,7 +7,7 @@
  *     about what they are not. The entries come from the server's own descriptor
  *     (`segmentSourcesFor`), so what is asserted here is that the picker carries
  *     that verdict faithfully: an ineligible slide is drawn and disabled with
- *     the server's sentence (ADR-0025), never dropped.
+ *     the server's sentence, never dropped.
  *   - `readSegments` — the defensive read of a payload this page polls for. A
  *     deck edited underneath an open breakdown must degrade to "no groups", not
  *     to a crash inside a chart.
@@ -68,7 +68,7 @@ describe("segmentPickerOptions — what a reader may group by (REQ116)", () => {
 		expect(options[1].label).toBe("1. Which team?");
 	});
 
-	test("an ineligible slide is disabled with the server's own reason (ADR-0025)", () => {
+	test("an ineligible slide is disabled with the server's own reason", () => {
 		const options = segmentPickerOptions(deck, "topic");
 		expect(options[1].disabled).toBe(false);
 		expect(options[2].disabled).toBe(true);

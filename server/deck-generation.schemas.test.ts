@@ -227,7 +227,7 @@ describe("REQ007 — a draft becomes ordinary slides", () => {
 
 	test("slides come back fully defaulted, like any other deck's", () => {
 		const [slide] = draftDeckSlides(draft([{ type: "open-text", question: "Ask" }]));
-		// The complete shape (ADR-0024/ADR-0029) — a generated slide and an
+		// The complete shape — a generated slide and an
 		// editor-made one are indistinguishable in everything but their words.
 		expect(slide.resultsVisibility).toBe("inherit");
 		expect(slide.layout).toBe("inherit");
@@ -423,7 +423,7 @@ describe("REQ007 — who may spend the provider budget", () => {
 		expect(deckGenerationAllowsAnonymous()).toBe(true);
 	});
 
-	test("the opt-out is reported so a surface can say why (ADR-0025)", () => {
+	test("the opt-out is reported so a surface can say why", () => {
 		process.env[DECK_GENERATION_KEY_ENV] = "a-key";
 		process.env[DECK_GENERATION_ANONYMOUS_ENV] = "true";
 		expect(createDeckGenerator().availability().requiresAccount).toBe(false);
@@ -448,7 +448,7 @@ describe("REQ007 — who may spend the provider budget", () => {
 });
 
 describe("REQ007 — which model this deployment asks", () => {
-	test("a floating latest alias stands when the deployment names none (ADR-0009)", () => {
+	test("a floating latest alias stands when the deployment names none", () => {
 		delete process.env[DECK_GENERATION_MODEL_ENV];
 		expect(deckGenerationModelId()).toBe(DEFAULT_DECK_GENERATION_MODEL);
 	});
@@ -472,7 +472,7 @@ describe("REQ007 — availability fails closed", () => {
 		process.env[DECK_GENERATION_KEY_ENV] = "a-key";
 		const availability = createDeckGenerator().availability();
 		expect(availability.available).toBe(true);
-		// ADR-0024 — emitted, not omitted, so no client tells "no reason" from
+		// Emitted, not omitted, so no client tells "no reason" from
 		// "field missing".
 		expect(availability.reason).toBeNull();
 	});

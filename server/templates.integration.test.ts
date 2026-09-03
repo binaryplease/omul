@@ -118,7 +118,7 @@ describe("Deck templates integration", () => {
 		for (const entry of catalog) {
 			expect(typeof entry.id).toBe("string");
 			expect(typeof entry.title).toBe("string");
-			// Every key present, none omitted (ADR-0024): a card renders the same
+			// Every key present, none omitted: a card renders the same
 			// shape whether or not the entry was authored with tags.
 			expect(typeof entry.description).toBe("string");
 			expect(Array.isArray(entry.tags)).toBe(true);

@@ -6,7 +6,7 @@
  * that decision being the *only* one:
  *
  *   - **Whose viewer a link opens is resolved once.** `slideEmbedFor` is the
- *     single read site (ADR-0026) the editor, the preview pane, the shared
+ *     single read site the editor, the preview pane, the shared
  *     screen and the phones all ask. A share link is a page for a human — an
  *     `<iframe>` pointed at a Google Slides `/edit` URL frames an editor rather
  *     than a deck — so each provider's link is normalised to that provider's own
@@ -78,7 +78,7 @@ describe("the embed slide type (REQ066, REQ067, REQ068)", () => {
 
 	test("every provider in the enum is described exactly once", () => {
 		// The descriptor is what the editor's note, the rail's gist and the frame's
-		// own capabilities all read (ADR-0026), so a provider added to the enum and
+		// own capabilities all read, so a provider added to the enum and
 		// not to the descriptor is a surface with nothing to say about it.
 		expect(Object.keys(EMBED_PROVIDERS).sort()).toEqual(
 			[...EmbedProviderEnum.options].sort(),

@@ -1,5 +1,8 @@
 /**
- * ADR-0029 over every collection that reaches storage, in one place.
+ * The declared-defaults rule over every collection that reaches storage, in one
+ * place: every non-identity stored field carries a `.default(...)`, so the shape
+ * can grow by appending a field and rows written under an older shape re-parse
+ * forward.
  *
  * The storage library carries this walk itself — `store.collection(...)` refuses
  * a non-identity field with no `.default(...)` — and `server/db.ts` opts out of
@@ -11,7 +14,7 @@
  * `ref()` cannot express one and the library's walk reads every one of them as
  * an ordinary field that forgot a default.
  *
- * ADR-0029 exempts exactly those, so the rule is enforced here with the
+ * The rule exempts exactly those, so it is enforced here with the
  * exemption written down rather than inferred. Each collection names its
  * identity fields explicitly, which is what makes this a guard: a new field on
  * a stored schema either declares a default or has to be added to a list a
@@ -24,7 +27,7 @@
  *
  * The list below is written by hand, and a hand-written list is only a guard
  * while it is complete: a twelfth collection added under `server/services/`
- * would otherwise be exempt from ADR-0029 in the library *and* here, at once and
+ * would otherwise be exempt from the rule in the library *and* here, at once and
  * silently. So the last case loads the service modules for their `createStore`
  * side effects and compares what they opened against what is listed.
  */
@@ -55,9 +58,9 @@ interface StoredCollection {
 	name: string;
 	schema: z.ZodType;
 	/**
-	 * The fields ADR-0029 exempts: the primary key, and the foreign keys that
+	 * The fields the rule exempts: the primary key, and the foreign keys that
 	 * identify the row's owner. They are required inputs — a vote with no
-	 * `presentationId` belongs to nothing — so they fail loudly (ADR-0018)
+	 * `presentationId` belongs to nothing — so they fail loudly
 	 * instead of defaulting into a row that points nowhere.
 	 */
 	identityFields: string[];
@@ -144,7 +147,7 @@ function readShape(schema: z.ZodType): Record<string, z.ZodType> | null {
  */
 let openedCollectionNames: string[] = [];
 
-describe("every stored field either defaults or is identity (ADR-0029)", () => {
+describe("every stored field either defaults or is identity", () => {
 	beforeAll(async () => {
 		// Imported for their module-load `createStore` calls, not for their exports:
 		// these five modules are every caller of it outside a test. `presentations`
@@ -162,7 +165,7 @@ describe("every stored field either defaults or is identity (ADR-0029)", () => {
 
 	test("every collection this server opens is listed here", () => {
 		// The guard on the list itself. A twelfth `createStore` call that nobody
-		// adds a row for is a collection ADR-0029 stops being enforced over —
+		// adds a row for is a collection the rule stops being enforced over —
 		// silently, because the library's own walk is off. Concretely: that
 		// collection gains a non-identity field with no `.default(...)`, and rows
 		// written before it stop parsing on read.
@@ -204,7 +207,7 @@ describe("every stored field either defaults or is identity (ADR-0029)", () => {
 
 		test(`${collection.name}'s identity fields carry no default`, () => {
 			// The other direction of the exemption: a field listed here must be
-			// one that fails loudly (ADR-0018), not one that quietly defaults.
+			// one that fails loudly, not one that quietly defaults.
 			const shape = readShape(collection.schema) ?? {};
 			const defaulted = collection.identityFields.filter((field) => {
 				const fieldSchema = shape[field];

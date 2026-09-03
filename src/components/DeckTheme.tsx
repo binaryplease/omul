@@ -37,7 +37,7 @@ import {
 // ── The deck's theme, as every surface wears it ───────────────────────
 //     (REQ079, REQ080, REQ092, REQ135, REQ136)
 //
-// One descriptor, one wrapper, one mark (ADR-0026):
+// One descriptor, one wrapper, one mark:
 //
 //   - `DECK_THEME_APPEARANCE` is the single catalog of what each built-in theme
 //     *looks* like — its palette in both colour schemes and the wash painted
@@ -127,8 +127,8 @@ export type DeckFontStack = {
  * `src/index.css` through `@fontsource*`, and the rest are generic families no
  * download can fail. A theme that named Satoshi would be a theme that renders as
  * the fallback on every machine but the designer's — which is exactly what "so
- * every surface resolves the same face" rules out, and what ADR-0016 forbids
- * fixing with a runtime fetch.
+ * every surface resolves the same face" rules out, and what no runtime fetch
+ * from a third-party host may fix, because this product makes none.
  */
 export const DECK_FONT_STACKS: Record<DeckFontId, DeckFontStack> = {
 	figtree: {
@@ -520,8 +520,8 @@ export const TEXT_RAMP_WEIGHTS = { muted: 0.4, dim: 0.62 } as const;
  * steps the other way — away from the text, into the room behind the slide.
  *
  * Exported because a **slide that authored its own canvas** derives exactly these
- * from it (REQ070, `SlideAppearance.tsx`). One derivation, both layers
- * (ADR-0026). Split from the text ramp below because the two are implied by
+ * from it (REQ070, `SlideAppearance.tsx`). One derivation, both layers.
+ * Split from the text ramp below because the two are implied by
  * different things: these follow from the *canvas*, and a slide that recoloured
  * only its words has said nothing about them.
  */
@@ -945,7 +945,7 @@ export function DeckThemeSwatch({
 }
 
 /**
- * The themes as the editor offers them (ADR-0026) — one descriptor, so a theme
+ * The themes as the editor offers them — one descriptor, so a theme
  * added to the schema's enum reaches the picker by being in the catalog rather
  * than by being remembered.
  *

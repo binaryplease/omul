@@ -8,8 +8,8 @@
  *     count on the presenter's chip and the thread under it cannot disagree.
  *   - **What an author is called**, including the two cases nobody authors: the
  *     reader's own comments, and a comment whose account has since been deleted.
- *   - **What the closed strip says** with a thread and without one (ADR-0025 —
- *     the affordance stays in place when there is nothing in it).
+ *   - **What the closed strip says** with a thread and without one (the
+ *     affordance stays in place when there is nothing in it).
  *   - **Whether the composer is live, and why not when it is not.** The `view`
  *     case is the level distinction REQ075 reserved the vocabulary for; the
  *     `error` case is why a browser holding the deck's edit link but no account
@@ -119,7 +119,7 @@ describe("slideCommentTimeLabel — when it was written", () => {
 	});
 });
 
-describe("slideCommentComposerState — whether the box is live (ADR-0025)", () => {
+describe("slideCommentComposerState — whether the box is live", () => {
 	test("`comment` and `edit` write; the owner is `edit` by construction", () => {
 		for (const accessLevel of ["comment", "edit"] as const) {
 			expect(slideCommentComposerState({ accessLevel, error: null })).toEqual({

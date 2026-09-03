@@ -1,5 +1,5 @@
 /**
- * Unit tests for the slide-type descriptors (ADR-0026, REQ155).
+ * Unit tests for the slide-type descriptors (REQ155).
  *
  * The picker and the settings column are both markup over these three records,
  * and a type missing from any of them is a hole a reader only finds in front of
@@ -31,7 +31,7 @@ import {
 
 const EVERY_SLIDE_TYPE = SlideTypeEnum.options;
 
-describe("every slide type is described (ADR-0026)", () => {
+describe("every slide type is described", () => {
 	test("each has a label, a hint and a set of sections", () => {
 		for (const type of EVERY_SLIDE_TYPE) {
 			expect([type, typeof SLIDE_TYPE_LABELS[type]]).toEqual([type, "string"]);

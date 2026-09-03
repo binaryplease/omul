@@ -99,8 +99,9 @@ describe("participantRosterHeading (REQ076)", () => {
 	});
 
 	test("a roster not read yet claims no count", () => {
-		// ADR-0024, and the rule the chip's own comment states: a `0` would claim
-		// an empty room on a deck this browser has not asked about.
+		// An unknown count reads as an explicit absence, which is the rule the
+		// chip's own comment states: a `0` would claim an empty room on a deck this
+		// browser has not asked about.
 		expect(participantRosterHeading(null)).toBe("Participants");
 	});
 

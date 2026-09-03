@@ -10,7 +10,7 @@ import { Modal } from "./ui/Modal";
 //
 // The other half of the move `WorkspacePage` offers: that page takes a deck back
 // out, this hands one in. It sits behind a control on the deck's own card
-// (ADR-0031) — what it changes is that deck's owner, so it lives beside the deck
+// — what it changes is that deck's owner, so it lives beside the deck
 // rather than in the workspace's chrome, where an organizer would have to know
 // which of their decks they meant before they got there.
 //

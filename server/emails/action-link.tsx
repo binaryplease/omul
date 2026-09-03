@@ -3,7 +3,7 @@
  * verification are the same layout (heading, lead paragraph, CTA button, a
  * paste-able link fallback, and a footer note) differing only in their copy and
  * the target URL. That layout is the invariant, so it is one prop-driven
- * component (ADR-0027) rather than two near-identical templates.
+ * component rather than two near-identical templates.
  */
 
 import { Button, Heading, Link, Section, Text } from "@react-email/components";

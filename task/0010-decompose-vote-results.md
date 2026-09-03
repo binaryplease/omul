@@ -1,18 +1,18 @@
 ---
-title: "ADR-0010 decompose submitVote / getSlideResults"
+title: "Decompose submitVote / getSlideResults"
 status: planned
 created: 2026-06-27
 updated: 2026-06-27
 priority: low
-tags: [refactor, adr-0010, tech-debt, voting]
+tags: [refactor, decomposition, tech-debt, voting]
 review: required
 ---
 
-# ADR-0010 decompose submitVote / getSlideResults
+# Decompose submitVote / getSlideResults
 
 ## Context
 
-Two ADR-0010 ("one function, one thing") offenders, both in
+Two "one function, one thing" offenders, both in
 `server/services/presentations.ts`:
 
 - **`submitVote`** (lines ~217–398, ~182 lines): interleaves input
@@ -23,8 +23,8 @@ Two ADR-0010 ("one function, one thing") offenders, both in
 - **`getSlideResults`** (lines ~458–612, ~155 lines): fetches votes and
   aggregates every slide type inline in one long body.
 
-Surfaced during an ADR triage pass ("ADR Tier 3 — Pervasive style
-debt"). Triage decision: **defer to separate ADR-0005 task branches**, NOT
+Surfaced during a conventions triage pass ("Tier 3 — pervasive style
+debt"). Triage decision: **defer to separate task branches**, NOT
 bundle into the Tier-1 correctness fix.
 
 ## Why deferred / why low priority + extra caution
@@ -63,11 +63,11 @@ unchanged — callers (routes, the results endpoints, and the internal
 
 ## Coordination
 
-- **Overlaps `task/0009-adr0017-descriptive-names`** on this same file. Do
+- **Overlaps `task/0009-descriptive-names`** on this same file. Do
   not run both concurrently on `server/services/presentations.ts`. Prefer
   landing this decomposition first (it moves/rewrites the lines), then let
-  the naming pass clean what remains — or apply ADR-0017 naming to the new
-  helpers as they are written here. Decide at scheduling time.
+  the naming pass clean what remains — or apply the descriptive-naming rule to
+  the new helpers as they are written here. Decide at scheduling time.
 
 ## What this does NOT change
 

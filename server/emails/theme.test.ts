@@ -134,7 +134,7 @@ describe("an email's words clear AA on the card it is set on", () => {
 	});
 });
 
-describe("no email fetches an asset from a third party (ADR-0016, REQ178)", () => {
+describe("no email fetches an asset from a third party (REQ178)", () => {
 	// The app's faces are bundled and resolve offline; an email cannot carry a
 	// bundle, so the only way to put one in an inbox is a stylesheet the reader's
 	// mail client fetches from a font host when the mail is opened. That is a

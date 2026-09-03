@@ -29,7 +29,7 @@ import { DECK_PROMPT_MAX_LENGTH } from "../types";
 // **Whether this build can generate at all is the server's answer**
 // (`GET /api/deck-generation`), read once on arrival. A self-hosted deployment
 // with no provider key configured is the ordinary case, so the control is drawn
-// and disabled with the reason (ADR-0025) rather than hidden — a missing button
+// and disabled with the reason rather than hidden — a missing button
 // is indistinguishable from a broken one.
 
 /** What the box suggests when the organizer has typed nothing yet. */
@@ -88,8 +88,8 @@ export function GeneratePage({ go }: { go: (r: Route) => void }) {
 
 	/**
 	 * Why the button cannot be pressed right now, or `null` when it can — one
-	 * reading, so the disabled state and the explanation on it cannot disagree
-	 * (ADR-0025). Ordered the way the organizer can act on it: what this server
+	 * reading, so the disabled state and the explanation on it cannot disagree.
+	 * Ordered the way the organizer can act on it: what this server
 	 * cannot or will not do first, then what they have not typed yet.
 	 */
 	const blockedReason = (): string | null => {
@@ -166,7 +166,7 @@ export function GeneratePage({ go }: { go: (r: Route) => void }) {
 					<LoadingState />
 				) : (
 					<div className="max-w-2xl slide-in slide-in-delay-1 flex flex-col gap-5">
-						{/* The draft caveat sits above the box it qualifies (ADR-0031) —
+						{/* The draft caveat sits above the box it qualifies —
 						    it is a fact about what this control produces, so it is read
 						    before the control is used rather than after. */}
 						<DraftNotice />
@@ -195,7 +195,7 @@ export function GeneratePage({ go }: { go: (r: Route) => void }) {
 							</div>
 						</div>
 
-						{/* Always drawn, disabled with its reason (ADR-0025): on a server
+						{/* Always drawn, disabled with its reason: on a server
 						    with no provider configured the reason is the whole message,
 						    and a hidden button would read as a missing feature. */}
 						<div className="flex flex-col gap-2">
@@ -236,7 +236,7 @@ function DraftNotice() {
 
 /**
  * What the generator may reach for, drawn with the same icons the rest of the
- * product names a slide type by (`SlideTypeIcon`, ADR-0026) — so "what will I
+ * product names a slide type by (`SlideTypeIcon`) — so "what will I
  * get?" is answered before the wait rather than after it. The set is the
  * server's own report, never a second list kept here.
  */

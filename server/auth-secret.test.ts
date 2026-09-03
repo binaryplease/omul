@@ -68,7 +68,7 @@ describe("resolveAuthSecret — the development secret needs an explicit switch 
 	});
 
 	test("the switch is off unless it is exactly \"true\"", () => {
-		// ADR-0036: the default when unset or unparseable is the restrictive one,
+		// The default when unset or unparseable is the restrictive one,
 		// so every near-miss an operator might type is a refusal, not a fallback.
 		delete process.env.BETTER_AUTH_SECRET;
 		for (const nearMiss of ["", "1", "yes", "TRUE", "True", " true", "false"]) {
@@ -81,7 +81,7 @@ describe("resolveAuthSecret — the development secret needs an explicit switch 
 
 	test("NODE_ENV is not consulted for this decision at all", () => {
 		// The gate must not be inferrable from an ambient environment-mode signal
-		// (ADR-0036) — that is what let a build tool decide it. NODE_ENV=development
+		// — that is what let a build tool decide it. NODE_ENV=development
 		// must NOT open the gate, and NODE_ENV=production must not close it once
 		// the purpose-named switch is on.
 		const inheritedNodeEnv = process.env.NODE_ENV;

@@ -71,7 +71,7 @@
             echo "  mise run dev:server     start Elysia only"
             echo "  mise run dev:client     start Vite only"
             echo "  mise run build          build for production"
-            echo "  mise run check          ADR convention + requirement guards"
+            echo "  mise run check          convention + requirement guards"
             echo "  mise run test           run tests"
             echo ""
           '';

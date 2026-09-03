@@ -76,7 +76,7 @@ import {
 // Everything a phone does with the slide it has been handed: the question, the
 // control that answers it, the lock and the verdict on a quiz question, and the
 // room's results once the participant may see them. Written once and worn by
-// both surfaces that need it (ADR-0026/ADR-0027) — the live participant page,
+// both surfaces that need it — the live participant page,
 // and the preview's participant pane (REQ103), which is the whole reason it is
 // a component rather than the body of a page.
 //
@@ -90,7 +90,7 @@ import {
  * (REQ056): whether they were right, what it scored, and where that leaves them
  * across the deck.
  *
- * Written once and worn by both answer modes (ADR-0026). What a quiz question
+ * Written once and worn by both answer modes. What a quiz question
  * *asks* differs between picking an option (REQ054) and typing an answer
  * (REQ055); what it *tells you afterwards* does not, and two copies of this
  * would eventually tell the same participant two different things.
@@ -293,8 +293,8 @@ type GuessEntryIssue =
  *
  * The reasons are distinguished rather than collapsed into one "invalid" because
  * they call for different corrections — 11 on a 0–10 slide is a different
- * mistake from 5 on a slide that steps in twos — and ADR-0025 asks a disabled
- * control to say *why*. The server re-checks all of it independently
+ * mistake from 5 on a slide that steps in twos — and a disabled control has to
+ * say *why*. The server re-checks all of it independently
  * (`decodeGuess`); this only keeps a doomed request from going out.
  */
 function guessEntryIssue(text: string, range: GuessRange): GuessEntryIssue {
@@ -316,7 +316,7 @@ function guessEntryIssue(text: string, range: GuessRange): GuessEntryIssue {
  *
  * An untouched slide starts from {@link middleGuessValue} — a value the slide
  * genuinely offers, which is why the snapping lives in the schema beside the
- * boundary that judges it (ADR-0026) rather than here. A starting number is an
+ * boundary that judges it rather than here. A starting number is an
  * input default and not an answer: nothing is submitted until the participant
  * presses the button, and the field itself stays empty until they type or step,
  * so the slide never *shows* a guess nobody made.
@@ -343,7 +343,7 @@ function withGuessAdjusted(
 // inputs filled in together and sent once. Everything below exists because the
 // submission is atomic — there is a submit button rather than the auto-submit a
 // slider or a tap has, and the button says why it cannot act rather than sitting
-// dead (ADR-0025).
+// dead.
 
 /** Why a filled-in form cannot be sent yet, or `null` when it can. */
 export type FormEntryIssue =
@@ -355,7 +355,7 @@ export type FormEntryIssue =
 
 /**
  * What is standing between this form and the submit button, judged against the
- * same rules `decodeFormSubmission` enforces at the boundary (ADR-0026) — so the
+ * same rules `decodeFormSubmission` enforces at the boundary — so the
  * button is disabled for exactly the reasons the server would refuse the row,
  * and never for one it would have accepted.
  *
@@ -394,7 +394,7 @@ function moveInOrder(order: string[], index: number, direction: -1 | 1) {
 /**
  * What a participant surface does with an answer (REQ103, REQ104).
  *
- * A factory-shaped seam (ADR-0007) rather than a `preview` boolean, because the
+ * A factory-shaped seam rather than a `preview` boolean, because the
  * two implementations differ in *what they are*, not in a flag: one posts to the
  * vote endpoint, the other keeps the answer in the browser and forgets it. A
  * boolean would leave the network call sitting in the component with an `if`
@@ -608,7 +608,7 @@ export function ParticipantSlideView({
 	// ── Quiz competition (REQ054, REQ056, REQ057) ───────────────
 	//
 	// The countdown runs on the server's window, read through the descriptor
-	// both surfaces share (ADR-0026) rather than timed locally: the boundary
+	// both surfaces share rather than timed locally: the boundary
 	// refuses a late answer on exactly this deadline, so a phone that counted
 	// its own would eventually disagree with what it is allowed to submit.
 	const quizWindow = quizWindowFor(slide, pres);
@@ -623,7 +623,7 @@ export function ParticipantSlideView({
 	// ── Participation (REQ111) ──────────────────────────────────
 	//
 	// Whether the presenter currently has this slide open, read through the very
-	// predicate the boundary refuses on (ADR-0026): a second reading here is how
+	// predicate the boundary refuses on: a second reading here is how
 	// a phone comes to draw a live control over an answer the server is already
 	// turning away.
 	//
@@ -677,7 +677,7 @@ export function ParticipantSlideView({
 	 * solution just as plainly and so cannot outrun the organizer's reveal.
 	 *
 	 * The **same function the server gates the payload with**, not a second
-	 * reading of the same three modes (ADR-0026). Under a withholding mode this
+	 * reading of the same three modes. Under a withholding mode this
 	 * screen is never sent a tally at all, so a rule that drifted from the
 	 * server's would not leak anything — it would strand the participant, drawing
 	 * "waiting for responses" over a question the room finished answering, or
@@ -863,8 +863,8 @@ export function ParticipantSlideView({
 	 * Submit the whole allocation as one vote (REQ044). The budget travels as a
 	 * single value — the items only mean anything against the 100 they share —
 	 * and re-submitting replaces it server-side, so a participant can keep moving
-	 * points around. The server re-checks the full spend independently
-	 * (ADR-0013); the button below is disabled until then only so a doomed
+	 * points around. The server re-checks the full spend independently;
+	 * the button below is disabled until then only so a doomed
 	 * request never goes out.
 	 */
 	const handlePointsSubmit = async (allocation: Record<string, number>) => {
@@ -875,7 +875,7 @@ export function ParticipantSlideView({
 	 * Submit the typed estimate as one vote (REQ039). One participant holds one
 	 * guess and re-submitting replaces it server-side, so a participant can
 	 * revise until the reveal. The number is sent exactly as entered — the server
-	 * re-checks it against the authored range and step (ADR-0013) and rejects
+	 * re-checks it against the authored range and step and rejects
 	 * anything off-frame rather than rounding it in.
 	 */
 	const handleGuessSubmit = async (guess: number) => {
@@ -901,8 +901,8 @@ export function ParticipantSlideView({
 	 * a single value — the answers were given together and belong together — and
 	 * re-submitting replaces the previous submission server-side, so correcting a
 	 * mistyped address is a correction rather than a second person in the
-	 * organizer's export. The server re-checks every field independently
-	 * (ADR-0013); the button below is disabled until then only so a doomed request
+	 * organizer's export. The server re-checks every field independently;
+	 * the button below is disabled until then only so a doomed request
 	 * never goes out.
 	 */
 	const handleFormSubmit = async (answers: Record<string, string>) => {
@@ -914,7 +914,7 @@ export function ParticipantSlideView({
 	 * holds one pin and re-submitting replaces it server-side, so a tap in a better
 	 * spot is a correction rather than a second answer. The coordinates are sent
 	 * exactly as the tap produced them — the server re-checks them against the
-	 * image's lattice (ADR-0013) and refuses anything off it rather than pulling it
+	 * image's lattice and refuses anything off it rather than pulling it
 	 * onto the edge.
 	 */
 	const handlePinSubmit = async (point: { x: number; y: number }) => {
@@ -943,7 +943,7 @@ export function ParticipantSlideView({
 
 	// REQ054/REQ057: a quiz answer is final and only counts inside the question's
 	// window, so the control that takes it stops accepting once either is true —
-	// disabled and saying why, never hidden (ADR-0025). The server enforces both
+	// disabled and saying why, never hidden. The server enforces both
 	// independently; this only keeps a doomed request from going out. Resolved
 	// here rather than inside either branch below because the two answer modes
 	// (REQ055) are locked by exactly the same two rules.
@@ -1168,7 +1168,7 @@ export function ParticipantSlideView({
 							</button>
 						</div>
 						{/* The disabled control's reason, spelled out rather than left
-						    to a tooltip a touch device never shows (ADR-0025). */}
+						    to a tooltip a touch device never shows. */}
 						{quizLockReason && (
 							<p className="pt-1 text-center text-sm text-text-muted">
 								{quizLockReason}
@@ -1216,7 +1216,7 @@ export function ParticipantSlideView({
 									)}
 									{slide.options?.map((opt, i) => {
 										const isSelected = selected.includes(opt.id);
-										// ADR-0025: a card that would exceed the cap stays
+										// A card that would exceed the cap stays
 										// visible and disabled, and says why.
 										const blockedByCap = capReached && !isSelected;
 										return (
@@ -1272,8 +1272,7 @@ export function ParticipantSlideView({
 										);
 									})}
 									{/* The disabled cards' reason, spelled out rather than
-									    left to a tooltip a touch device never shows
-									    (ADR-0025). */}
+									    left to a tooltip a touch device never shows. */}
 									{quizLockReason && (
 										<p className="pt-1 text-center text-sm text-text-muted">
 											{quizLockReason}
@@ -1554,7 +1553,7 @@ export function ParticipantSlideView({
 																>
 																	{text || `Item ${position + 1}`}
 																</span>
-																{/* ADR-0025: an item already at an end keeps
+																{/* An item already at an end keeps
 																    both controls, disabled, and says why. */}
 																<div className="flex shrink-0 items-center gap-0.5">
 																	<button
@@ -1860,7 +1859,7 @@ export function ParticipantSlideView({
 												// the others — and on a phone a row of sliders
 												// competes with the page scroll besides. The
 												// running remainder sits above the list, adjacent
-												// to what it governs (ADR-0031), because it is the
+												// to what it governs, because it is the
 												// only number that tells a participant whether they
 												// are done.
 												const items = slide.pointsItems ?? [];
@@ -1911,7 +1910,7 @@ export function ParticipantSlideView({
 																		>
 																			{item.text || `Item ${itemIndex + 1}`}
 																		</span>
-																		{/* ADR-0025: a stepper that cannot act
+																		{/* A stepper that cannot act
 																		    right now stays put, disabled, and says
 																		    why — an item at zero has nothing to
 																		    take back, and a spent budget has
@@ -1989,7 +1988,7 @@ export function ParticipantSlideView({
 														</button>
 														{/* The disabled button's reason, spelled out
 														    rather than left to a tooltip a touch device
-														    never shows (ADR-0025). */}
+														    never shows. */}
 														{remaining !== 0 && (
 															<p className="text-center text-xs text-text-dim">
 																{t.pointsSpendAll}
@@ -2038,7 +2037,7 @@ export function ParticipantSlideView({
 															{t.guessInstruction}
 														</p>
 														<div className="flex items-center justify-center gap-2">
-															{/* ADR-0025: the steppers are always actionable —
+															{/* The steppers are always actionable —
 															    they clamp to the ends of the range rather than
 															    switching off at them, so neither ever sits
 															    dead. */}
@@ -2092,8 +2091,7 @@ export function ParticipantSlideView({
 															{hasVoted ? t.guessUpdate : t.guessSubmit}
 														</button>
 														{/* The disabled button's reason, spelled out rather
-														    than left to a tooltip a touch device never shows
-														    (ADR-0025). */}
+														    than left to a tooltip a touch device never shows. */}
 														{issue !== null && (
 															<p className="text-center text-xs text-text-dim">
 																{issueMessage[issue]}
@@ -2283,7 +2281,7 @@ export function ParticipantSlideView({
 														//
 														// The submit button is disabled until the form is
 														// one the boundary would accept, and always says
-														// which rule is holding it (ADR-0025) — a form that
+														// which rule is holding it — a form that
 														// refuses to send without saying why is the worst
 														// version of this slide type.
 														const fields = formFieldsFor(slide);
@@ -2402,7 +2400,7 @@ export function ParticipantSlideView({
 																		</div>
 																	);
 																})}
-																{/* Always rendered, never hidden (ADR-0025) —
+																{/* Always rendered, never hidden —
 																    including on a slide with no fields yet, where
 																    it sits disabled and the line below says why.
 																    A control that vanishes leaves a participant
@@ -2418,7 +2416,7 @@ export function ParticipantSlideView({
 																</button>
 																{/* The disabled button's reason, spelled out
 																    rather than left to a tooltip a touch device
-																    never shows (ADR-0025). */}
+																    never shows. */}
 																{issue !== null && (
 																	<p className="text-center text-xs text-text-dim">
 																		{issueMessage[issue]}

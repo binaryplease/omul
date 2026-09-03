@@ -481,7 +481,7 @@ describe("Deleting a submitted answer (REQ027)", () => {
 		const pres = await runSession();
 		const tally = await roomResults(pres.id, "wc");
 		expect(tally.words).toHaveLength(2);
-		// ADR-0024: withheld reads as an explicit null a client can tell apart from
+		// Withheld reads as an explicit null a client can tell apart from
 		// "nobody has answered", not as an absent key.
 		expect(tally).toHaveProperty("answers");
 		expect(tally.answers).toBeNull();

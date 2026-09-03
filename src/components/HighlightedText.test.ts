@@ -1,5 +1,5 @@
 /**
- * Unit tests for search-match highlighting (ADR-0019).
+ * Unit tests for search-match highlighting.
  *
  * The split is the whole of it — `<HighlightedText/>` only wraps the matched
  * runs in a `<mark>` — so pinning `highlightSegments` pins what a reader is

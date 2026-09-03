@@ -7,8 +7,8 @@
  *     `view` collaborator reads the deck rather than a redacted copy of it.
  *   - `callerCanEditDeck` — the client side of the first of those, and the one
  *     answer every client surface gates its controls on (REQ149).
- *   - The stored grant — its identity pair carries no default (ADR-0018) while
- *     everything else does (ADR-0029), so a row written before a field existed
+ *   - The stored grant — its identity pair carries no default while
+ *     everything else does, so a row written before a field existed
  *     re-parses forward instead of failing.
  *   - The wire shape — `DeckCollaboratorSchema` does not declare `userId`, so an
  *     account identifier cannot reach a client by being spread into a response,
@@ -121,7 +121,7 @@ describe("callerCanEditDeck — what a client surface gates on (REQ149)", () => 
 	});
 });
 
-describe("the stored grant (ADR-0018 / ADR-0029)", () => {
+describe("the stored grant", () => {
 	test("the identity pair has no default and fails loudly", () => {
 		expect(() =>
 			StoredDeckCollaboratorSchema.parse({ id: "g1", userId: "u1" }),
@@ -180,7 +180,7 @@ describe("the wire shape a deck's owner reads", () => {
 		expect(wire.level).toBe("comment");
 	});
 
-	test("a deleted account's grant keeps every key rather than losing them (ADR-0024)", () => {
+	test("a deleted account's grant keeps every key rather than losing them", () => {
 		const wire = DeckCollaboratorSchema.parse({ id: "g1" });
 		expect(wire.email).toBe("");
 		expect(wire.name).toBeNull();

@@ -20,7 +20,7 @@ Migrate omul to a Docker-based flow instead: a container image built here,
 pushed to a registry, and redeployed on the target machine by a webhook
 listener that re-pulls it.
 
-## Approach (ADR-0006 hybrid)
+## Approach (copy-first, then adapt)
 
 Transplant the Dockerfile and compose layout from an existing image-based
 deployment as the template. This repo is simpler than that one (single
@@ -29,9 +29,9 @@ docker-compose are simplified accordingly.
 
 ## Rules followed
 
-- **ADR-0002**: registry image + webhook redeploy for deployment.
-- **ADR-0008**: GHCR package name = repo name directly (no `/app` suffix).
-- **ADR-0012**: Agenix secrets do not start with a dot.
+- Registry image + webhook redeploy for deployment.
+- GHCR package name = repo name directly (no `/app` suffix).
+- Agenix secret filenames do not start with a dot.
 
 ## Deliverables (this repo)
 

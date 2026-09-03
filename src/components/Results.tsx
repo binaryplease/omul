@@ -32,14 +32,14 @@ import {
 //
 // Taking one answer off a word cloud or an open-ended slide is one affordance
 // worn by two renderings — a card in the response wall, a row in the cloud's
-// answer list — so it is one descriptor, one wrapper and one guard (ADR-0026).
+// answer list — so it is one descriptor, one wrapper and one guard.
 // The guard is `slideAnswersAreDeletable` in `server/schemas.ts`, which is also
 // what the delete boundary refuses on, so no surface can offer a deletion the
 // server would turn away.
 //
 // The descriptor's presence is what says "this is a moderation surface". A
 // participant's phone passes none and draws no control — that is relevance, not
-// availability (ADR-0025 §5): the room is never the moderator of the room. A
+// availability: the room is never the moderator of the room. A
 // spectator on the shared screen passes one whose `onDelete` is `null` and gets
 // the control drawn, inert, saying why — they are looking at the very surface
 // the action belongs to, and a button that came and went with who was watching
@@ -59,7 +59,7 @@ export type AnswerModeration = {
 /**
  * Why a viewer of the shared screen who does not hold the deck cannot take an
  * answer down. One wording, because the control is worn by two renderings and
- * two spellings of a refusal are two explanations of one rule (ADR-0026).
+ * two spellings of a refusal are two explanations of one rule.
  */
 export const ANSWER_MODERATION_DENIED =
 	"Delete this answer — you cannot edit this presentation, so what the room submitted to it is not yours to remove";
@@ -79,7 +79,7 @@ export const ANSWER_MODERATION_DENIED =
  *    refuses on, so no surface can offer a deletion the server would turn away.
  *
  * A **spectator** is not one of them: they keep the control and get it inert
- * with its reason (ADR-0025), because they are looking at the surface the action
+ * with its reason, because they are looking at the surface the action
  * belongs to. Absent is for the surfaces where the action is not relevant at
  * all — a participant's phone is never the moderator of the room.
  */
@@ -106,7 +106,7 @@ export function answerModerationFor({
  * The one control that takes an answer down, worn by both renderings of one.
  *
  * Always drawn where a moderation surface is drawing answers, and disabled with
- * its reason rather than removed when this viewer cannot use it (ADR-0025).
+ * its reason rather than removed when this viewer cannot use it.
  * `title` **and** `aria-label` carry the reason, so it reaches a pointer and a
  * screen reader alike; the button keeps its place either way, so enabling it
  * moves nothing on the projector.
@@ -156,7 +156,7 @@ export type WordCloudAnswer = {
  * submitted** rather than the folded lower-case the cloud draws — the decision
  * being taken is about the line somebody actually typed.
  *
- * Sits directly under the cloud it moderates (ADR-0031) and scrolls rather than
+ * Sits directly under the cloud it moderates and scrolls rather than
  * pushing the slide off the screen, like the response wall beside it.
  */
 export function WordCloudAnswerList({
@@ -216,7 +216,7 @@ export function ResultsDisplay({
 	 * What this surface may do to the individual answers it draws (REQ027).
 	 * Absent on every surface that is not an editor's — a participant's phone,
 	 * a segment breakdown, the read-only results page — which is why the control
-	 * is not there at all rather than there and inert (ADR-0025 §5).
+	 * is not there at all rather than there and inert.
 	 */
 	moderation?: AnswerModeration;
 	/**
@@ -259,7 +259,7 @@ export function ResultsDisplay({
 					words={results.words}
 					// The per-answer list is on the payload only for a caller who can
 					// edit the deck, so a moderation surface reading a tally it fetched
-					// without credentials simply has no list to draw (ADR-0024 — the
+					// without credentials simply has no list to draw (the
 					// key is there and null, not missing).
 					answers={results.answers ?? null}
 					moderation={moderation}
@@ -322,7 +322,7 @@ export function ResultsDisplay({
 // One tally, four visualizations (REQ010). Everything the four share — the
 // per-option datum, the percentage basis, how a value is spelled out (REQ011),
 // and the correct-answer mark (REQ013) — lives here once and is composed by
-// each renderer (ADR-0026), so switching style never changes what a result
+// each renderer, so switching style never changes what a result
 // *says*, only how it is drawn.
 
 /** One option's tally as the results endpoint reports it. */
@@ -332,7 +332,7 @@ export type ChoiceResultOption = {
 	count: number;
 	/**
 	 * REQ013 — `true`/`false` once the slide has a solution to reveal, and an
-	 * explicit `null` when it has no notion of correctness at all (ADR-0024).
+	 * explicit `null` when it has no notion of correctness at all.
 	 */
 	isCorrect: boolean | null;
 };
@@ -348,7 +348,7 @@ export type ChoiceScoring = {
 	correctCount: number;
 	totalPoints: number;
 	maxPoints: number;
-	/** Both `null` until somebody has answered (ADR-0024). */
+	/** Both `null` until somebody has answered. */
 	averagePoints: number | null;
 	correctShare: number | null;
 };
@@ -369,7 +369,7 @@ type ChoiceTally = {
 /**
  * The count / percentage / both descriptor (REQ011). One list, worn by the
  * editor's authored default and by the presenter's live switch on the shared
- * screen (ADR-0026), so the two can never offer different choices.
+ * screen, so the two can never offer different choices.
  */
 export const MC_VALUE_DISPLAY_OPTIONS: ChoiceOption<McValueDisplay>[] = [
 	{ value: "count", label: "Count", icon: <Hash size={14} /> },
@@ -568,8 +568,8 @@ type TypedQuizEntry = {
  * What the room typed on a free-text quiz question (REQ055), as the endpoint
  * reports it. `accepted` and `entries` are `null` together while the question is
  * still running: on a typed question the answer most of the room gave *is* the
- * answer, so it is withheld on the same gate as the key itself (ADR-0024 —
- * withheld is an explicit `null`, not an empty list that would claim nobody
+ * answer, so it is withheld on the same gate as the key itself (withheld is an
+ * explicit `null`, not an empty list that would claim nobody
  * answered).
  */
 type TypedQuizTally = {
@@ -699,7 +699,7 @@ export function BarChartResults({
 // ── Pie / donut results ───────────────────────────────────────
 //
 // A pie is a donut whose ring is as thick as its radius, so both shapes are the
-// same drawing with two numbers changed (ADR-0027): a circle stroked segment by
+// same drawing with two numbers changed: a circle stroked segment by
 // segment via `pathLength={100}`, which lets each slice be expressed directly
 // in percent without touching trigonometry.
 //
@@ -1212,7 +1212,7 @@ export function OpenTextResults({
 	/**
 	 * What this surface may do to the responses it draws (REQ027). A card *is*
 	 * one submitted answer, so the control sits on the card rather than in a
-	 * list of its own (ADR-0031) — the cloud beside it needs a list only because
+	 * list of its own — the cloud beside it needs a list only because
 	 * it draws no individual answer to hang one on.
 	 */
 	moderation?: AnswerModeration;
@@ -1364,7 +1364,7 @@ export function RankingResults({ results }: { results: RankingTally }) {
 						</div>
 						<p className="mt-1 text-xs text-text-dim">
 							{/* `averageRank` is null when no ballot placed this item at
-							    all (ADR-0024) — say that, rather than print a position
+							    all — say that, rather than print a position
 							    nobody gave it. */}
 							{item.averageRank === null
 								? "not ranked by anyone"
@@ -1461,7 +1461,7 @@ export function PointsResults({ results }: { results: PointsTally }) {
 						</div>
 						<p className="mt-1 text-xs text-text-dim">
 							{/* `averagePoints` is null when no ballot funded this item at
-							    all (ADR-0024) — say that, rather than print an average
+							    all — say that, rather than print an average
 							    nobody's budget produced. The two numbers together are the
 							    trade-off the slide exists to show: a low share with a high
 							    average is a few people betting heavily, a high share with a
@@ -1509,7 +1509,7 @@ type GuessTally = {
 	/** The frame the columns were built from (REQ040, REQ043). */
 	range: GuessRange;
 	buckets: GuessResultBucket[];
-	/** Summary statistics; all null until somebody has guessed (ADR-0024). */
+	/** Summary statistics; all null until somebody has guessed. */
 	lowestGuess: number | null;
 	highestGuess: number | null;
 	averageGuess: number | null;
@@ -1596,7 +1596,7 @@ export function GuessNumberResults({ results }: { results: GuessTally }) {
 							)}
 					</p>
 					<p className="mt-0.5 text-xs text-text-dim">
-						{/* `correctShare` is null when nobody has guessed yet (ADR-0024) —
+						{/* `correctShare` is null when nobody has guessed yet —
 						    say so, rather than print a 0% no responses produced. */}
 						{results.correctShare === null
 							? "No guesses yet"
@@ -1710,7 +1710,7 @@ export function GridResults({ results }: { results: GridTally }) {
 							<span className="truncate">{item.text}</span>
 						</span>
 						<span className="shrink-0 text-right font-mono text-xs text-text-muted">
-							{/* ADR-0024: an item nobody placed has no coordinate at all —
+							{/* An item nobody placed has no coordinate at all —
 							    the payload says so with an explicit null, and so does
 							    this row, rather than printing a 0,0 nobody voted for. */}
 							{item.averageX === null || item.averageY === null

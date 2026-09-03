@@ -19,7 +19,7 @@ import { SlidePreview, type SlideCanvasView } from "./SlidePreview";
 // page that authors it — and below 1280px it was not on the page at all. Moving
 // that one rendering path to the centre is what makes the stage the slide; a
 // canvas that drew the slide its own way would be an editor that can show a
-// slide the room would not get (ADR-0026: one rendering path before, one after).
+// slide the room would not get (one rendering path before, one after).
 //
 // The frame is also the theming boundary, made visible rather than explained
 // (REQ079). Everything inside `<DeckThemeScope/>` wears the deck's colours and
@@ -34,8 +34,8 @@ import { SlidePreview, type SlideCanvasView } from "./SlidePreview";
 // "can this screen be typed on?" is answered by whether it was given one.
 //
 // And it is where the slide's *results* are looked at (REQ154). The stage has
-// two views, switched on the frame itself rather than from the page's chrome
-// (ADR-0031), because the switch changes what this frame draws and nothing else.
+// two views, switched on the frame itself rather than from the page's chrome,
+// because the switch changes what this frame draws and nothing else.
 // The question view is the authoring one; the results view is read-only, which
 // is why the layer above is withheld from it rather than merely ignored.
 
@@ -49,16 +49,16 @@ export function slideCanvasCaption(index: number, total: number): string {
 	return `${SHARED_SCREEN_LABEL} · Slide ${index + 1} of ${total}`;
 }
 
-/** Why a slide type cannot be looked at through its results (ADR-0025). */
+/** Why a slide type cannot be looked at through its results. */
 export const NO_RESULTS_REASON =
 	"This slide collects nothing, so it has no results to draw.";
 
 /**
- * The stage's two views as one descriptor (ADR-0026) — the switch on the frame
+ * The stage's two views as one descriptor — the switch on the frame
  * is built from it, and so is anything else that ever offers the choice.
  *
  * The results entry carries its own unavailability rather than being dropped
- * from the list (ADR-0025): a content slide draws no tally, and an author who
+ * from the list: a content slide draws no tally, and an author who
  * cannot find the switch on a text slide learns nothing about *why* it is not
  * there. The reason travels on the option, so it can reach a tooltip and an
  * accessible name rather than only a pointer.
@@ -157,7 +157,7 @@ export function SlideCanvas({
 						Drawn in the deck's own theme — the editor around it is not.
 					</p>
 				</div>
-				{/* On the frame it governs, not in the page's chrome (ADR-0031): this
+				{/* On the frame it governs, not in the page's chrome: this
 				    switch changes what the box below it draws and nothing else on the
 				    page. */}
 				<Segmented<SlideCanvasView>

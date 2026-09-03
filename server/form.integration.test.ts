@@ -354,7 +354,7 @@ describe("Form question type integration", () => {
 		expect(audience.submissionCount).toBe(1);
 		expect(fieldIn(audience, "name").answered).toBe(1);
 		// …and the rows are an explicit null rather than an empty list, so
-		// "withheld" cannot be misread as "nobody has answered" (ADR-0024).
+		// "withheld" cannot be misread as "nobody has answered".
 		expect(audience.submissions).toBeNull();
 		// Nothing anybody wrote is anywhere in the payload.
 		expect(JSON.stringify(audience)).not.toContain("ada@example.org");

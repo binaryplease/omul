@@ -16,13 +16,13 @@ import { Toggle } from "./EditorControls";
 //
 // A reaction is the lightest thing a participant can say: one tap, no text, no
 // answer, nothing counted. That makes it a cross-surface affordance in the plain
-// sense ADR-0026 describes — the phone sends them, the shared screen draws them,
+// sense — the phone sends them, the shared screen draws them,
 // and both have to agree on which five there are and what each one is called —
 // so it is one descriptor ({@link REACTION_ICONS}), one shared wrapper
 // ({@link ReactionBar} / {@link ReactionStream}) and one set of labels.
 //
 // It lives in its own module rather than inside either page because it depends
-// on nothing either of them owns (ADR-0032): the closed reaction set from the
+// on nothing either of them owns: the closed reaction set from the
 // schema, the live-reaction stream rules from `src/reactions.ts`, and the
 // session slice the socket feeds.
 //
@@ -49,7 +49,7 @@ type ReactionDescriptor = {
 /**
  * The five reactions, drawn (REQ077).
  *
- * Icons rather than emoji, per ADR-0022 and this project's lucide-react
+ * Icons rather than emoji, per this project's lucide-react
  * convention: an emoji is a font's opinion, and a room half of which is on a
  * platform that draws a party popper differently is a room having two different
  * conversations. The record is keyed by the schema's enum, so it cannot fall out
@@ -82,7 +82,7 @@ export type ReactionLabels = {
 	title: string;
 	/** One per reaction — the accessible name of the button that sends it. */
 	kinds: Record<ReactionKind, string>;
-	/** Why the row cannot be used right now (ADR-0025). */
+	/** Why the row cannot be used right now. */
 	unavailable: string;
 };
 
@@ -137,7 +137,7 @@ export function ReactionBar({
 }: {
 	labels: ReactionLabels;
 	onReact: (kind: ReactionKind) => void;
-	/** Offered and disabled rather than dropped when unusable (ADR-0025). */
+	/** Offered and disabled rather than dropped when unusable. */
 	disabled?: boolean;
 }) {
 	return (
@@ -250,7 +250,7 @@ export function useLiveReactions(): LiveReaction[] {
 
 /**
  * The switch that opens the channel (REQ077), placed on the panel that governs
- * the room's participation rather than in the page's chrome (ADR-0031).
+ * the room's participation rather than in the page's chrome.
  *
  * The reaction overlay has no panel of its own — it is drawn over the whole
  * slide — so its switch sits beside the chat's, in the one place a presenter

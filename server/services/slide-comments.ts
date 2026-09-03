@@ -2,7 +2,7 @@
  * Comment threads anchored to a deck's slides (REQ074).
  *
  * A module of its own for the reason `services/collaborators.ts` beside it is
- * one (ADR-0032): it owns its collection, its ordering and its failure set, and
+ * one: it owns its collection, its ordering and its failure set, and
  * it would keep working unchanged if the presentation service were rewritten
  * around it. The dependency runs one way — **nothing here imports the
  * presentation service** — so the presentation service is free to import this one

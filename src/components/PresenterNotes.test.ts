@@ -9,7 +9,7 @@
  *   - **What counts as "this slide has notes"** — one read site, so the live
  *     presenter's toggle and the dry run's panel cannot disagree about a field
  *     holding nothing but whitespace.
- *   - **What the toggle says in each of its states** (ADR-0025 — it is disabled
+ *   - **What the toggle says in each of its states** (it is disabled
  *     with its reason rather than hidden, so every state has to name one).
  *   - **That the client withholds nothing.** A note reaches this module only
  *     when the server sent it, and the server sends it only to a caller that can
@@ -53,7 +53,7 @@ describe("presenterNotesFor — the single read site (REQ090)", () => {
 	});
 });
 
-describe("presenterNotesToggleLabel — every state names itself (ADR-0025)", () => {
+describe("presenterNotesToggleLabel — every state names itself", () => {
 	test("a viewer who does not hold the deck is told why, not shown nothing", () => {
 		const label = presenterNotesToggleLabel({
 			canRead: false,

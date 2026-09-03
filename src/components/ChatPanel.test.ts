@@ -128,7 +128,7 @@ describe("chatLabelsFor (REQ084)", () => {
 	});
 
 	test("the English mapping and the presenter's own wording agree", () => {
-		// Two surfaces, one wording (ADR-0026): the shared screen is not translated
+		// Two surfaces, one wording: the shared screen is not translated
 		// and the phone is, and they must not drift into two different products.
 		expect(chatLabelsFor(getDict("en"))).toEqual(CHAT_LABELS_EN);
 	});
@@ -164,7 +164,7 @@ describe("isChatSurfaceVisible (REQ078)", () => {
 	});
 
 	test("a deck that never carried a chat shows nothing", () => {
-		// Not a control hidden because it is unavailable (ADR-0025) — there is no
+		// Not a control hidden because it is unavailable — there is no
 		// channel and nothing was ever said, which is the deck's own shape.
 		expect(isChatSurfaceVisible(false, feedOf(0, false))).toBe(false);
 		expect(isChatSurfaceVisible(false, null)).toBe(false);

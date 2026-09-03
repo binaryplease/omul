@@ -16,21 +16,21 @@ import { ResultsDisplay } from "./Results";
 // Three things this surface does not do, each on purpose:
 //
 //  - **It does not decide which slides can group which.** That is one
-//    descriptor, `segmentSourcesFor`, shared with the endpoint that enforces it
-//    (ADR-0026). A picker with its own idea of eligibility would offer
+//    descriptor, `segmentSourcesFor`, shared with the endpoint that enforces it.
+//   A picker with its own idea of eligibility would offer
 //    groupings the API refuses.
 //  - **It does not draw a second kind of chart.** Every group is rendered by
 //    `ResultsDisplay`, the component the unsegmented tally uses, so a word cloud
-//    stays a word cloud and a grid stays a grid inside a breakdown (ADR-0027 —
-//    the unit of sharing is the invariant, and the invariant here is "a slide's
-//    results, drawn").
+//    stays a word cloud and a grid stays a grid inside a breakdown (the unit of
+//    sharing is the invariant, and the invariant here is "a slide's results,
+//    drawn").
 //  - **It does not hide a grouping it cannot offer.** An earlier slide that
 //    cannot divide the room is drawn disabled with the reason the server would
-//    have given (ADR-0025), and a deck with nothing earlier to group by says so
+//    have given, and a deck with nothing earlier to group by says so
 //    on the control rather than dropping it.
 //
 // It sits inside the slide's own section, under that slide's chart, because
-// that is what it changes (ADR-0031).
+// that is what it changes.
 
 /** The value the picker carries when no breakdown is asked for. */
 export const NO_SEGMENT = "";
@@ -44,7 +44,7 @@ export const NO_SOURCES_REASON =
 
 /**
  * The picker's entries: the room whole, then every earlier slide, the ones that
- * cannot group it included and marked (ADR-0025).
+ * cannot group it included and marked.
  *
  * Pure — data in, descriptors out — so what a reader is offered, and what they
  * are told about what they are not offered, is assertable without a DOM.
@@ -156,7 +156,7 @@ export function segmentSuppressedReason(minRespondents: number): string {
 	return `Not published. A group of fewer than ${minRespondents} people would name the people in it, and groups are held back at least two at a time so the missing answers cannot be worked out by subtracting the rest — so this one is held back too. The organizer reads every group in full.`;
 }
 
-/** Why a whole breakdown is not on screen — one sentence per reason (ADR-0024). */
+/** Why a whole breakdown is not on screen — one sentence per reason. */
 export function segmentedWithheldReason(
 	withheldReason: SegmentedView["withheldReason"],
 ): string {

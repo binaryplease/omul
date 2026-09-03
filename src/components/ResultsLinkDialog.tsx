@@ -11,7 +11,7 @@ import { Modal } from "./ui/Modal";
 // three views of one thing — whether this deck currently hands out its results —
 // and splitting them across the chrome would let a presenter revoke a link
 // without ever being told one existed. It sits behind a control on the results
-// surface (ADR-0031): what the link governs is the numbers, so it lives beside
+// surface: what the link governs is the numbers, so it lives beside
 // them rather than in global chrome.
 
 /**

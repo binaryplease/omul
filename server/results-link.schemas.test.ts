@@ -6,11 +6,10 @@
  *     with the two credentials a results read can carry. The link lifts that
  *     gate and only that gate.
  *   - The stored fields — a deck written before the link existed re-parses
- *     forward onto "no link" (ADR-0029), and neither the hash nor the instant
+ *     forward onto "no link", and neither the hash nor the instant
  *     can reach a client through `PresentationSchema`.
  *   - `resultsLinkStatus` — what an organizer reads about their own link, and
- *     the explicit `null` that says the secret is not in this payload
- *     (ADR-0024).
+ *     the explicit `null` that says the secret is not in this payload.
  *
  * The round trip over HTTP — who is refused, and what a revoke actually costs a
  * link already in someone's hands — is `results-link.integration.test.ts`.
@@ -139,7 +138,7 @@ describe("resultsLinkStatus — what an organizer reads", () => {
 		expect(status.active).toBe(true);
 		expect(status.issuedAt).toBe("2026-08-11T09:00:00.000Z");
 		// Only the hash is stored, so no read after the mint can produce the token.
-		// Emitted as an explicit null rather than dropped (ADR-0024).
+		// Emitted as an explicit null rather than dropped.
 		expect(status.resultsToken).toBe(null);
 	});
 });

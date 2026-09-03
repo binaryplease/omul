@@ -13,7 +13,7 @@
 //     roughly 56px of wordmark width the closed ring takes over, and the
 //     closed ring is also the icon, tile and avatar form. Stated as a function
 //     of the height a caller asks for, so the rule is executable rather than a
-//     note somebody has to remember (ADR-0026).
+//     note somebody has to remember.
 //   - `<BrandMark/>` — the one rendering, which asks that function.
 //
 // The wordmark is drawn in the ink on light and in the paper on dark — its

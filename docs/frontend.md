@@ -5,12 +5,12 @@ Binding UI conventions and the shared primitives that implement them. See
 
 ## Shared primitives
 
-Binding frontend ADRs: **ADR-0022** (no Unicode glyphs as
-icons — use the SVG set), **ADR-0026/0027/0028** (cross-surface affordances are
-one descriptor + one wrapper + one shared interaction-state token, guarded). The
-shared primitives that already exist — compose these, never re-hand-roll:
+The binding conventions: **no Unicode glyphs as icons** — use the SVG set — and
+**cross-surface affordances are one descriptor + one wrapper + one shared
+interaction-state token**, guarded by `mise run check`. The shared primitives
+that already exist — compose these, never re-hand-roll:
 
-- **Icons** — `lucide-react` (ADR-0022; chosen for its thin rounded-outline
+- **Icons** — `lucide-react` (chosen for its thin rounded-outline
   look). Import icon components directly where used, e.g.
   `import { BarChart3 } from "lucide-react"`. Never use arrow/check/triangle
   glyphs (`←→↑↓✓▲`) as icons.
@@ -35,7 +35,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   controls; `<ShareCluster variant="bar"|"compact" …>` owns their layout on both
   the presenter's wide bar and compact row.
 - **Icon-button hover** — `ICON_BUTTON_HOVER` in `ShareCluster.tsx` is the shared
-  muted→accent interaction-state token (ADR-0028). Compose it; don't inline
+  muted→accent interaction-state token. Compose it; don't inline
   `text-text-muted hover:text-accent` per surface.
 - **Deck sharing** — `src/components/CollaboratorsDialog.tsx` (REQ075).
   `DECK_ACCESS_LEVEL_DESCRIPTORS` is the single descriptor for the three access
@@ -44,7 +44,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   composed by the owner's picker in the dialog *and* by the badge on a shared
   deck's card in `HomePage`. Never name a level with a literal: two spellings of
   "Can edit" is how the picker and the badge come to describe the same grant
-  differently. The dialog itself sits on the deck's own card (ADR-0031) and is
+  differently. The dialog itself sits on the deck's own card and is
   the owner's surface only — it enforces nothing, and it must not be read as if
   it did: the level is enforced server-side on every mutation route, and holds
   whether this dialog was ever drawn. What a surface *may* read is the
@@ -63,8 +63,8 @@ shared primitives that already exist — compose these, never re-hand-roll:
   a control stops being drawn on the same day the route behind it stops
   authorizing — a surface that compared role strings would drift the first time
   the server's answer changed. Every control the caller's role does not open is
-  drawn **disabled with its reason** (ADR-0025), and the two directions a deck
-  moves live beside the deck each time (ADR-0031): into a workspace from the
+  drawn **disabled with its reason**, and the two directions a deck
+  moves live beside the deck each time: into a workspace from the
   deck's card in `HomePage` (`MoveToWorkspaceDialog`), back out from the deck's
   row on `WorkspacePage`.
 - **"May this caller edit this deck?"** — `callerCanEditDeck()` in
@@ -89,12 +89,12 @@ shared primitives that already exist — compose these, never re-hand-roll:
   divide it. Three things it deliberately does not own: **which slides may group
   which** (that is `segmentSourcesFor` in `server/segmentation.ts`, imported
   through `src/types.ts` — the same descriptor the endpoint enforces, so the
-  picker cannot offer a grouping the API refuses, ADR-0026); **how a group is
+  picker cannot offer a grouping the API refuses); **how a group is
   drawn** (`ResultsDisplay`, the component the unsegmented tally uses, so a word
-  cloud stays a word cloud inside a breakdown, ADR-0027); and **the picker's
+  cloud stays a word cloud inside a breakdown); and **the picker's
   chrome** (`ChoiceCards variant="tile"`, whose `disabled` + `disabledReason`
-  already carry ADR-0025's "drawn, inert, and it says why"). It sits under the
-  chart it re-draws (ADR-0031) and polls on the page's beat rather than a clock
+  already carry the "drawn, inert, and it says why" treatment). It sits under the
+  chart it re-draws and polls on the page's beat rather than a clock
   of its own. A held-back group (`suppressed`) is a *stated* shape from the
   server, never an empty panel — and it is drawn with **no head count** and a
   sentence true of both cases it covers, since a group above the floor wears the
@@ -109,7 +109,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   slide — so a count on a chip and the panel under it cannot disagree —
   `<SlideCommentsPanel/>` the one rendering of a thread and its composer, and
   `<SlideCommentsStrip/>` that panel closed to a line under the editor's canvas
-  (ADR-0031 — a comment is made while looking at the slide it is about, beside
+  (a comment is made while looking at the slide it is about, beside
   the presenter-notes strip it deliberately mirrors). Two surfaces wear it: the
   editor, and the presenter's screen — the latter because it is the only screen a
   `view` or `comment` collaborator can reach, and a level whose feature has no
@@ -123,15 +123,15 @@ shared primitives that already exist — compose these, never re-hand-roll:
   [api.md](api.md#comment-threads-on-slides-req074)); a panel that filtered
   comments itself would be a second, weaker copy of a rule already settled on the
   wire.
-- **Search-match highlighting** — `src/components/HighlightedText.tsx`
-  (ADR-0019). `highlightSegments()` splits a string into matched/unmatched runs
+- **Search-match highlighting** — `src/components/HighlightedText.tsx`.
+  `highlightSegments()` splits a string into matched/unmatched runs
   and `<HighlightedText text search/>` marks them; a surface passes its query
   through unconditionally, since an empty search renders plain text. The rule it
   marks by is a plain case-insensitive substring — the same rule
   `deckTemplateMatchesSearch()` filters by — so a surface whose filter matched
   some other way must not use it: a highlight that points at the wrong characters
   explains a result with a reason that is not the reason. Whatever a search reads
-  must also be *rendered* (ADR-0019), which is why a template card shows its tags.
+  must also be *rendered*, which is why a template card shows its tags.
 - **Quiz countdown** — `src/components/QuizTimer.tsx` (REQ057). `quizWindowFor()`
   is the single descriptor for when a quiz question closes, `useQuizCountdown()`
   the single clock that ticks it down (on the *server's* clock, via the session
@@ -150,7 +150,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   is the single read of the board payload (it keeps the *server's* places, so a
   tie stays a tie), `<Leaderboard/>` the one board worn by the shared screen and
   the participant's phone, `leaderboardRankSurface()` the shared podium token
-  (ADR-0028) and `leaderboardLabelsFor()` the one mapping of the participant
+  and `leaderboardLabelsFor()` the one mapping of the participant
   dictionary onto its labels (REQ084). Never number the rows a board drew or
   re-derive a place on the client: the ordering, the ties and the cut are the
   server's, and a phone that recomputed them would disagree with the projector.
@@ -185,12 +185,12 @@ shared primitives that already exist — compose these, never re-hand-roll:
   **both** stating one and correcting it (a correction is the same write: one row
   per participant, overwritten in place, so it must not be a second form with
   second rules), `ParticipantNameBadge` the confirmation-plus-edit line drawn
-  where the name is shown (ADR-0031), `participantNameLabelsFor()` the one
+  where the name is shown, `participantNameLabelsFor()` the one
   mapping of the participant dictionary onto its wording (REQ084) beside
   `PARTICIPANT_NAME_LABELS_EN` for the untranslated organizer surface, and
   `useParticipantRoster()` / `ParticipantRosterPanel` the presenter's side. Both
   ends live in one module because what they share is the invariant — what a
-  participant is *called on this deck* (ADR-0027). Two rules: the gate is an
+  participant is *called on this deck*. Two rules: the gate is an
   **early return** on `ParticipantPage`, not an overlay, because a deck that
   requires a name has to be able to say the room stated one and a question beside
   an answerable slide is a question somebody scrolls past; and the roster panel is
@@ -219,7 +219,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   onto its wording (REQ084), `slideParticipationToggleLabel()` the name the
   control goes by in each of its states, `<SlideParticipationControl/>` the
   presenter's open/close switch — on the slide it governs, beside the reveal and
-  the timer restart (ADR-0031) — and `<ParticipationGate/>` the participant's
+  the timer restart — and `<ParticipationGate/>` the participant's
   half. **Blanking** (REQ109): `audienceBlankToggleLabel()` and
   `<AudienceBlankCurtain/>`, the stated screen the projector wears instead of
   the slide.
@@ -228,7 +228,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
     `audienceViewBlanked()` live in `server/schemas.ts` and are re-exported
     through `src/types.ts`, because the vote boundary refuses on the first of
     them — a second reading on the client is how a phone comes to draw a live
-    control over an answer the server is already turning away (ADR-0013).
+    control over an answer the server is already turning away.
   - **The gate is a `<fieldset disabled>`, not a `disabled` prop threaded
     through a dozen branches.** Every control a participant answers with is a
     form control, so one native ancestor turns all of them off — including the
@@ -257,8 +257,8 @@ shared primitives that already exist — compose these, never re-hand-roll:
     deck-bearing JSX on that path to have forgotten; what survives is controls,
     and the rule for those is `AudienceBlankCurtain`'s — a control names what it
     does ("Close submissions", "Next", "3 / 12"), never what the deck says.
-  - **Both controls are drawn for a spectator, disabled with their reason**
-    (ADR-0025). Whether the room can answer, and whether the screen is blank, are
+  - **Both controls are drawn for a spectator, disabled with their reason**.
+    Whether the room can answer, and whether the screen is blank, are
     facts about the session — a control that vanished would leave a `view`
     collaborator unable to tell a closed question from an open one.
 - **Taking one submitted answer down** — `src/components/Results.tsx` (REQ027).
@@ -271,11 +271,11 @@ shared primitives that already exist — compose these, never re-hand-roll:
   the server turns away. Two renderings wear the control because the two slide
   types draw an answer differently: an open-ended card **is** one answer, so the
   button sits on the card, while a word cloud is an aggregate that names no row,
-  so `<WordCloudAnswerList/>` lists the individual answers under it (ADR-0031 —
-  each control beside the thing it removes). That list comes from the payload's
+  so `<WordCloudAnswerList/>` lists the individual answers under it (each
+  control beside the thing it removes). That list comes from the payload's
   editor-only `answers` block and is drawn only where the descriptor is passed;
   a participant's phone passes none and has no control at all, which is
-  relevance rather than availability (ADR-0025 §5) — the room is not the
+  relevance rather than availability — the room is not the
   moderator of the room. A **spectator** on the shared screen does get it, inert
   and carrying its reason, like every other control that page draws for them.
 - **Which player a video URL opens** — `slideVideoFor()` (re-exported from
@@ -314,7 +314,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   surfaces that draw a pin slide — the participant taps it, the shared screen
   fills it with the room's pins, the editor previews it, and the editor's
   target-area picker drags a box across it — because the invariant is the
-  *coordinate space*, not the marks (ADR-0027): identical image, identical aspect
+  *coordinate space*, not the marks: identical image, identical aspect
   ratio, identical per-mille lattice, so the pin somebody placed on their phone
   is the pin that appears on the projector. `pinPointFromPointer()` is the single
   conversion from a tap to a coordinate and the **only** place device pixels
@@ -331,7 +331,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   `presenterNotesFor()` is the single read of the field, `PresenterNotesPanel`
   the reading both presenter surfaces wear, and `<PresenterNotesStrip/>` the one
   place a note is *written*: a strip directly under the editor's canvas
-  (ADR-0031 — notes are written in the same pass as the slide's words and read
+  (notes are written in the same pass as the slide's words and read
   while presenting them), collapsed to `presenterNotesStripLabel()` — one line of
   the note, or the invitation that stands in the same position when there is none
   — and expanding in place to the full editor. **Nothing here is a privacy
@@ -346,7 +346,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   `src/components/ParticipantSlideView.tsx` (REQ103). Each is *the whole slide*
   as one surface sees it — heading, control or tally, countdown, results-
   visibility gate — worn by the live page and by the preview's matching pane. The
-  unit of sharing is the slide, not its parts (ADR-0027): a preview that
+  unit of sharing is the slide, not its parts: a preview that
   re-assembled the same primitives in its own order would be previewing a screen
   that does not exist. `presenterSlideKind()` / `participantSlideKind()` are the
   single descriptors of which rendering a slide type gets, and
@@ -357,7 +357,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   one seam between the two participant surfaces. `liveVoteTransport()` posts to
   the vote endpoint; the preview's (`previewVoteTransport` in
   `src/pages/PreviewPage.tsx`) keeps the answer in the browser. A factory rather
-  than a `preview` boolean deliberately (ADR-0007/ADR-0010): a flag would leave
+  than a `preview` boolean deliberately: a flag would leave
   the network call sitting in the component with an `if` around it, one edit away
   from a dry run that filled a real deck with fake responses. **Never reach for
   `api.vote` from a participant surface** — go through the transport, and the
@@ -368,7 +368,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   page and at every viewport width. It is `SlidePreview` **promoted**, not a
   second renderer: the guard allows exactly one `<SlidePreview/>` render site and
   this is it, because an editor with two answers to "what will they see" is an
-  editor that can show a slide the room would not get (ADR-0026). It replaced a
+  editor that can show a slide the room would not get. It replaced a
   384 px `hidden xl:flex` aside beside a form three thousand pixels deep — the
   thing being authored was the least visible object on the page that authors it,
   and below 1280 px it was not on the page at all.
@@ -380,11 +380,11 @@ shared primitives that already exist — compose these, never re-hand-roll:
   `PresenterSlideView.tsx` — the one name that screen has — so the stage and the
   dry run's presenter pane cannot call the projector two different things.
   The stage has **two views** (REQ154), switched on its own frame rather than
-  from the page's chrome (ADR-0031): the question, and the slide's results *as
+  from the page's chrome: the question, and the slide's results *as
   the reveal will draw them*. `slideCanvasViewOptions()` is the one descriptor
   the switch is built from — the results entry keeps its place on a slide that
   draws no tally and carries `NO_RESULTS_REASON` instead of disappearing
-  (ADR-0025) — and `slideCanvasViewFor()` resolves a view that outlived the slide
+  — and `slideCanvasViewFor()` resolves a view that outlived the slide
   it was chosen on. The results view draws through `ResultsDisplay`, the room's
   own renderers, so the authored chart style, value display, chart colour and
   correct-answer mark are the ones the projector will show; editing is withheld
@@ -408,7 +408,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   a run of groups in the order an author works: type → content → answers →
   scoring → results → style. **Which** groups a type owns is not decided in the
   column: `SLIDE_TYPE_SECTIONS` in `SlideTypeMenu.tsx` declares it beside the
-  type's own hint (one descriptor, ADR-0026) — the **label** moved on to
+  type's own hint (one descriptor) — the **label** moved on to
   `server/schemas.ts` and is re-exported from `SlideTypeMenu.tsx`, because the
   PDF export names a slide type too (REQ096) and the server cannot import an
   editor component — including which types'
@@ -435,12 +435,12 @@ shared primitives that already exist — compose these, never re-hand-roll:
   (REQ155). The shared chip a rarely-touched setting closes to — the slide's
   three colours, its background image, the optional picture beside a question,
   a quiz's countdown — naming itself and stating its current value, and opening
-  where it sits. It is the one spelling of "a setting, closed" (ADR-0028);
+  where it sits. It is the one spelling of "a setting, closed";
   `ColorField collapsible` composes it rather than drawing a row of its own. This
   is disclosure, not hiding: the setting is named and legible without opening
-  anything, which is what ADR-0025 asks of a control that is present but idle.
+  anything, which is what a control that is present but idle owes its reader.
   The same reasoning drives `ChoiceCards variant="tile"` and `Segmented compact`
-  — the same enumerated choice at the size a 300px column can spare (ADR-0027).
+  — the same enumerated choice at the size a 300px column can spare.
 - **Authoring on the slide** — `src/components/SlideCanvasFields.tsx` (REQ153).
   The question and the option rows are written where they will be read, so an
   authored size or colour is bigger or recoloured text under the caret rather
@@ -458,7 +458,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   tree, which is what makes "no participant, presenter or shared-results screen
   renders an editing affordance" answerable by grep.
   `CANVAS_FIELD_SURFACE` and `CANVAS_TOOL_REVEAL` are the shared interaction
-  tokens (ADR-0028) — what "this text is editable" looks like, and what a per-row
+  tokens — what "this text is editable" looks like, and what a per-row
   tool does when nothing is pointing at it. The reveal fires on `focus-within` as
   well as on hover: a tool a pointer alone can find is a tool a keyboard cannot.
   Two rules the module exists to keep:
@@ -471,7 +471,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
     text through `<SlideText/>` on every live surface.
   - **The answer key is readable at rest.** A marked option wears its check
     without being hovered, and an unmarked one still shows the control that would
-    mark it (ADR-0025); only the remove tool quietens. `canvasOptionRemoval()` is
+    mark it; only the remove tool quietens. `canvasOptionRemoval()` is
     where REQ012's two-option floor is stated, and it returns its *reason*, so a
     disabled control can carry it into an accessible name rather than into a
     hover-only tooltip nothing but a mouse ever reads.
@@ -479,7 +479,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   `parseSlideInline()` reads a heading's markup and `parseSlideText()` a body's
   blocks; `<SlideText variant="inline"|"blocks" size=…/>` is the one rendering
   worn by the editor's preview, the shared screen, every phone and the dry run;
-  `SLIDE_TEXT_SCALE` is the size step as a shared `em` token (ADR-0028) and
+  `SLIDE_TEXT_SCALE` is the size step as a shared `em` token and
   `SLIDE_TEXT_SIZE_OPTIONS` / `SLIDE_MARKDOWN_HINT` the one descriptor the editor
   offers it by. Never render `slide.question` or `slide.body` raw, and never
   re-derive the size from `slide.textSize` — ask `slideTextSizeFor()`: the one
@@ -517,7 +517,8 @@ shared primitives that already exist — compose these, never re-hand-roll:
   light/dark preference stays theirs (REQ080). The derivation is pure and lives
   beside the catalog, so "what does this brand look like in light mode?" is
   answerable in a test without a DOM. A face is an **id** rather than a family
-  string (REQ092): ADR-0016 forbids fetching one at runtime, so a theme may only
+  string (REQ092): nothing here is fetched from a third-party host at runtime,
+  so a theme may only
   name what the bundle ships or a generic stack — a family each machine looked up
   in its own font book would not be "the same face on every surface".
   `<DeckMark deck=…>` is the mark every participant-facing surface shows:
@@ -585,7 +586,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   slide's background colour and image are not repeated there.
   The colour arithmetic both layers share lives in `src/components/color.ts` —
   parse/format, mixing, HSL, WCAG luminance and contrast — with no dependency on
-  either theming module (ADR-0032), which is what makes every derivation above it
+  either theming module, which is what makes every derivation above it
   assertable without a DOM.
 - **An authored colour, as a control** — `ColorField` in
   `src/components/EditorControls.tsx`. One field for both theming layers: a swatch
@@ -595,8 +596,8 @@ shared primitives that already exist — compose these, never re-hand-roll:
   will make of a half-typed colour, and what stands while nothing is authored.
 - **Preview entry** — `src/components/PreviewLink.tsx` is the single control that
   opens a dry run, composed by the editor and the presenter's screen. It is
-  offered whether or not the browser holds the deck, disabled with its reason
-  (ADR-0025): a preview reads the deck's answer keys, so it needs the same
+  offered whether or not the browser holds the deck, disabled with its reason:
+  a preview reads the deck's answer keys, so it needs the same
   credential an edit does.
 - **The deck's read-only results link** — `src/components/ResultsLinkDialog.tsx`
   (REQ098). One dialog for the whole capability — mint, copy, revoke — because
@@ -609,7 +610,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   stored) and can only be replaced. It hangs off a chip on the presenter's
   results group, beside Export and Reset rather than in the join-code cluster:
   that cluster hands out ways *into* the deck, and this hands out a read of what
-  came out of it (ADR-0031). What the link opens is
+  came out of it. What the link opens is
   `src/pages/SharedResultsPage.tsx` at `/results/:id`, which composes
   `ResultsDisplay` per slide and carries no control of any kind — see
   [api.md](api.md#the-shareable-results-link-req098) for what the token does and
@@ -625,8 +626,8 @@ shared primitives that already exist — compose these, never re-hand-roll:
   array and nothing else. It is a dialog rather than three chips because "which
   shape?" is one question with several answers, and this row of the presenter's
   chrome has no space to say what any of them is; every row is drawn whatever
-  the answer, disabled with its reason (ADR-0025), and it sits on the results
-  group beside Reset because what an export takes out is the session (ADR-0031).
+  the answer, disabled with its reason, and it sits on the results
+  group beside Reset because what an export takes out is the session.
 - **Saving a file** — `src/download.ts`. `saveBlobAs()` is the one anchor-click
   that puts bytes in a download folder, worn by the deck list's JSON export and
   by every format in the export dialog above (REQ095/REQ096);
@@ -641,8 +642,7 @@ shared primitives that already exist — compose these, never re-hand-roll:
   The title→filename slug is **not** here: `deckFilenameSlug()` lives in
   `server/schemas.ts` (re-exported through `src/types.ts`) because both sides of
   the wire name a download after the same deck, and one rule is what keeps the
-  JSON export, the results workbook and the deck's PDF agreeing on it
-  (ADR-0026).
+  JSON export, the results workbook and the deck's PDF agreeing on it.
 
 `mise run check` runs `scripts/guard-frontend-conventions.ts`, which fails the
 build when a surface bypasses one of these primitives.

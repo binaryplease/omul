@@ -546,7 +546,7 @@ function readVerificationLanding(): { error: string | null } | null {
 
 // Send (or resend) the verification email to `email`, normalising the Better
 // Auth client result into a plain ok/error. Shared by the landing's error path
-// and the signed-in banner so the call lives in one place (ADR-0010/0026).
+// and the signed-in banner so the call lives in one place.
 async function resendVerificationEmail(
 	email: string,
 ): Promise<{ ok: boolean; error: string | null }> {

@@ -3,7 +3,7 @@ import { SlideTypeIcon } from "./SlideTypeIcon";
 
 // ── Slide type picker ─────────────────────────────────────────────────
 //
-// The single descriptor for "choose a slide type" (ADR-0026). The same list
+// The single descriptor for "choose a slide type". The same list
 // of types — icon, label, one-line hint — drives two surfaces: the editor's
 // "Add slide" menu (pick a type to create) and the slide editor's header
 // type-changer popover (convert the current slide). Expressed once here so the
@@ -13,7 +13,7 @@ import { SlideTypeIcon } from "./SlideTypeIcon";
 // type too (REQ096), and the server cannot import an editor component, so the
 // one descriptor moved to `server/schemas.ts` — the module both sides already
 // compose their shared rules from — and is re-exported here for the surfaces
-// that have always imported it from this file (ADR-0026/ADR-0032). The icon and
+// that have always imported it from this file. The icon and
 // the hint stay: both are the picker's own, and neither means anything to a
 // printed page.
 export { SLIDE_TYPE_LABELS };
@@ -215,7 +215,7 @@ export const SLIDE_TYPE_SECTIONS: Record<SlideType, SlideSettingsSections> = {
 };
 
 /**
- * Shared selected/idle surface for a slide-type choice (ADR-0028): the
+ * Shared selected/idle surface for a slide-type choice: the
  * highlight a type tile wears when it is the current type versus when it is an
  * idle, pickable option. Owned here, composed by both picker surfaces.
  */

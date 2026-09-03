@@ -41,7 +41,7 @@ function slide(overrides: Record<string, unknown> = {}) {
 
 describe("the appearance fields a slide stores (REQ087)", () => {
 	test("a slide that authored nothing carries every field, empty", () => {
-		// ADR-0029/ADR-0024: the fields exist on every slide, so no read site
+		// The fields exist on every slide, so no read site
 		// reaches for `??` and no surface has to tell "unset" from "absent".
 		const parsed = slide();
 		expect(parsed.layout).toBe("inherit");

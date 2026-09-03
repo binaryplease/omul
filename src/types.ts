@@ -1,7 +1,7 @@
 // ── Domain types shared across all pages ──────────────────────
 //
 // `server/schemas.ts` is the single source of truth for every shape that
-// crosses the API boundary (ADR-0013). This module exists only to project
+// crosses the API boundary. This module exists only to project
 // those Zod schemas into client-facing types and to re-export the shared
 // slide-type helpers — it deliberately hand-writes nothing.
 //
@@ -9,7 +9,7 @@
 // editor before any default has been applied, so `Slide`/`SlideOption` are
 // derived from the schema *input* type (defaulted fields stay optional).
 // A `Presentation` is only ever received from the server, which now drives
-// every response through the schema (ADR-0024), so it is derived from the
+// every response through the schema, so it is derived from the
 // *output* type where those same fields are guaranteed present.
 
 import type { z } from "zod";
@@ -238,7 +238,7 @@ import {
  * provider, and nothing on the client has any business importing a value from
  * it. What the client needs is the *shape* of the capability report it reads
  * from `GET /api/deck-generation` — which is the schema's, like every other
- * shape crossing this boundary (ADR-0013).
+ * shape crossing this boundary.
  */
 export type {
 	DeckGenerationAvailability,
@@ -252,8 +252,8 @@ export type {
  * Composed rather than restated, values and all: `server/segmentation.ts` is the
  * one guard the endpoint runs, so a picker built from anything else would offer
  * groupings the API refuses — or, worse, hide ones it would have allowed. It
- * reaches for `./schemas` and nothing else, so the browser can hold it (ADR-0032
- * — a unit of code lives where its dependencies are), exactly as it holds the
+ * reaches for `./schemas` and nothing else, so the browser can hold it (a unit
+ * of code lives where its dependencies are), exactly as it holds the
  * slide-type and reveal-mode rules above.
  */
 export {

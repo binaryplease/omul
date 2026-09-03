@@ -54,7 +54,7 @@ notes for each item.
   `server/schemas.ts` falls back to the legacy `allowMultiple` flag, so
   slides authored before this task behave exactly as they did. The server,
   the participant UI, the aggregation and the editor all read that one
-  function (ADR-0026).
+  function.
 - **Multi-select percentages divide by the head count.** With "all that
   apply", `totalVotes` (selections) and `respondentCount` (people) diverge.
   Options report `count / respondentCount` — "62% of the room picked this"
@@ -77,7 +77,7 @@ notes for each item.
 - 2026-07-28: Task created; REQ010–REQ014 clustered under it.
 - 2026-07-28: Schema, server, client and tests landed in one slice —
   `mcDisplayStyle` extended plus `mcValueDisplay` / `mcMaxSelections` added
-  (ADR-0029 defaults, legacy fallback); `maxSelectionsFor` /
+  (declared defaults, legacy fallback); `maxSelectionsFor` /
   `isMultiSelect` / `slideHasCorrectAnswers` resolvers shared by both ends;
   a choice branch in `submitVote` enforcing the limit with
   toggle-to-deselect; `respondentCount` / `maxSelections` / MC `isCorrect`

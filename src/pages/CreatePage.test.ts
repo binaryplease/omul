@@ -48,7 +48,7 @@ describe("the authoring column names what it holds (REQ152)", () => {
  * documented as exactly that, and it is load-bearing twice: it paints the
  * collapsed swatch chip, and it seeds the native colour picker. A placeholder
  * that names some other colour makes the chip report a value the deck does not
- * have (ADR-0025), and makes opening the picker and confirming without dragging
+ * have, and makes opening the picker and confirming without dragging
  * *write* that colour — silently re-branding a deck somebody meant to inspect.
  *
  * What is inherited is the house **deck theme**. REQ166 re-skinned the chrome

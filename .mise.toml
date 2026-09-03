@@ -12,7 +12,7 @@ DATABASE_PATH = "data/omul.sqlite"
 # default included — leaves them on.
 OMUL_RATE_LIMITS_DISABLED = "false"
 # Which model drafts a deck from a prompt (REQ007, server/deck-generator.ts).
-# A floating "latest" alias rather than a pinned snapshot (ADR-0009).
+# A floating "latest" alias rather than a pinned snapshot.
 OMUL_GENERATION_MODEL = "gemini-flash-latest"
 # The credential that model is reached with is deliberately NOT set here: it is a
 # secret, and setting it in this file would both commit one and clobber whatever
@@ -81,7 +81,7 @@ description = "Run tests"
 run = "bun test"
 
 [tasks.check]
-description = "Run frontend ADR convention guards (ADR-0022/0026/0028) + publication-residue guard + requirement checks"
+description = "Run frontend convention guards + publication-residue guard + requirement checks"
 run = [
   "bun scripts/guard-frontend-conventions.ts",
   # REQ163 class 2: the private sibling repository's slug. Swept by hand twice
@@ -93,7 +93,7 @@ run = [
   "bun scripts/triage.ts validate",
   # Names the directory rather than sweeping: a bare `index check` only walks
   # directories that still carry an index file, so a deleted docs/Requirements.md
-  # would make this pass (ADR-0040).
+  # would make this pass.
   "index check docs/requirements",
 ]
 

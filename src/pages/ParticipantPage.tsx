@@ -573,7 +573,7 @@ export function ParticipantPage({
 					    under (REQ076). Beside the status line rather than over the
 					    question: it reports on the session, like the LIVE dot does, and
 					    it is where the name is corrected because it is where the name is
-					    shown (ADR-0031). */}
+					    shown. */}
 					<div className="flex flex-col items-center gap-2 mb-6">
 						<div className="flex items-center gap-2">
 							{isSurvey ? (
@@ -633,7 +633,7 @@ export function ParticipantPage({
 					    property of the question currently being voted on.
 
 					    It appears only on a deck whose presenter switched the layer on —
-					    which is not ADR-0025's "hidden because unavailable" but the deck's
+					    which is not "hidden because unavailable" but the deck's
 					    own shape, the same way a deck with no leaderboard slide shows no
 					    standings. Once it is on, everything inside it stays visible and
 					    explains itself: a list the organizer keeps back (REQ037) says so
@@ -664,7 +664,7 @@ export function ParticipantPage({
 					    sent — a content slide takes them exactly as a quiz does.
 
 					    Shown only on a deck whose presenter opened the channel, which is
-					    the deck's own shape rather than ADR-0025's "hidden because
+					    the deck's own shape rather than "hidden because
 					    unavailable" — the same way a deck with Q&A switched off shows no
 					    Q&A box. Once the row is there, it stays there and explains
 					    itself. */}
@@ -699,7 +699,7 @@ export function ParticipantPage({
 
 					    So: drawn while the channel is open, and drawn afterwards for as
 					    long as there is anything to read. Only the composer goes dead, and
-					    it says why (ADR-0025). A deck that never carried a chat and never
+					    it says why. A deck that never carried a chat and never
 					    collected one shows nothing, which is the deck's own shape rather
 					    than a hidden control. */}
 					{isChatSurfaceVisible(pres.chatEnabled, chatFeed) && (

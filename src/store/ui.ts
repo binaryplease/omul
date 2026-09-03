@@ -7,8 +7,8 @@
 //
 // That leaves this slice intentionally empty today: the only currently-global
 // UI concerns — theme and toasts — already have dedicated providers
-// (`ThemeProvider`, `ToastProvider`) that own them, and per ADR-0026 we do not
-// duplicate an affordance's owner. This slice exists as the named seam where
+// (`ThemeProvider`, `ToastProvider`) that own them, and an affordance has
+// exactly one owner. This slice exists as the named seam where
 // *cross-surface* UI state would live if any emerged (e.g. a global command
 // palette or a shared navigation drawer), keeping the three-domain shape the
 // triage answer asked for without forcing local state to go global.

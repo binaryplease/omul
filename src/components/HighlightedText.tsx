@@ -2,11 +2,11 @@ import { Fragment } from "react";
 
 // ── Search-match highlighting ─────────────────────────────────────────
 //
-// The one place a search term is marked up inside a result (ADR-0019: a search
+// The one place a search term is marked up inside a result (a search
 // surface must highlight the matched content, and the field that produced the
 // match must itself be visible). Split out from the surface that searches, so a
 // second search surface highlights identically rather than inventing its own
-// <mark> (ADR-0026).
+// <mark>.
 //
 // The matching rule is the caller's, not this module's: `highlightSegments`
 // marks a plain case-insensitive substring, which is exactly what

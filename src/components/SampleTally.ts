@@ -42,7 +42,7 @@ import {
 //     `aggregateSlideResults` returns for that slide type, field for field, so
 //     the renderers meet the same object they meet in front of an audience. A
 //     preview that fed them a convenient shape of its own would be previewing a
-//     chart the room will not get (ADR-0026).
+//     chart the room will not get.
 //
 // What it deliberately does *not* invent is words nobody wrote. An answer set,
 // an accepted answer, a form field or a ranking item is drawn from what the
@@ -256,7 +256,7 @@ export function sampleTallyFor(
  * so "which of these will the room see ringed?" is answered by looking rather
  * than by remembering. A slide with nothing marked reports `null` on every
  * option — no notion of correctness at all, which is a different thing from
- * "all wrong" (ADR-0024).
+ * "all wrong".
  */
 function sampleChoiceTally(
 	slide: Slide,

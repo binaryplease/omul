@@ -218,7 +218,7 @@ describe("previewScorecard (REQ056 in a dry run)", () => {
 		expect(card.correctCount).toBe(0);
 	});
 
-	test("an unanswered question reads as null, not as wrong (ADR-0024)", () => {
+	test("an unanswered question reads as null, not as wrong", () => {
 		const card = previewScorecard([QUIZ_SLIDE], new Map(), OPENED_AT);
 		expect(card.slides[0].answered).toBe(false);
 		expect(card.slides[0].isCorrect).toBeNull();

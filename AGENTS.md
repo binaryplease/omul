@@ -28,10 +28,10 @@ All via mise (`.mise.toml`):
 | `mise run dev:server` / `dev:client` | Start one side only |
 | `mise run build` | Build frontend (Vite → `dist/client/`) + server (Bun → `dist/server/`) |
 | `mise run start` | Start production server |
-| `mise run check` | **The gate.** Frontend ADR convention guards (ADR-0022/0026/0028) + the publication-residue guard (REQ163) + requirement checks — read-only, never writes |
+| `mise run check` | **The gate.** Frontend convention guards + the publication-residue guard (REQ163) + requirement checks — read-only, never writes |
 | `mise run test` | Run tests |
 | `mise run triage -- <cmd>` | Filter and triage requirements in `docs/requirements/` |
-| `mise run requirements:index` | Regenerate `docs/Requirements.md` with the shared `index` CLI (ADR-0040) |
+| `mise run requirements:index` | Regenerate `docs/Requirements.md` with the shared `index` CLI |
 
 Running locally:
 
@@ -42,7 +42,7 @@ mise run dev           # Elysia at :3000, Vite at :5173 (open http://localhost:5
 
 **`check` and `requirements:index` need one tool this repo does not ship: a
 CLI named `index`, which writes the generated listing of a knowledge
-directory** (ADR-0040 §7 permits exactly one implementation of it, so there is
+directory** (exactly one implementation of it may exist, so there is
 no repo-local fallback to write). It is not on npm and `mise install` does not
 fetch it; it has to be on `PATH` already. Without it those two tasks fail with
 `index: command not found` (exit 127), and the `index check` half of the gate
@@ -69,7 +69,7 @@ branch including the `task/*` ones, and the full authorship record.
 What follows from that, and bites if you forget it:
 
 - **Every commit reference written before the snapshot resolves only in that
-  private predecessor.** Requirement update logs, `task/*.md` files and ADR
+  private predecessor.** Requirement update logs, `task/*.md` files and design
   notes in this tree may name commits, branches or merges this repository does
   not contain. They are not stale or wrong — they point at history that was not
   carried over, and you cannot resolve them from here.
@@ -88,7 +88,7 @@ What follows from that, and bites if you forget it:
 
 ## Branches, commits and pushes — not yours to make
 
-Isolated work happens on a **`workbatch/<random-id>`** branch (ADR-0005). The
+Isolated work happens on a **`workbatch/<random-id>`** branch. The
 `task/<slug>` namespace is **retired** — never cut a new `task/*` branch.
 
 - **Reuse before inventing.** If the repo is already on an isolation branch — a
@@ -102,8 +102,7 @@ Isolated work happens on a **`workbatch/<random-id>`** branch (ADR-0005). The
   ones, so on a clean `main` you cut a `workbatch/*` branch.
 
 Some work here is driven by an automated session runner, and in that mode git is
-owned by a post-session hook rather than by the agent (ADR-0005, "Commit,
-branch, and push ownership"):
+owned by a post-session hook rather than by the agent:
 
 - The **in-session coding agent completes its work and stops — it does not
   commit, create branches, or push.** It leaves all changes uncommitted in the
@@ -118,9 +117,10 @@ applies unchanged: branch, commit and push yourself.
 
 ## How work is tracked here — this is not optional
 
-ADR-0005 leaves work tracking to each repo and asks it to declare the mechanism
-here. **omul's mechanism is `docs/requirements/`**, one `REQxxx.md` file per
-requirement — the single authority for what is planned, in progress and done.
+Work tracking is each repository's own to choose, and each one declares its
+mechanism in its `AGENTS.md`. **omul's mechanism is `docs/requirements/`**, one
+`REQxxx.md` file per requirement — the single authority for what is planned, in
+progress and done.
 How many there are is a count, not a fact worth freezing in prose: ask
 `bun scripts/triage.ts stats`, for the same reason the last section of this
 chapter gives. File format and full CLI reference in
@@ -142,7 +142,7 @@ answers in its `source` field.
 - **A BR reference is an opaque identifier.** The bare number, nowhere else in
   the file: no BR title, no gloss on what the BR says, no link into the private
   repository. A reference that quotes its target has carried the target across.
-- **The two numbering lines are independent** (ADR-0042 §3). A `BR<n>` and a
+- **The two numbering lines are independent**. A `BR<n>` and a
   `REQ<n>` sharing a number are unrelated facts; 142 of them currently match
   because the catalogs were seeded together, and that is history, not a rule.
   One BR may be answered by several SCRs — write as many as the code owes,
@@ -180,7 +180,7 @@ answers in its `source` field.
   do not add new files there. Status lives in the requirement, nowhere else. It
   was reopened exactly once, for the identifier sweep described at the end of
   this section, and is otherwise not revised.
-- **The catalog's listing is generated, and it is the only one** (ADR-0040).
+- **The catalog's listing is generated, and it is the only one**.
   `docs/requirements/` is a declared knowledge directory, indexed by its sibling
   [docs/Requirements.md](docs/Requirements.md) — one row per file, written by the
   shared `index` CLI and never by hand. There is no repo-local generator and no
@@ -241,23 +241,27 @@ decision, and only for naming (REQ176):
 - **Auth**: presentation mutations are authorized by **owner or edit token**;
   `creatorTokenHash` / `creatorId` must never reach clients. Read
   [docs/api.md](docs/api.md) before touching auth or routes.
-- **Schemas**: `server/schemas.ts` is the single source of truth (ADR-0013);
-  every non-identity `Stored*` field needs a `.default(...)` (ADR-0029).
+- **Schemas**: `server/schemas.ts` is the single source of truth;
+  every non-identity `Stored*` field needs a `.default(...)`.
 - **Frontend**: compose the shared primitives (lucide-react icons,
   `ShareCluster`, `ICON_BUTTON_HOVER`) — never re-hand-roll; `mise run check`
   guards this. Details in [docs/frontend.md](docs/frontend.md).
 - **One external runtime dependency exists, it is optional, and it is the only
-  one.** Drafting a deck from a prompt (REQ007, `server/deck-generator.ts`) sends
-  the prompt to a model provider. That is a deliberate ADR-0016 exception — the
-  remote service *is* the feature, so there is no asset to bundle instead — and
-  ADR-0016 requires it to be recorded here, which this bullet is. It stays inside
+  one.** The standing rule is that production depends on no third-party runtime
+  host for first-party functionality — assets are vendored and bundled, never
+  fetched from somebody else's server — and anything that reaches outside the
+  deployment is a deliberate exception that has to be written down where a
+  contributor will meet it. Drafting a deck from a prompt (REQ007,
+  `server/deck-generator.ts`) sends the prompt to a model provider. That is the
+  one such exception — the remote service *is* the feature, so there is no asset
+  to bundle instead — and this bullet is where it is recorded. It stays inside
   the exception only while three things hold: it is **off unless a key is
   configured** and nothing else changes when it is not, **only the prompt leaves**
   (never a deck, an answer or an account), and **no other module imports a
   provider** — the SDK is reached by a dynamic import inside the single function
   that calls it, so `bun test` resolves no provider and needs no key. Adding a
-  second external call is an architecture decision, not a drive-by: read ADR-0016
-  in full first. Full rationale in
+  second external call is an architecture decision, not a drive-by. Full
+  rationale in
   [docs/deployment.md](docs/deployment.md#generating-a-deck-from-a-prompt-req007).
 - **This repository is headed for publication.** Nothing that belongs to the
   business side may land here: pricing and plan tiers, product strategy,

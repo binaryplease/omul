@@ -12,10 +12,10 @@ import { ICON_BUTTON_HOVER } from "./ShareCluster";
 // two surfaces and they are genuinely different screens — the phone that
 // answers it, and the organizer's roster of who answered — so both live here,
 // beside each other, for the reason `QAPanel` holds both ends of the Q&A layer:
-// the invariant they share is what a participant is *called on this deck*
-// (ADR-0027), and a second module would be a second answer to it.
+// the invariant they share is what a participant is *called on this deck*,
+// and a second module would be a second answer to it.
 //
-// The module depends on nothing either page owns (ADR-0032): the cap from the
+// The module depends on nothing either page owns: the cap from the
 // schema, the participant dictionary for the phone's wording (REQ084), and the
 // shared hover token for its one icon button.
 //
@@ -154,7 +154,7 @@ export function ParticipantNameGate({
 				autoFocus
 			/>
 
-			{/* ADR-0025 — the button is drawn and disabled with its reason, never
+			{/* The button is drawn and disabled with its reason, never
 			    hidden, so an empty field explains itself instead of reading as a
 			    form that has stopped working. */}
 			<button
@@ -185,7 +185,7 @@ export function ParticipantNameGate({
  * The stated name, reported back above the slide with the control that corrects
  * it beside it.
  *
- * Adjacent to what it changes (ADR-0031): the name is shown here, so this is
+ * Adjacent to what it changes: the name is shown here, so this is
  * where it is edited — not in a settings screen a participant on a phone would
  * have to leave the question to find. Small and quiet, because it is a
  * confirmation rather than a feature: the participant's attention belongs to the

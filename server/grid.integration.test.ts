@@ -271,7 +271,7 @@ describe("2x2 Grid question type integration", () => {
 		const payload = await results(pres.id, "gd");
 		const beta = itemIn(payload, "b");
 		expect(beta.placed).toBe(0);
-		// ADR-0024: the keys are present and explicitly null — not omitted, and
+		// The keys are present and explicitly null — not omitted, and
 		// not a 0,0 that would pin the item to the corner of the field.
 		expect("averageX" in beta).toBe(true);
 		expect(beta.averageX).toBe(null);

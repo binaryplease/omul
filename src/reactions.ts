@@ -5,8 +5,8 @@
 // again in a few seconds.
 //
 // It lives at the root rather than inside the session slice or inside
-// `ReactionBar.tsx` because it belongs to neither and both compose it
-// (ADR-0032): the store reduces `reaction.sent` frames through `addReaction`,
+// `ReactionBar.tsx` because it belongs to neither and both compose it:
+// the store reduces `reaction.sent` frames through `addReaction`,
 // the renderer draws whatever `pruneReactions` still says is alive, and this
 // module depends on the DOM as little as it depends on zustand — which is to
 // say not at all, which is what makes the rules below testable as arithmetic.

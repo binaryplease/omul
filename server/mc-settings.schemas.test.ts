@@ -166,7 +166,7 @@ describe("slideHasCorrectAnswers (REQ013)", () => {
 	});
 });
 
-describe("StoredPresentationSchema — forward compatibility (ADR-0029)", () => {
+describe("StoredPresentationSchema — forward compatibility", () => {
 	test("a document persisted before this slice re-parses with the new fields", () => {
 		const stored = StoredPresentationSchema.parse({
 			id: "p1",

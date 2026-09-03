@@ -3,7 +3,7 @@
  * projection that keeps a note off everybody else's screen (no DB, no network).
  *
  * The projection is tested here rather than only through the API because it is
- * the contract both ends share (ADR-0013): the server empties a note on the way
+ * the contract both ends share: the server empties a note on the way
  * out, and the preview page re-projects the deck it already holds through the
  * very same function to draw its participant pane. If the two ever disagreed,
  * the dry run would be rehearsing a phone no participant will ever hold.
@@ -53,7 +53,7 @@ describe("SlideSchema — notes (REQ090)", () => {
 		expect(notedSlide().notes).toBe(NOTE);
 	});
 
-	test("notes default to an empty string (ADR-0029)", () => {
+	test("notes default to an empty string", () => {
 		// A deck authored before this field existed re-parses forward with the
 		// default filling the gap — no migration, and no read site reaching for
 		// `??`.
@@ -84,7 +84,7 @@ describe("withoutPresenterNotes (REQ090)", () => {
 		expect(audience.notes).toBe("");
 	});
 
-	test("emptied to `\"\"`, never dropped (ADR-0024)", () => {
+	test("emptied to `\"\"`, never dropped", () => {
 		// The opposite stance to a withheld answer key, and deliberately: a slide
 		// with no notes already carries `""`, so the audience's view of a noted
 		// slide and an un-noted one are the same complete shape.

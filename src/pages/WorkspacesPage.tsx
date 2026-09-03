@@ -19,8 +19,8 @@ import { WORKSPACE_NAME_MAX_LENGTH } from "../types";
 // "yours" — they belong to the workspace, and every member sees the same list.
 //
 // Nothing here is a permission check. The role on each card is the server's own
-// report, drawn so a member can see what they may do before they try it
-// (ADR-0025); every route re-resolves it from the request's own credentials, so
+// report, drawn so a member can see what they may do before they try it;
+// every route re-resolves it from the request's own credentials, so
 // a card that said something else would only mis-draw its own buttons.
 
 export function WorkspacesPage({ go }: { go: (r: Route) => void }) {
@@ -107,8 +107,8 @@ export function WorkspacesPage({ go }: { go: (r: Route) => void }) {
 					</p>
 				</header>
 
-				{/* Creating one sits above the list it adds to (ADR-0031). Drawn signed
-				    out as well, disabled with the reason (ADR-0025): the way in has to
+				{/* Creating one sits above the list it adds to. Drawn signed
+				    out as well, disabled with the reason: the way in has to
 				    be visible for the reason to be readable. */}
 				<div className="mb-10 flex flex-col gap-2 max-w-md slide-in slide-in-delay-1">
 					<div className="flex items-center gap-2">
@@ -179,7 +179,7 @@ export function WorkspacesPage({ go }: { go: (r: Route) => void }) {
 									</h3>
 									<div className="flex items-center gap-4 text-sm text-text-muted">
 										{/* What this account may do here, in the same words the
-										    roster's picker chooses a role by (ADR-0026). */}
+										    roster's picker chooses a role by. */}
 										<span className="text-accent-text">
 											{workspaceRoleLabel(workspace.role)}
 										</span>

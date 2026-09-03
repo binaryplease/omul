@@ -114,7 +114,7 @@ describe("SlideSchema — P1 Scales settings", () => {
 			type: "scale",
 			question: "Rate this",
 		});
-		// ADR-0029: collections default to `[]`, never `undefined`. An empty
+		// Collections default to `[]`, never `undefined`. An empty
 		// list still selects the legacy single-statement aggregation path.
 		expect(slide.scaleStatements).toEqual([]);
 		expect(slide.scaleAllowSkip).toBe(false);
@@ -216,7 +216,7 @@ describe("SlideSchema — task/0007 backgroundImage", () => {
 			type: "text",
 			question: "Hi",
 		});
-		// ADR-0029: string fields default to "" so read sites never see undefined.
+		// String fields default to "" so read sites never see undefined.
 		expect(slide.backgroundImage).toBe("");
 	});
 });
@@ -240,7 +240,7 @@ describe("VoteSchema — P1 statementId + skip", () => {
 			value: "hello",
 			participantId: "p1",
 		});
-		// ADR-0029: a genuinely-absent statement is an explicit `null`; skip
+		// A genuinely-absent statement is an explicit `null`; skip
 		// defaults to a concrete `false` rather than a missing key.
 		expect(vote.statementId).toBeNull();
 		expect(vote.skip).toBe(false);

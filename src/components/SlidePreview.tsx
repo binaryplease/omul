@@ -43,7 +43,7 @@ import { SlideTypeIcon } from "./SlideTypeIcon";
 // other thing drawn here stays exactly what the room will get. One rendering
 // path with an editing layer over it, rather than a second renderer beside it —
 // which is the whole reason REQ152 promoted this component instead of writing a
-// canvas of its own (ADR-0026).
+// canvas of its own.
 //
 // The stage has two views (REQ154), and they are two views of one frame rather
 // than two components: the same border, the same background, the same placement

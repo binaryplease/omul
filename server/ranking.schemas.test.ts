@@ -7,7 +7,7 @@
  *   - REQ034 — rankingItems[] and the RANKING_ITEM_LIMIT cap
  *
  * The encode/decode pair is tested here rather than through the API because it
- * is the contract *both* ends share (ADR-0013): the participant surface writes
+ * is the contract *both* ends share: the participant surface writes
  * the value and the aggregation reads it back.
  */
 
@@ -101,7 +101,7 @@ describe("SlideSchema — ranking items (REQ034)", () => {
 		).toBe(false);
 	});
 
-	test("a stored deck authored before ranking existed re-parses forward (ADR-0029)", () => {
+	test("a stored deck authored before ranking existed re-parses forward", () => {
 		const stored = StoredPresentationSchema.parse({
 			id: "p1",
 			slides: [
