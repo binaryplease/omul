@@ -38,6 +38,30 @@ obligation under either of its licenses. A commercial license (see
 [LICENSE-COMMERCIAL](LICENSE-COMMERCIAL)) is a separate agreement and may say
 otherwise; the AGPL grant explicitly does not (sections 15 and 16).
 
+## Supported versions
+
+There is one release series and it is the current one. omul is at `1.0.0` (the
+version in [package.json](package.json)); nothing older was ever published, so
+there is no earlier line to maintain and nothing to back-port to.
+
+| Version | Gets security fixes |
+|---|---|
+| `1.x` — the current release, and `main` | Yes |
+| Anything earlier | Nothing earlier exists |
+
+A fix lands on `main` and goes out with the next release, and the container
+image `ghcr.io/binaryplease/omul:latest` is rebuilt from `main` by
+[.github/workflows/build.yaml](.github/workflows/build.yaml). There are no
+long-term-support branches and no back-ports to earlier tags, so updating to
+the current release is how you get a fix. If that ever changes — a second
+supported line, or a version that stops receiving fixes — this section says so
+before it takes effect.
+
+**Report against whatever you can reach.** The current release or `main` helps
+most, because a flaw already fixed there costs us a lookup rather than a patch;
+but if the only instance you can test is an older build, name the commit or
+image tag and report it anyway, and we will check whether it still reproduces.
+
 ## Scope
 
 **In scope** is this repository's own code: the Elysia server under `server/`,
