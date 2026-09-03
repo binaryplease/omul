@@ -6,7 +6,7 @@ and triage status each file declares, and the business requirement it derives
 from: `BRxxx` in a private documentation sidecar, or `internal` where this
 codebase raised the requirement itself.
 
-The rows between the markers are written by `index build` (ADR-0040); never edit
+The rows between the markers are written by `index build`; never edit
 them by hand, and never write a second listing of `requirements/` anywhere else.
 Prose outside the markers is preserved.
 

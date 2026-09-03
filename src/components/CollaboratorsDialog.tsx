@@ -10,8 +10,8 @@ import { Modal } from "./ui/Modal";
 // One dialog for the whole capability — inviting, changing a level and revoking
 // — because they are three views of one question: who is on this deck. Split
 // across the chrome, an owner could revoke somebody without ever having been
-// shown that anybody was there. It sits behind a control on the deck's own card
-// (ADR-0031): what it governs is that deck, so it lives beside it rather than in
+// shown that anybody was there. It sits behind a control on the deck's own card:
+// what it governs is that deck, so it lives beside it rather than in
 // global chrome.
 //
 // Everything here is the *owner's* surface. It is emphatically not where the
@@ -20,7 +20,7 @@ import { Modal } from "./ui/Modal";
 // and `server/collaborators.integration.test.ts`).
 
 /**
- * The three levels as a person reads them (ADR-0026): one descriptor, composed
+ * The three levels as a person reads them: one descriptor, composed
  * by the picker in this dialog and by the badge on a shared deck's card, so the
  * two cannot come to describe the same grant differently.
  *

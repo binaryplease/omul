@@ -1,7 +1,7 @@
 /**
  * Turning a short text prompt into a draft deck (REQ007).
  *
- * A module of its own for the reason `server/templates.ts` is one (ADR-0032):
+ * A module of its own for the reason `server/templates.ts` is one:
  * everything here depends on a model provider, a prompt and the slide
  * vocabulary, and on nothing the presentation service owns — no store, no
  * ownership, no join code, no lifecycle. Delete `services/presentations.ts` and
@@ -10,17 +10,17 @@
  * other creates do.
  *
  * **The remote model is the feature, and that is the exception it rides.**
- * ADR-0016 forbids depending on a third-party host to serve first-party assets
- * and allows "explicit third-party product integrations where the remote service
- * is the feature". A generator is that case: there is no asset to bundle, and
- * the thing being asked for is the provider's own answer. The ADR requires such
- * a dependency to be documented — it is, in `docs/deployment.md` and in the
+ * This product depends on no third-party host to serve first-party assets, and
+ * makes an explicit exception only where the remote service *is* the feature.
+ * A generator is that case: there is no asset to bundle, and
+ * the thing being asked for is the provider's own answer. The exception requires
+ * such a dependency to be documented — it is, in `docs/deployment.md` and in the
  * README. Two properties keep it from leaking into anything else:
  *
  *   - **Unconfigured is the default, and it fails closed.** No key means no
  *     generation, said out loud through {@link DeckGenerator.availability} so
  *     the surface offering it can disable the control with its reason
- *     (ADR-0025) rather than discovering the fact on a 503. Nothing else in the
+ *     rather than discovering the fact on a 503. Nothing else in the
  *     product changes when the key is absent.
  *   - **Nothing else in the codebase imports a provider.** The SDK is reached
  *     through a dynamic import inside the one function that calls the model, so
@@ -125,11 +125,11 @@ export const GENERATED_DECK_MAX_SLIDES = 12;
  * object per slide with six known keys is a much smaller target than one
  * choosing a branch of a discriminated union with optional nested objects in it,
  * and everything omitted here is a field {@link SlideSchema}'s own defaults fill
- * in (ADR-0029) — which is what makes the expansion below a mapping rather than
+ * in — which is what makes the expansion below a mapping rather than
  * a construction.
  *
  * Every field carries a default, so a model that answers with only `type` and
- * `question` produces a complete draft rather than a parse failure (ADR-0029),
+ * `question` produces a complete draft rather than a parse failure,
  * and {@link isUsableDraftSlide} is what decides whether what arrived is a slide
  * at all.
  *
@@ -345,7 +345,7 @@ export function isUsableDraftSlide(drafted: GeneratedSlide): boolean {
  * One drafted slide as the deck's own {@link Slide} — a mapping, not a
  * construction: everything this function does not name comes back at
  * {@link SlideSchema}'s default, so a generated slide and a slide the editor
- * made are the same complete shape (ADR-0024/ADR-0029).
+ * made are the same complete shape.
  *
  * Each type is handed **only the fields it means**. A `text` slide carrying the
  * options a model volunteered would be a slide with an answer set nothing draws
@@ -399,7 +399,7 @@ function draftSlide(drafted: GeneratedSlide): Slide {
  * The slides a draft becomes (REQ007): the usable ones, expanded, capped at
  * {@link GENERATED_DECK_MAX_SLIDES}.
  *
- * Pure, and separate from the model call above it (ADR-0010) — which is what
+ * Pure, and separate from the model call above it — which is what
  * lets every claim REQ007 makes about generated *content* be asserted in a test
  * with no key, no network and no provider.
  */
@@ -505,7 +505,8 @@ export const DECK_GENERATION_ANONYMOUS_ENV = "OMUL_GENERATION_ALLOW_ANONYMOUS";
 /**
  * The model asked when the deployment names none.
  *
- * A floating "latest" alias rather than a pinned snapshot, per ADR-0009: a
+ * A floating "latest" alias rather than a pinned snapshot, so a deployment
+ * tracks the provider's current flagship rather than an old one: a
  * pinned id is a deployment that goes on paying for last year's model until
  * somebody edits this line, and the snapshot behind the alias is the provider's
  * to retire.
@@ -603,8 +604,8 @@ export type DeckGenerationResult =
  * `GET /api/deck-generation` and, through it, by the surface that offers the
  * control.
  *
- * `reason` is emitted as an explicit `null` when generation is available
- * (ADR-0024), so a client reads one shape either way and never has to tell "no
+ * `reason` is emitted as an explicit `null` when generation is available,
+ * so a client reads one shape either way and never has to tell "no
  * reason" from "field missing".
  */
 export type DeckGenerationAvailability = {
@@ -617,8 +618,8 @@ export type DeckGenerationAvailability = {
 	 * rate-limit-independent control (see {@link DECK_GENERATION_ANONYMOUS_ENV}).
 	 *
 	 * Reported rather than left to be discovered on a 401, because it is exactly
-	 * the fact a surface needs to disable its control with the true reason
-	 * (ADR-0025). It is a *report*, never a credential: the route re-reads the
+	 * the fact a surface needs to disable its control with the true reason.
+	 * It is a *report*, never a credential: the route re-reads the
 	 * switch and re-resolves the caller's account on every request, so a client
 	 * that gets this wrong only mis-draws its own button.
 	 */
@@ -642,14 +643,14 @@ const EMPTY_DRAFT_MESSAGE =
 	"The generator produced too few usable slides for that prompt — try describing the session in more detail";
 
 /**
- * A deck generator (ADR-0007 — a factory over a class, closing over the model
+ * A deck generator (a factory over a class, closing over the model
  * rather than holding it in a field).
  *
  * `model` exists so the whole HTTP path can be driven in a test with no key and
  * no network: the routes take a generator rather than reaching for the default
  * one, and a suite hands them a generator over a stub. It is a seam rather than
  * a `dryRun` flag deliberately, the way the participant surfaces' vote transport
- * is (ADR-0010): a flag would leave the provider call sitting in this module
+ * is: a flag would leave the provider call sitting in this module
  * with an `if` around it, one edit away from a test suite that bills somebody.
  */
 export function createDeckGenerator(

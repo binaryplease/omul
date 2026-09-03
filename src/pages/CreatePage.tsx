@@ -611,7 +611,7 @@ export function CreatePage({
 		}
 
 		// REQ159 — the write caps, checked with the same schema the boundary
-		// parses with (ADR-0013) so the refusal names the slide and the field
+		// parses with so the refusal names the slide and the field
 		// instead of coming back as a bare 422 the banner can only call "the save
 		// failed". This is also the only way an author learns what to trim on a
 		// deck stored before a cap existed: such a deck still reads (the stored
@@ -722,7 +722,7 @@ export function CreatePage({
 
 					<div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
 						<ThemeToggle />
-						{/* The dry run, beside the deck it rehearses (ADR-0031, REQ103).
+						{/* The dry run, beside the deck it rehearses (REQ103).
 						    Only on a saved deck: a preview reads the presentation the
 						    server holds, so there is nothing to preview until there is
 						    one. */}
@@ -871,7 +871,7 @@ export function CreatePage({
 								/>
 								{/* What the accounts this deck is shared with have said about
 								    this slide (REQ074), under the slide it is about
-								    (ADR-0031) — a comment is made while looking at the thing
+								    — a comment is made while looking at the thing
 								    it is about. Only on a deck that exists: a comment is
 								    anchored to a stored slide, and a draft has none until it
 								    is saved. */}
@@ -1087,7 +1087,7 @@ function DeckSettings({
 
 			{/* The deck's own theme (REQ080/REQ092/REQ135) — three colours and a
 			    face, stored on the deck and applied wherever a built-in theme would
-			    be. Authored beside the picker that applies it (ADR-0031), and
+			    be. Authored beside the picker that applies it, and
 			    authorable whichever theme is currently selected: trying `Ember` on
 			    must not throw away the colours somebody typed in. */}
 			<Section
@@ -1144,8 +1144,7 @@ function DeckSettings({
 					{/* Whether these colours are the ones on screen is a different
 					    question from whether they are authored, and the panel answers it
 					    rather than leaving the organizer to infer it from the picker
-					    above. The control stays put and states why it is unavailable
-					    (ADR-0025). */}
+					    above. The control stays put and states why it is unavailable. */}
 					<div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface/40 p-3">
 						<p className="text-xs text-text-muted">
 							{wearsOwnTheme
@@ -1211,8 +1210,8 @@ function DeckSettings({
 							}
 						/>
 					</Field>
-					{/* The mark as the room will meet it, beside the fields that set it
-					    (ADR-0031). A URL the resolver refuses says so here rather than
+					{/* The mark as the room will meet it, beside the fields that set it.
+					    A URL the resolver refuses says so here rather than
 					    silently falling back on a projector. */}
 					<div className="flex items-center gap-3 rounded-xl border border-border bg-surface/40 p-3">
 						<DeckMark
@@ -1286,7 +1285,7 @@ function DeckSettings({
 			    override it from its own Settings panel — and the button below
 			    takes those overrides back so the mode governs the whole deck in
 			    one operation (REQ018). It sits here, under the setting it applies,
-			    rather than in the page chrome (ADR-0031). */}
+			    rather than in the page chrome. */}
 			<Section
 				title="Results visibility"
 				description="When aggregated results reach the audience. Any slide can override this from its own settings."

@@ -9,12 +9,12 @@ and environment variables, and [frontend.md](frontend.md) for UI conventions.
 | Layer | Choice | Notes |
 |---|---|---|
 | Runtime | Bun | |
-| Server | Elysia | Per ADR-0003. Built-in WebSocket support. |
+| Server | Elysia | The project's default server framework. Built-in WebSocket support. |
 | Validation | Zod | Route validation via Elysia's Standard Schema support; schema types in `server/schemas.ts` |
 | Database | `@binaryplease/zodstore` | Native `bun:sqlite` + Zod document store, installed from npm (MIT). Persists to one SQLite file at `$DATABASE_PATH` (default `data/omul.sqlite`; `:memory:` for an ephemeral store). In-process — no database service to run. |
-| Auth | Better Auth (email + password) + `@better-auth/api-key` | User accounts + personal API keys, embedded in the Elysia server on a **dedicated `bun:sqlite`** file (`$OMUL_AUTH_DB`) — a documented deviation from ADR-0023 (single-node). See [api.md — Auth model](api.md#auth-model). |
+| Auth | Better Auth (email + password) + `@better-auth/api-key` | User accounts + personal API keys, embedded in the Elysia server on a **dedicated `bun:sqlite`** file (`$OMUL_AUTH_DB`) — a documented deviation from the Mongo store Better Auth would otherwise use, for the single-node reason this product is built around. See [api.md — Auth model](api.md#auth-model). |
 | Email | Brevo v3 HTTP API + React Email | Transactional mail (password reset, verification, change-email). Bodies authored as React components in `server/emails/`, rendered by `server/email.ts`. Disabled-mode logs instead of sending. |
-| Deck generation | Vercel AI SDK (`ai`) + `@ai-sdk/google` | **Optional and off by default.** The only part of the product that talks to anything outside the deployment (REQ007) — an intentional, documented ADR-0016 exception, since the remote model *is* the feature. Loaded by a dynamic import inside the one function that calls it, so nothing else resolves it. See [deployment.md](deployment.md#generating-a-deck-from-a-prompt-req007) |
+| Deck generation | Vercel AI SDK (`ai`) + `@ai-sdk/google` | **Optional and off by default.** The only part of the product that talks to anything outside the deployment (REQ007) — an intentional, documented exception to the rule that production depends on no third-party runtime host, since the remote model *is* the feature. Loaded by a dynamic import inside the one function that calls it, so nothing else resolves it. See [deployment.md](deployment.md#generating-a-deck-from-a-prompt-req007) |
 | Frontend | React 19 | |
 | Styling | Tailwind CSS v4 | |
 | Build | Vite (`bunx vite build`) + Bun bundler (server) | `vite.config.ts`; frontend → `dist/client/`, server → `dist/server/` |
@@ -47,7 +47,7 @@ server/
   routes/
     discovery.ts             # GET /api discovery index + /api/health, and the public origin its absolute links carry (REQ151): OMUL_BASE_HOST, else a trusted X-Forwarded-Proto/Host, else the origin observed
     templates.ts             # GET /api/templates (+ /:id) — the catalog, listed and filtered (REQ005). Public and read-only; creating *from* an entry is a presentation create
-    deck-generation.ts       # GET /api/deck-generation (can this build generate, and on what terms — read before the control is drawn, ADR-0025) + POST (a prompt in, an ordinary deck out, REQ007). A factory over the generator rather than a bare instance, which is what lets the whole HTTP path be tested with no key and no network
+    deck-generation.ts       # GET /api/deck-generation (can this build generate, and on what terms — read before the control is drawn) + POST (a prompt in, an ordinary deck out, REQ007). A factory over the generator rather than a bare instance, which is what lets the whole HTTP path be tested with no key and no network
     presentations.ts         # Presentation REST endpoints (owner-or-edit-token auth, claim, /mine); POST also takes a `templateId` (REQ006) and a `workspaceId` (REQ128), and the deck's move between an account and a workspace lives here because it is a presentation mutation
     workspaces.ts            # /api/workspaces/* (REQ128, REQ129) — the workspace, its roster and the decks it owns. Every route asks two questions and never mixes them: is this caller in this workspace at all (401 vs 403, and no existence leaked), and does their role authorize this
     admin.ts                 # /api/admin/* operator surface (prepare/confirm actions + events)
@@ -79,15 +79,15 @@ src/
     ParticipantSlideView.tsx # A participant's slide + the vote transport — participant page + preview pane (REQ103/REQ104)
     ParticipantName.tsx      # The name a deck can ask for at its door (REQ076): the gate a phone answers it on, the badge that reports it back, and the organizer's roster of who took part — one module, because what both ends share is what a participant is called on this deck
     LiveRoom.tsx             # The live room's two switches (REQ111/REQ109): whether the slide on screen takes answers, and whether the shared screen is showing anything — the presenter's controls, and the participant's gate
-    HighlightedText.tsx      # Marks the searched-for term inside a result (ADR-0019)
+    HighlightedText.tsx      # Marks the searched-for term inside a result
     PreviewLink.tsx          # The way into a preview, from the editor and the presenter's screen
     ResultsLinkDialog.tsx    # Mint / copy / revoke the deck's read-only results link (REQ098)
     ExportDialog.tsx         # Every shape the session leaves in (REQ095/REQ096): one descriptor of the formats, one dialog composing it
     SlideCanvas.tsx          # The editor's stage: the slide as the room will see it, themed and captioned (REQ152)
     SlidePreview.tsx         # The stage's renderer, composed only by SlideCanvas (not REQ103's preview)
     SlideTypeIcon.tsx        # SlideTypeIcon component
-    WorkspaceRoles.tsx       # What a workspace role means in words (REQ129) — one descriptor, composed by the roster's picker, the workspace card's badge and the add-member line (ADR-0026)
-    MoveToWorkspaceDialog.tsx # Handing one of your decks to a workspace (REQ128), from the deck's own card (ADR-0031). The other direction lives on the workspace's page
+    WorkspaceRoles.tsx       # What a workspace role means in words (REQ129) — one descriptor, composed by the roster's picker, the workspace card's badge and the add-member line
+    MoveToWorkspaceDialog.tsx # Handing one of your decks to a workspace (REQ128), from the deck's own card. The other direction lives on the workspace's page
     ui/
       ConfirmModal.tsx
       Modal.tsx              # Generic titled dialog shell (used by the auth surfaces)
@@ -100,9 +100,9 @@ src/
   pages/
     HomePage.tsx
     WorkspacesPage.tsx       # The workspaces this account is in (REQ128) — and creating one
-    WorkspacePage.tsx        # One workspace: the decks it owns and who is in it, on one screen because they are two views of one question. Every control is drawn for every member and disabled with its reason when their role does not open it (ADR-0025)
+    WorkspacePage.tsx        # One workspace: the decks it owns and who is in it, on one screen because they are two views of one question. Every control is drawn for every member and disabled with its reason when their role does not open it
     TemplatesPage.tsx        # The prebuilt-deck gallery (REQ005) — filtered in the browser with the endpoint's own filter, and the way into a deck from one (REQ006)
-    GeneratePage.tsx         # Drafting a deck from a prompt (REQ007) — the brief, the draft caveat above the box it qualifies, and the control drawn disabled with its reason on a build with no provider configured (ADR-0025)
+    GeneratePage.tsx         # Drafting a deck from a prompt (REQ007) — the brief, the draft caveat above the box it qualifies, and the control drawn disabled with its reason on a build with no provider configured
     CreatePage.tsx
     PresenterPage.tsx
     PreviewPage.tsx          # Preview mode (REQ103) — both perspectives side by side, test-vote controls
@@ -138,17 +138,18 @@ Collections (each one Zod-gated SQLite table of `(id TEXT PRIMARY KEY, doc TEXT)
 - `responseVotes` — one document per open-ended upvote (REQ025). Gated by `StoredResponseVoteSchema`.
 - `qaQuestions` — one document per question asked on the deck-wide Q&A layer (REQ036). Keyed by `presentationId`, **not** by slide: the layer takes questions from whatever is on screen, so a question belongs to the presentation. Gated by `StoredQAQuestionSchema`.
 - `qaUpvotes` — one document per participant upvote on such a question (REQ060). Gated by `StoredQAUpvoteSchema`.
-- `deckCollaborators` — one document per (deck, account) sharing grant (REQ075), carrying the level it was shared at. Indexed on **both** ends because both are read: a deck asks who is on it, an account asks which decks it is on. Gated by `StoredDeckCollaboratorSchema`; owned by `server/services/collaborators.ts` (ADR-0032).
-- `participantNames` — one document per (deck, participant) name stated on joining (REQ076). A collection rather than a field on each vote for the reason a name is one fact about a person: denormalising it would make correcting a typo a rewrite of every answer already given, and a rewrite that missed one would put the same person in the export twice under two spellings. The join is `participantId`, which every stored row already carries. Gated by `StoredParticipantNameSchema`; owned by `server/services/participant-names.ts` (ADR-0032). Swept by `eraseParticipantRecords`, so a **reset** takes it as well as a delete — a re-run is a different room.
-- `workspaces` — one document per workspace (REQ128): an owner of decks that is not an account. A deck it owns names it in `workspaceId` and carries **no** `creatorId` and no `creatorTokenHash` — the two ownership fields are alternatives rather than layers, which is what makes a deck survive any single member's removal. Gated by `StoredWorkspaceSchema`; owned by `server/services/workspaces.ts` (ADR-0032).
+- `deckCollaborators` — one document per (deck, account) sharing grant (REQ075), carrying the level it was shared at. Indexed on **both** ends because both are read: a deck asks who is on it, an account asks which decks it is on. Gated by `StoredDeckCollaboratorSchema`; owned by `server/services/collaborators.ts`.
+- `participantNames` — one document per (deck, participant) name stated on joining (REQ076). A collection rather than a field on each vote for the reason a name is one fact about a person: denormalising it would make correcting a typo a rewrite of every answer already given, and a rewrite that missed one would put the same person in the export twice under two spellings. The join is `participantId`, which every stored row already carries. Gated by `StoredParticipantNameSchema`; owned by `server/services/participant-names.ts`. Swept by `eraseParticipantRecords`, so a **reset** takes it as well as a delete — a re-run is a different room.
+- `workspaces` — one document per workspace (REQ128): an owner of decks that is not an account. A deck it owns names it in `workspaceId` and carries **no** `creatorId` and no `creatorTokenHash` — the two ownership fields are alternatives rather than layers, which is what makes a deck survive any single member's removal. Gated by `StoredWorkspaceSchema`; owned by `server/services/workspaces.ts`.
 - `workspaceMembers` — one document per (workspace, account) membership (REQ129), carrying the role it was added at. Indexed on **both** ends because both are read, and the second constantly: a workspace asks who is in it, and every request touching one of its decks asks what this account's role is. The pair is unique, so "what may this account do here?" has one answer. Gated by `StoredWorkspaceMemberSchema`; owned by `server/services/workspaces.ts`.
-- `slideComments` — one document per comment on a slide (REQ074), keyed by `presentationId` and `slideId` and carrying the account that wrote it. A collection rather than a field on the presentation document *because* of the requirement's second half: the deck document is what `GET /join/:code` and every `slide.changed` broadcast are projections of, so a comment stored on it would be one forgotten projection away from the room — here there is nothing to strip, since no participant-facing surface loads this collection at all. Gated by `StoredSlideCommentSchema`; owned by `server/services/slide-comments.ts` (ADR-0032).
+- `slideComments` — one document per comment on a slide (REQ074), keyed by `presentationId` and `slideId` and carrying the account that wrote it. A collection rather than a field on the presentation document *because* of the requirement's second half: the deck document is what `GET /join/:code` and every `slide.changed` broadcast are projections of, so a comment stored on it would be one forgotten projection away from the room — here there is nothing to strip, since no participant-facing surface loads this collection at all. Gated by `StoredSlideCommentSchema`; owned by `server/services/slide-comments.ts`.
 
-The `Stored*` schemas live in `server/schemas.ts` (single source of truth,
-ADR-0013) and give every non-identity field a `.default(...)` so the shape grows
-without a migration (ADR-0029): old rows read forward with defaults filling any
+The `Stored*` schemas live in `server/schemas.ts` (the single source of truth
+for every shape that crosses a boundary) and give every non-identity field a
+`.default(...)` so the shape grows
+without a migration: old rows read forward with defaults filling any
 gap. Identity fields (`id` and the presentation/slide/response references) carry
-no default and fail loudly when absent (ADR-0018).
+no default and fail loudly when absent.
 `server/stored-defaults.test.ts` enforces that over every collection, with each
 one's identity fields named.
 
@@ -167,7 +168,7 @@ and both commented there:
   narrowed by a presentation id, and one large event crosses that legitimately
   (1 000 participants over ten slides is 10 000 rows of `votes` for one deck),
   so the cap would turn that event into a 500.
-- **`enforceDefaults: false`** — the library's own ADR-0029 walk recognises an
+- **`enforceDefaults: false`** — the library's own defaults walk recognises an
   identity field by the schema object its `ref()` helper returns, and `ref()`
   requires a `prefix_` on the stored value. This catalog's foreign keys are
   plain `z.string()` over `crypto.randomUUID()`, so the walk reads all eighteen

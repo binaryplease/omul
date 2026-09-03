@@ -186,7 +186,7 @@ describe("the leaderboard slide type (REQ059)", () => {
 		expect(slideHasResults("instruction")).toBe(false);
 	});
 
-	test("a slide parses with the default board size (ADR-0029)", () => {
+	test("a slide parses with the default board size", () => {
 		const parsed = SlideSchema.parse({
 			id: "board",
 			type: "leaderboard",

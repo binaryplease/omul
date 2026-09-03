@@ -3,9 +3,9 @@
  *
  * Brevo is the org's transactional-mail provider; we talk to it over plain HTTPS
  * (`POST https://api.brevo.com/v3/smtp/email`) rather than SMTP so the single Bun
- * binary needs no mail-transport dependency. Built as a factory function per
- * ADR-0007 — `createEmailer()` closes over the resolved sender identity and key
- * and returns a small `{ enabled, sendEmail }` surface.
+ * binary needs no mail-transport dependency. Built as a factory function rather
+ * than a class — `createEmailer()` closes over the resolved sender identity and
+ * key and returns a small `{ enabled, sendEmail }` surface.
  *
  * Two safety gates decide whether a message actually goes out:
  *   1. `SEND_EMAILS` must be exactly `"true"` (the master switch).
@@ -15,7 +15,7 @@
  * reset stay fully testable in local dev without a Brevo account — the reset URL
  * shows up in the server log.
  *
- * Message templating is kept as pure builder functions (ADR-0010) separate from
+ * Message templating is kept as pure builder functions separate from
  * the transport. The HTML bodies are authored as React Email components under
  * `server/emails/` (composed, inline-styled, email-client-safe markup) and
  * rendered here; the hand-authored plain-text parts stay alongside them. Because
@@ -39,7 +39,8 @@ const SEND_EMAILS = process.env.SEND_EMAILS === "true";
 const BREVO_API_KEY = (process.env.BREVO_API_KEY || "").trim();
 
 // Brevo's success payload — only the message id is of interest, and even that is
-// informational (we log it). `.default(null)` per ADR-0029 so a shape change on
+// informational (we log it). `.default(null)` like every other parsed field, so
+// a shape change on
 // Brevo's side never makes a successful send read as a parse failure.
 const BrevoSuccessSchema = z.object({
 	messageId: z.string().nullable().default(null),
@@ -179,7 +180,7 @@ export function createEmailer(): Emailer {
 /** Process-wide emailer, configured once from the environment at import. */
 export const emailer = createEmailer();
 
-/* ── Templates (pure builders, ADR-0010) ──────────────────────────────── */
+/* ── Templates (pure builders) ──────────────────────────────── */
 
 /**
  * Build the password-reset email. `resetUrl` is the Better Auth callback link

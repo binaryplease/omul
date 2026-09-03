@@ -254,7 +254,7 @@ describe("Pin on Image question type integration", () => {
 		expect((await results(pres.id, "pn")).totalVotes).toBe(0);
 	});
 
-	test("an empty payload is well-formed before any pin lands (ADR-0024)", async () => {
+	test("an empty payload is well-formed before any pin lands", async () => {
 		const pres = await createAndStart([pinSlide({ pinArea: null })]);
 		const payload = await results(pres.id, "pn");
 		expect(payload.totalVotes).toBe(0);

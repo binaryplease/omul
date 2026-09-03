@@ -38,7 +38,7 @@ describe("presentation schemas — the reaction channel", () => {
 		expect(created.reactionsEnabled).toBe(false);
 	});
 
-	test("a document persisted before the channel existed reads forward (ADR-0029)", () => {
+	test("a document persisted before the channel existed reads forward", () => {
 		const stored = StoredPresentationSchema.parse({ id: "p1" });
 		expect(stored.reactionsEnabled).toBe(false);
 	});

@@ -6,7 +6,7 @@
  * "broadcast control room" masthead carrying the blue accent (REQ166), the
  * Figtree display face and DM Mono for the uppercase button/label chrome — so the
  * palette and the reusable style blocks live here once and are composed by every
- * template (ADR-0028: interaction/brand styling is a shared token, owned by one
+ * template (interaction/brand styling is a shared token, owned by one
  * module, never re-hand-rolled per surface). React Email renders components to
  * inline-styled, email-client-safe HTML, so the tokens are plain
  * `React.CSSProperties` objects spread onto each component's `style` prop.

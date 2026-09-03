@@ -395,7 +395,7 @@ describe("comment threads on slides (REQ074)", () => {
 		).json();
 		expect(viewerRead.commentAccess).toBe("view");
 
-		// No standing at all is reported, not omitted (ADR-0024).
+		// No standing at all is reported, not omitted.
 		const anonymousRead = await (
 			await fetch(`${baseUrl}/api/presentations/${deck.id}`)
 		).json();

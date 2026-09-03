@@ -602,14 +602,14 @@ export function PresenterPage({
 	// "Export" on its own says nothing about what leaves the building
 	// (REQ095/REQ096) or what a reset costs (REQ101). The export's own name is
 	// `exportButtonLabel` in `ExportDialog`, beside the formats it opens onto —
-	// what the control is called is part of what the affordance is (ADR-0026).
+	// what the control is called is part of what the affordance is.
 	const exportControlLabel = exportButtonLabel(isOwner);
 
 	// REQ098 — the read-only results link. Offered whatever the deck's status, for
 	// the reason the export beside it is: a link minted mid-session is a
 	// legitimate thing to hand somebody, and a survey deck collects answers while
 	// it is still a draft. Disabled with its reason for a viewer who does not hold
-	// the deck (ADR-0025) — minting one is a decision about somebody else's
+	// the deck — minting one is a decision about somebody else's
 	// results.
 	const resultsLinkButtonLabel = isOwner
 		? "Share the results — create, copy or revoke a read-only link to this deck's results"
@@ -633,7 +633,7 @@ export function PresenterPage({
 	// whole slide — so its switch lives beside the chat's, in the one place a
 	// presenter goes to decide what this room may send besides answers. Offered to
 	// a viewer who does not hold the deck too, disabled with its reason rather than
-	// dropped (ADR-0025).
+	// dropped.
 	const audienceButtonLabel = !isOwner
 		? "Show the audience panel — you cannot edit this presentation, so its channels are not yours to open"
 		: audienceOpen
@@ -643,8 +643,8 @@ export function PresenterPage({
 				: "Show the audience panel — the chat is currently off";
 
 	// REQ090 — the notes for the slide on screen. Offered to a viewer who does
-	// not hold the deck too, disabled with its reason rather than dropped
-	// (ADR-0025): what they are missing is the organizer's private script, and
+	// not hold the deck too, disabled with its reason rather than dropped:
+	// what they are missing is the organizer's private script, and
 	// the server never sent it to them in the first place.
 	const notesButtonLabel = presenterNotesToggleLabel({
 		canRead: isOwner,
@@ -675,7 +675,7 @@ export function PresenterPage({
 				: // The roster is only fetched while the panel is open, so a closed one
 					// has no count to report — and `?? 0` would announce an empty room on
 					// a deck this browser has not asked about, which is exactly what the
-					// visible chip's "—" refuses to claim (ADR-0024). The two have to say
+					// visible chip's "—" refuses to claim. The two have to say
 					// the same thing; a screen-reader user is not reading the number.
 					"Show who took part — the names stated on this deck";
 
@@ -693,7 +693,7 @@ export function PresenterPage({
 	 * the whole point of a blank that survives navigation is that the presenter
 	 * lines the next slide up behind it, which a curtain with no Next button
 	 * cannot do. One definition rather than two, so the two states cannot come to
-	 * page through the deck differently (ADR-0026). It names a *position* and
+	 * page through the deck differently. It names a *position* and
 	 * never a question, which is what lets it stay on a blanked screen.
 	 */
 	const slideNavigation = pres.status === "live" && isOwner && (
@@ -843,7 +843,7 @@ export function PresenterPage({
 							    about how much of the room is still waiting.
 
 							    Offered to a viewer who does not hold the deck too, disabled
-							    with its reason rather than dropped (ADR-0025), exactly as the
+							    with its reason rather than dropped, exactly as the
 							    export and reset chips below it are: the queue and the
 							    switches behind it are the deck's, and that is a thing to say
 							    out loud rather than a control to make vanish.
@@ -852,7 +852,7 @@ export function PresenterPage({
 							    own fetch answers with their own questions rather than the
 							    room's (REQ037), so the count beside the icon would be a
 							    truthful number about the wrong list. It reads as an explicit
-							    "no count to report" instead (ADR-0024) — never a `0`, which
+							    "no count to report" instead — never a `0`, which
 							    would claim an empty queue — and the chip keeps its width, so
 							    nothing reflows when the same screen is opened by the
 							    organizer. */}
@@ -879,7 +879,7 @@ export function PresenterPage({
 							    decide whether the panel is worth opening.
 
 							    Offered to a viewer who does not hold the deck too, disabled
-							    with its reason rather than dropped (ADR-0025), like the Q&A
+							    with its reason rather than dropped, like the Q&A
 							    chip beside it. Unlike that one it may still show a number: a
 							    chat has one projection and every reader of this deck reads
 							    the same feed, so the count is not a truthful number about
@@ -926,8 +926,8 @@ export function PresenterPage({
 							    The count is this slide's, because that is the number somebody
 							    glances at to decide whether to open the panel. Disabled with
 							    its reason rather than dropped for a viewer with no account on
-							    the deck (ADR-0025), and it reads "—" rather than `0` for them
-							    (ADR-0024): a zero would claim an empty thread on a deck whose
+							    the deck, and it reads "—" rather than `0` for them:
+							    a zero would claim an empty thread on a deck whose
 							    threads they were never sent. */}
 							<button
 								type="button"
@@ -952,12 +952,12 @@ export function PresenterPage({
 							    again.
 
 							    Offered whatever the deck's switch says and disabled with its
-							    reason for a viewer who does not hold the deck (ADR-0025) — a
+							    reason for a viewer who does not hold the deck — a
 							    control that vanished on a deck with names switched off would
 							    leave an organizer wondering where the roster went rather than
 							    being told the deck never asked. The count is the roster's own
-							    length while the panel is open and "—" the rest of the time
-							    (ADR-0024): a `0` would claim an empty room on a deck this
+							    length while the panel is open and "—" the rest of the time:
+							    a `0` would claim an empty room on a deck this
 							    browser has not asked about. */}
 							<button
 								type="button"
@@ -976,13 +976,14 @@ export function PresenterPage({
 
 							{/* REQ109 — take the deck off the shared screen without leaving
 							    the slide. In this row rather than on the slide itself, and
-							    that is ADR-0031's own exception rather than a departure from
-							    it: what this governs is the *whole* projected view, so there
+							    that is the exception the adjacency rule carries rather than a
+							    departure from it: what this governs is the *whole* projected
+							    view, so there
 							    is no sub-region to sit beside — and the way back is drawn on
 							    the curtain itself, where the presenter is already looking.
 
 							    Offered to a viewer who does not hold the deck too, disabled
-							    with its reason (ADR-0025), like every chip beside it. Its
+							    with its reason, like every chip beside it. Its
 							    pressed state is the room's, not this browser's: a second
 							    browser projecting the same deck reads the same field off the
 							    same broadcast. */}
@@ -1007,11 +1008,11 @@ export function PresenterPage({
 							    a preview writes nothing and starts nothing, so there is no
 							    state in which opening one costs the room anything — and
 							    disabled with its reason for a viewer who does not hold the
-							    deck (ADR-0025). */}
+							    deck. */}
 							<PreviewLink presentationId={pres.id} go={go} canPreview={isOwner} />
 
 							{/* The two ends of the organizer's session workflow, beside the
-							    results they act on (ADR-0031): take the data out
+							    results they act on: take the data out
 							    (REQ095/REQ096), then clear it so the deck runs clean again
 							    (REQ101).
 
@@ -1020,7 +1021,7 @@ export function PresenterPage({
 							    deck (REQ003/REQ082) collects answers while it is still a
 							    draft, so no status is reliably "nothing to reset" — and both
 							    are disabled with their reason rather than dropped for a
-							    viewer who does not hold the deck (ADR-0025).
+							    viewer who does not hold the deck.
 
 							    Icon chips rather than labelled buttons, like the participant
 							    and Q&A counters they sit beside: this row stays on one line
@@ -1034,7 +1035,7 @@ export function PresenterPage({
 							    both: it is the third thing an organizer does with a session —
 							    hand it to somebody who was not in the room — and it belongs
 							    beside the results it delegates rather than in the join-code
-							    cluster, which hands out ways *into* the deck (ADR-0031). */}
+							    cluster, which hands out ways *into* the deck. */}
 							<button
 								type="button"
 								className={`flex items-center px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-surface-raised border border-border ${ICON_BUTTON_HOVER} disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -1249,7 +1250,7 @@ export function PresenterPage({
 					</main>
 
 					{/* The presenter's notes for the slide on screen (REQ090), beside it
-					    rather than over it (ADR-0031): a cue is read while the room is
+					    rather than over it: a cue is read while the room is
 					    still looking at the question, so a panel that covered the slide
 					    would make reading one cost the other.
 
@@ -1306,7 +1307,7 @@ export function PresenterPage({
 					    the other.
 
 					    The layer's two controls sit inside this panel, on the list they
-					    govern (ADR-0031) — turning Q&A on and deciding who reads it are
+					    govern — turning Q&A on and deciding who reads it are
 					    changes to *this*, not to the deck's chrome. Both are offered
 					    whether or not the layer is on, so the question of where the
 					    questions will go is settled before the first one arrives. */}
@@ -1332,8 +1333,8 @@ export function PresenterPage({
 					    over it for the reason the Q&A queue is: a presenter reads the
 					    room while the room is still looking at the question.
 
-					    Both channel switches sit at the top of it, on what they govern
-					    (ADR-0031). The reaction one is here rather than beside the
+					    Both channel switches sit at the top of it, on what they govern.
+					    The reaction one is here rather than beside the
 					    reaction overlay because that overlay is the whole slide — there
 					    is no region to put a control next to — and the two switches
 					    answer the same question anyway: what may this room send besides
@@ -1341,7 +1342,7 @@ export function PresenterPage({
 
 					    The transcript below them is the same feed every phone reads. It
 					    stays readable with the channel closed, and only the composer
-					    goes dead, saying why (ADR-0025). */}
+					    goes dead, saying why. */}
 					{isOwner && audienceOpen && (
 						<aside className="md:w-80 flex-shrink-0 border-t md:border-t-0 md:border-l border-border bg-surface/50 overflow-y-auto p-4 flex flex-col gap-4">
 							<h3 className="flex items-center gap-2 text-base font-semibold">

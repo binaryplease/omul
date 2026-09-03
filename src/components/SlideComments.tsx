@@ -15,7 +15,7 @@ import { ICON_BUTTON_HOVER } from "./ShareCluster";
 // accounts a deck is shared with say to each other about the slide in front of
 // them. One reading of a thread, one composer, one place a comment is removed —
 // worn by the editor's strip under the canvas, and available to any other
-// surface that draws a single slide (ADR-0026/ADR-0027: the invariant is *the
+// surface that draws a single slide (the invariant is *the
 // conversation on this slide*, not a list and a box that two surfaces could
 // re-assemble into two different dialects of it).
 //
@@ -26,7 +26,7 @@ import { ICON_BUTTON_HOVER } from "./ShareCluster";
 // `server/schemas.ts`, `StoredSlideCommentSchema`). So this module is only ever
 // handed comments its reader was already entitled to, and what it draws when
 // they are not entitled is the server's own refusal, in words, in place of the
-// thread (ADR-0025).
+// thread.
 
 /** What one comment's author is called, as every row here reads it. */
 export function slideCommentAuthorLabel(comment: SlideComment): string {
@@ -39,7 +39,7 @@ export function slideCommentAuthorLabel(comment: SlideComment): string {
 
 /**
  * When a comment was written, in the reader's own locale — `""` for a row with
- * no stamp, which is what an older document re-parses forward onto (ADR-0029)
+ * no stamp, which is what an older document re-parses forward onto
  * and which the row then simply does not draw.
  */
 export function slideCommentTimeLabel(createdAt: string): string {
@@ -55,7 +55,7 @@ export function slideCommentTimeLabel(createdAt: string): string {
 /**
  * The thread on one slide, out of the deck's whole conversation.
  *
- * The single read (ADR-0026): the server hands back every comment on the deck in
+ * The single read: the server hands back every comment on the deck in
  * one payload, because the surface consuming it draws one slide's thread *and* a
  * count on the rest, and two call sites splitting that list their own way is how
  * a badge comes to disagree with the panel under it.
@@ -126,7 +126,7 @@ export function withSlideCommentDraft(
 
 /**
  * What the closed strip says: how many comments this slide carries, or the
- * invitation that stands in the same place when it carries none (ADR-0025 — the
+ * invitation that stands in the same place when it carries none (the
  * affordance does not disappear with its content).
  */
 export function slideCommentStripLabel(count: number): string {
@@ -136,7 +136,7 @@ export function slideCommentStripLabel(count: number): string {
 
 /**
  * Whether this reader may write on the thread, and — when they may not — the
- * one sentence saying why (ADR-0025: the composer is disabled with its reason,
+ * one sentence saying why (the composer is disabled with its reason,
  * never dropped).
  *
  * A *report*, exactly like the `accessLevel` it reads: the route re-decides the
@@ -384,8 +384,8 @@ export function SlideCommentsPanel({
 					}
 				/>
 				<div className="flex items-center justify-between gap-3">
-					{/* The control is present in every state and says why it is idle
-					    (ADR-0025); `reason` is the server's own words when the load came
+					{/* The control is present in every state and says why it is idle;
+					    `reason` is the server's own words when the load came
 					    back with one. */}
 					<p className="min-w-0 text-xs text-text-dim">
 						{failure || composer.reason}
@@ -405,7 +405,7 @@ export function SlideCommentsPanel({
 }
 
 /**
- * The slide's comments, written where the slide is (REQ074/ADR-0031).
+ * The slide's comments, written where the slide is (REQ074).
  *
  * A strip under the canvas, beside the presenter-notes one it deliberately
  * mirrors: a comment is made while looking at the slide it is about, so it

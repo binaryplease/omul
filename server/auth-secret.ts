@@ -3,17 +3,18 @@
  * developer run without one (REQ171).
  *
  * This lives apart from `server/accounts.ts` because it depends on nothing that
- * module does — only on this process's environment (ADR-0032). That separation
+ * module does — only on this process's environment. That separation
  * is load-bearing rather than tidy: it is what lets the test suite bundle this
  * file with `bun build` and *execute* the artifact, which is the only way to
  * prove the property below still holds.
  *
  * **The property.** The decision must be made at runtime, from a value someone
  * set on purpose for this environment, and must fail closed when that value is
- * absent (ADR-0036).
+ * absent.
  *
  * The first shipped attempt at this gate read `process.env.NODE_ENV`, and that
- * is exactly the trap ADR-0036 names. `bun build` constant-folds the dotted
+ * is exactly the trap an inferred environment mode sets. `bun build`
+ * constant-folds the dotted
  * `process.env.NODE_ENV` form at bundle time, so the emitted bundle contains a
  * frozen string and never consults the environment again. Built with `NODE_ENV`
  * unset — which is what `bun run build` does, `package.json` not having set it —
@@ -39,7 +40,7 @@
 /**
  * The development signing secret.
  *
- * Per ADR-0023 rule 5 this MUST be overridden with a real secret in any
+ * This MUST be overridden with a real secret in any
  * non-local environment — and it cannot fail to be, because
  * {@link resolveAuthSecret} refuses to reach it unless the switch below is
  * explicitly on.
@@ -72,7 +73,7 @@ const PLACEHOLDER_SECRET_SUFFIX = "-dev-insecure-secret-change-in-production";
  * (`OMUL_RATE_LIMITS_DISABLED`, `SEND_EMAILS`,
  * `OMUL_GENERATION_ALLOW_ANONYMOUS`). Anything else — a typo, `"1"`, `"yes"`,
  * or the far more common case of nothing at all — is off, because the default
- * when unset or unparseable is the restrictive posture (ADR-0036).
+ * when unset or unparseable is the restrictive posture.
  */
 const INSECURE_DEV_SECRET_SWITCH = "OMUL_ALLOW_INSECURE_DEV_AUTH_SECRET";
 
@@ -90,7 +91,7 @@ const MINIMUM_SECRET_LENGTH = 32;
  * Read off `process.env` under a bracket, never as a dotted literal, for the
  * reason the module header gives: a dotted read is the form a bundler is
  * entitled to fold, and this is the one variable whose folded value would be a
- * security posture decided at build time (ADR-0036).
+ * security posture decided at build time.
  */
 function insecureDevSecretAllowed(): boolean {
 	return process.env[INSECURE_DEV_SECRET_SWITCH] === "true";
@@ -121,8 +122,8 @@ function unusableAuthSecretMessage(fault: string): string {
  *
  * Without the development switch this is configuration the operator must
  * supply, and its absence is a fatal startup error on the same pattern a
- * malformed `OMUL_BASE_HOST` already uses (ADR-0018,
- * `server/routes/discovery.ts`) — read at boot, crashing loudly, rather than
+ * malformed `OMUL_BASE_HOST` already uses
+ * (`server/routes/discovery.ts`) — read at boot, crashing loudly, rather than
  * degrading into a working-looking server whose every session cookie is
  * forgeable by a stranger holding a clone.
  *

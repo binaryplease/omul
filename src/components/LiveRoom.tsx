@@ -29,7 +29,7 @@ import type { getDict } from "../i18n";
 // `audienceViewBlanked` live in `server/schemas.ts` and are re-exported through
 // `src/types.ts`, because the boundary enforces the first of them and a second
 // reading on the client is how a phone comes to draw a live control over a
-// refusal (ADR-0013/ADR-0026).
+// refusal.
 
 // ── Participation (REQ111) ───────────────────────────────────
 
@@ -42,7 +42,7 @@ import type { getDict } from "../i18n";
  * to be added to rather than one per surface.
  */
 export type ParticipationLabels = {
-	/** Why the control in front of them is dead (ADR-0025). */
+	/** Why the control in front of them is dead. */
 	closed: string;
 };
 
@@ -63,10 +63,10 @@ export function participationLabelsFor(
 
 /**
  * What the presenter's participation control is called, in the state it is in
- * (ADR-0026 — the name is part of the affordance).
+ * (the name is part of the affordance).
  *
  * It is drawn whatever the viewer's standing and disabled with its reason for a
- * spectator rather than dropped (ADR-0025): whether the room can answer is a
+ * spectator rather than dropped: whether the room can answer is a
  * fact about this session, and a control that vanished would leave a
  * `view` collaborator unable to tell a closed question from an open one.
  */
@@ -88,7 +88,7 @@ export function slideParticipationToggleLabel({
 }
 
 /**
- * The presenter's open/close control, on the slide it governs (ADR-0031).
+ * The presenter's open/close control, on the slide it governs.
  *
  * It sits beside the reveal and the timer restart rather than in the page's
  * chrome, because all three are decisions about *this question* — and unlike
@@ -243,8 +243,9 @@ export function sharedScreenView(deck: LiveRoomState | null): SharedScreenView {
  * died. The deck's own mark and one line of explanation say the screen is like
  * this on purpose.
  *
- * The way back is **on the curtain**, not only in the chrome (ADR-0031/
- * ADR-0025): the presenter is looking at the thing they need to undo, and a
+ * The way back is **on the curtain**, not only in the chrome (an affordance sits
+ * beside what it changes): the presenter is looking at the thing they need to
+ * undo, and a
  * control that lived only in a header they have to hunt for is how a room sits
  * in front of a blank wall a beat too long. A spectator sees the curtain
  * without the button — the screen really is blanked for them, and there is

@@ -7,7 +7,7 @@ import { quizDeadlineFor, quizRemainingMs, quizTimeLimitFor } from "../types";
 //
 // A quiz question's remaining time appears on two surfaces — the participant's
 // phone, where it decides whether an answer can still be given, and the shared
-// screen, where it paces the room — so per ADR-0026 it is one descriptor
+// screen, where it paces the room — so it is one descriptor
 // ({@link quizWindowFor}), one shared wrapper ({@link QuizTimer}), and one
 // clock ({@link useQuizCountdown}). Neither surface re-derives when a question
 // closes; if they could, they would eventually disagree, and the one thing a
@@ -125,7 +125,7 @@ export function useQuizCountdown(
  * The countdown itself: seconds left over a bar that drains with them, or the
  * closed state once the window is past.
  *
- * Rendered identically on both surfaces (ADR-0026) so "how long have I got?"
+ * Rendered identically on both surfaces so "how long have I got?"
  * reads the same on a phone and on the projector. A question with no window
  * renders nothing at all — there is no time to report, and a "∞" would only
  * invite the reader to look for a number.

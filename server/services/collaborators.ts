@@ -1,8 +1,8 @@
 /**
  * Deck sharing — who else has standing on a deck, and at what level (REQ075).
  *
- * A module of its own rather than a section of `services/presentations.ts`
- * (ADR-0032): it owns its collection, its vocabulary and its failure set, and it
+ * A module of its own rather than a section of `services/presentations.ts`:
+ * it owns its collection, its vocabulary and its failure set, and it
  * would keep working unchanged if the presentation service were rewritten around
  * it. The dependency runs one way on purpose — **nothing here imports the
  * presentation service**, so the presentation service is free to import this one
@@ -130,7 +130,7 @@ export function weakestDeckAccessLevel(
 /**
  * This account's stated level on this deck, or `null` when it has no grant.
  *
- * The single read the authorization path makes (ADR-0026), and the reason it
+ * The single read the authorization path makes, and the reason it
  * returns `null` rather than throwing on an unknown deck: "no grant" and "no
  * such deck" are the same answer to the only question being asked, and a caller
  * with no standing must not be able to tell them apart.
@@ -192,7 +192,7 @@ export async function grantDeckAccess(
  * Move an existing grant to `level`. A row that vanished between being read and
  * being written is a **throw**, not a fallback: reporting the old level as
  * though the change had applied would tell an owner they demoted somebody who
- * still holds what they had (ADR-0018 — fail loudly rather than quietly wrong).
+ * still holds what they had (fail loudly rather than quietly wrong).
  */
 async function changeGrantLevel(
 	existing: Record<string, unknown>,

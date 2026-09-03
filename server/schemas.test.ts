@@ -159,7 +159,7 @@ describe("SlideSchema", () => {
 		expect(slide.gridAllowSkip).toBe(false);
 		// REQ044/REQ045 default — a slide of any type carries an empty 100
 		// Points item list, so a deck authored before the type existed re-parses
-		// forward without a migration (ADR-0029).
+		// forward without a migration.
 		expect(slide.pointsItems).toEqual([]);
 		// REQ039–REQ042 defaults — a slide of any type carries the 0–100 guess
 		// frame in steps of 1, and no reference number: a slide whose author never
@@ -372,7 +372,7 @@ describe("UpdatePresentationSchema — what a PATCH may write", () => {
 	test("carries only the keys the request named — no defaults", () => {
 		// `updatePresentation` broadcasts on `"qaEnabled" in changes`, so a default
 		// would turn a title change into a claim about the Q&A layer the request
-		// never mentioned. This is why the schema inverts ADR-0029's rule.
+		// never mentioned. This is why the schema inverts the defaults rule.
 		const patch = UpdatePresentationSchema.parse({ title: "Renamed" });
 		expect(Object.keys(patch)).toEqual(["title"]);
 	});
@@ -679,7 +679,7 @@ describe("REQ159 — what a deck may be written with, and how much of it", () =>
 	});
 
 	test("SlideInputSchema is SlideSchema, defaults and all — not a second copy", () => {
-		// Extended rather than restated (ADR-0013): a field added to a slide is
+		// Extended rather than restated: a field added to a slide is
 		// writable the moment it exists, and every default the stored shape
 		// declares still lands here.
 		const asInput = SlideInputSchema.parse({

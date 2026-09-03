@@ -6,14 +6,14 @@ import { LEADERBOARD_DEFAULT_SIZE, leaderboardEntryLabel } from "../types";
 // ── Leaderboard (REQ059) ──────────────────────────────────────────────
 //
 // The deck's standings across its quiz questions, drawn once and worn by both
-// screens (ADR-0026): the shared screen shows the top of the field, and a
+// screens: the shared screen shows the top of the field, and a
 // participant's phone shows the same board with their own row picked out. What
 // makes a leaderboard a leaderboard — the order, the places, the ties sharing
 // one — is decided on the server; this module only draws it.
 //
 // It lives in its own module rather than inside Results.tsx because it depends
 // on nothing that file owns: only on the board payload and the label helper
-// from the schema (ADR-0032).
+// from the schema.
 //
 // **Nobody is named.** Every row carries a one-way handle the server derived
 // from a participant id, never the id itself — no catalog entry asks
@@ -91,7 +91,7 @@ export const LEADERBOARD_LABELS_EN: LeaderboardLabels = {
  * The same board, in the deck's language (REQ084) — the one place the
  * participant-facing dictionary is mapped onto the board's labels, so the
  * phone and the shared screen wear the same wording in two languages rather
- * than two wordings (ADR-0026).
+ * than two wordings.
  */
 export function leaderboardLabelsFor(
 	dict: ReturnType<typeof getDict>,
@@ -167,7 +167,7 @@ export function leaderboardBarWidth(points: number, leaderPoints: number): numbe
 
 /**
  * The place badge's treatment — the shared token for "this row is on the
- * podium" (ADR-0028), owned here and composed by every row that draws one.
+ * podium", owned here and composed by every row that draws one.
  * Fourth place down wears the plain surface: a podium that extended to
  * everybody would mark nothing.
  */

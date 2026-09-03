@@ -107,7 +107,7 @@ interface OpenWindow {
 function ignoreError(): void {}
 
 /**
- * A coalescer (ADR-0007 — factory over class).
+ * A coalescer (factory over class).
  *
  * A key is in the map exactly while its window is open, so the map is the size
  * of the *currently busy* keys rather than of every key ever run — the same

@@ -139,7 +139,7 @@ function authHeaders(presentationId: string): Record<string, string> {
 // authorized as an edit (they carry raw per-participant responses and every
 // quiz answer key); and a failure still comes back as JSON, so it reads the way
 // every other call's failure reads. One helper, so a third format cannot arrive
-// with its own idea of any of that (ADR-0026).
+// with its own idea of any of that.
 
 /** A file the browser has, and the name it should be saved under. */
 export type DownloadedExport = { blob: Blob; filename: string };
@@ -279,8 +279,8 @@ function resultsLinkHeaders(presentationId: string): Record<string, string> {
 }
 
 /**
- * One reading of the whole-deck results payload, composed by both callers of it
- * (ADR-0026): the presenter's `getAllResults` and the results link's
+ * One reading of the whole-deck results payload, composed by both callers of it:
+ * the presenter's `getAllResults` and the results link's
  * `getSharedResults`. A withheld entry keeps its `slideId` and `question`, so a
  * consumer still walks the whole deck, and its `results` is `null` rather than a
  * countless payload a renderer would draw as "0 of 0 answered".
@@ -318,7 +318,7 @@ export const api = {
 	/**
 	 * The built-in template catalog (REQ005), whole. Fetched once and filtered in
 	 * the browser with `filterDeckTemplates` — the same function the endpoint's
-	 * `category`/`search` parameters run (ADR-0026), so the gallery cannot mean
+	 * `category`/`search` parameters run, so the gallery cannot mean
 	 * something different by a search than the API does, and typing in the search
 	 * box costs no round trip.
 	 */
@@ -371,7 +371,7 @@ export const api = {
 	 * Whether this deployment can generate a deck from a prompt (REQ007), and on
 	 * what terms. Read before the control is drawn, so a server with no provider
 	 * configured shows the control disabled with the reason rather than hidden or
-	 * failing on the click (ADR-0025).
+	 * failing on the click.
 	 */
 	getDeckGeneration: () =>
 		request<DeckGenerationAvailability>("/deck-generation"),
@@ -956,7 +956,7 @@ export const api = {
 	//
 	// Every one of them is a *report* on the way back: `role` says what the server
 	// will let this caller do, so a surface can disable what they may not and say
-	// why (ADR-0025). It is never a credential — each route re-resolves the role
+	// why. It is never a credential — each route re-resolves the role
 	// from the request's own credentials (REQ129), so a client that gets this
 	// wrong only mis-draws its own buttons.
 
@@ -1062,7 +1062,7 @@ export const api = {
 	 * a fresh creator token, which `createPresentation` stores in localStorage.
 	 *
 	 * The re-identification is `withFreshSlideIds`, shared with import below and
-	 * with the server's create-from-template path (ADR-0026) — three ways of
+	 * with the server's create-from-template path — three ways of
 	 * making a copy of a deck, one definition of what a copy is.
 	 */
 	duplicatePresentation: async (id: string): Promise<any> => {

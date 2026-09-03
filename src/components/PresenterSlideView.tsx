@@ -32,7 +32,7 @@ import {
 // ── The shared screen's slide ─────────────────────────────────
 //
 // One rendering of "what is on the projector", worn by the live presenter page
-// and by the preview's presenter pane (ADR-0026/ADR-0027: the unit of sharing is
+// and by the preview's presenter pane (the unit of sharing is
 // the invariant, and the invariant here is the whole slide — its heading, its
 // countdown, its results-visibility gate and its tally are one thing, and a
 // preview that re-assembled them from the same primitives in a different order
@@ -44,7 +44,7 @@ import {
 // restart arrive as callbacks rather than being reached for here.
 
 /**
- * What this surface is called wherever another one names it (ADR-0026): the
+ * What this surface is called wherever another one names it: the
  * dry run's presenter pane and the editor's canvas are both pictures of *this*
  * screen, and two spellings of it would be two names for one thing. Not a
  * participant-facing string — the shared screen is not translated.
@@ -123,8 +123,7 @@ export function PresenterSlideView({
 	>({});
 
 	// The quiz question's countdown (REQ057), on the same window the participants
-	// answer against and the boundary enforces — one descriptor, both surfaces
-	// (ADR-0026).
+	// answer against and the boundary enforces — one descriptor, both surfaces.
 	const quizCountdown = useQuizCountdown(
 		quizWindowFor(slide, pres),
 		serverClockOffsetMs,
@@ -151,7 +150,7 @@ export function PresenterSlideView({
 	/**
 	 * Whether this slide's tally is published to the room (REQ015/REQ016/REQ017),
 	 * read through the very function the server gates the payload with rather
-	 * than re-derived from the three modes here (ADR-0026). The shared screen is
+	 * than re-derived from the three modes here. The shared screen is
 	 * an audience-facing surface: a rule that drifted from the server's would put
 	 * this projector out of step with every phone in front of it. `visibility`
 	 * stays beside it because the two withholding modes are not the same message
@@ -312,7 +311,7 @@ export function PresenterSlideView({
 					</p>
 				)}
 				{/* The question's countdown and the control that reopens it, on the
-				    question they govern rather than in the page chrome (ADR-0031).
+				    question they govern rather than in the page chrome.
 				    Both surfaces show the same window (REQ057). */}
 				{slide.type === "quiz" && (
 					<div className={`mt-4 flex flex-col gap-2 ${placement.items}`}>
@@ -334,11 +333,11 @@ export function PresenterSlideView({
 					</div>
 				)}
 				{/* Whether the room can still answer this question (REQ111), on the
-				    question it governs rather than in the page's chrome (ADR-0031) —
+				    question it governs rather than in the page's chrome —
 				    beside the reveal and the timer restart, because all three are
 				    decisions about *this slide* taken with a room in front of you.
 
-				    Drawn for a spectator too, disabled with its reason (ADR-0025): a
+				    Drawn for a spectator too, disabled with its reason: a
 				    closed question is a fact about the session, and a control that
 				    vanished would leave them unable to tell a closed question from an
 				    open one. A quiz question is deliberately governed by this *and* by
@@ -380,7 +379,7 @@ export function PresenterSlideView({
 			) : results ? (
 				<>
 					{/* Absolute vs. percentage (REQ011) — sits with the results it
-					    re-reads, not in the page chrome (ADR-0031). */}
+					    re-reads, not in the page chrome. */}
 					{isChoiceSlide && (
 						<div className="mb-4 flex justify-center">
 							<Segmented<McValueDisplay>

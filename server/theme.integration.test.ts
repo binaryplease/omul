@@ -202,7 +202,7 @@ describe("Deck theme integration", () => {
 
 		// Taking it back leaves the field present and empty rather than absent —
 		// the audience's view of a branded deck and an unbranded one are the same
-		// complete shape (ADR-0024), so no client reaches for `??`.
+		// complete shape, so no client reaches for `??`.
 		await authed(`/api/presentations/${pres.id}`, pres.creatorToken, {
 			method: "PATCH",
 			body: JSON.stringify({ themeLogoUrl: "", themeLogoAlt: "" }),

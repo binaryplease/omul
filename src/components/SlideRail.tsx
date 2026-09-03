@@ -7,13 +7,13 @@ import { SlideTypeIcon } from "./SlideTypeIcon";
 //
 // The numbered slide thumbnail that appears in a vertical rail on two
 // surfaces: the presenter's navigation sidebar (click → go to slide) and the
-// editor's slide list (click → select for editing). Per ADR-0026/0027 the
+// editor's slide list (click → select for editing). The
 // invariant — a slide's identity chip (number + type icon + title) and its
 // selected/idle treatment — is expressed once here; each surface composes it
 // with its own click handler and surrounding chrome.
 
 /**
- * Shared selected/idle surface token (ADR-0028): the highlight a rail item
+ * Shared selected/idle surface token: the highlight a rail item
  * wears when it is the active/selected slide versus when it is not. Owned here,
  * composed by every rail surface — never re-declared inline per page.
  */

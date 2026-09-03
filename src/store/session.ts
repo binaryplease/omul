@@ -619,7 +619,7 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		 * A slide was opened or closed to submissions (REQ111).
 		 *
 		 * The set arithmetic is `withSlideParticipation`, the same function the
-		 * server writes the field with (ADR-0026) — a second copy here is how a
+		 * server writes the field with — a second copy here is how a
 		 * phone comes to believe a question is open that the boundary is refusing,
 		 * and then draws a live control over a refusal.
 		 */

@@ -9,7 +9,7 @@
  *   - REQ050 — the skip setting defaults off
  *
  * The encode/decode pair is tested here rather than through the API because it
- * is the contract *both* ends share (ADR-0013): the participant surface writes
+ * is the contract *both* ends share: the participant surface writes
  * the coordinates and the aggregation reads them back.
  */
 
@@ -159,7 +159,7 @@ describe("GridAxisSchema — naming and endpoints (REQ048, REQ049)", () => {
 		expect(yAxis.min).toBe(0);
 	});
 
-	test("a stored deck authored before grid existed re-parses forward (ADR-0029)", () => {
+	test("a stored deck authored before grid existed re-parses forward", () => {
 		const stored = StoredPresentationSchema.parse({
 			id: "p1",
 			slides: [

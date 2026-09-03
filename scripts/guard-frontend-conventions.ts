@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 // ── Frontend convention guard ─────────────────────────────────────────
 //
-// Narrow, executable backstops for the frontend ADRs that drift silently
-// under autonomous development (ADR-0026 §3, ADR-0028 §2). Each check targets
+// Narrow, executable backstops for the frontend conventions that drift silently
+// under autonomous development — one descriptor per cross-surface affordance,
+// and one shared token per interaction state. Each check targets
 // one specific regression with a low false-positive rate, names the primitive
 // to use in its message, and allowlists the canonical module that owns it.
 //
@@ -61,11 +62,11 @@ function stripTrailingComment(lineText: string): string {
 
 const guards: Guard[] = [
 	{
-		// ADR-0022: glyph characters used as icons. The project uses lucide-react
+		// Glyph characters used as icons. The project uses lucide-react
 		// for icons; arrows/checks/triangles as literal glyphs are always
 		// icons-as-text. These code points never appear in the app's prose, so
 		// matching them directly stays low-noise.
-		name: "ADR-0022 glyph-as-icon",
+		name: "glyph-as-icon",
 		pattern: /[←→↑↓⬆⬇⬅➡▲▼◀▶△▽✓✔✗✕✖★☆➜➤]/u,
 		allowlist: [],
 		skipComments: true,
@@ -73,17 +74,17 @@ const guards: Guard[] = [
 			"Unicode glyph used as an icon — import the equivalent icon from lucide-react instead.",
 	},
 	{
-		// ADR-0028: the muted → accent icon-button hover treatment is a shared
+		// The muted → accent icon-button hover treatment is a shared
 		// interaction-state token. It must be composed from ShareCluster, never
 		// re-declared inline per surface.
-		name: "ADR-0028 inline hover token",
+		name: "inline hover token",
 		pattern: /text-text-muted\s+hover:text-accent/,
 		allowlist: ["components/ShareCluster.tsx"],
 		message:
 			"Inline interaction-state hover style — compose ICON_BUTTON_HOVER from src/components/ShareCluster.tsx instead.",
 	},
 	{
-		// ADR-0026: a deck's logo (REQ136) reaches a *rendering* surface through
+		// A deck's logo (REQ136) reaches a *rendering* surface through
 		// deckLogoFor() and <DeckMark/>, never off the field. The resolver is what
 		// refuses a URL no `<img>` should be pointed at, so a surface reading the
 		// raw string has stepped around the check as well as around the fallback
@@ -98,7 +99,7 @@ const guards: Guard[] = [
 			"Deck logo URL read straight off the field — resolve it with deckLogoFor() or render <DeckMark/> from src/components/DeckTheme.tsx instead.",
 	},
 	{
-		// ADR-0026: a deck's own theme (REQ080) reaches a *rendering* surface
+		// A deck's own theme (REQ080) reaches a *rendering* surface
 		// through deckBrandFor() and the DeckTheme catalog, never off the field.
 		// The resolver is what refuses a value that is not a colour and a face this
 		// build does not ship, so a surface reading the raw object has stepped
@@ -116,7 +117,7 @@ const guards: Guard[] = [
 			"Deck brand read straight off the field — resolve it with deckBrandFor() or render through <DeckThemeScope/> from src/components/DeckTheme.tsx instead.",
 	},
 	{
-		// ADR-0026: a slide's own appearance (REQ087/REQ070/REQ071/REQ019) reaches
+		// A slide's own appearance (REQ087/REQ070/REQ071/REQ019) reaches
 		// a *rendering* surface through slideAppearanceFor() and
 		// <SlideAppearanceScope/>, never off the field. The resolver is what refuses
 		// a value that is not a colour, a layout this build cannot draw and a URL no
@@ -140,7 +141,7 @@ const guards: Guard[] = [
 			"Slide appearance read straight off the field — resolve it with slideAppearanceFor() or render through <SlideAppearanceScope/> from src/components/SlideAppearance.tsx instead.",
 	},
 	{
-		// ADR-0026/REQ152: the editor draws the slide being authored in exactly one
+		// REQ152: the editor draws the slide being authored in exactly one
 		// place — the stage — and `<SlideCanvas/>` is it. `SlidePreview` is that
 		// stage's renderer, and the deck theming around it is part of the frame, so
 		// a second render site would be a second answer to "what will the room see"
@@ -157,7 +158,7 @@ const guards: Guard[] = [
 			"Slide drawn outside the editor's stage — render <SlideCanvas/> from src/components/SlideCanvas.tsx instead.",
 	},
 	{
-		// ADR-0026/REQ153: the editor's authoring layer — the hover outlines, the
+		// REQ153: the editor's authoring layer — the hover outlines, the
 		// add-option row, the correct/remove tools on each option — is drawn by the
 		// one rendering path the room's slide is drawn by, and is switched on by
 		// being *handed* `SlideCanvasEditing` rather than by a flag. That makes the
@@ -181,10 +182,10 @@ const guards: Guard[] = [
 			"Slide editing layer reached outside the editor's stage — author a slide through <SlideCanvas editing=…/> from src/components/SlideCanvas.tsx instead.",
 	},
 	{
-		// ADR-0026: the share-control cluster is a single descriptor + wrapper.
+		// The share-control cluster is a single descriptor + wrapper.
 		// These title strings are unique to those controls; finding them outside
 		// the wrapper means the affordance was hand-rolled again.
-		name: "ADR-0026 hand-rolled share control",
+		name: "hand-rolled share control",
 		pattern:
 			/title="(Copy join code|Copy join link|Copy embed code|Copy share link with edit permissions)"/,
 		allowlist: ["components/ShareCluster.tsx"],

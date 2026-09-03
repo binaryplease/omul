@@ -27,7 +27,7 @@
  *     answered by typing has no options at all (REQ055) — two spellings of that
  *     is how one surface offers a row the other will not draw.
  *   - **The two-option floor is unchanged (REQ012), and it explains itself.** The
- *     control stays on screen either way (ADR-0025), so the reason has to be a
+ *     control stays on screen either way, so the reason has to be a
  *     value rather than a rendering decision — it has to reach an accessible
  *     name, not just a tooltip.
  */

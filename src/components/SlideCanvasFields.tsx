@@ -22,8 +22,8 @@ import { SLIDE_TEXT_LEADING, SLIDE_TEXT_SCALE, SlideText } from "./SlideText";
 // text under the author's cursor rather than a control's claim about it, which
 // is a property no field in a settings column can have.
 //
-// The module owns the three things ADR-0026 asks for, and nothing else owns any
-// of them:
+// The module owns the three things a cross-surface affordance is made of, and
+// nothing else owns any of them:
 //
 //   - **One descriptor** — {@link SlideCanvasEditing}, the four editor-store
 //     actions the canvas may reach. A surface either holds it or it does not;
@@ -37,7 +37,7 @@ import { SLIDE_TEXT_LEADING, SLIDE_TEXT_SCALE, SlideText } from "./SlideText";
 //     layer is exactly what no participant, presenter or shared-results surface
 //     may ever render.
 //
-// The interaction states these fields wear are shared tokens (ADR-0028):
+// The interaction states these fields wear are shared tokens:
 // {@link CANVAS_FIELD_SURFACE} is what "this text is editable" looks like, and
 // {@link CANVAS_TOOL_REVEAL} what a per-row tool does when it is not being
 // pointed at. Both reveal on `focus-within` as well as on hover — a tool that
@@ -64,7 +64,7 @@ export type SlideCanvasEditing = {
 
 /**
  * What an editable run of slide text looks like at rest, under a pointer, and
- * under the caret (ADR-0028) — the one answer to "which of these words can I
+ * under the caret — the one answer to "which of these words can I
  * type into?", composed by the question field and by every option row.
  *
  * Transparent at rest on purpose: the canvas is a picture of the room's screen
@@ -77,7 +77,7 @@ export const CANVAS_FIELD_SURFACE =
 	"rounded-md outline-none ring-1 ring-transparent transition-shadow hover:ring-border focus:ring-2 focus:ring-accent";
 
 /**
- * A per-row tool that steps back until it is wanted (ADR-0025: it is never
+ * A per-row tool that steps back until it is wanted (it is never
  * removed, only quietened). It comes back for the pointer *and* for the caret —
  * `group-focus-within` is what makes the remove button reachable by tab rather
  * than only by mouse.
@@ -173,7 +173,7 @@ export function singleLineQuestion(authored: string): string {
 /**
  * What marking an option correct will actually do, in the organizer's terms
  * (REQ013) — carried by the tool itself, since that is where the affordance now
- * lives (ADR-0031). A quiz scores it and rewards answering it quickly (REQ054);
+ * lives. A quiz scores it and rewards answering it quickly (REQ054);
  * a plain choice slide reveals it as the solution once results are shown.
  */
 export function correctOptionHint(slide: Slide): string {
@@ -202,7 +202,7 @@ export function isChoiceShapedSlide(slide: Slide): boolean {
  * say when it may not (REQ012's floor, unchanged: a choice slide keeps two
  * options, because one option is not a choice).
  *
- * The control it answers for stays on screen either way (ADR-0025) — the reason
+ * The control it answers for stays on screen either way — the reason
  * travels with the answer so it can reach a tooltip *and* an accessible name,
  * rather than being a button that quietly is not there.
  */
@@ -220,7 +220,7 @@ export function canvasOptionRemoval(optionCount: number): {
 
 /**
  * Whether the add tool may grow the option list, and — at the write boundary's
- * ceiling (REQ159) — the sentence saying why it may not (ADR-0025). The store's
+ * ceiling (REQ159) — the sentence saying why it may not. The store's
  * `addOption` holds the same ceiling; this is the reason the dead control gives.
  */
 export function canvasOptionAddition(optionCount: number): {
@@ -239,7 +239,7 @@ export function canvasOptionAddition(optionCount: number): {
  * The slide's heading, as the room reads it — and, when the editor handed this
  * surface its layer, as the author types it.
  *
- * The two renderings share a box on purpose (ADR-0027): the invariant is *the
+ * The two renderings share a box on purpose: the invariant is *the
  * heading of this slide*, at the author's own step (REQ091) and in the colours
  * the appearance layer resolved, so an authored size is bigger text under the
  * caret rather than a number in a picker. The field is a textarea sized by a
@@ -336,12 +336,12 @@ export function SlideQuestion({
  * cards the room will meet — and authored inside those cards when the editor
  * handed this surface its layer.
  *
- * Every affordance hangs off the row it acts on (ADR-0031): the solution flag
+ * Every affordance hangs off the row it acts on: the solution flag
  * and the remove tool sit on their option, and the add row sits at the end of
  * the list it grows. The solution flag is the one that never quietens, because
  * the answer key is part of what an author needs to read at a glance — a marked
  * option wears its check at rest, and an unmarked one still shows the control
- * that would mark it (ADR-0025).
+ * that would mark it.
  */
 export function SlideOptionList({
 	slide,
@@ -451,12 +451,12 @@ export function SlideOptionList({
  * It is the one tool here that does not fade out: a marked option shows its
  * check and its word at rest, because "which of these is right?" is something an
  * author reads off the slide rather than goes hunting for. An unmarked option
- * keeps the control that would mark it — quieter, never absent (ADR-0025).
+ * keeps the control that would mark it — quieter, never absent.
  *
  * It carries the *consequence* of marking with it (`hint`), because the sentence
  * that used to explain it lived on the settings column's Options group and the
  * affordance no longer does: an explanation left behind where the control used
- * to be is an explanation nobody reads (ADR-0031).
+ * to be is an explanation nobody reads.
  */
 function CorrectOptionToggle({
 	marked,
@@ -498,7 +498,7 @@ function CorrectOptionToggle({
  * Dropping one option from the answer set (REQ012), on the row it drops.
  *
  * At the two-option floor it stays on screen, inert, carrying its reason in both
- * the tooltip and the accessible name (ADR-0025).
+ * the tooltip and the accessible name.
  *
  * `aria-disabled` rather than `disabled`, and that is the whole point: a
  * `disabled` button leaves the tab order, and this one also rests at zero
@@ -508,7 +508,7 @@ function CorrectOptionToggle({
  * unavailable, and says why. The click is guarded here instead, because
  * `aria-disabled` is a statement to assistive tech and not an inert switch.
  *
- * Its muted → error step is the shared token (ADR-0028), composed rather than
+ * Its muted → error step is the shared token, composed rather than
  * re-declared — the settings column's `RemoveRowButton` wears the same red.
  */
 function RemoveOptionButton({

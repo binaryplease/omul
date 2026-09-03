@@ -6,10 +6,10 @@ import type { Route } from "../router";
 // Two surfaces offer the dry run — the editor, where a deck is prepared, and
 // the presenter's screen, where it is about to be run — so the control is one
 // component rather than two buttons that will eventually disagree about what
-// it is called and what it warns (ADR-0026).
+// it is called and what it warns.
 //
 // It is offered whether or not this browser can edit the deck, disabled with
-// its reason rather than dropped (ADR-0025): a preview reads the deck's answer
+// its reason rather than dropped: a preview reads the deck's answer
 // keys, so it needs the same credential an edit does, and a viewer who cannot
 // open one should learn *why* rather than find nothing there.
 

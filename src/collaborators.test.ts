@@ -25,7 +25,7 @@ import {
 } from "./components/CollaboratorsDialog";
 import { DECK_ACCESS_LEVELS } from "./types";
 
-describe("the level descriptor (ADR-0026)", () => {
+describe("the level descriptor", () => {
 	test("offers exactly the levels the API accepts, in the same order", () => {
 		expect(DECK_ACCESS_LEVEL_DESCRIPTORS.map((entry) => entry.level)).toEqual([
 			...DECK_ACCESS_LEVELS,

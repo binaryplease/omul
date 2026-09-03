@@ -7,14 +7,13 @@ import { decodeGridPoint } from "../types";
 // that makes a "2x2" a 2x2, and whatever dots a surface wants drawn on it.
 // Two surfaces plot the same field — the participant places items on it and
 // the shared screen shows where the room put them — and the invariant they
-// share is the *field*, not the dots (ADR-0027): identical axes, identical
+// share is the *field*, not the dots: identical axes, identical
 // endpoint labels, identical geometry, so a participant recognises the picture
 // they answered when it appears on the big screen. Each surface composes it
-// with its own marks (ADR-0026).
+// with its own marks.
 //
 // It lives in its own module rather than inside Results.tsx because it depends
-// on nothing that file owns — only on the axis shape from the schema
-// (ADR-0032).
+// on nothing that file owns — only on the axis shape from the schema.
 
 /** One dot on the field. */
 export type GridMark = {
@@ -62,7 +61,7 @@ export function gridEndLabel(label: string, value: number): string {
 // and the numbered list beside it can never disagree about which items are on
 // the grid or about which item a dot's number refers to. Both surfaces of that
 // disagreement were real defects; keeping the derivation in one pure function
-// (ADR-0010) is what stops them recurring.
+// is what stops them recurring.
 
 /**
  * The placement the server accepted for one item, read back out of the value

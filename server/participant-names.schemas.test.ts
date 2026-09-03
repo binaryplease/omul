@@ -12,9 +12,9 @@
  *     carries `requireParticipantName` defaults it to `false`, which is what
  *     lets a deck written before the field existed re-parse forward onto the
  *     anonymous room it already had.
- *   - **The exports keep the distinction ADR-0024 asks for.** A participant who
- *     stated nothing reads as an explicit `null`, never as an empty string, in
- *     both the workbook and the PDF.
+ *   - **The exports keep the distinction an explicit `null` makes.** A
+ *     participant who stated nothing reads as an explicit `null`, never as an
+ *     empty string, in both the workbook and the PDF.
  */
 
 import { describe, expect, test } from "bun:test";

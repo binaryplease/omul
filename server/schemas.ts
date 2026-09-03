@@ -49,7 +49,7 @@ export function isInteractiveSlideType(type: SlideType): boolean {
 
 /**
  * Whether a slide has an aggregate on the results endpoint at all — the single
- * question every surface that fetches or polls one asks (ADR-0026).
+ * question every surface that fetches or polls one asks.
  *
  * Not the same question as {@link isInteractiveSlideType}, and REQ059 is why
  * they parted: a leaderboard slide takes no votes of its own, yet its entire
@@ -64,7 +64,7 @@ export function slideHasResults(type: SlideType): boolean {
 /**
  * Whether an individual answer submitted to this slide type may be taken back
  * out of it by an editor (REQ027) — the one question the delete boundary and
- * every surface that draws the control ask (ADR-0026).
+ * every surface that draws the control ask.
  *
  * Two types, and the reason is what an answer *is* on each of them: a word and
  * a written response are the room's own text, published verbatim on the shared
@@ -102,7 +102,7 @@ export const CONTENT_SLIDE_TYPES: readonly SlideType[] = [
 ];
 
 /**
- * Whether a slide is authored as content rather than as a question (ADR-0026).
+ * Whether a slide is authored as content rather than as a question.
  *
  * Four surfaces ask this and each used to spell the union itself — the editor
  * (which fields to offer), the preview pane and both live views (which renderer
@@ -114,7 +114,7 @@ export function isContentSlideType(type: SlideType): boolean {
 }
 
 /**
- * What each slide type is **called**, in the words a person reads (ADR-0026).
+ * What each slide type is **called**, in the words a person reads.
  *
  * One descriptor, because the name of a type is now written on both sides of
  * the wire: the editor's "Add slide" menu and its type-changer popover compose
@@ -127,7 +127,7 @@ export function isContentSlideType(type: SlideType): boolean {
  * It lives here for the reason {@link deckFilenameSlug} does: this is the module
  * both sides already compose their shared rules from, and a label depends on
  * nothing but {@link SlideType} — not on the DOM the menu draws into, and not on
- * the PDF writer the server streams through (ADR-0032).
+ * the PDF writer the server streams through.
  */
 export const SLIDE_TYPE_LABELS: Record<SlideType, string> = {
 	"multiple-choice": "Multiple Choice",
@@ -176,7 +176,7 @@ export type SlideResultsVisibility = z.infer<typeof SlideResultsVisibilityEnum>;
 /**
  * The results visibility actually in effect for a slide on the shared screen
  * (REQ102): the slide's own override when it sets one, otherwise the deck-level
- * default it inherits. This precedence is expressed once here (ADR-0026) so the
+ * default it inherits. This precedence is expressed once here so the
  * presenter and participant surfaces never re-derive it.
  */
 export function effectiveResultsVisibility(
@@ -264,7 +264,7 @@ export type ResultsCaller = {
 
 /**
  * Whether **this caller** may be sent this slide's tally — the one question the
- * results endpoints and the `results.updated` broadcast ask (ADR-0026).
+ * results endpoints and the `results.updated` broadcast ask.
  *
  * {@link tallyVisibleToAudience} answers it for the room; this answers it for a
  * request, by composing that gate with the two credentials a request can carry.
@@ -374,7 +374,7 @@ export function withInheritedResultsVisibility<
 // clears them along with the votes they were paced around.
 //
 // Both are **public**, for the reason the reveal set is: a phone has to know
-// whether the control in front of it will be honoured (ADR-0025 — the reason a
+// whether the control in front of it will be honoured (the reason a
 // disabled control gives has to be the true one), and the screen being
 // projected may be a second browser rather than the presenter's own.
 
@@ -396,7 +396,7 @@ export type LiveRoomState = {
  * and the polarity is load-bearing rather than incidental. A deck's ordinary
  * state is that every slide takes answers: that is what an unopened deck, a
  * deck written before this field existed, and a deck whose presenter never
- * touched the control all mean, and all three re-parse onto `[]` (ADR-0029).
+ * touched the control all mean, and all three re-parse onto `[]`.
  * Storing the open set instead would make "nothing recorded" read as "nothing
  * takes answers" — a whole room silently refused because a field defaulted.
  *
@@ -414,7 +414,7 @@ export function slideAcceptsSubmissions(
 
 /**
  * The closed set with one slide opened or closed (REQ111) — the one reading of
- * what the toggle does (ADR-0026), composed by the route that writes it and by
+ * what the toggle does, composed by the route that writes it and by
  * the session store that applies its broadcast.
  *
  * Pure and idempotent: closing a slide that is already closed writes the same
@@ -436,7 +436,7 @@ export function withSlideParticipation(
  * (REQ054/REQ057/REQ111) — the wire vocabulary, shared by the route that sends
  * it beside its English `error` text and the participant UI that maps it onto
  * the deck's own language (REQ084). Declared here rather than in the service
- * because both ends of the wire read it (ADR-0013): a client left to guess the
+ * because both ends of the wire read it: a client left to guess the
  * reason from local state shows the wrong one the moment its state and the
  * server's disagree, which a refusal is *for*.
  */
@@ -471,7 +471,7 @@ export function audienceViewBlanked(deck: LiveRoomState): boolean {
 //
 // The three knobs an organizer turns on a choice slide, defined once here and
 // consumed by the editor, the participant surface, the presenter surface and
-// the results aggregation alike (ADR-0013/ADR-0026).
+// the results aggregation alike.
 
 /**
  * How a choice slide's results are drawn on the shared screen (REQ010).
@@ -536,7 +536,7 @@ export const MultipleChoiceOptionSchema = z.object({
  * presenter's window, scored on correctness plus speed, listed on the same
  * scorecard, with its answer key withheld from competitors until the question is
  * over. What differs is only how the answer is *given* — picked from options, or
- * typed — so that is what the field names (ADR-0027: the unit of sharing is the
+ * typed — so that is what the field names (the unit of sharing is the
  * invariant).
  */
 export const QuizAnswerModeEnum = z.enum(["select", "type"]);
@@ -607,7 +607,7 @@ export const RankingItemSchema = z.object({
  * ten the list needs scrolling while being moved through. Ten also keeps the
  * encoded submission (`encodeRanking`) inside `VoteSchema.value`'s 500-character
  * budget with UUID item ids. Declared once here and composed by the schema's
- * `.max()` and the editor's add-item button (ADR-0026).
+ * `.max()` and the editor's add-item button.
  */
 export const RANKING_ITEM_LIMIT = 10;
 
@@ -623,7 +623,7 @@ export const GridItemSchema = z.object({
 /**
  * One dimension of a 2x2 Grid — everything the organizer authors about a single
  * axis (REQ048, REQ049). Written once and worn by both the horizontal and the
- * vertical axis (ADR-0026), so the two can never offer different settings:
+ * vertical axis, so the two can never offer different settings:
  *
  *  - `title` names what the dimension measures ("Effort", "Impact") — REQ048.
  *  - `min`/`max` are its numeric endpoints, so the axis reads as a range
@@ -648,8 +648,7 @@ export type GridAxis = z.infer<typeof GridAxisSchema>;
  * participant two judgements rather than one, and every item also has to stay
  * legible as a labelled dot on one shared plot — past eight the labels collide
  * on the shared screen, which is the whole point of the slide. Declared once
- * here and composed by the schema's `.max()` and the editor's add-item button
- * (ADR-0026).
+ * here and composed by the schema's `.max()` and the editor's add-item button.
  */
 export const GRID_ITEM_LIMIT = 8;
 
@@ -669,8 +668,7 @@ export const PointsItemSchema = z.object({
  * without anyone converting it — and a per-slide budget would make two slides'
  * results incomparable for no gain the item weights don't already give.
  * Declared once here and composed by the codec that enforces it, the tally that
- * divides by it, and the participant surface that counts down from it
- * (ADR-0026).
+ * divides by it, and the participant surface that counts down from it.
  */
 export const POINTS_BUDGET = 100;
 
@@ -690,7 +688,7 @@ export const POINTS_BUDGET = 100;
  * Eight also keeps an encoded allocation (`encodePoints`) at ~330 of
  * `VoteSchema.value`'s 500 characters with UUID item ids, where the hard
  * ceiling would be twelve. Declared once here and composed by both the schema's
- * `.max()` and the editor's add-item button (ADR-0026).
+ * `.max()` and the editor's add-item button.
  */
 export const POINTS_ITEM_LIMIT = 8;
 
@@ -708,7 +706,7 @@ const POINTS_ALLOCATION_SEPARATOR = ":";
  * neither is usable alone — a range without a step does not say which numbers
  * inside it may be picked, and a step without a range has nothing to divide.
  * Every surface that offers a number, validates one, or plots the distribution
- * of them reads all three together, so they travel together (ADR-0026).
+ * of them reads all three together, so they travel together.
  *
  * **Whole numbers only**, on all three. A fractional step would make "is this
  * guess on the grid?" undecidable without an epsilon — `(0.3 - 0) % 0.1` is not
@@ -750,7 +748,7 @@ export type GuessRange = z.infer<typeof GuessRangeSchema>;
  */
 export const GuessReferenceSchema = z.object({
 	/**
-	 * The correct number. Defaultless on purpose (ADR-0018): it is the required
+	 * The correct number. Defaultless on purpose: it is the required
 	 * input that gives the whole object its meaning, and a defaulted `0` would
 	 * assert a correct answer nobody authored. The absence of a reference is
 	 * spelled by the field being `null`, never by an empty object.
@@ -774,7 +772,7 @@ export type GuessReference = z.infer<typeof GuessReferenceSchema>;
  * this gets one column per value, which is the honest distribution; a wider one
  * groups a whole number of steps per column so every column still spans the same
  * count of selectable values. Declared once here and composed by the aggregation
- * that fills the columns and the plot that draws them (ADR-0026).
+ * that fills the columns and the plot that draws them.
  */
 export const GUESS_BUCKET_LIMIT = 24;
 
@@ -810,7 +808,7 @@ export const GUESS_BUCKET_LIMIT = 24;
  * The highest pin coordinate: a pin sits at `0…1000` per-mille along each edge
  * of the image, inclusive at both ends. Declared once and composed by the codec
  * that bounds a submission, the picker that authors a target area, and every
- * surface that turns a coordinate back into a position on screen (ADR-0026).
+ * surface that turns a coordinate back into a position on screen.
  */
 export const PIN_COORDINATE_MAX = 1000;
 
@@ -831,7 +829,7 @@ const PIN_VALUE_SEPARATOR = ",";
  * hotspot check can use, and would put a point-in-shape test on the boundary
  * where an inequality now sits.
  *
- * All four fields are **defaultless on purpose** (ADR-0018), the same stance
+ * All four fields are **defaultless on purpose**, the same stance
  * {@link GuessReferenceSchema}'s `value` takes: they are the required input that
  * gives the object its meaning, and a defaulted `0` would assert a target area
  * nobody drew. A slide with no target area spells that as `null` — never as an
@@ -929,17 +927,17 @@ export const FORM_ANSWER_MAX_LENGTH = 200;
  * a room starts abandoning the form half-filled, which collects nothing at all.
  *
  * Declared once here and composed by the schema's `.max()`, the editor's
- * add-field button, and the value budget below (ADR-0026).
+ * add-field button, and the value budget below.
  */
 export const FORM_FIELD_LIMIT = 6;
 
 /**
  * One field on a Form slide (REQ061).
  *
- * `id` and `label` carry no default, like every other authored item here
- * (ADR-0018): they are the required inputs that make a field a field — an id to
+ * `id` and `label` carry no default, like every other authored item here:
+ * they are the required inputs that make a field a field — an id to
  * bind an answer to, and the words that say what is being asked. Everything else
- * is a decision with a sensible unmade state, so it defaults (ADR-0029).
+ * is a decision with a sensible unmade state, so it defaults.
  */
 export const FormFieldSchema = z.object({
 	id: z.string(),
@@ -1000,7 +998,7 @@ export type FormField = z.infer<typeof FormFieldSchema>;
 //    stored is what the organizer authored; what a screen is painted with is
 //    derived from it over the deck's own variant, in
 //    `src/components/SlideAppearance.tsx`, because CSS custom properties are the
-//    only consumer (ADR-0032) and the deck's palettes already live there.
+//    only consumer and the deck's palettes already live there.
 //  - **A colour is the same grammar wherever it is authored.** A slide's
 //    background and a deck brand's canvas are the same kind of value — a hex
 //    triplet an organizer typed — so they share one pattern, one schema and one
@@ -1057,7 +1055,7 @@ export function authoredColorFor(value: string | null | undefined): string {
  * root-relative path is a file this deployment already serves, so it is served
  * as one. Shared by the deck's logo ({@link deckLogoFor}) and a slide's
  * background image, because "is this a URL we may render?" is one question with
- * one answer (ADR-0026).
+ * one answer.
  */
 export function browserSafeAssetUrl(value: string | null | undefined): string {
 	const authored = (value ?? "").trim();
@@ -1102,7 +1100,7 @@ export type SlidePlacement = Exclude<SlideLayout, "inherit">;
 /**
  * The placement a theme lays a slide out in when the slide defers. Centred: it
  * is what every surface in this app has always drawn, so a deck that never
- * authored a layout is not re-laid-out by this field arriving (ADR-0029).
+ * authored a layout is not re-laid-out by this field arriving.
  */
 export const DEFAULT_SLIDE_PLACEMENT: SlidePlacement = "center";
 
@@ -1377,7 +1375,7 @@ export const SlideSchema = z.object({
 	 * the absence *is* the signal — a withheld mark must be indistinguishable
 	 * from an unmarked option — while a slide with no notes is the overwhelmingly
 	 * ordinary case and carries exactly `""` already, so the audience's view of a
-	 * noted slide and of an un-noted one are the same complete shape (ADR-0024)
+	 * noted slide and of an un-noted one are the same complete shape
 	 * and no client reaches for `??`.
 	 *
 	 * Markdown like `question` and `body`, resolved where it is rendered.
@@ -1443,8 +1441,8 @@ export const SLIDE_MEDIA_URL_MAX_LENGTH = 2048;
  * One number for all of them, because they are one kind of thing — a label a
  * participant reads off a phone and acts on, next to a control. Whatever else
  * differs between rating a statement and funding an item, the label doing the
- * asking is the same object, so it gets one ceiling rather than nine
- * (ADR-0026). Five hundred rather than {@link SLIDE_TEXT_MAX_LENGTH}'s five
+ * asking is the same object, so it gets one ceiling rather than nine.
+ * Five hundred rather than {@link SLIDE_TEXT_MAX_LENGTH}'s five
  * thousand for the same reason: a slide's `body` is prose somebody reads, and a
  * row's text is a thing somebody picks.
  *
@@ -1523,7 +1521,7 @@ const GridAxisInputSchema = GridAxisSchema.extend({
  * {@link StoredPresentationSchema} — and for the same reason.
  *
  * Extended rather than restated, so a field added to a slide is added in one
- * place and is writable the moment it exists (ADR-0013). The count caps below
+ * place and is writable the moment it exists. The count caps below
  * repeat the ones `SlideSchema` already declares because `.extend()` replaces a
  * key outright; they compose the same constants, so the two cannot drift.
  *
@@ -1597,7 +1595,7 @@ export type SlideInput = z.infer<typeof SlideInputSchema>;
  * naming a JSON path — the right answer for the API caller the caps defend
  * against, and a useless one for an author mid-edit, whose editor can render
  * it as nothing better than "the save failed". Run before the save, on the
- * same schema the boundary parses with (ADR-0013), this names the slide and
+ * same schema the boundary parses with, this names the slide and
  * the field instead. It is also the only way back for a deck stored before a
  * cap existed: the stored shape is deliberately uncapped so such a deck still
  * *reads*, but every save of it is refused until the oversized field is
@@ -1655,7 +1653,7 @@ const IDENTIFIED_SLIDE_LISTS = [
  * slides seen twice (REQ006 "detached from their source").
  *
  * Three surfaces need exactly this and used to spell two different versions of
- * it (ADR-0026): creating a deck from a template, duplicating a deck, and
+ * it: creating a deck from a template, duplicating a deck, and
  * importing an exported one. The identities are regenerated all the way down —
  * the slide, the rows it carries, and a form field's own options (REQ061), which
  * are one level deeper than anything else here.
@@ -1693,7 +1691,7 @@ export function withFreshSlideIds<SlideShape extends { id?: string }>(
 /**
  * The size a slide's authored text is drawn at (REQ091) — the single read site
  * for {@link SlideSchema.shape.textSize}, asked by every surface that renders a
- * heading or a body (ADR-0026).
+ * heading or a body.
  *
  * A slide is not always a parsed one: the editor holds a half-built slide whose
  * defaults have not been applied, and a deck posted by hand can carry a step
@@ -1745,8 +1743,8 @@ export type SlideAppearance = {
 
 /**
  * What a slide looks like over the deck's theme (REQ087) — the single read site
- * for the four override fields, asked by every surface a slide is drawn on
- * (ADR-0026): the projector, every phone in the room, the editor's preview and
+ * for the four override fields, asked by every surface a slide is drawn on:
+ * the projector, every phone in the room, the editor's preview and
  * its filmstrip, and the shared results page.
  *
  * Everything a value could be wrong in is resolved here and nowhere else: an
@@ -1789,7 +1787,7 @@ type ChoiceSettings = {
  * How many options one participant may select on a choice slide (REQ014):
  * `1` for single choice, `0` for unlimited, `n` for a capped multi-select.
  *
- * Expressed once here (ADR-0026) because four surfaces need the same answer —
+ * Expressed once here because four surfaces need the same answer —
  * the vote validator that enforces it, the participant UI that offers it, the
  * results aggregation that picks its percentage basis, and the editor that
  * shows the current setting. Slides authored before REQ014 carry
@@ -1838,7 +1836,7 @@ export function maxResponsesFor(slide: ResponseSettings): number {
 /**
  * Whether the author marked any option correct (REQ013). A choice slide with no
  * marked option has no notion of correctness at all — distinct from "every
- * option is wrong" — so results emit `isCorrect: null` for it (ADR-0024) and no
+ * option is wrong" — so results emit `isCorrect: null` for it and no
  * surface renders a solution badge.
  */
 export function slideHasCorrectAnswers(slide: ChoiceSettings): boolean {
@@ -1854,8 +1852,8 @@ export function slideHasCorrectAnswers(slide: ChoiceSettings): boolean {
 // means ranking needs no new stored field.
 //
 // The encode/decode pair lives here, beside the schema both ends parse, because
-// the participant surface writes the value and the aggregation reads it back
-// (ADR-0013/ADR-0026); neither may spell the wire format itself.
+// the participant surface writes the value and the aggregation reads it back;
+// neither may spell the wire format itself.
 
 /** Encode an ordered list of item ids (best first) into a vote `value`. */
 export function encodeRanking(orderedItemIds: string[]): string {
@@ -1909,7 +1907,7 @@ export function decodeRanking(
 // a full slide of UUID-ided items against `VoteSchema.value`'s 500 characters.
 //
 // What *is* packed into `value` is the coordinate pair itself, encoded and read
-// back by the pair below (ADR-0013/ADR-0026) so neither the participant surface
+// back by the pair below so neither the participant surface
 // nor the aggregation spells the wire format.
 
 /**
@@ -1919,8 +1917,8 @@ export function decodeRanking(
  * The *parse*, and nothing else: what a legal coordinate is differs between the
  * slide types that use this shape — a grid placement is bounded by the axes the
  * organizer authored, a pin by the image's own per-mille lattice — so each codec
- * keeps its own bounds check and only the reading of the wire format is shared
- * (ADR-0010). Surrounding whitespace is tolerated, because a hand-built request
+ * keeps its own bounds check and only the reading of the wire format is shared.
+ * Surrounding whitespace is tolerated, because a hand-built request
  * may carry it and it changes no coordinate; anything else — a missing half, a
  * third part, a fraction, a word — is refused here rather than in two places.
  */
@@ -1984,7 +1982,7 @@ export function resolveGridAxis(axis: unknown): GridAxis {
 }
 
 /**
- * Both axes of a grid slide, fully resolved (ADR-0026). Four surfaces need the
+ * Both axes of a grid slide, fully resolved. Four surfaces need the
  * same answer — the vote validator that bounds a placement, the participant UI
  * that offers the sliders, the aggregation that averages coordinates, and the
  * plot that draws the field — so the defaults are applied in exactly one place
@@ -2016,8 +2014,8 @@ export function gridAxesFor(slide: GridAxisSettings): {
 // allocation inside `value`'s 500-character budget with UUID ids.
 //
 // The pair lives here, beside the schema both ends parse, because the
-// participant surface writes the value and the aggregation reads it back
-// (ADR-0013/ADR-0026); neither may spell the wire format itself.
+// participant surface writes the value and the aggregation reads it back;
+// neither may spell the wire format itself.
 
 /**
  * Encode an allocation (item id → points) into a vote `value`. Items funded
@@ -2039,7 +2037,7 @@ export function encodePoints(allocation: Record<string, number>): string {
  * a spendable budget for this slide's items.
  *
  * **Exactly {@link POINTS_BUDGET} is required**, and this is where that is
- * decided (ADR-0013): the requirement's whole point is a forced trade-off, and a
+ * decided: the requirement's whole point is a forced trade-off, and a
  * ballot that stops at 60 is not a milder opinion — it is a different question
  * ("how much did you care to spend?") whose points would still be divided by a
  * full budget in the tally, flattering every item it did fund. Over-spending is
@@ -2103,7 +2101,7 @@ export function decodePoints(
 //
 // Correctness (REQ041/REQ042) is derived here too, from the authored reference,
 // so the aggregation and every surface that badges a guess agree on where the
-// accepted window starts and ends (ADR-0026).
+// accepted window starts and ends.
 
 /**
  * Whether a range can actually be guessed in. A frame is usable when it is a
@@ -2149,7 +2147,7 @@ export function resolveGuessRange(range: unknown): GuessRange {
 }
 
 /**
- * A guess slide's frame, fully resolved (ADR-0026). Four surfaces need the same
+ * A guess slide's frame, fully resolved. Four surfaces need the same
  * answer — the vote validator that bounds a guess, the participant UI that
  * offers the number field, the aggregation that buckets the distribution, and
  * the plot that draws it — so the defaults are applied in exactly one place and
@@ -2235,7 +2233,7 @@ export function correctGuessRangeFor(
 // Three surfaces need to name a value the slide actually offers rather than any
 // number in the range: the editor seeds a reference number, the participant's ±
 // controls land on a value the boundary will accept, and the check below asks
-// whether a reference is reachable at all. Written once here (ADR-0026) so a
+// whether a reference is reachable at all. Written once here so a
 // "valid value" cannot mean one thing where it is offered and another where it
 // is judged — the defect that let the editor seed a number nobody could submit.
 
@@ -2318,7 +2316,7 @@ export type GuessBucket = {
  * The columns a range's distribution is drawn in (REQ039), derived from the
  * authored frame alone — no votes involved. Shared by the aggregation that fills
  * them, the editor preview that shows the empty frame, and the plot that draws
- * both (ADR-0026), so a column can never mean one span in the tally and another
+ * both, so a column can never mean one span in the tally and another
  * on screen.
  *
  * Every column spans the same number of steps, so the columns stay comparable by
@@ -2355,8 +2353,8 @@ export function guessBucketsFor(range: GuessRange): GuessBucket[] {
 // ended up pointing — and letting the rows accumulate would weight one person's
 // indecision as a cluster of agreement in the distribution the room reads.
 //
-// Everything a surface needs about a pin slide is derived below, once
-// (ADR-0026): which image the question is asked on (REQ052), where the target
+// Everything a surface needs about a pin slide is derived below, once:
+// which image the question is asked on (REQ052), where the target
 // area is (REQ053), whether a pin is inside it, and whether the audience may be
 // told any of that yet. The boundary that accepts a submission, the aggregation
 // that counts the hits, the participant's canvas and the shared screen all read
@@ -2378,7 +2376,7 @@ type PinSettings = {
  * Whether this slide type's `mediaUrl` is the surface participants interact with
  * rather than an illustration shown beside the question.
  *
- * The one read site for that difference (ADR-0026), and it exists because the
+ * The one read site for that difference, and it exists because the
  * failure it prevents is invisible in the schema: every interactive slide draws
  * `mediaUrl` above its control (REQ069), so a pin slide would otherwise show its
  * canvas twice — once as decoration nobody can tap, once as the thing being
@@ -2605,7 +2603,7 @@ type FormSettings = {
  * The fields a Form slide actually asks (REQ061) — the authored list with every
  * default applied and the unfinished ones dropped.
  *
- * The single read site (ADR-0026), asked by the boundary that judges a
+ * The single read site, asked by the boundary that judges a
  * submission, the phone that draws the inputs, the tally that groups the
  * answers, and the export that names them. A field this refuses is a field none
  * of them knows about, so a half-authored row cannot be answerable on one
@@ -2673,7 +2671,7 @@ export function encodeFormSubmission(answers: Record<string, string>): string {
  * The wire format, read into the entries it names — or `null` when it is not the
  * wire format at all.
  *
- * The parse and nothing else (ADR-0010): what a *legal* answer is differs
+ * The parse and nothing else: what a *legal* answer is differs
  * between judging a submission and reading one back, so only the reading of the
  * format is shared and each caller keeps its own rules. Refused here: an entry
  * that is not exactly one field id and one answer (which is also what an answer
@@ -2808,7 +2806,7 @@ export function readFormSubmission(
  * One decoded submission spelled out for a human: what each answered field asked
  * and what was written in it, in authored order.
  *
- * Written once here (ADR-0026) because three surfaces show the same row — the
+ * Written once here because three surfaces show the same row — the
  * results table on the organizer's screen, the export's Responses sheet, and the
  * per-participant matrix — and a choice answer is stored as an option **id**,
  * which none of them may print. A field left blank is left out rather than
@@ -2841,7 +2839,7 @@ export function describeFormSubmission(
 // requirement rather than a shortcut: the deck references the video the way an
 // image slide references its picture (REQ063).
 //
-// Which leaves exactly one question, asked once here (ADR-0026) because the
+// Which leaves exactly one question, asked once here because the
 // editor, the preview pane, the shared screen and the phones all need the same
 // answer: *how do you play this URL?* A link to a video platform is a page, not
 // a file — pointing a `<video>` element at a YouTube watch URL plays nothing —
@@ -2994,7 +2992,7 @@ export function slideVideoFor(slide: VideoSettings): SlideVideo | null {
 // Turning a *file* into slides here is a different requirement and is not this
 // one; so is driving those slides from the deck's own navigation.
 //
-// Which leaves the one question this section answers, once (ADR-0026), for the
+// Which leaves the one question this section answers, once, for the
 // editor, the preview pane, the shared screen and the phones: *whose viewer does
 // this link open, and at which URL?* A share link is a page for a human — an
 // `<iframe>` pointed at `docs.google.com/presentation/d/…/edit` shows a sign-in
@@ -3022,7 +3020,7 @@ export const EmbedProviderEnum = z.enum([
 export type EmbedProvider = z.infer<typeof EmbedProviderEnum>;
 
 /**
- * What each embeddable provider is, in one place (ADR-0026): what to call it,
+ * What each embeddable provider is, in one place: what to call it,
  * and whether the room *works in* it or reads it.
  *
  * `interactive` is a property of the thing embedded rather than of the surface
@@ -3232,7 +3230,7 @@ export function slideEmbedFor(slide: EmbedSettings): SlideEmbed | null {
 // A quiz slide is a choice slide that keeps score. Everything that makes it one
 // — which options are the solution, how long the question stays open, and what a
 // correct answer is worth — is derived here, once, from what the organizer
-// authored (ADR-0026): the boundary that accepts or refuses a submission, the
+// authored: the boundary that accepts or refuses a submission, the
 // tally that scores the room, the participant's countdown and the presenter's
 // all read the same functions rather than each spelling the rule again.
 //
@@ -3439,7 +3437,7 @@ const QUIZ_ANSWER_LATIN_DIACRITICS =
  *
  * Written once here and read by the boundary that judges a submission, the
  * tally that groups the room's answers, and the editor that warns about two
- * accepted solutions that are really one (ADR-0026) — so "the same answer"
+ * accepted solutions that are really one — so "the same answer"
  * cannot mean one thing where it is scored and another where it is counted.
  */
 export function normalizeQuizAnswer(text: string): string {
@@ -3554,7 +3552,7 @@ export function isStandingQuizAnswer(
  * score (nobody was right) but not the whole story (there was nothing to be
  * right about). The room's tally keeps the two apart where it matters: its
  * `options[].isCorrect` is an explicit `null` when the slide has no solution to
- * reveal, exactly as it is for a plain choice slide (ADR-0024).
+ * reveal, exactly as it is for a plain choice slide.
  */
 export function isCorrectQuizAnswer(
 	slide: QuizSettings,
@@ -3623,7 +3621,7 @@ export function scoreQuizAnswer(answer: {
 // scored across the quiz questions before it, ordered, with the top of the
 // field on the shared screen. It collects nothing itself — it reports on the
 // quiz slides around it — which is why it is a slide type with no vote path
-// rather than a mode on the quiz slide (ADR-0027: the unit of sharing is the
+// rather than a mode on the quiz slide (the unit of sharing is the
 // invariant, and "one question, scored" is not what this is).
 //
 // Two decisions shape everything below.
@@ -3839,15 +3837,15 @@ export function solutionVisibleToAudience(
  * question (REQ055), the accepted answers themselves — which are the answer
  * key in the plainest possible form.
  *
- * The marks are **dropped**, not emitted as an explicit `null` (the shape
- * ADR-0024 would otherwise ask for), because here the absence is the point. An
+ * The marks are **dropped**, not emitted as an explicit `null` (the shape a
+ * nullish value would otherwise wear), because here the absence is the point. An
  * unmarked option already carries no `isCorrect`, so a withheld solution is
  * indistinguishable from a slide whose author marked nothing — where a
  * distinct "withheld" marker would announce that a solution exists and which
  * slides are worth watching for it. `quizAnswers` empties to `[]` for the same
  * reason and reads the same way: a question whose author named no accepted
  * answer carries exactly that. The tally reached through
- * {@link solutionVisibleToAudience} keeps ADR-0024's explicit `null`, since
+ * {@link solutionVisibleToAudience} keeps the explicit `null`, since
  * there the key is a documented part of the results contract.
  *
  * A Pin on Image slide loses its target area on the same terms (REQ053), and
@@ -3925,7 +3923,7 @@ export function withoutPresenterNotes<SlideShape extends { notes?: unknown }>(
  * `slide.changed` broadcast, the preview's audience pane — must each withhold
  * *everything* presenter-only, and a list of things to remember is a list that
  * grows one forgotten entry at a time. The two projections stay separate
- * functions because they answer different questions (ADR-0010); this is where
+ * functions because they answer different questions; this is where
  * they are composed, once, so a new presenter-only field is added in one place
  * and every surface has it.
  */
@@ -3987,7 +3985,7 @@ export const QA_TEXT_MAX_LENGTH = 500;
  * Fold two spellings of the same submission onto one key — trimmed, case-folded,
  * internal whitespace collapsed.
  *
- * One rule, two surfaces (ADR-0026): the Q&A layer's duplicate fold and the
+ * One rule, two surfaces: the Q&A layer's duplicate fold and the
  * open-text slide's auto-upvote (REQ025) are the same judgement about when two
  * people asked the same thing, and two copies of it would eventually disagree.
  *
@@ -4088,7 +4086,7 @@ export type QAListEntry = {
 	upvotes: number;
 	/** Whether the presenter has marked it dealt with (REQ060). */
 	answered: boolean;
-	/** When it was marked answered, ISO — an explicit `null` while open (ADR-0024). */
+	/** When it was marked answered, ISO — an explicit `null` while open. */
 	answeredAt: string | null;
 	createdAt: string;
 	/** Whether the caller asked it. */
@@ -4149,8 +4147,8 @@ export function rankQAQuestions<EntryShape extends QAListEntry>(
 //    unmoderated chat beside it are the two failures an organizer cannot take
 //    back mid-session, so a deck carries neither until somebody asks for it —
 //    the same reasoning {@link QAVisibilityEnum} spells out, and the same reading
-//    every deck stored before these fields existed re-parses forward onto
-//    (ADR-0029).
+//    every deck stored before these fields existed re-parses forward onto when
+//    its default fills the gap.
 
 /**
  * The reactions a participant may send (REQ077).
@@ -4160,7 +4158,7 @@ export function rankQAQuestions<EntryShape extends QAListEntry>(
  * image, so the room cannot be painted with an arbitrary string and the client
  * decides what each one looks like. The renderings live on the client
  * (`src/components/ReactionBar.tsx`) because an icon component is their only
- * consumer (ADR-0032).
+ * consumer.
  *
  * Five, deliberately: enough that "yes", "I liked that" and "that was funny" are
  * different things to say, few enough to fit one row on a phone without a picker.
@@ -4213,7 +4211,7 @@ export type ParticipantChannelSettings = {
  * Both channels with their values filled in, from any of the shapes that carry
  * them — stored document, parsed response, or a client's copy of the deck.
  *
- * One read site (ADR-0026), like {@link qaSettingsFor}: the switch a surface
+ * One read site, like {@link qaSettingsFor}: the switch a surface
  * offers, the switch a broadcast reports and the switch an endpoint enforces are
  * the same reading of the same two fields.
  */
@@ -4292,7 +4290,7 @@ export function recentChatMessages<EntryShape extends ChatMessageEntry>(
 //  - **The switch is the deck's, and it is off unless the organizer turned it
 //    on.** A deck that never asked for names has none stored and behaves in
 //    every particular as it did before this field existed — which is what
-//    ADR-0029's default buys, and on a field that decides whether personal data
+//    a default buys, and on a field that decides whether personal data
 //    is collected at all it is the only default that fails safe.
 //  - **A stated name is not an identity claim.** Nothing verifies it and
 //    nothing signs in: the `participantId` minted in the browser stays the
@@ -4317,7 +4315,7 @@ export function recentChatMessages<EntryShape extends ChatMessageEntry>(
  * cell in a spreadsheet, not something anybody reads a sentence of. Declared
  * rather than inlined so the field that takes one stops where the boundary
  * refuses, and a participant meets the cap as a key that does nothing rather
- * than as a rejected submission (ADR-0026).
+ * than as a rejected submission.
  */
 export const PARTICIPANT_NAME_MAX_LENGTH = 80;
 
@@ -4345,7 +4343,7 @@ export type ParticipantNameSettings = {
 /**
  * Whether this deck asks the people joining it for a name (REQ076).
  *
- * One read site (ADR-0026), like {@link qaSettingsFor} and
+ * One read site, like {@link qaSettingsFor} and
  * {@link participantChannelsFor}: the question the join screen asks, the
  * question the write endpoint enforces and the question the exports label their
  * columns by are one reading of one field. `false` is what an unset field and a
@@ -4361,7 +4359,7 @@ export function deckRequiresParticipantName(
  * Stating a name: who is stating it, and what it is.
  *
  * Neither field defaults — a name belonging to nobody is a row that can never
- * be joined to an answer, and a name of nothing is not a name (ADR-0018).
+ * be joined to an answer, and a name of nothing is not a name.
  * Trimmed and bounded here, exactly as a comment's body is, so a submission of
  * pure whitespace is a malformed request rather than a blank row in the
  * organizer's roster.
@@ -4448,14 +4446,14 @@ export const DECK_TITLE_MAX_LENGTH = 200;
 //    stored, so a deck authored today renders in whatever `pulse` has become
 //    tomorrow, and the palettes live on the client, in
 //    `src/components/DeckTheme.tsx`, because CSS custom properties are their
-//    only consumer (ADR-0032).
+//    only consumer.
 //  - **An authored theme does ride the wire, because it is the deck's own
 //    content** — there is nowhere else it could live, and the room has to
 //    receive it the way it receives the deck's title. What that buys is bounded
 //    by validating it as narrowly as it can be validated: a colour is `#rgb` or
 //    `#rrggbb` and nothing else, and the typeface is an **id** from the closed
 //    set of faces this build ships (REQ092), never a family name a browser would
-//    have to go and find (ADR-0016). A hand-built request can therefore paint a
+//    have to go and find. A hand-built request can therefore paint a
 //    room in its own colours — which is the requirement — and cannot put
 //    anything but a colour into a colour.
 //  - **The theme is the logo's carrier** (REQ136). The requirement offers "a
@@ -4511,7 +4509,7 @@ export type DeckThemeId = z.infer<typeof DeckThemeIdEnum>;
 /**
  * What an unstated theme means. The house theme, deliberately: the field is
  * being appended to a schema that has been storing decks for a while, and every
- * one of them re-parses forward onto this value (ADR-0029) — so the default has
+ * one of them re-parses forward onto this value — so the default has
  * to be the appearance those decks already had, not a new one imposed on them.
  */
 export const DEFAULT_DECK_THEME: BuiltInDeckThemeId = "signal";
@@ -4521,12 +4519,13 @@ export const DEFAULT_DECK_THEME: BuiltInDeckThemeId = "signal";
  *
  * An **id** rather than a family string, and that is the requirement rather than
  * a convenience: "loaded so every surface resolves the same face" cannot be true
- * of a name each machine looks up in its own font book, and ADR-0016 forbids
- * fetching one at runtime. So a theme picks from what the bundle already
- * carries — `@fontsource-variable/figtree` and `@fontsource/dm-mono`, imported
+ * of a name each machine looks up in its own font book, and this product
+ * fetches no asset from a third-party host at runtime. So a theme picks from
+ * what the bundle already carries — `@fontsource-variable/figtree` and
+ * `@fontsource/dm-mono`, imported
  * by `src/index.css` — or from a generic stack every system resolves to
- * something. The stacks themselves live beside the palettes on the client
- * (ADR-0032); what crosses the wire is which of them was chosen.
+ * something. The stacks themselves live beside the palettes on the client;
+ * what crosses the wire is which of them was chosen.
  */
 export const DECK_FONT_IDS = ["figtree", "system", "serif", "mono"] as const;
 
@@ -4608,7 +4607,7 @@ const DeckBrandColorSchema = AuthoredColorSchema;
  * organizer to author sixteen tokens twice over (once per colour scheme) would
  * be asking them to do the derivation by hand.
  *
- * Every field carries a default (ADR-0029) and the empty string means "not
+ * Every field carries a default and the empty string means "not
  * authored": a brand that names only its accent is a brand, and the house
  * theme's value stands wherever it named nothing.
  */
@@ -4781,9 +4780,9 @@ export type DeckTemplateCategory = z.infer<typeof DeckTemplateCategoryEnum>;
  * One entry in the template catalog (REQ005).
  *
  * `id`, `title` and `category` carry no default, like every other identity or
- * required input here (ADR-0018): an entry the gallery cannot name, address or
+ * required input here: an entry the gallery cannot name, address or
  * file is not an entry. Everything else defaults, so the served shape is always
- * complete (ADR-0024) and a template authored without tags is the same shape as
+ * complete and a template authored without tags is the same shape as
  * one with them.
  */
 export const DeckTemplateSchema = z.object({
@@ -4848,7 +4847,7 @@ export function deckTemplateMatchesSearch(
  * The catalog narrowed by both filters (REQ005), in the order it was authored.
  *
  * The one implementation of "which entries does this query show", asked by the
- * `GET /api/templates` route and by the gallery that renders it (ADR-0026). The
+ * `GET /api/templates` route and by the gallery that renders it. The
  * gallery filters the list it already holds rather than re-fetching per
  * keystroke, so this function is what stops the two from disagreeing about what
  * a search means.
@@ -4868,7 +4867,7 @@ export function filterDeckTemplates(
 // Only the two shapes that cross the HTTP boundary live here. What a generator
 // is asked for, what it may author, and how a draft becomes slides are
 // `server/deck-generator.ts`'s — it depends on a model provider and on nothing
-// this file owns, so it is its own module (ADR-0032), the way the template
+// this file owns, so it is its own module, the way the template
 // catalog next door is.
 
 /**
@@ -4909,7 +4908,7 @@ export const DECK_LANGUAGE_MAX_LENGTH = 40;
  * What `POST /api/deck-generation` takes (REQ007).
  *
  * `prompt` carries no default and is the one required input — a generation call
- * with nothing to generate from is a mistake to fail loudly on (ADR-0018), not
+ * with nothing to generate from is a mistake to fail loudly on, not
  * one to fill in. `language` defaults exactly as the create's does, and it is
  * the deck's language in both senses: the participant strings it is drawn in
  * (REQ084) *and* the language the generator is asked to write its questions in,
@@ -5040,7 +5039,7 @@ export const CreatePresentationSchema = z
 
 /**
  * What `PATCH /api/presentations/:id` is allowed to change — the deck's
- * **authored** fields and nothing else (ADR-0013/ADR-0014).
+ * **authored** fields and nothing else.
  *
  * The route had no body schema at all until REQ075, which made the patch an
  * arbitrary merge into the stored document: `StoredPresentationSchema` declares
@@ -5055,7 +5054,7 @@ export const CreatePresentationSchema = z
  * route however it is spelled.
  *
  * **Every field is optional and none carries a `.default(...)`** — the one place
- * in this file where ADR-0029's rule is deliberately inverted, because a PATCH
+ * in this file where the defaults rule is deliberately inverted, because a PATCH
  * is defined by which keys it *carries*. `updatePresentation` broadcasts on
  * `"qaEnabled" in changes`, so a default would turn every save into a claim
  * about settings the request never mentioned.
@@ -5123,7 +5122,7 @@ export const UNWRITABLE_PRESENTATION_FIELDS = [
 
 /**
  * A patch with every credential-bearing field removed — the one reading of
- * {@link UNWRITABLE_PRESENTATION_FIELDS} (ADR-0026). Pure: a patch in, a patch
+ * {@link UNWRITABLE_PRESENTATION_FIELDS}. Pure: a patch in, a patch
  * out, so what a caller may write is testable without a store.
  */
 export function withoutUnwritableFields(
@@ -5281,7 +5280,7 @@ export const EDIT_TOKEN_HEADER = "x-omul-edit-token";
  *
  * `resultsToken` is the plaintext secret and is filled **once**, by the mint —
  * only its hash is stored, so no later read can produce it again. Every other
- * read emits the key as an explicit `null` rather than dropping it (ADR-0024),
+ * read emits the key as an explicit `null` rather than dropping it,
  * so "there is no link" and "there is a link and this is not the moment you are
  * handed it" stay one shape and no client reaches for `??`.
  */
@@ -5326,7 +5325,7 @@ export type DeckAccessLevel = (typeof DECK_ACCESS_LEVELS)[number];
 
 /**
  * Whether an access level authorizes a **mutation** of the deck — the single
- * predicate every gated route is decided by (ADR-0026).
+ * predicate every gated route is decided by.
  *
  * `null` is "no standing at all" and is the withholding value, so a caller whose
  * level could not be resolved is refused rather than waved through. Only `edit`
@@ -5381,7 +5380,7 @@ export function strongestDeckAccessLevel(
 
 /**
  * Whether the caller a **client surface** is drawing for may edit the deck — the
- * one answer every such surface gates its controls on (ADR-0026), and the client
+ * one answer every such surface gates its controls on, and the client
  * side of {@link canMutateDeck}.
  *
  * A browser has two independent proofs of standing and the server honours both,
@@ -5435,7 +5434,7 @@ export const DeckCollaboratorSchema = z.object({
 	id: z.string(),
 	/** The invited account's login email, as the owner addressed it. */
 	email: z.string().default(""),
-	/** Their display name, or `null` when the account has none (ADR-0024). */
+	/** Their display name, or `null` when the account has none. */
 	name: z.string().nullable().default(null),
 	level: DeckAccessLevelEnum.default("view"),
 	createdAt: z.string().default(""),
@@ -5549,7 +5548,7 @@ export const SlideCommentSchema = z.object({
 	slideId: z.string().default(""),
 	/** What was written, verbatim: stored as typed and never rendered as HTML. */
 	body: z.string().default(""),
-	/** The author's display name, or `null` when the account has none (ADR-0024). */
+	/** The author's display name, or `null` when the account has none. */
 	authorName: z.string().nullable().default(null),
 	/**
 	 * Whether this caller wrote it — resolved per request from the credentials
@@ -5569,7 +5568,7 @@ export type SlideComment = z.infer<typeof SlideCommentSchema>;
  * The body is trimmed and bounded here rather than at the store, so a comment of
  * nothing but whitespace is a malformed request instead of an empty line in
  * somebody's thread. Neither field defaults — a comment with no slide is
- * anchored to nothing and a comment with no text is not a comment (ADR-0018).
+ * anchored to nothing and a comment with no text is not a comment.
  */
 export const PostSlideCommentSchema = z.object({
 	slideId: z.string().min(1),
@@ -5644,7 +5643,7 @@ export const DEFAULT_WORKSPACE_ROLE: WorkspaceRole = "member";
 /**
  * The standing a role gives on the workspace's **decks** — the single bridge
  * between REQ129's role and the access model every deck route is already decided
- * by (ADR-0026).
+ * by.
  *
  * All three roles read and run the workspace's decks today, which is REQ128's
  * "readable and presentable by its members". They differ in what they may do to
@@ -5717,7 +5716,7 @@ export function canAdministerWorkspace(role: WorkspaceRole | null): boolean {
  *
  * `role` is the caller's **own** standing, reported here for the reason a deck's
  * `accessLevel` is (REQ075): so a surface can disable what this caller may not do
- * and say why (ADR-0025) instead of letting them find out from a `403`. It is a
+ * and say why instead of letting them find out from a `403`. It is a
  * report and never a credential — every gated route re-resolves the role from the
  * request's own credentials.
  */
@@ -5739,7 +5738,7 @@ export type Workspace = z.infer<typeof WorkspaceSchema>;
  * name a row, and no account identifier reaches a client because this schema does
  * not declare one and Zod strips what a schema does not declare.
  *
- * `email` is `null` for a reader who may not manage the roster (ADR-0024 — the
+ * `email` is `null` for a reader who may not manage the roster (the
  * key is emitted either way, so no client learns a second shape). A member sees
  * who they are working with by name; the address somebody was invited at is
  * membership *management* data, and that is the narrower default of the two.
@@ -5768,7 +5767,7 @@ export type CreateWorkspaceInput = z.infer<typeof CreateWorkspaceSchema>;
 /**
  * Renaming one. A schema of its own rather than a partial of the create, because
  * a rename that carries no name is a malformed request and not a workspace called
- * `""` (ADR-0018).
+ * `""`.
  */
 export const RenameWorkspaceSchema = z.object({
 	name: z.string().trim().min(1).max(WORKSPACE_NAME_MAX_LENGTH),
@@ -5813,7 +5812,7 @@ export const DeckWorkspaceSchema = z.object({
  * inlined because a free-text answer is typed against it (REQ055): the field
  * that takes one stops at the same number the boundary refuses past, so a
  * participant meets the cap as a key that does nothing rather than as Elysia's
- * raw validation failure in place of the quiz's own wording (ADR-0026).
+ * raw validation failure in place of the quiz's own wording.
  */
 export const VOTE_VALUE_MAX_LENGTH = 500;
 
@@ -5841,7 +5840,7 @@ export const VOTE_VALUE_LIMIT = Math.max(
 );
 
 /**
- * The longest submission *this* slide type accepts (ADR-0026). One read site,
+ * The longest submission *this* slide type accepts. One read site,
  * so the cap a surface offers and the cap the boundary enforces cannot drift.
  */
 export function voteValueLimitFor(type: SlideType): number {
@@ -5875,7 +5874,7 @@ export const VoteSchema = z.object({
 	 * The sub-item of the slide this vote answers: the statement being rated on
 	 * a multi-statement scale (REQ029), or the item being placed on a 2x2 grid
 	 * (REQ047). Genuinely absent for single-statement scales and other slide
-	 * types, so it is modelled as an explicit `null` (ADR-0029) rather than a
+	 * types, so it is modelled as an explicit `null` rather than a
 	 * missing key.
 	 */
 	statementId: z.string().nullable().default(null),
@@ -5905,15 +5904,15 @@ export type ResponseVote = z.infer<typeof ResponseVoteSchema>;
 // The shapes below describe documents exactly as `server/db.ts` persists them
 // through `@binaryplease/zodstore`. The store is Zod-gated: every document is
 // validated on the way in and re-parsed on the way out, so these schemas are the
-// single source of truth for the stored shape (ADR-0013) — distinct from the API
+// single source of truth for the stored shape — distinct from the API
 // request/response schemas above, because stored documents carry server-managed
 // fields (a generated `id`, timestamps, the creator-token hash).
 //
-// Per ADR-0029 every non-identity field declares a `.default(...)` so the schema
+// Every non-identity field declares a `.default(...)` so the schema
 // can grow by appending a field with no migration: rows written under an older
 // shape re-parse forward with the default filling the gap. Identity fields — the
 // primary `id` and the presentation/slide/response references — carry no default
-// and fail loudly when absent (ADR-0018), since a fabricated id is worse than a
+// and fail loudly when absent, since a fabricated id is worse than a
 // missing one.
 
 export const StoredPresentationSchema = z.object({
@@ -5929,7 +5928,7 @@ export const StoredPresentationSchema = z.object({
 	revealedSlideIds: z.array(z.string()).default([]),
 	/**
 	 * The slides closed to submissions (REQ111) and whether the shared screen is
-	 * blanked (REQ109). Both defaulted per ADR-0029 to the state a deck written
+	 * blanked (REQ109). Both defaulted to the state a deck written
 	 * before they existed was already in — every slide open, nothing blanked —
 	 * which is also the only pair of defaults that cannot silently refuse a room
 	 * or darken a projector. See {@link slideAcceptsSubmissions}.
@@ -5943,15 +5942,15 @@ export const StoredPresentationSchema = z.object({
 	qaVisibility: QAVisibilityEnum.default("presenter"),
 	/**
 	 * The participant channels: reactions on any slide (REQ077) and the deck's
-	 * live chat (REQ078). Both defaulted off per ADR-0029, so every deck written
+	 * live chat (REQ078). Both defaulted off, so every deck written
 	 * before they existed re-parses forward onto the room it already had rather
 	 * than acquiring two channels its organizer never opened.
 	 */
 	reactionsEnabled: z.boolean().default(false),
 	chatEnabled: z.boolean().default(false),
 	/**
-	 * Whether the people joining this deck state a name (REQ076). Defaulted off
-	 * per ADR-0029, so every deck written before this field existed re-parses
+	 * Whether the people joining this deck state a name (REQ076). Defaulted off,
+	 * so every deck written before this field existed re-parses
 	 * forward onto the anonymous room it already had rather than acquiring a
 	 * question at its door that its organizer never asked.
 	 */
@@ -5967,7 +5966,7 @@ export const StoredPresentationSchema = z.object({
 	 * `themeBrand` is where its colours and its face are kept — three colours and
 	 * a font id, from which the client derives the rest (REQ080/REQ092).
 	 *
-	 * All of it defaulted per ADR-0029, so every deck written before these fields
+	 * All of it defaulted, so every deck written before these fields
 	 * existed re-parses forward onto the house theme it was already wearing.
 	 */
 	theme: DeckThemeIdEnum.default(DEFAULT_DECK_THEME),
@@ -5976,7 +5975,7 @@ export const StoredPresentationSchema = z.object({
 	themeLogoAlt: z.string().default(""),
 	/**
 	 * Optional owner id backing the `?creatorId=` list filter. Null until creator
-	 * accounts exist; kept here so the filter field is always present (ADR-0024).
+	 * accounts exist; kept here so the filter field is always present.
 	 *
 	 * Also `null` — deliberately and always — on a deck a **workspace** owns
 	 * (REQ128): the two ownership fields are alternatives rather than layers, and
@@ -5995,7 +5994,7 @@ export const StoredPresentationSchema = z.object({
 	 * The deck's shareable results link (REQ098), as the SHA-256 hash of the token
 	 * that names it and the instant it was issued. `null` means the deck has no
 	 * link — which is what every deck written before this field existed re-parses
-	 * forward onto (ADR-0029), and the only value that fails safe: a link the
+	 * forward onto, and the only value that fails safe: a link the
 	 * organizer never minted must not be one a caller can present.
 	 *
 	 * Hashed for the same reason the edit token is, and stripped from responses by
@@ -6007,7 +6006,7 @@ export const StoredPresentationSchema = z.object({
 	resultsTokenIssuedAt: z.string().nullable().default(null),
 	/**
 	 * The workspace that owns this deck (REQ128), or `null` for a deck owned by an
-	 * account. Defaulted per ADR-0029, so every deck written before workspaces
+	 * account. Defaulted, so every deck written before workspaces
 	 * existed re-parses forward onto the account ownership it already had.
 	 *
 	 * It is a **credential-bearing field** even though it names no secret, and is
@@ -6056,8 +6055,8 @@ export function canGrandfatherLegacyDeck({
  * `createdBy` records which account brought it into being and authorizes nothing:
  * the standing that matters is a membership row, which the create writes at the
  * same moment (see `services/workspaces.ts`). It is nullable because the account
- * may since have been deleted, and because ADR-0029 wants every non-identity
- * field to have a value a row written before it existed re-parses onto.
+ * may since have been deleted, and because every non-identity
+ * field wants a value a row written before it existed re-parses onto.
  */
 export const StoredWorkspaceSchema = z.object({
 	id: z.string(),
@@ -6078,8 +6077,8 @@ export type StoredWorkspace = z.infer<typeof StoredWorkspaceSchema>;
  * in?" — the second on every request that touches a workspace deck, which is what
  * makes it the hot read rather than the convenient one.
  *
- * `workspaceId` and `userId` are the identity pair and carry no default
- * (ADR-0018/ADR-0029): a membership that lost either would be a role in nothing,
+ * `workspaceId` and `userId` are the identity pair and carry no default:
+ * a membership that lost either would be a role in nothing,
  * or nobody's. One row per pair, so "what may this account do here?" has exactly
  * one answer.
  */
@@ -6106,7 +6105,7 @@ export type StoredWorkspaceMember = z.infer<typeof StoredWorkspaceMemberSchema>;
  * collection can index both without walking every deck in the store.
  *
  * `presentationId` and `userId` are the identity pair and so carry no default
- * (ADR-0018/ADR-0029) — a grant that lost either would be a standing on nothing,
+ * — a grant that lost either would be a standing on nothing,
  * or nobody's. One row per pair: re-sharing with the same account changes the
  * level in place rather than stacking a second grant beside the first, so
  * "what may this account do here?" has exactly one answer.
@@ -6120,7 +6119,7 @@ export const StoredDeckCollaboratorSchema = z.object({
 	/**
 	 * The account that granted this — the deck's owner at the time. Kept so a
 	 * grant can say where it came from; `null` for a grant written before this
-	 * field existed, which is what ADR-0029 buys.
+	 * field existed, which is what a declared default buys.
 	 */
 	invitedBy: z.string().nullable().default(null),
 	createdAt: z.string().default(""),
@@ -6143,7 +6142,7 @@ export type StoredDeckCollaborator = z.infer<
  * to strip: no participant-facing surface loads this collection at all.
  *
  * `presentationId`, `slideId` and `authorId` are the identity triple and carry no
- * default (ADR-0018/ADR-0029) — a comment that lost any of them would be anchored
+ * default — a comment that lost any of them would be anchored
  * to nothing, on nothing, by nobody. The author is a Better Auth `user.id` and
  * never leaves the server: {@link SlideCommentSchema} does not declare it.
  */
@@ -6204,7 +6203,7 @@ export const StoredQAQuestionSchema = z.object({
 	participantId: z.string().default(""),
 	/** Whether the presenter has marked it dealt with (REQ060). */
 	answered: z.boolean().default(false),
-	/** When they did, ISO; null while the question is still open (ADR-0024). */
+	/** When they did, ISO; null while the question is still open. */
 	answeredAt: z.string().nullable().default(null),
 	createdAt: z.string().default(""),
 });
@@ -6255,7 +6254,7 @@ export type StoredChatMessage = z.infer<typeof StoredChatMessageSchema>;
  * carries.
  *
  * `presentationId` and `participantId` are the identity pair and carry no
- * default (ADR-0018/ADR-0029): a row that lost either is a name belonging to
+ * default: a row that lost either is a name belonging to
  * nobody, or to nobody's session. One row per pair — stating a name again
  * corrects it in place.
  *
@@ -6278,7 +6277,7 @@ export type StoredParticipantName = z.infer<typeof StoredParticipantNameSchema>;
 
 // ── Q&A request schemas ──────────────────────────────────────
 //
-// Request bodies, not stored documents, so ADR-0029's "every field declares a
+// Request bodies, not stored documents, so "every field declares a
 // default" does not apply the way it does above: an absent key here means "leave
 // this as it is", and a default would turn every partial update into a full one.
 
@@ -6340,7 +6339,7 @@ export type Reaction = z.infer<typeof ReactionSchema>;
  * passes `.min(1)` and then trims to nothing, and a service that answered that
  * with its ordinary "cannot post" refusal would name the channel being closed
  * as the reason when the channel is open and the message is the problem
- * (ADR-0018 — fail loudly *and* accurately). Caught at the boundary, so a blank
+ * (fail loudly *and* accurately). Caught at the boundary, so a blank
  * message and an empty one are refused the same way, with the same status, for
  * the same stated reason.
  */
@@ -6486,7 +6485,7 @@ export type SegmentQuery = z.infer<typeof SegmentQuerySchema>;
  * Two surfaces name a download after the same deck — the client saves a
  * presentation as JSON, and the server names the results workbook it streams
  * back (REQ095) — so the rule that turns a title into a filename is one
- * descriptor both compose (ADR-0026), not a transform written once per side of
+ * descriptor both compose, not a transform written once per side of
  * the wire. Two copies is how a deck called "Q3 — Review" eventually saves as
  * `q3-review.omul.json` from one surface and `q3---review-results-….xlsx`
  * from the other.

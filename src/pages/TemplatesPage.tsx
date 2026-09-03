@@ -18,7 +18,7 @@ import { DECK_TEMPLATE_CATEGORIES, filterDeckTemplates } from "../types";
 // The catalog of prebuilt decks (REQ005) and the way into one (REQ006). The
 // whole set is fetched once and narrowed in the browser with
 // `filterDeckTemplates` — the very function the endpoint's `category`/`search`
-// parameters run (ADR-0026) — so a search here can never mean something the API
+// parameters run — so a search here can never mean something the API
 // would disagree with, and typing costs no round trip over a handful of entries.
 //
 // Picking an entry does not load it into the editor's draft: it creates the deck
@@ -144,7 +144,7 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 					</p>
 				</header>
 
-				{/* The two filters, above the results they narrow (ADR-0031). */}
+				{/* The two filters, above the results they narrow. */}
 				<div className="mb-8 flex flex-col gap-3 slide-in slide-in-delay-1">
 					<div className="relative max-w-md">
 						<Search
@@ -160,7 +160,7 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 							onChange={(event) => setSearch(event.target.value)}
 						/>
 						{/* Always here, disabled when there is nothing to clear
-						    (ADR-0025) — a control that vanished would make an empty
+						    — a control that vanished would make an empty
 						    search box look like a different screen. */}
 						<button
 							type="button"
@@ -228,7 +228,7 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 /**
  * One catalog entry. Everything the search looks at is on the card — title,
  * description, category and tags — so a match always has a visible reason, and
- * the reason is marked where it was found (ADR-0019).
+ * the reason is marked where it was found.
  */
 function TemplateCard({
 	template,

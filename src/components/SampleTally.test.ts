@@ -16,7 +16,7 @@
  *     about fails here rather than drawing an empty frame on the stage.
  *   - **The answer key is the author's.** A marked option is marked in the
  *     tally, and a slide with nothing marked reports no notion of correctness at
- *     all rather than "all wrong" (ADR-0024) — the reveal draws those two
+ *     all rather than "all wrong" — the reveal draws those two
  *     differently, so the preview must not collapse them.
  *   - **It stands in for the room, never for the deck.** A leaderboard in a deck
  *     with no quiz questions draws the empty board it will really draw, and a

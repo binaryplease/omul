@@ -6,8 +6,8 @@
  *     thread belongs to. The second is the first thing in this codebase that
  *     tells `view` and `comment` apart, which is the whole reason REQ075 kept
  *     the middle level empty.
- *   - The stored comment — its identity triple carries no default (ADR-0018)
- *     while the rest does (ADR-0029).
+ *   - The stored comment — its identity triple carries no default
+ *     while the rest does.
  *   - The wire shape — `SlideCommentSchema` declares neither `authorId` nor an
  *     email, so neither can reach a client by being spread into a response; the
  *     same construction that keeps `creatorId` off `PresentationSchema` and
@@ -54,7 +54,7 @@ describe("who a deck's comment threads belong to (REQ074)", () => {
 	});
 });
 
-describe("the stored comment (ADR-0018 / ADR-0029)", () => {
+describe("the stored comment", () => {
 	const identity = { id: "c1", presentationId: "p1", slideId: "s1", authorId: "u1" };
 
 	test("the identity triple has no default and fails loudly", () => {
@@ -95,7 +95,7 @@ describe("the wire shape an account on the deck reads", () => {
 		expect(wire.slideId).toBe("s1");
 	});
 
-	test("a deleted account's comment keeps every key rather than losing them (ADR-0024)", () => {
+	test("a deleted account's comment keeps every key rather than losing them", () => {
 		const wire = SlideCommentSchema.parse({ id: "c1" });
 		expect(wire.authorName).toBeNull();
 		expect(wire.body).toBe("");

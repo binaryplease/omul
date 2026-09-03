@@ -10,7 +10,7 @@
  * because it does not compute one. It reads the aggregation's own payload
  * (`getAllResults`) and lays it out.
  *
- * Two stages, deliberately separated (ADR-0010):
+ * Two stages, deliberately separated:
  *
  *  - {@link buildResultsWorkbook} — pure data. Deck + rows + aggregates in, a
  *    {@link WorkbookModel} of sheets, columns and cells out. Everything worth
@@ -39,7 +39,7 @@
  *     analysis outside the tool — actually wants.
  *
  * Nullish cells are emitted as an explicit `null` rather than dropped or
- * softened to `0` (ADR-0024): "nobody answered" and "the average was zero" are
+ * softened to `0`: "nobody answered" and "the average was zero" are
  * different readings and must stay so in a spreadsheet, where a `0` in an
  * average column is indistinguishable from an answer somebody gave.
  */
@@ -113,7 +113,8 @@ export type ResultsExportInput = {
 // The results payload has no Zod schema of its own — it is a server-internal
 // shape that differs per slide type and is consumed untyped by the client
 // today. Rather than restate it (which would be a second source of truth that
-// drifts, exactly what ADR-0013 warns against), the export declares the narrow
+// drifts, exactly what one source of truth per shape exists to prevent), the
+// export declares the narrow
 // read-model it needs: every field optional, every list defaulted at the read
 // site. A slide type that grows a field simply does not appear in the export
 // until a row is written for it.
@@ -642,7 +643,7 @@ function slideLabel(slide: Slide, index: number): string {
  * Exported because the PDF export (REQ096) puts the same count on its cover
  * that the Summary sheet puts in its `Participants` row, and "how many people
  * answered?" is one fact rather than two implementations that happen to agree
- * today (ADR-0026) — the same reason {@link SHARE_METRIC} is a name.
+ * today — the same reason {@link SHARE_METRIC} is a name.
  */
 export function participantIdsIn(
 	/**
@@ -670,7 +671,7 @@ export function participantIdsIn(
  * A named read rather than an index into the map at each of the three sheets and
  * the PDF that want it, for the reason {@link SHARE_METRIC} is a name: the
  * distinction between "did not say" and "said nothing" is exactly the one
- * ADR-0024 asks a cell to keep, and it has to be drawn the same way everywhere
+ * an export must keep in a cell, and it has to be drawn the same way everywhere
  * an export prints one. A blank stored value reads as `null` too — a row that
  * carries no name is not somebody called nothing.
  */
@@ -924,7 +925,7 @@ function participantsSheet(
 					const cell = bySlide?.get(slide.id);
 					// An explicit `null` for "this participant did not answer this
 					// slide" — never an empty string, which reads as an answer they
-					// gave and left blank (ADR-0024).
+					// gave and left blank.
 					return cell && cell.length > 0 ? cell.join("; ") : null;
 				}),
 			];
@@ -990,8 +991,8 @@ export async function renderResultsWorkbook(
 		// is about the frame rather than the data.
 		worksheet.views = [{ state: "frozen", ySplit: 1 }];
 		for (const row of sheet.rows) {
-			// exceljs writes `null` as an empty cell, which is the reading ADR-0024
-			// asks for: the column is present and deliberately carries no value.
+			// exceljs writes `null` as an empty cell, which is the reading a
+			// nullish value owes: the column is present and carries no value.
 			worksheet.addRow(row);
 		}
 	}

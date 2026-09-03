@@ -39,7 +39,7 @@ import { slideAppearanceFor } from "../types";
 // block in `server/schemas.ts`; everything here is the arithmetic that turns
 // those four fields into pixels.
 //
-// One descriptor, one wrapper, one guard (ADR-0026):
+// One descriptor, one wrapper, one guard:
 //
 //   - `SLIDE_PLACEMENT_CLASSES` is the single catalog of what a placement means
 //     in layout terms, so a heading, its media and the answers under it move

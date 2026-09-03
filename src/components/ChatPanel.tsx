@@ -17,7 +17,7 @@ import { Toggle } from "./EditorControls";
 // follow, and that is deliberate — a chat message is not a question waiting to
 // be taken and not an answer waiting to be counted.
 //
-// It lives in its own module for the reason `QAPanel` does (ADR-0032): it
+// It lives in its own module for the reason `QAPanel` does: it
 // depends on nothing either page owns — only on the chat payload, the api
 // client, and the session slice's `chatRevision`.
 //
@@ -68,7 +68,7 @@ export const CHAT_LABELS_EN: ChatLabels = {
  * The same labels in the deck's language (REQ084) — the one place the
  * participant-facing dictionary is mapped onto them, so the phone and the
  * presenter's panel wear the same wording in two languages rather than two
- * wordings (ADR-0026).
+ * wordings.
  */
 export function chatLabelsFor(dict: ReturnType<typeof getDict>): ChatLabels {
 	return {
@@ -119,9 +119,9 @@ export function readChatFeed(payload: unknown): ChatFeed | null {
  *
  * So the rule is "the channel is open, **or** there is something to read", and
  * it lives here rather than inline in a page because it is the client half of a
- * server guarantee — one place to read it, one place to test it (ADR-0026).
+ * server guarantee — one place to read it, one place to test it.
  * A deck that never carried a chat has neither, and shows nothing: that is the
- * deck's own shape, not a control hidden because it is unavailable (ADR-0025).
+ * deck's own shape, not a control hidden because it is unavailable.
  */
 export function isChatSurfaceVisible(
 	channelOpen: boolean,
@@ -149,7 +149,7 @@ export function chatCountLabel(feed: ChatFeed | null): string {
 /**
  * The deck's chat, kept current.
  *
- * The single fetch-and-subscribe wiring both pages use (ADR-0026). It refetches
+ * The single fetch-and-subscribe wiring both pages use. It refetches
  * on the session slice's `chatRevision`, which the `chat.updated` broadcast
  * bumps, and on the channel's own switch — reopening a closed chat has to bring
  * the composer back without waiting for somebody else to type first.
@@ -259,8 +259,8 @@ export function ChatMessageList({
  *
  * Capped at the same number the boundary refuses past, so a participant meets
  * the limit as a key that does nothing rather than as a rejected post. Disabled
- * with its reason when the organizer has closed the channel, rather than removed
- * (ADR-0025): the transcript above it is still there to read, and a composer
+ * with its reason when the organizer has closed the channel, rather than removed:
+ * the transcript above it is still there to read, and a composer
  * that vanished would read as the chat having been deleted.
  */
 export function ChatComposer({
@@ -351,7 +351,7 @@ export function ChatHeading({
 
 /**
  * The switch that opens the channel (REQ078), placed on the panel it governs
- * rather than in the page's chrome (ADR-0031).
+ * rather than in the page's chrome.
  */
 export function ChatChannelControl({
 	enabled,

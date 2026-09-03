@@ -7,7 +7,7 @@
  *   - REQ045 — pointsItems[] and the POINTS_ITEM_LIMIT cap
  *
  * The encode/decode pair is tested here rather than through the API because it
- * is the contract *both* ends share (ADR-0013): the participant surface writes
+ * is the contract *both* ends share: the participant surface writes
  * the allocation and the aggregation reads it back.
  */
 
@@ -105,7 +105,7 @@ describe("SlideSchema — points items (REQ045)", () => {
 		).toBe(false);
 	});
 
-	test("a stored deck authored before 100 Points existed re-parses forward (ADR-0029)", () => {
+	test("a stored deck authored before 100 Points existed re-parses forward", () => {
 		const stored = StoredPresentationSchema.parse({
 			id: "p1",
 			slides: [
@@ -126,8 +126,8 @@ describe("encodePoints / decodePoints (REQ044)", () => {
 	test("an unfunded item is dropped from the wire but read back as an explicit 0", () => {
 		const value = encodePoints({ a: 100, b: 0, c: 0 });
 		expect(value).toBe("a:100");
-		// ADR-0029 in spirit: every item comes back present, so no read site has
-		// to reach for `??` to find out an item got nothing.
+		// The defaults rule in spirit: every item comes back present, so no read
+		// site has to reach for `??` to find out an item got nothing.
 		expect(decodePoints(value, ITEMS)).toEqual({ a: 100, b: 0, c: 0 });
 	});
 

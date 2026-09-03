@@ -71,7 +71,7 @@ describe("reactionLabelsFor (REQ084)", () => {
 	});
 
 	test("the English mapping and the presenter's own wording agree", () => {
-		// Two surfaces, one wording (ADR-0026).
+		// Two surfaces, one wording.
 		expect(reactionLabelsFor(getDict("en"))).toEqual(REACTION_LABELS_EN);
 	});
 

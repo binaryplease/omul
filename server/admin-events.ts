@@ -13,9 +13,9 @@
  * and the terminal `pending → executed/failed/expired` transition is a guarded
  * SQL update so an action executes at most once.
  *
- * Built as a factory per ADR-0007. A process-wide default store is created at
- * import from `OMUL_ADMIN_DB` (default: an `admin.sqlite` sibling of the
- * docstore file); tests build isolated stores over their own paths.
+ * Built as a factory function rather than a class. A process-wide default store
+ * is created at import from `OMUL_ADMIN_DB` (default: an `admin.sqlite` sibling
+ * of the docstore file); tests build isolated stores over their own paths.
  */
 
 import { Database } from "bun:sqlite";

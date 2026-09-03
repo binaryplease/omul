@@ -118,7 +118,7 @@ import {
 // content → answers → scoring → results → style. **Which** groups a type owns is
 // not decided here: `SLIDE_TYPE_SECTIONS` in `SlideTypeMenu.tsx` declares it
 // beside the type's own label, and this column composes that declaration
-// (ADR-0026) — the conditionals it replaced could not be read as an answer to
+// — the conditionals it replaced could not be read as an answer to
 // "what does a grid slide let me author?", and any second consumer would have
 // had to guess.
 //
@@ -138,10 +138,10 @@ import {
 //      choices not taken would have meant.
 //
 // The postures the requirement carries over are unchanged: a control that is
-// unavailable stays visible, inert and says why (ADR-0025 — the quiz countdown
+// unavailable stays visible, inert and says why (the quiz countdown
 // on an audience-paced deck, the guess tolerance with no correct answer, the
 // four pin corners with no target); every enumerated choice is one shared
-// descriptor (ADR-0026); and the reveal override still means what REQ102 says,
+// descriptor; and the reveal override still means what REQ102 says,
 // with its inherit option naming the deck default it defers to.
 //
 // All structural mutations are delegated upward through the editor store (the
@@ -153,7 +153,7 @@ export { SLIDE_TYPE_LABELS } from "./SlideTypeMenu";
 
 // The three concrete results-visibility modes (REQ102). One descriptor, shared
 // by the deck-level default picker (CreatePage's DeckSettings) and the per-slide
-// override picker below (ADR-0026) so the two surfaces never drift. The per-slide
+// override picker below so the two surfaces never drift. The per-slide
 // picker prepends an "inherit" option that defers to the deck default.
 export const RESULTS_VISIBILITY_OPTIONS: ChoiceOption<ResultsVisibility>[] = [
 	{
@@ -300,8 +300,8 @@ export const QUIZ_ANSWER_MODE_OPTIONS: ChoiceOption<QuizAnswerMode>[] = [
 ];
 
 /**
- * What one field of a form asks for (REQ061). One descriptor for the picker
- * (ADR-0026); what each type *accepts* is decided by `decodeFormSubmission` at
+ * What one field of a form asks for (REQ061). One descriptor for the picker;
+ * what each type *accepts* is decided by `decodeFormSubmission` at
  * the vote boundary, so this list can never offer a type the server would not
  * validate.
  */
@@ -328,7 +328,7 @@ export const FORM_FIELD_TYPE_OPTIONS: ChoiceOption<FormFieldType>[] = [
 
 /**
  * The four result visualizations a choice slide can wear (REQ010). One
- * descriptor for the picker (ADR-0026); the renderers themselves live in
+ * descriptor for the picker; the renderers themselves live in
  * Results.tsx, which is what each of these names — and what the canvas draws
  * with when the picker sends it to the results view (REQ154).
  */
@@ -391,7 +391,7 @@ export type SlideSettingsDeparture = {
 	 * Whether this group has anything a reset could ever put back on this slide
 	 * type. `false` means the control does not exist rather than being
 	 * unavailable — the distinction `SettingsGroup` draws, and the reason a type
-	 * with no answer rules gets no permanently-inert reset (ADR-0025).
+	 * with no answer rules gets no permanently-inert reset.
 	 */
 	resettable: boolean;
 };
@@ -553,7 +553,7 @@ export function slideStyleDeparture(slide: Slide): SlideSettingsDeparture {
 
 /**
  * Small icon button for removing a repeated row. Its muted → error step is the
- * shared token (ADR-0028), composed rather than re-declared, so this column and
+ * shared token, composed rather than re-declared, so this column and
  * the canvas's per-option remove tool (REQ153) warn about deletion in one red.
  */
 function RemoveRowButton({
@@ -612,7 +612,7 @@ function AddRowButton({
 /**
  * Everything an author states about one dimension of a 2x2 grid: what it
  * measures (REQ048) and where it starts and ends, as numbers and as named
- * poles (REQ049). Written once and composed by both axes (ADR-0026) so the
+ * poles (REQ049). Written once and composed by both axes so the
  * horizontal and the vertical dimension can never offer different settings.
  */
 function GridAxisFields({
@@ -685,7 +685,7 @@ function GridAxisFields({
 
 /**
  * One edge of a Pin on Image target area, authored as a percentage of the image
- * (REQ053). Written once and worn by all four corners (ADR-0026), so no two of
+ * (REQ053). Written once and worn by all four corners, so no two of
  * them can round, clamp or label a coordinate differently.
  *
  * Percent on screen, per-mille underneath: the schema's lattice is a thousandth
@@ -1071,7 +1071,7 @@ function ContentGroup({
 				/>
 			</Field>
 			{/* What the URL will actually open, beside the field that sets it
-			    (ADR-0031) and read through the same resolver the room's own surfaces
+			    and read through the same resolver the room's own surfaces
 			    use — so an author who pasted a link this cannot play or frame finds
 			    out here rather than in front of a room. */}
 			{note && (
@@ -2027,7 +2027,7 @@ function GuessFields({ slide, onUpdate }: SlideSettingsProps) {
 					})
 				}
 			/>
-			{/* ADR-0025: the two fields stay on screen when there is no reference,
+			{/* The two fields stay on screen when there is no reference,
 			    disabled and with the reason spelled out, rather than disappearing
 			    and leaving the setting undiscoverable. */}
 			<div className="grid grid-cols-2 gap-2">
@@ -2170,8 +2170,8 @@ function PinFields({
 					)
 				}
 			/>
-			{/* Drawn on the picture, because the target is a region *of the picture*
-			    (ADR-0031). The four fields below are the same target reached by
+			{/* Drawn on the picture, because the target is a region *of the picture*.
+			    The four fields below are the same target reached by
 			    keyboard, and the precise path when a drag is a pixel off. */}
 			{image.url && drawn && (
 				<PinCanvas
@@ -2261,7 +2261,7 @@ function ScoringGroup({
 			{/* A time limit needs a shared instant to count from, and only a
 			    presenter-paced deck has one (REQ057). Rather than hide or disable the
 			    field on a survey deck — the author may well switch the deck back —
-			    say plainly that what they type here will not fire (ADR-0025). */}
+			    say plainly that what they type here will not fire. */}
 			{deckMode === "survey" && (
 				<p className="rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
 					Not in effect: this deck is audience-paced, so the countdown never
@@ -2341,7 +2341,7 @@ function ResultsGroup({
 			departureLabel={overridesDeck ? "Overrides deck" : "Changed"}
 			// A reveal closed further than this slide's default is marked and not
 			// undone from here: the reset only ever tightens, so re-opening a slide
-			// is the reveal's own control above (ADR-0025 — the button says so).
+			// is the reveal's own control above (the button says so).
 			canReset={Object.keys(departure.reset).length > 0}
 			resetUnavailableReason="This slide's reveal is tighter than its default — re-open it with the Reveal control above."
 			resetLabel="Put the reveal and the chart back to their defaults"
@@ -2573,7 +2573,7 @@ function StyleGroup({
 						</p>
 					)}
 				{/* The way back to no picture. It stands whether or not there is one to
-				    remove and says why it is unavailable (ADR-0025). */}
+				    remove and says why it is unavailable. */}
 				<button
 					type="button"
 					className="inline-flex items-center gap-1.5 text-xs text-text-muted transition-colors hover:text-error disabled:cursor-not-allowed disabled:text-text-dim disabled:hover:text-text-dim"

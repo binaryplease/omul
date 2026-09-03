@@ -286,7 +286,7 @@ async function storeSingleRowVote(
 			// nullable, and a multi-statement scale falls through to the default
 			// branch without one) would replace one of their per-statement rows and
 			// the collapse below would delete the rest. Stored rows default
-			// `statementId` to null (ADR-0029) and the store compiles a null operand
+			// `statementId` to null and the store compiles a null operand
 			// to `IS NULL`, so this matches exactly the rows the key covers and
 			// nothing else.
 			const existing = await votes.find({
@@ -454,7 +454,7 @@ export async function createPresentation(
  * A header that is present but blank is no claim, so it must not *shadow* the
  * fallback behind it either — a proxy or client that always sets the header,
  * empty when it has nothing, would otherwise silently demote a caller that did
- * state its token. Composed by both readers below (ADR-0026) so the two
+ * state its token. Composed by both readers below so the two
  * credentials are read on one rule.
  */
 function statedHeader(headers: Headers, name: string): string | null {
@@ -522,7 +522,7 @@ export type DeckAccess = {
 
 /**
  * Resolve what a request may do with a fetched presentation — the one place the
- * three ways of having standing on a deck are consulted (ADR-0026).
+ * three ways of having standing on a deck are consulted.
  *
  * Order is not precedence but strength: owner, edit token and the legacy
  * grandfather each mean `edit`, so a collaborator grant is only reached when
@@ -835,7 +835,7 @@ export function resultsLinkStatus(pres: Record<string, unknown>): ResultsLink {
 		active: Boolean(hash),
 		issuedAt: (pres.resultsTokenIssuedAt as string | null) ?? null,
 		// The plaintext is stored nowhere, so no read after the mint can carry it.
-		// Emitted as an explicit null rather than dropped (ADR-0024).
+		// Emitted as an explicit null rather than dropped.
 		resultsToken: null,
 	};
 }
@@ -1493,7 +1493,7 @@ export async function setDeckResultsVisibility(
  * Whether a presentation is in a state that takes anything from the audience at
  * all — a vote, a response upvote, or a question on the Q&A layer.
  *
- * One rule, three callers (ADR-0010): a **live** deck is paced by the presenter
+ * One rule, three callers: a **live** deck is paced by the presenter
  * and collects only once they have started it, a **survey** deck (REQ003/REQ082)
  * is paced by the audience and collects at any status until it is ended. Three
  * copies of that pair is how one of them eventually drifts and a deck starts
@@ -1510,7 +1510,7 @@ function acceptsSubmissions(pres: Record<string, unknown>): boolean {
 /**
  * Re-aggregate a slide and push the fresh tally to everyone watching it. Every
  * vote path ends here, so the "recount, then broadcast" pair is written once
- * (ADR-0010) instead of at each of the branches below.
+ * instead of at each of the branches below.
  *
  * Read **without** `canEdit`, deliberately: this frame goes to the whole room,
  * so what it may carry is what the audience may see (REQ015–REQ017). A slide
@@ -1537,7 +1537,7 @@ async function broadcastResults(presentationId: string, slideId: string) {
  *
  * The deck is read once here and handed to the aggregation rather than re-read
  * per board: `getSlideResults` exists to fetch a deck for a caller that has not
- * got one, and this caller has (ADR-0010 — the logic is `aggregateSlideResults`,
+ * got one, and this caller has (the logic is `aggregateSlideResults`,
  * and fetching is the orchestration around it).
  *
  * Nothing is broadcast for a deck with no leaderboard slide, which is most of
@@ -1763,8 +1763,8 @@ export async function submitVote(
 				// response instead of creating a new duplicate entry. This keeps the
 				// list focused on distinct topics while still surfacing demand.
 				if (foldsDuplicates) {
-					// The same fold the Q&A layer applies to a re-asked question
-					// (ADR-0026): "did these two people say the same thing?" is one
+					// The same fold the Q&A layer applies to a re-asked question:
+					// "did these two people say the same thing?" is one
 					// judgement, and it is made in `normalizeQuestionText` for both.
 					const target = normalizeQuestionText(value);
 					const allForSlide = await votes.find({ presentationId, slideId });
@@ -2022,7 +2022,7 @@ export async function submitVote(
 	// *replaces* the participant's previous allocation rather than adding to it —
 	// moving points between items is the normal gesture, not a second vote.
 	//
-	// `decodePoints` is where "exactly 100" is enforced (ADR-0013): a ballot that
+	// `decodePoints` is where "exactly 100" is enforced: a ballot that
 	// under- or over-spends is rejected at the boundary rather than trusted from
 	// the client, stored, and left to skew every share it is counted into. What
 	// is stored is re-encoded from what the codec read, so the tally always sees
@@ -2048,7 +2048,7 @@ export async function submitVote(
 	// their mind before the reveal is the normal gesture, not a second guess that
 	// would let one person weight the distribution twice.
 	//
-	// `decodeGuess` is where the authored frame is enforced (ADR-0013): a number
+	// `decodeGuess` is where the authored frame is enforced: a number
 	// outside the range (REQ040) or off the step grid (REQ043) is rejected with
 	// 400 rather than clamped or rounded into the nearest legal value. On this
 	// slide type the number *is* the whole answer, so a silently adjusted one is
@@ -2119,7 +2119,7 @@ export async function submitVote(
 	// keeping both would put one person in the organizer's export twice, once
 	// with an address that does not work.
 	//
-	// `decodeFormSubmission` is where the field types are enforced (ADR-0013): an
+	// `decodeFormSubmission` is where the field types are enforced: an
 	// address that is not one, an option the field does not offer, an answer past
 	// the per-field cap and a required field left blank are all refused at the
 	// boundary rather than trusted from the client and discovered in a
@@ -2769,7 +2769,7 @@ export async function setQuestionAnswered(
  * is not the order anybody said anything in. So a stamp that would not advance
  * is nudged forward by a millisecond instead.
  *
- * A closure over the last stamp rather than a class (ADR-0007), and process-wide
+ * A closure over the last stamp rather than a class, and process-wide
  * rather than per-presentation: the value only has to be monotonic, and one
  * counter cannot be raced by two rooms into going backwards. It is deliberately
  * **not** a sequence number — what is stored stays a real ISO instant that a
@@ -2860,7 +2860,7 @@ export async function setParticipantChannels(
  * `slideId` is passed through untouched and nothing is keyed by it: it says
  * where the sender was looking, so a presenter's screen can burst over the slide
  * the room is reacting to. A reaction that names no slide is still a reaction and
- * reads as an explicit `null` (ADR-0024).
+ * reads as an explicit `null`.
  */
 export async function sendReaction(
 	presentationId: string,
@@ -3153,7 +3153,7 @@ type ScoredQuizSlide = {
  * first they gave** (REQ054).
  *
  * The single judgement about what a quiz slide's votes mean, composed by every
- * number the payload reports (ADR-0010). It settles two separate things, and it
+ * number the payload reports. It settles two separate things, and it
  * has to settle them in one place or the same payload reports the same room two
  * ways — one respondent beside two answers, or a 50% correct share on a question
  * one person got right.
@@ -3256,7 +3256,7 @@ function scoreQuizSlide(
  * typed question the answer most of the room wrote *is* the answer, so shipping
  * the rows while the question runs would hand a competitor reading the network
  * tab the thing the key itself is being kept back for. Withheld reads as an
- * explicit `null` (ADR-0024) rather than an empty list, which would claim
+ * explicit `null` rather than an empty list, which would claim
  * nobody has answered.
  *
  * Counted over {@link finalQuizAnswers}, so a group's `count` is people rather
@@ -3346,7 +3346,7 @@ function summarizeQuizScores(scored: ScoredQuizSlide, now: number) {
 		answeredCount: answers.length,
 		correctCount,
 		totalPoints,
-		// ADR-0024: emit both keys either way. A question nobody has answered has
+		// Emit both keys either way. A question nobody has answered has
 		// no average and no correct share at all — an explicit `null`, not a `0`
 		// that would read as a room that answered and got everything wrong.
 		averagePoints: answers.length
@@ -3522,7 +3522,7 @@ function leaderboardFrom(presentationId: string, deck: ScoredQuizDeck) {
  * already holds the participant id, and it hands out nobody else's.
  *
  * Every quiz slide in the deck is listed, answered or not, so a client never has
- * to reason about a missing key to know a question went unanswered (ADR-0024).
+ * to reason about a missing key to know a question went unanswered.
  */
 export async function getParticipantScorecard(
 	presentationId: string,
@@ -3553,7 +3553,7 @@ export async function getParticipantScorecard(
 			deadline: scored.deadline,
 			maxPoints: QUIZ_MAX_POINTS,
 			answered: answer !== null,
-			// ADR-0024: an unanswered question is spelled with explicit nulls
+			// An unanswered question is spelled with explicit nulls
 			// rather than dropped keys — "did not answer" is a result too, and a
 			// `false` for `isCorrect` would claim they answered and got it wrong.
 			// The two answer shapes get a key each and only one is ever filled:
@@ -3576,7 +3576,7 @@ export async function getParticipantScorecard(
 		 * scored yet, so a client can match itself against the board the moment
 		 * they do; the place is an explicit `null` until they have answered
 		 * something, because "unranked" is a standing too and a `0` would read as
-		 * a place they hold (ADR-0024).
+		 * a place they hold.
 		 */
 		entryId,
 		label: leaderboardEntryLabel(entryId),
@@ -3599,7 +3599,7 @@ export async function getParticipantScorecard(
 // itself. That seam is what REQ103/REQ104 are built on: a preview run feeds
 // synthetic rows through the very same aggregation a live session's rows go
 // through, so a previewed chart is the chart the room will see rather than a
-// second implementation of it that drifts (ADR-0010: logic separated from
+// second implementation of it that drifts (logic separated from
 // orchestration, composed at the call site).
 //
 // It also makes the isolation guarantee structural. The preview source holds its
@@ -3608,7 +3608,7 @@ export async function getParticipantScorecard(
 
 /**
  * Where a tally reads its rows. Two implementations: the stored one below, and
- * the in-memory one a preview run supplies (ADR-0007 — factories, not classes).
+ * the in-memory one a preview run supplies (factories, not classes).
  */
 export type ResultsSource = {
 	/** Every vote row on one slide. */
@@ -3784,13 +3784,13 @@ async function aggregateSlideResults(
 				respondentCount: respondents.size,
 				maxSelections: maxSelectionsFor(slide),
 				// REQ055 — what the room typed, or an explicit `null` on a question
-				// answered by picking an option (ADR-0024).
+				// answered by picking an option.
 				typedAnswers:
 					answerMode === "type"
 						? tallyTypedQuizAnswers(slide, slideVotes, revealsCorrect)
 						: null,
 				// REQ054/REQ056/REQ057 — how the room scored and where the question's
-				// window stands. ADR-0024: the key is emitted for a plain choice slide
+				// window stands. The key is emitted for a plain choice slide
 				// too, as an explicit `null`; a choice slide can reveal a solution
 				// (REQ013) but keeps no score, and the two must stay distinguishable.
 				scoring:
@@ -3826,7 +3826,7 @@ async function aggregateSlideResults(
 								id: opt.id,
 								text: opt.text,
 								count: counts[opt.id] || 0,
-								// ADR-0024: emit the key for every option. A slide with no
+								// Emit the key for every option. A slide with no
 								// correct answer to reveal has no notion of correctness, so
 								// the value is an explicit `null` (a key dropped via
 								// `undefined` would be invisible to consumers) rather than a
@@ -3860,7 +3860,7 @@ async function aggregateSlideResults(
 				type: "leaderboard",
 				// A leaderboard collects nothing itself. Emitted anyway, because
 				// every results payload carries it and a client that reads "how many
-				// responses" off a slide must not find the key missing (ADR-0024).
+				// responses" off a slide must not find the key missing.
 				totalVotes: 0,
 				quizCount: board.quizCount,
 				maxPoints: board.maxPoints,
@@ -3899,7 +3899,7 @@ async function aggregateSlideResults(
 				totalVotes: slideVotes.length,
 				words,
 				// The individual answers behind those counts (REQ027) — for an editor
-				// only, and an explicit `null` for everybody else (ADR-0024), on the
+				// only, and an explicit `null` for everybody else, on the
 				// same terms a form slide's rows are (see the `form` branch).
 				//
 				// The cloud itself is an aggregate: "pizza (3)" says three people
@@ -4018,7 +4018,7 @@ async function aggregateSlideResults(
 					points: tally.points,
 					rankedCount: tally.rankedCount,
 					notRanked: ballots - tally.rankedCount,
-					// ADR-0024: emit the key either way. An item no ballot placed has
+					// Emit the key either way. An item no ballot placed has
 					// no average position at all — an explicit `null`, not a `0` that
 					// would read as "ranked first by everyone".
 					averageRank: tally.rankedCount
@@ -4103,7 +4103,7 @@ async function aggregateSlideResults(
 						: 0,
 					funderCount: tally.funderCount,
 					notFunded: ballots - tally.funderCount,
-					// ADR-0024: emit the key either way. The mean is taken over the
+					// Emit the key either way. The mean is taken over the
 					// ballots that actually funded the item, which is a different
 					// reading from `share` — that spreads the same points across
 					// everyone. A niche item a handful of people bet heavily on
@@ -4181,7 +4181,7 @@ async function aggregateSlideResults(
 						? Math.round((bucketCounts[bucketIndex] / guessCount) * 10000) / 100
 						: 0,
 				})),
-				// ADR-0024: emit every statistic's key. A slide nobody has guessed on
+				// Emit every statistic's key. A slide nobody has guessed on
 				// has no lowest, highest, mean or median guess at all — an explicit
 				// `null`, not a `0` that would plot as an estimate somebody made.
 				lowestGuess: guessCount ? sorted[0] : null,
@@ -4263,7 +4263,7 @@ async function aggregateSlideResults(
 				pins,
 				/**
 				 * The centre of the cloud, to two decimals — or an explicit `null`
-				 * before anyone has pinned (ADR-0024), never a `0,0` that would draw
+				 * before anyone has pinned, never a `0,0` that would draw
 				 * a pin in the image's top-left corner that nobody placed.
 				 */
 				averageX: pinCount ? average(pins.map((point) => point.x)) : null,
@@ -4325,7 +4325,7 @@ async function aggregateSlideResults(
 					totalVotes: itemVotes.length,
 					placed,
 					skipped,
-					// ADR-0024: emit both keys either way. An item nobody placed has
+					// Emit both keys either way. An item nobody placed has
 					// no coordinate at all — an explicit `null`, not a `0` that would
 					// pin it to the bottom-left corner of the field.
 					averageX: placed ? average(placements.map((point) => point.x)) : null,
@@ -4366,7 +4366,7 @@ async function aggregateSlideResults(
 				/**
 				 * Who filled this in, when the deck asked the room for names (REQ076),
 				 * and an explicit `null` when it did not or when this row was cast
-				 * before it started asking (ADR-0024).
+				 * before it started asking.
 				 *
 				 * Read only when the rows themselves are, which is the whole point of
 				 * where it sits: the block is `null` for a caller who cannot edit the
@@ -4448,7 +4448,7 @@ async function aggregateSlideResults(
 					type: field.type,
 					required: field.required,
 					answered: answeredCounts.get(field.id) ?? 0,
-					// ADR-0024: the key is emitted for every field. A text or email
+					// The key is emitted for every field. A text or email
 					// field has nothing to tally, so it carries an empty list rather
 					// than the key going missing on some fields and not others.
 					options: field.options.map((option) => ({
@@ -4458,7 +4458,7 @@ async function aggregateSlideResults(
 					})),
 				})),
 				// What the room actually wrote — for an editor only, and an explicit
-				// `null` for everybody else (ADR-0024), so "withheld" is a shape a
+				// `null` for everybody else, so "withheld" is a shape a
 				// client can read rather than an empty list it would draw as "nobody
 				// has answered".
 				//
@@ -4585,7 +4585,7 @@ export async function getAllResults(
 // second aggregation that filtered rows itself would have to re-derive every
 // slide type's tally — the quiz's final-answer rule, the ranking's Borda
 // scoring, the scale's per-statement skips — and would be wrong about one of
-// them within a release (ADR-0010: composed at the call site, not re-implemented
+// them within a release (composed at the call site, not re-implemented
 // at it). It is the same seam REQ104's preview run rides on, used the other way
 // round: the preview swaps in rows that were never stored, this one swaps out
 // rows that belong to other people.
@@ -4596,7 +4596,7 @@ export async function getAllResults(
  * A breakdown runs the aggregation once per group, and every one of those runs
  * wants the same rows. Without this, a five-group breakdown of a slide is five
  * identical queries — and a five-group breakdown of a *leaderboard* slide is
- * five per quiz question in the deck (ADR-0007: a factory over a closure, not a
+ * five per quiz question in the deck (a factory over a closure, not a
  * class).
  */
 function cachedResultsSource(source: ResultsSource): ResultsSource {
@@ -4659,7 +4659,7 @@ export type ResultsSegment = {
 	label: string;
 	/**
 	 * How many people in this group answered the slide being broken down — or an
-	 * explicit `null` where the group is suppressed (ADR-0024).
+	 * explicit `null` where the group is suppressed.
 	 *
 	 * The count goes with the answers rather than surviving them. "Exactly one
 	 * person picked Beta *and* answered this" is not a number about the room, it
@@ -4670,7 +4670,7 @@ export type ResultsSegment = {
 	respondentCount: number | null;
 	/**
 	 * This group's tally — the same shape the unsegmented endpoints publish — or
-	 * an explicit `null` where it is suppressed (ADR-0024), never an emptied one
+	 * an explicit `null` where it is suppressed, never an emptied one
 	 * a client would draw as "nobody answered".
 	 */
 	results: Record<string, unknown> | null;
@@ -4695,11 +4695,11 @@ export type SegmentedResults = {
 	/**
 	 * `true` when the whole breakdown is kept from this caller, in which case
 	 * `segments` is empty. Emitted as `false` on a published breakdown rather than
-	 * left out, so the key a client tests is always there (ADR-0024).
+	 * left out, so the key a client tests is always there.
 	 */
 	withheld: boolean;
 	/**
-	 * Why, or an explicit `null` when it is not withheld (ADR-0024) — two very
+	 * Why, or an explicit `null` when it is not withheld — two very
 	 * different pieces of news, and a surface that drew one sentence for both
 	 * would be telling half its readers something untrue.
 	 *
@@ -4920,7 +4920,7 @@ export async function getResultsExport(
 
 	return {
 		// Parsed through the public schema for the same two reasons `sanitize`
-		// does it (ADR-0024/ADR-0029): every declared field is present even on a
+		// does it: every declared field is present even on a
 		// document persisted before it existed, and `creatorTokenHash` /
 		// `creatorId` are dropped by construction rather than by a list somebody
 		// has to remember to keep in step. A spreadsheet is a file that leaves the

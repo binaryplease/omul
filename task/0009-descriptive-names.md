@@ -1,18 +1,19 @@
 ---
-title: "ADR-0017 descriptive-naming pass (frontend + backend)"
+title: "Descriptive-naming pass (frontend + backend)"
 status: planned
 created: 2026-06-27
 updated: 2026-06-27
 priority: low
-tags: [style, refactor, adr-0017, tech-debt]
+tags: [style, refactor, naming, tech-debt]
 review: required
 ---
 
-# ADR-0017 descriptive-naming pass (frontend + backend)
+# Descriptive-naming pass (frontend + backend)
 
 ## Context
 
-Pervasive ADR-0017 ("descriptive names") debt: ~100+ single-letter and
+Pervasive descriptive-naming debt — no single letters, no acronyms: ~100+
+single-letter and
 acronym identifiers spread across ~12–14 files, spanning both the React
 frontend and the Elysia backend. Recurring offenders: `(e) =>`,
 `catch (e)`, `res`, `err`, `msg`, `idx`, `(s, i)`.
@@ -23,8 +24,8 @@ frontend and the Elysia backend. Recurring offenders: `(e) =>`,
 - ~10 other files carry a handful each (`(e) =>` handlers, `catch (e)`,
   `.map((s, i) => …)`).
 
-Surfaced during an ADR triage pass ("ADR Tier 3 — Pervasive style
-debt"). Triage decision: **defer to separate ADR-0005 task branches** rather
+Surfaced during a conventions triage pass ("Tier 3 — pervasive style
+debt"). Triage decision: **defer to separate task branches** rather
 than fold into the Tier-1 correctness fix (where it would bury the
 meaningful diff) or do it in one undifferentiated pass.
 
@@ -49,7 +50,7 @@ diff stays reviewable):
    landing it alone keeps the review tractable.
 2. **`server/services/presentations.ts`** — the backend instances. Note the
    submitVote / getSlideResults decomposition is tracked separately in
-   `task/0010-adr0010-decompose-vote-results`; if both tasks run, sequence
+   `task/0010-decompose-vote-results`; if both tasks run, sequence
    them so the rename doesn't churn lines the decomposition will move
    anyway (do the decomposition first, then rename, OR rename inside each
    task as it touches the code — see "Coordination" below).
@@ -67,11 +68,11 @@ Per-rename guidance:
 
 ## Coordination
 
-- **Overlaps `task/0010-adr0010-decompose-vote-results`** on
+- **Overlaps `task/0010-decompose-vote-results`** on
   `server/services/presentations.ts`. To avoid double-churn and conflicts,
   do NOT run both concurrently on that file. Either land 0010 first then
-  rename, or let 0010 apply ADR-0017 naming to the lines it already
-  rewrites and scope this task to the *other* files. Decide at scheduling
+  rename, or let 0010 apply the descriptive-naming rule to the lines it
+  already rewrites and scope this task to the *other* files. Decide at scheduling
   time.
 
 ## What this does NOT change

@@ -180,7 +180,7 @@ describe("segmentSourcesFor — what a picker draws (REQ116)", () => {
 		expect(sources[0].question).toBe("Which team?");
 	});
 
-	test("an ineligible slide is marked rather than dropped (ADR-0025)", () => {
+	test("an ineligible slide is marked rather than dropped", () => {
 		const sources = segmentSourcesFor(deck, "three");
 		expect(sources[0].refusal).toBeNull();
 		expect(sources[0].reason).toBeNull();

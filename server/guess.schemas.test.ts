@@ -11,7 +11,7 @@
  *   - REQ043 — the step grid, counted from the range's low end
  *
  * The encode/decode pair and the bucket derivation are tested here rather than
- * through the API because they are the contract *both* ends share (ADR-0013):
+ * through the API because they are the contract *both* ends share:
  * the participant surface offers the numbers, the aggregation plots them, and
  * the editor previews the empty frame.
  */
@@ -69,7 +69,7 @@ describe("GuessRangeSchema — the authored frame (REQ040, REQ043)", () => {
 		expect(GuessRangeSchema.parse({})).toEqual({ min: 0, max: 100, step: 1 });
 	});
 
-	test("a slide of any other type still carries the default frame (ADR-0029)", () => {
+	test("a slide of any other type still carries the default frame", () => {
 		const slide = SlideSchema.parse({
 			id: "wc",
 			type: "word-cloud",
@@ -227,7 +227,7 @@ describe("GuessReferenceSchema — the optional correct number (REQ041, REQ042)"
 		});
 	});
 
-	test("a reference cannot exist without a value (ADR-0018)", () => {
+	test("a reference cannot exist without a value", () => {
 		// Defaultless on purpose: a defaulted 0 would assert a correct answer
 		// nobody authored.
 		expect(GuessReferenceSchema.safeParse({}).success).toBe(false);

@@ -255,7 +255,7 @@ describe("the discovery document (REQ151)", () => {
 		expect(proxied.links.websocket).toBe("wss://omul.example.com/ws");
 	});
 
-	test("every link is emitted, absolute, and on the resolved origin (ADR-0024)", () => {
+	test("every link is emitted, absolute, and on the resolved origin", () => {
 		process.env.OMUL_BASE_HOST = "omul.example.com";
 		const { links } = discoveryDocument(proxiedRequest());
 

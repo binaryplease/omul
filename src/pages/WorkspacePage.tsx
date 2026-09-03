@@ -42,7 +42,7 @@ import {
 // being removed from.
 //
 // Every control here is drawn for every member and **disabled with its reason**
-// when their role does not open it (ADR-0025), rather than hidden: "you cannot
+// when their role does not open it, rather than hidden: "you cannot
 // do this, and here is who can" is a fact somebody needs, and a missing button
 // says nothing. The role each one is read against is the server's own report,
 // and the server re-checks it on every request (REQ129) — so this file decides
@@ -297,9 +297,9 @@ export function WorkspacePage({
 					{loading ? null : workspace ? (
 						<>
 							{/* The name is the page's subject, so it is drawn as one; the
-							    control that changes it sits beside it (ADR-0031) and is
+							    control that changes it sits beside it and is
 							    disabled with its reason for a role that may not rename
-							    (ADR-0025) rather than removed. Dimming the heading itself
+							    rather than removed. Dimming the heading itself
 							    instead would make the workspace's own name hard to read for
 							    every member who is not its owner. */}
 							<div className="flex items-center gap-3 mb-3">
@@ -419,9 +419,9 @@ export function WorkspacePage({
 												</div>
 											</div>
 											{/* Taking a deck back out of the shared ownership sits on
-											    the deck it moves (ADR-0031), and is the owner's own
+											    the deck it moves, and is the owner's own
 											    act — drawn disabled with the reason for everybody
-											    else (ADR-0025). */}
+											    else. */}
 											<button
 												type="button"
 												className="text-text-dim hover:text-accent transition-colors p-2 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-text-dim"

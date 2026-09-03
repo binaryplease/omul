@@ -1,8 +1,8 @@
 /**
  * The template catalog over HTTP (REQ005).
  *
- * Its own route file for the reason `server/templates.ts` is its own module
- * (ADR-0032): nothing here touches a store, an owner or an edit token, so it
+ * Its own route file for the reason `server/templates.ts` is its own module:
+ * nothing here touches a store, an owner or an edit token, so it
  * would still work unchanged if the presentation routes beside it were deleted.
  *
  * **Public and unauthenticated, both of them.** The catalog is content this

@@ -6,7 +6,7 @@
  *
  *   - **The wording of each control in each state.** Both are drawn for a
  *     viewer who does not hold the deck and disabled with their reason rather
- *     than dropped (ADR-0025), so every state has to name one — and the chip
+ *     than dropped, so every state has to name one — and the chip
  *     that blanks the screen carries an icon and no text, which makes that
  *     string the whole control.
  *   - **That the participant's reason is the deck's language** (REQ084), mapped
@@ -72,7 +72,7 @@ describe("slideParticipationToggleLabel — the presenter's control (REQ111)", (
 		).toContain("every answer already given is kept");
 	});
 
-	test("a spectator is told the state and why it is not theirs (ADR-0025)", () => {
+	test("a spectator is told the state and why it is not theirs", () => {
 		const openToSpectator = slideParticipationToggleLabel({
 			open: true,
 			canControl: false,
@@ -124,7 +124,7 @@ describe("audienceBlankToggleLabel — the blank chip (REQ109)", () => {
 		expect(label).not.toContain("still open");
 	});
 
-	test("a spectator is told the state and why it is not theirs (ADR-0025)", () => {
+	test("a spectator is told the state and why it is not theirs", () => {
 		const shown = audienceBlankToggleLabel({
 			blanked: false,
 			canControl: false,

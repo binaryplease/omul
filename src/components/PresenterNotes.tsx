@@ -8,7 +8,7 @@ import { SLIDE_MARKDOWN_HINT, SlideText, slideTextToPlain } from "./SlideText";
 //
 // What the organizer wrote to themselves about the slide on screen, worn by
 // both presenter surfaces — the live presenter page and the dry run's shared-
-// screen pane (ADR-0026/ADR-0027: the invariant is "the notes for this slide as
+// screen pane (the invariant is "the notes for this slide as
 // their author reads them while presenting", and two surfaces re-assembling that
 // from a heading and a paragraph would drift into two different dialects of the
 // same panel).
@@ -23,7 +23,7 @@ import { SLIDE_MARKDOWN_HINT, SlideText, slideTextToPlain } from "./SlideText";
 /**
  * The notes on a slide, trimmed — `""` when the author wrote none.
  *
- * The single read site (ADR-0026): a slide is not always a parsed one (the
+ * The single read site: a slide is not always a parsed one (the
  * editor holds a half-built slide, a hand-built deck may omit the field
  * entirely) and every surface must agree on what "this slide has notes" means,
  * down to a field holding nothing but whitespace.
@@ -43,7 +43,7 @@ export function hasPresenterNotes(slide: {
 
 /**
  * What the control that opens the notes goes by, given what its viewer may
- * actually do with it (ADR-0025 — the button is never dropped, so each of its
+ * actually do with it (the button is never dropped, so each of its
  * states has to say out loud why it reads the way it does).
  */
 export function presenterNotesToggleLabel({
@@ -109,7 +109,7 @@ export const PRESENTER_NOTES_PRIVACY_LABEL = "Only you";
  *
  * A strip directly under the canvas rather than a field filed under settings:
  * notes are written in the same pass as the slide's words and read while
- * presenting that slide, so they belong with it (ADR-0031) — and every adjacent
+ * presenting that slide, so they belong with it — and every adjacent
  * tool an author has used puts them exactly there, which makes this the position
  * their hand already knows.
  *

@@ -3,7 +3,7 @@
  * DB, no network.
  *
  * It is tested here rather than only through the API because it is the contract
- * both ends share (ADR-0013/ADR-0026): the delete boundary refuses on it, and
+ * both ends share: the delete boundary refuses on it, and
  * the shared screen decides whether to draw the control from the very same
  * function. If the two ever disagreed, the presenter would be offered a deletion
  * the server turns away — or, worse the other way round, an answer that can be

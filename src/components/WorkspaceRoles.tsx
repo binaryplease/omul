@@ -3,7 +3,7 @@ import { WORKSPACE_ROLES } from "../types";
 
 // ── What a workspace role means, in words (REQ129) ────────────
 //
-// One descriptor (ADR-0026), composed by the role picker on the roster, by the
+// One descriptor, composed by the role picker on the roster, by the
 // badge on a workspace card and by the line under the "Add somebody" control —
 // three surfaces that would otherwise each acquire their own idea of what
 // `admin` is allowed to do, and drift apart the first time the server's answer

@@ -2,8 +2,8 @@
  * Workspaces — an owner of decks that is not an account, and the roles the
  * accounts in it hold (REQ128, REQ129).
  *
- * A module of its own rather than a section of `services/presentations.ts`
- * (ADR-0032), on exactly the terms `services/collaborators.ts` beside it is: it
+ * A module of its own rather than a section of `services/presentations.ts`,
+ * on exactly the terms `services/collaborators.ts` beside it is: it
  * owns its two collections, its vocabulary and its failure set, and it would keep
  * working unchanged if the presentation service were rewritten around it. The
  * dependency runs one way on purpose — **nothing here imports the presentation
@@ -170,7 +170,7 @@ export async function getWorkspace(
 /**
  * This account's role in this workspace, or `null` when it has none.
  *
- * The single read the authorization path makes (ADR-0026), and the reason it
+ * The single read the authorization path makes, and the reason it
  * returns `null` rather than throwing on an unknown workspace: "not a member" and
  * "no such workspace" are the same answer to the only question being asked, and a
  * caller with no standing must not be able to tell them apart.
@@ -303,7 +303,7 @@ export async function addWorkspaceMember(
  * Move an existing membership to `role`. A row that vanished between being read
  * and being written is a **throw**, not a fallback: reporting the old role as
  * though the change had applied would tell an admin they demoted somebody who
- * still holds what they had (ADR-0018 — fail loudly rather than quietly wrong).
+ * still holds what they had (fail loudly rather than quietly wrong).
  */
 async function changeMemberRole(
 	existing: Record<string, unknown>,

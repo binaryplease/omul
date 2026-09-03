@@ -7,7 +7,7 @@
 // is returned once and stored only as a hash on the server, so a key a refactor
 // gets wrong is a presentation its organizer can no longer edit, from any
 // browser, for ever. There is no recovery path and no message that would
-// explain it. So the keys are declared once (ADR-0026) and every read site
+// explain it. So the keys are declared once and every read site
 // imports its key from here rather than spelling one.
 
 /** Every deck's edit token, as a map of presentation id → plaintext token. */

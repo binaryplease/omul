@@ -491,7 +491,7 @@ describe("Q&A layer integration (REQ036/REQ037/REQ060)", () => {
 		expect(reopened.status).toBe(200);
 		list = await listAsOwner(pres);
 		expect(list.questions[0].answered).toBe(false);
-		// An explicit null, never a stale instant (ADR-0024).
+		// An explicit null, never a stale instant.
 		expect(list.questions[0].answeredAt).toBeNull();
 	});
 

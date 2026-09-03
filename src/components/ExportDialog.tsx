@@ -12,14 +12,14 @@ import { useToast } from "./ui/Toast";
 // A deck leaves in more than one shape now — a workbook to analyse, a document
 // to read or hand round — and "which shape?" is one question with several
 // answers rather than several unrelated buttons. So the formats are a single
-// descriptor and this dialog is the single surface that composes it
-// (ADR-0026): a format added later (REQ097's slide images, say) is a row in the
+// descriptor and this dialog is the single surface that composes it:
+// a format added later (REQ097's slide images, say) is a row in the
 // list below and nothing else.
 //
-// It sits behind a control on the presenter's own results surface (ADR-0031) —
+// It sits behind a control on the presenter's own results surface —
 // what an export takes out is the session, so it belongs beside it rather than
 // in global chrome — and every row is always drawn, disabled with its reason
-// where it cannot be used (ADR-0025).
+// where it cannot be used.
 
 /** Which shape a deck leaves in. */
 export type DeckExportFormatId = "xlsx" | "pdf-results" | "pdf-deck";
@@ -76,7 +76,7 @@ export const DECK_EXPORT_FORMATS: DeckExportFormat[] = [
  * Q&A and reset chips spell theirs: the control carries an icon and no text, so
  * this string is the whole of what a screen reader announces — and it has to
  * say both what leaves the building and, for somebody who does not hold the
- * deck, why it cannot (ADR-0025).
+ * deck, why it cannot.
  */
 export function exportButtonLabel(canExport: boolean): string {
 	return canExport
@@ -131,7 +131,7 @@ export function ExportDialog({
 							className={`flex items-start gap-3 rounded-xl border border-border bg-surface-raised p-3 text-left hover:border-accent/50 ${ICON_BUTTON_HOVER} disabled:opacity-50 disabled:cursor-not-allowed`}
 						>
 							{/* The icon carries the row's interaction state, composed from the
-							    shared token rather than re-declared (ADR-0028) — which is
+							    shared token rather than re-declared — which is
 							    also why it is not given a colour of its own here. */}
 							<span className="mt-0.5 shrink-0">
 								<format.icon size={18} />

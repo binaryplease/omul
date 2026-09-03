@@ -13,14 +13,14 @@ import { decodePinPoint, isPinInArea, PIN_COORDINATE_MAX } from "../types";
 // Four surfaces draw the same canvas — the participant places a pin on it, the
 // shared screen shows where the room pointed, the editor previews it, and the
 // editor's picker draws a target area on it — and the invariant they share is
-// the *coordinate space*, not the marks (ADR-0027): the same image, the same
+// the *coordinate space*, not the marks: the same image, the same
 // aspect ratio, the same per-mille lattice, so the pin somebody placed on their
 // phone is the pin that appears on the projector. Each surface composes it with
-// its own marks (ADR-0026).
+// its own marks.
 //
 // It lives in its own module rather than inside Results.tsx or the editor
 // because it depends on nothing either of them owns — only on the pin helpers
-// from the schema (ADR-0032). The same reasoning that put `GridPlot` next door.
+// from the schema. The same reasoning that put `GridPlot` next door.
 
 /** One mark on the image. */
 export type PinMark = {

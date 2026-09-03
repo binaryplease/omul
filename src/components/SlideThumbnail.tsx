@@ -26,7 +26,7 @@ import { SlideTypeIcon } from "./SlideTypeIcon";
 // filmstrip, the way mature deck editors render their slide list. This is a
 // different content shape from the presenter's compact `SlideRailItem` (label
 // only), but the two share the one real invariant: the selected/idle highlight
-// token (`slideRailItemSurface`, ADR-0028), composed here on the wrapper.
+// token (`slideRailItemSurface`), composed here on the wrapper.
 
 /** A slim, type-specific gist of the slide content shown inside the canvas. */
 function ThumbnailGist({ slide }: { slide: Slide }) {

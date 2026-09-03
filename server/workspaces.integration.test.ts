@@ -439,7 +439,7 @@ describe("workspaces and the roles in them (REQ128, REQ129)", () => {
 			// No account identifier reaches a client, at any role.
 			expect(entry).not.toHaveProperty("userId");
 			expect(entry).not.toHaveProperty("workspaceId");
-			// The key is emitted rather than dropped (ADR-0024), and it is empty.
+			// The key is emitted rather than dropped, and it is empty.
 			expect(entry).toHaveProperty("email");
 			expect(entry.email).toBeNull();
 			expect(typeof entry.name).toBe("string");

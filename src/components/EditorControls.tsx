@@ -9,12 +9,13 @@ import { authoredColorFor } from "../types";
 // settings column (REQ155) and the deck-level Presentation settings panel.
 // Both used to hand-roll their own section cards, labels, segmented controls
 // and option pickers, which let the two drift into slightly different visual
-// dialects. Per ADR-0026/0027 the invariant — what a settings group, a labelled
-// field, a switch and an enumerated choice look and feel like — is expressed
+// dialects. The unit of sharing is the invariant — what a settings group, a
+// labelled field, a switch and an enumerated choice look and feel like — and it
+// is expressed
 // once here and composed by each surface, so the editor reads as one coherent
 // system rather than several look-alikes.
 //
-// The selected / idle treatment a choice wears (ADR-0028) is owned by a single
+// The selected / idle treatment a choice wears is owned by a single
 // token (`editorChoiceSurface`) and reused by every picker below, never
 // re-declared per surface.
 //
@@ -27,7 +28,7 @@ import { authoredColorFor } from "../types";
 // hairlines below — things that carry no words.
 
 /**
- * Shared selected/idle surface for an enumerated choice (ADR-0028): the
+ * Shared selected/idle surface for an enumerated choice: the
  * highlight a card or pill wears when it is the active choice versus an idle,
  * pickable one. Aligned with the accent-dim family the slide rail and
  * type-picker already use, so every selectable surface in the editor agrees.
@@ -40,7 +41,7 @@ export function editorChoiceSurface(active: boolean): string {
 
 /**
  * What "this control drops the row it sits on" looks like at rest and under a
- * pointer (ADR-0028): the muted → error step every remove-a-row tool in the
+ * pointer: the muted → error step every remove-a-row tool in the
  * editor wears. Owned here and composed by both surfaces that draw one — the
  * settings column's `RemoveRowButton` and the canvas's per-option remove tool
  * (REQ153) — because two spellings of the same red is how one list comes to warn
@@ -80,7 +81,7 @@ export function PanelHeader({
 
 /**
  * A group of related fields under a small heading. Two surface treatments share
- * one heading + spacing invariant (ADR-0027):
+ * one heading + spacing invariant:
  *
  * - `"card"` (default) — a bordered, slightly-raised card that floats on the
  *   page. Used for the editor's Content groups and the deck-settings panel, so
@@ -140,7 +141,7 @@ export function Section({
  * - **The way back is one gesture.** Reset writes every field of the group at
  *   once; putting a slide back the way it came must not be a hunt for which of
  *   five controls was touched.
- * - **The reset stays on screen** (ADR-0025). With nothing to undo it is inert
+ * - **The reset stays on screen**. With nothing to undo it is inert
  *   and says so, rather than appearing and disappearing as the author types —
  *   a control that comes and goes is one nobody learns is there.
  *
@@ -169,7 +170,7 @@ export function SettingsGroup({
 	 * `departed` says. They come apart on one group: a reveal an author closed
 	 * further than its default is a departure this group marks and deliberately
 	 * does not undo, because undoing it would open a slide they closed. The
-	 * button then states that rather than doing nothing when clicked (ADR-0025).
+	 * button then states that rather than doing nothing when clicked.
 	 */
 	canReset?: boolean;
 	/** Why the reset is inert while the group is still marked. */
@@ -181,8 +182,9 @@ export function SettingsGroup({
 	/**
 	 * Where the reset writes, or absent on a group that has nothing to reset —
 	 * one holding the slide's own substance rather than settings with defaults.
-	 * Absent means no control at all, which is not the ADR-0025 case: there is no
-	 * unavailable action here to explain, only an action that does not exist.
+	 * Absent means no control at all, which is not the disabled-with-a-reason
+	 * case: there is no unavailable action here to explain, only an action that
+	 * does not exist.
 	 */
 	onReset?: () => void;
 	children: ReactNode;
@@ -222,7 +224,7 @@ export function SettingsGroup({
 }
 
 /**
- * The one gesture back, and every state of it named (ADR-0025).
+ * The one gesture back, and every state of it named.
  *
  * Three states rather than two, because a group can depart from its default in a
  * way this control must not undo: a reveal an author closed further than the
@@ -325,7 +327,7 @@ export function Field({
 }
 
 /**
- * One authored colour, authored two ways at once (ADR-0026): the swatch opens
+ * One authored colour, authored two ways at once: the swatch opens
  * the platform's colour picker, the box beside it takes the hex a brand guide is
  * written in. Both write the same field, so an organizer who was handed
  * `#0F62FE` pastes it and an organizer who was handed a printed card picks it.
@@ -341,7 +343,7 @@ export function Field({
  * grammar leaves the layer underneath standing, and says so while it can still
  * be fixed. `unsetNote` is what that layer *is* on this field — the house theme,
  * the deck's theme — because "nothing typed" is a real state a control with no
- * empty value cannot show by itself (ADR-0025).
+ * empty value cannot show by itself.
  */
 export function ColorField({
 	label,
@@ -446,7 +448,7 @@ function ColorFieldBody({
 				{/* The way back to "unset". A colour input cannot express it — it
 				    always reports some colour — so clearing the field is a control of
 				    its own rather than a value the picker could be dragged to. It
-				    stands and states why when there is nothing to clear (ADR-0025). */}
+				    stands and states why when there is nothing to clear. */}
 				<button
 					type="button"
 					className="btn-secondary flex-shrink-0 text-xs"
@@ -480,13 +482,13 @@ function ColorFieldBody({
  * The column's height is its whole constraint, and three colour pickers and a
  * URL field are most of it — so a setting an author touches rarely states what
  * it currently *is* on one row, and grows into its full control on demand. The
- * chip is the shared token (ADR-0028): one spelling of "a setting, closed",
+ * chip is the shared token: one spelling of "a setting, closed",
  * composed by every field that rests as one, rather than each inventing a row of
  * its own.
  *
  * It is disclosure, not hiding: the setting is named and its value is legible
- * without opening anything, which is what ADR-0025 asks of a control that is
- * present but not in use.
+ * without opening anything, which is what a control that is present but not in
+ * use owes its reader.
  */
 export function DisclosureRow({
 	label,
@@ -564,7 +566,7 @@ export type ChoiceOption<Value extends string> = {
 	icon?: ReactNode;
 	/**
 	 * A choice this surface currently cannot make. It is still drawn, still
-	 * focusable and still says why (ADR-0025) — an option removed from a picker
+	 * focusable and still says why — an option removed from a picker
 	 * teaches nobody that it exists, let alone what would bring it back.
 	 */
 	disabled?: boolean;
@@ -573,8 +575,8 @@ export type ChoiceOption<Value extends string> = {
 };
 
 /**
- * What an unavailable choice is called to a reader who cannot see the pointer
- * (ADR-0025): the option, and the reason it is inert, in one string. A tooltip
+ * What an unavailable choice is called to a reader who cannot see the pointer:
+ * the option, and the reason it is inert, in one string. A tooltip
  * alone is a hover-only explanation, which is no explanation for a keyboard.
  */
 export function choiceOptionName<Value extends string>(
@@ -592,7 +594,7 @@ export function choiceOptionName<Value extends string>(
  * the shared accent highlight; the rest stay idle and pickable. Use this over a
  * native <select> whenever the options carry meaning worth surfacing inline.
  *
- * Two densities of the same picker (ADR-0027 — the invariant is *the enumerated
+ * Two densities of the same picker (the invariant is *the enumerated
  * choice*, not the amount of room it is given):
  *
  * - `"card"` (default) — icon beside a label and its one-line description, one

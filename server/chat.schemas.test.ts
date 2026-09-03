@@ -39,7 +39,7 @@ describe("presentation schemas — the chat channel", () => {
 		expect(created.chatEnabled).toBe(false);
 	});
 
-	test("a document persisted before the channel existed reads forward (ADR-0029)", () => {
+	test("a document persisted before the channel existed reads forward", () => {
 		const stored = StoredPresentationSchema.parse({ id: "p1" });
 		expect(stored.chatEnabled).toBe(false);
 	});

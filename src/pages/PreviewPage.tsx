@@ -420,7 +420,7 @@ export function PreviewPage({
 					</div>
 
 					{/* The test-vote controls (REQ104), on the run they govern rather
-					    than tucked into a settings panel elsewhere (ADR-0031): both panes
+					    than tucked into a settings panel elsewhere: both panes
 					    below redraw from exactly these three numbers. */}
 					<div className="flex items-center gap-3 flex-wrap px-4 sm:px-6 pb-2.5 border-t border-border pt-2.5">
 						<span className="flex items-center gap-1.5 text-sm text-text-muted">

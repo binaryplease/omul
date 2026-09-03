@@ -40,7 +40,7 @@ describe("presentation schemas — the Q&A layer's two settings", () => {
 		expect(created.qaVisibility).toBe("presenter");
 	});
 
-	test("a document persisted before the layer existed reads forward (ADR-0029)", () => {
+	test("a document persisted before the layer existed reads forward", () => {
 		const stored = StoredPresentationSchema.parse({ id: "p1" });
 		expect(stored.qaEnabled).toBe(false);
 		expect(stored.qaVisibility).toBe("presenter");
@@ -232,7 +232,7 @@ describe("rankQAQuestions", () => {
 });
 
 describe("StoredQAQuestionSchema / StoredQAUpvoteSchema", () => {
-	test("every non-identity field defaults, so the shape can grow (ADR-0029)", () => {
+	test("every non-identity field defaults, so the shape can grow", () => {
 		const question = StoredQAQuestionSchema.parse({
 			id: "q1",
 			presentationId: "p1",
@@ -240,7 +240,7 @@ describe("StoredQAQuestionSchema / StoredQAUpvoteSchema", () => {
 		expect(question.text).toBe("");
 		expect(question.participantId).toBe("");
 		expect(question.answered).toBe(false);
-		// An explicit null, not a missing key: "still open" is a value (ADR-0024).
+		// An explicit null, not a missing key: "still open" is a value.
 		expect(question.answeredAt).toBeNull();
 	});
 

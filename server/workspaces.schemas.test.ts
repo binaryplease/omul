@@ -15,8 +15,8 @@
  *     would hand `edit` to every anonymous caller who could type its id;
  *   - `strongestDeckAccessLevel` — how two *independent* standings on one deck
  *     combine, and why that is the opposite of how two duplicate rows do;
- *   - the stored shapes — identity fields carry no default (ADR-0018) while
- *     everything else does (ADR-0029), so a row written before a field existed
+ *   - the stored shapes — identity fields carry no default while
+ *     everything else does, so a row written before a field existed
  *     re-parses forward instead of failing;
  *   - the wire shapes — no account identifier can reach a client, by the same
  *     construction that keeps `creatorId` off a deck;
@@ -236,7 +236,7 @@ describe("weakestWorkspaceRole — reading a pair that somehow has two membershi
 	});
 });
 
-describe("the stored shapes (ADR-0018 / ADR-0029)", () => {
+describe("the stored shapes", () => {
 	test("a membership's identity pair has no default and fails loudly", () => {
 		expect(() =>
 			StoredWorkspaceMemberSchema.parse({ id: "m1", userId: "u1" }),
@@ -331,7 +331,7 @@ describe("the wire shapes", () => {
 		expect(wire.email).toBe("other@example.com");
 	});
 
-	test("a member whose email is withheld keeps the key (ADR-0024)", () => {
+	test("a member whose email is withheld keeps the key", () => {
 		const wire = WorkspaceMemberSchema.parse({ id: "m1", name: "Other" });
 		expect(wire.email).toBeNull();
 		expect(wire.role).toBe("member");

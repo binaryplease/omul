@@ -9,7 +9,8 @@ updated: 2026-04-17
 
 ## Context
 
-The previous session did a full assessment of omul against the ADRs and the upcoming
+The previous session did a full assessment of omul against the project
+conventions and the upcoming
 requirements in `.data/`. The verdict: continue improving the existing codebase, but complete
 a foundational restructuring before any feature work.
 
@@ -17,7 +18,8 @@ Key findings:
 - `src/App.tsx` is a monolithic 2,200-line file — all pages, all UI components, routing all in one
 - `server/store.ts` is a JSONL-backed in-memory store — fine for current MVP but cannot support
   any of the P1 features (upvotes, moderation, leaderboards, Q&A threading, segmentation)
-- No AGENTS.md — Hono deviation from ADR-0003 is undocumented; no entry point for agents
+- No AGENTS.md — the deviation from the default server framework (Hono instead
+  of Elysia) is undocumented; no entry point for agents
 
 ## Approach
 
@@ -55,7 +57,7 @@ Minimal restructuring — no behavior changes. All three phases are pure refacto
 |---|---|---|
 | SQLite driver | `bun:sqlite` (built-in) | Zero-dependency, excellent API, Bun-native |
 | No Drizzle ORM yet | Raw SQL with typed wrappers | Simpler; Drizzle can be added when moving to PostgreSQL |
-| Split destination | `src/pages/` + `src/components/` | Mirrors ADR-0003 reference project structure |
+| Split destination | `src/pages/` + `src/components/` | Mirrors the default project structure for this stack |
 
 ## What this does NOT change
 
@@ -69,4 +71,4 @@ Minimal restructuring — no behavior changes. All three phases are pure refacto
 - 2026-04-17: Started Phase 0. Created task worktree, writing tracking file (correct location this time).
 - 2026-04-17: Phase 0.1 complete — App.tsx split into 19 files; build verified.
 - 2026-04-17: Phase 0.2 complete — server/store.ts replaced by bun:sqlite server/db.ts; build verified.
-- 2026-04-17: Phase 0.4 complete — AGENTS.md written covering tech stack, API, WS events, lint notes, ADR deviations.
+- 2026-04-17: Phase 0.4 complete — AGENTS.md written covering tech stack, API, WS events, lint notes, convention deviations.

@@ -30,7 +30,7 @@ import {
 } from "./components/WorkspaceRoles";
 import { canCreateWorkspaceDecks, WORKSPACE_ROLES } from "./types";
 
-describe("the role descriptor (ADR-0026)", () => {
+describe("the role descriptor", () => {
 	test("offers exactly the roles the API accepts, in the same order", () => {
 		expect(WORKSPACE_ROLE_DESCRIPTORS.map((entry) => entry.role)).toEqual([
 			...WORKSPACE_ROLES,
@@ -115,7 +115,7 @@ describe("how a member is named", () => {
 
 describe("what the client gates its controls on", () => {
 	test("the capability predicates are the server's own, not a second opinion", () => {
-		// Composed rather than restated (ADR-0026): what a surface enables is
+		// Composed rather than restated: what a surface enables is
 		// exactly what the route behind it authorizes, so a role that stops being
 		// allowed to create decks stops drawing the button on the same day.
 		for (const role of WORKSPACE_ROLES) {

@@ -216,7 +216,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 					{/* Drafting from a prompt (REQ007) — the third way a deck starts,
 					    beside the blank one and the prebuilt one. Whether this build
 					    can actually generate is the page's own question to ask, so the
-					    way in is always here (ADR-0025) and the reason, when there is
+					    way in is always here and the reason, when there is
 					    one, is stated where the control it blocks lives. */}
 					<button
 						className="btn-secondary text-lg px-8 py-3 inline-flex items-center gap-2"
@@ -229,8 +229,8 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 					</button>
 					{/* Workspaces (REQ128) — the other owner a deck can have. Always
 					    offered, whether or not this browser is signed in: the page
-					    itself says what a workspace is and why it needs an account
-					    (ADR-0025), which a missing button could not. */}
+					    itself says what a workspace is and why it needs an account,
+					    which a missing button could not. */}
 					<button
 						className="btn-secondary text-lg px-8 py-3 inline-flex items-center gap-2"
 						type="button"
@@ -341,9 +341,9 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 											</span>
 										</div>
 									</div>
-									{/* Sharing lives on the deck it shares (ADR-0031). Shown for
+									{/* Sharing lives on the deck it shares. Shown for
 									    every deck and disabled with the reason when this account
-									    is not its owner (ADR-0025) — a locally-held edit token
+									    is not its owner — a locally-held edit token
 									    runs the deck but never widens who is on it. */}
 									<button
 										type="button"
@@ -364,7 +364,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 										<Users size={18} />
 									</button>
 									{/* Handing the deck to a workspace changes who owns it, so
-									    it sits on the deck (ADR-0031) beside the sharing control
+									    it sits on the deck beside the sharing control
 									    it is the bigger version of. Owner-only for the same
 									    reason sharing is: a locally-held edit token runs a deck,
 									    it does not give it away. */}
@@ -457,7 +457,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 										</div>
 										<div className="flex items-center gap-4 text-sm text-text-muted">
 											{/* What this account may do with it, in the same words
-											    the owner chose it by (ADR-0026). */}
+											    the owner chose it by. */}
 											<span className="text-accent-text">
 												{deckAccessLevelLabel(pres.accessLevel ?? null)}
 											</span>

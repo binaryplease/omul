@@ -397,7 +397,7 @@ describe("Segmented results integration (REQ020, REQ116)", () => {
 			const body = await res.json();
 			expect(body.refused).toBe(refused);
 			// The words a person reads travel with the code, so a client never has to
-			// keep its own copy of the table (ADR-0026).
+			// keep its own copy of the table.
 			expect(typeof body.error).toBe("string");
 			expect(body.error.length).toBeGreaterThan(0);
 		}

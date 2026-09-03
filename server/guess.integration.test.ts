@@ -171,7 +171,7 @@ describe("Guess the Number question type integration", () => {
 		const fetched = await (
 			await fetch(`${baseUrl}/api/presentations/${pres.id}`)
 		).json();
-		// ADR-0024: the key is present and null — the slide has no notion of
+		// The key is present and null — the slide has no notion of
 		// correctness, which a consumer must be able to see.
 		expect("guessReference" in fetched.slides[0]).toBe(true);
 		expect(fetched.slides[0].guessReference).toBe(null);
@@ -204,7 +204,7 @@ describe("Guess the Number question type integration", () => {
 		expect(payload.buckets.every((bucket: AnyJson) => bucket.count === 0)).toBe(
 			true,
 		);
-		// ADR-0024: every statistic is present and explicitly null, never omitted
+		// Every statistic is present and explicitly null, never omitted
 		// and never a 0 that would read as an estimate somebody made.
 		for (const key of [
 			"lowestGuess",
@@ -352,7 +352,7 @@ describe("Guess the Number question type integration", () => {
 		]);
 		const payload = await results(pres.id, "gn");
 		expect(payload.correctCount).toBe(0);
-		// A percentage of no responses does not exist (ADR-0024).
+		// A percentage of no responses does not exist.
 		expect("correctShare" in payload).toBe(true);
 		expect(payload.correctShare).toBe(null);
 	});

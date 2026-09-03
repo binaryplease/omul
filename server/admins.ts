@@ -8,7 +8,7 @@
  * operator supplies, not a source edit, a rebuild and a redeploy of everyone
  * else's image.
  *
- * **Unset means nobody, and that is the safe direction** (ADR-0036). The
+ * **Unset means nobody, and that is the safe direction**. The
  * allowlist ships empty, so an operator who has named no one runs an admin
  * surface with no one on it — `/api/admin/*` answers `403` to every account,
  * including theirs — rather than inheriting whichever administrators the image

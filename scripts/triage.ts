@@ -338,7 +338,7 @@ async function cmdValidate(): Promise<void> {
 	const problems: string[] = [];
 
 	// The directory holds requirement files and nothing else — its index lives
-	// in docs/Requirements.md, one level up (ADR-0040).
+	// in docs/Requirements.md, one level up.
 	for (const stray of entries.filter((f) => !/^REQ\d+\.md$/.test(f))) {
 		problems.push(
 			`docs/requirements/${stray}: not a REQxxx.md requirement file`,

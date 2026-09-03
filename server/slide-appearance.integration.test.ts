@@ -8,8 +8,8 @@
  *   - REQ070/REQ019 — the colours a slide overrides ride the wire to the room,
  *     and a value that is not a colour never reaches storage
  *   - REQ071 — a background image travels with the slide
- *   - REQ087 — a slide that authored nothing arrives complete and empty
- *     (ADR-0024), so no client has to tell "unset" from "absent"
+ *   - REQ087 — a slide that authored nothing arrives complete and empty,
+ *    so no client has to tell "unset" from "absent"
  *
  * The point of testing this over HTTP rather than only at the resolver: a
  * slide's appearance is something the *room* has to receive. A colour the
@@ -163,7 +163,7 @@ describe("Per-slide appearance integration", () => {
 	});
 
 	test("a slide that authored nothing arrives complete and empty", async () => {
-		// ADR-0024: the fields are emitted rather than omitted, so a client never
+		// The fields are emitted rather than omitted, so a client never
 		// has to tell "this slide is on the theme" from "this build is older".
 		const pres = await created();
 		expect(pres.slides[0].layout).toBe("inherit");

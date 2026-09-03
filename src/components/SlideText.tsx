@@ -9,15 +9,15 @@ import type { ChoiceOption } from "./EditorControls";
 // every surface that shows them — the editor's preview, the shared screen, the
 // participant's phone and the dry run.
 //
-// The invariant is the *authored string*, not any one rendering of it
-// (ADR-0027): `**bold**` has to mean bold in all four places or the preview is
+// The invariant is the *authored string*, not any one rendering of it:
+// `**bold**` has to mean bold in all four places or the preview is
 // previewing a screen that does not exist, and a link that is clickable on the
 // projector but literal on a phone is worse than no link at all. So this module
 // owns three things and every surface composes them:
 //
 //   - `parseSlideText` / `parseSlideInline` — the markup, parsed once, here.
 //   - `<SlideText/>` — the rendering, as React elements.
-//   - `SLIDE_TEXT_SCALE` — the size step as a shared token (ADR-0028).
+//   - `SLIDE_TEXT_SCALE` — the size step as a shared token.
 //
 // **Why elements and not HTML.** Slide text is authored by whoever holds an
 // edit token, and it is then shown to a whole room. Nothing here ever builds an
@@ -30,7 +30,7 @@ import type { ChoiceOption } from "./EditorControls";
 
 /**
  * The size step as a multiplier on whatever base size the surface already sets
- * (ADR-0028) — the shared token every rendering of authored text composes.
+ * — the shared token every rendering of authored text composes.
  *
  * `em` rather than a fixed size on purpose: the same slide is drawn at
  * `text-3xl` on the projector and `text-lg` in the preview pane, and a token in
@@ -65,7 +65,7 @@ export const SLIDE_TEXT_LEADING = {
 } as const;
 
 /**
- * The steps as the editor offers them (ADR-0026: one descriptor). Ordered
+ * The steps as the editor offers them (one descriptor). Ordered
  * smallest to largest so the control reads as a scale rather than a menu.
  */
 export const SLIDE_TEXT_SIZE_OPTIONS: ChoiceOption<SlideTextSize>[] = [

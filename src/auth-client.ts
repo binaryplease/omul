@@ -38,7 +38,7 @@ export const {
 } = authClient;
 
 // The signed-in user's shape, derived from the client session so the UI never
-// keeps a parallel type that could drift (ADR-0013).
+// keeps a parallel type that could drift.
 export type SessionUser = NonNullable<
 	ReturnType<typeof useSession>["data"]
 >["user"];

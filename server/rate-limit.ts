@@ -93,7 +93,7 @@ interface SlidingWindowOptions {
 }
 
 /**
- * A sliding-window counter (ADR-0007 — factory over class).
+ * A sliding-window counter (factory over class).
  *
  * Each key holds the timestamps of its hits inside the window. There is no
  * timer: a key's own expired hits are dropped when it is next checked, and an
@@ -218,7 +218,7 @@ function noteUntrustedProxy(): void {
  * silence means nothing rather than that silence means healthy.
  *
  * This is a report, not a gate. A conflict that the process can resolve on its
- * own should be fatal (ADR-0018), but `0` hops is the correct and required
+ * own should be fatal, but `0` hops is the correct and required
  * value for a directly-exposed server, so refusing to start on it would break
  * the deployment it is right for.
  */
@@ -440,7 +440,7 @@ export function clientBucketKey(address: string): string {
  * ({@link clientBucketKey}).
  *
  * Composed here rather than at each guard so no guard can key on the raw
- * address by forgetting the second half (ADR-0010) — a per-address ceiling
+ * address by forgetting the second half — a per-address ceiling
  * missing its truncation is a ceiling that quietly does nothing on IPv6.
  */
 export function clientKey(
@@ -455,7 +455,7 @@ export function clientKey(
 /**
  * The over-limit response: `429` with a `Retry-After` header in seconds and
  * the same number in the body, because a browser client reads the JSON and a
- * script reads the header (ADR-0024 — both are emitted, neither is implied).
+ * script reads the header (both are emitted, neither is implied).
  */
 export function tooManyRequests(
 	retryAfterSeconds: number,

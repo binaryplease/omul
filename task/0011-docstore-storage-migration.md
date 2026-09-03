@@ -13,7 +13,7 @@ Storage was MongoDB (via the `mongodb` driver), reached through the async
 `Store` seam in `server/db.ts` that task/0003 introduced. binp-docstore — a
 native `bun:sqlite` + Zod document store (github.com/binaryplease/binp-docstore)
 — replaces it: in-process, no external database service, Zod-gated on every read
-and write (ADR-0013), forward-compatible via field defaults (ADR-0029).
+and write, forward-compatible via field defaults.
 
 ## Approach
 - Consume docstore behind the existing `Store` seam so the service/route layer
@@ -23,7 +23,7 @@ and write (ADR-0013), forward-compatible via field defaults (ADR-0029).
   `file:./vendor/binp-docstore` (mirrors the `tools/inspector` pattern). This
   keeps the private library inside the single-repo Docker build context and
   makes it resolve omul's Zod (v3) instead of its own peer (v4).
-- Define `Stored*` schemas in `server/schemas.ts` (ADR-0013/0029) — distinct
+- Define `Stored*` schemas in `server/schemas.ts` — distinct
   from the API schemas because stored docs carry `id`, timestamps, and the
   creator-token hash.
 
@@ -45,7 +45,7 @@ and write (ADR-0013), forward-compatible via field defaults (ADR-0029).
 - `bun test` — 143 pass / 0 fail (the 3 integration suites now run instead of skip).
 - Production bundle boots on docstore; drove `POST /presentations` → `start` →
   `vote` → `results/:slideId` over HTTP, confirmed data persists across a restart
-  and the creator-token hash never leaks (ADR-0024 `sanitize`).
+  and the creator-token hash never leaks (`sanitize`).
 
 ## Progress log
 - 2026-07-10: Completed migration and end-to-end verification.

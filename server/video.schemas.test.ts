@@ -5,7 +5,7 @@
  * that decision being the *only* one:
  *
  *   - **How a URL is played is resolved once.** `slideVideoFor` is the single
- *     read site (ADR-0026) the editor, the preview pane, the shared screen and
+ *     read site the editor, the preview pane, the shared screen and
  *     the phones all ask. A link to a video platform is a page rather than a
  *     file — a `<video>` element pointed at a YouTube watch URL plays nothing —
  *     so the platform's own player is what a share link resolves to, and only a

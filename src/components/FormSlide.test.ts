@@ -7,8 +7,8 @@
  *     because a slide that collects names must not open on a reveal mode that
  *     would publish them.
  *   - **When the submit button may act.** `formEntryIssue` is the phone's read
- *     of the same rules `decodeFormSubmission` enforces at the boundary
- *     (ADR-0026), so the two are asserted against each other here: a form this
+ *     of the same rules `decodeFormSubmission` enforces at the boundary,
+ *    so the two are asserted against each other here: a form this
  *     lets through is one the server accepts, and a form it refuses is one the
  *     server would have refused too. A disabled button that was wrong in either
  *     direction is the defect this file exists to prevent.
@@ -111,7 +111,7 @@ describe("formEntryIssue — the phone agrees with the boundary (REQ061)", () =>
 
 	test("a slide with no answerable field says the slide is unfinished", () => {
 		// The submit button is rendered and disabled on such a slide rather than
-		// hidden (ADR-0025), so this issue is what the line under it carries — and
+		// hidden, so this issue is what the line under it carries — and
 		// the instruction paragraph above it no longer repeats the same sentence.
 		expect(formEntryIssue([], { name: "Ada" })).toBe("no-fields");
 		expect(formEntryIssue([], {})).toBe("no-fields");

@@ -3,14 +3,14 @@
  *
  * Its own route file for the reason the template catalog next door has one: what
  * it is *about* — a model, a brief, and what may be authored from one — belongs
- * to `server/deck-generator.ts` and to nothing else (ADR-0032). What this file
+ * to `server/deck-generator.ts` and to nothing else. What this file
  * adds is the two things generation needs from the web: a way to ask whether the
  * deployment can do it at all, and a way to do it.
  *
  * **Two routes, because the answer to "can we?" has to arrive before the click.**
  * A self-hosted server with no provider key configured is the ordinary case, not
- * an error, and ADR-0025 asks a surface to draw the control and disable it with
- * its reason rather than hide it or let it fail. `GET /api/deck-generation` is
+ * an error, and a surface draws the control and disables it with its reason
+ * rather than hiding it or letting it fail. `GET /api/deck-generation` is
  * where that reason comes from — public and read-only, like the catalog, because
  * "this build can generate" is a fact about the build rather than about the
  * caller.
@@ -57,7 +57,7 @@ const REFUSAL_STATUS: Record<DeckGenerationRefusal, number> = {
 };
 
 /**
- * The generation routes over a given generator (ADR-0007).
+ * The generation routes over a given generator.
  *
  * A factory rather than a bare `new Elysia()` for one reason, and it is the
  * reason REQ007's suite can exist: the tests drive these routes end to end over
@@ -76,7 +76,7 @@ export function createDeckGenerationRoutes(
 					tags: ["Generation"],
 					summary: "Whether this server can generate decks",
 					description:
-						"Reports whether this deployment is configured to generate a deck from a prompt (REQ007), and on what terms: `available`, a `reason` when it is not (an explicit `null` when it is), the `promptMaxLength` a prompt is held to, the `slideTypes` a generated deck may be built from, and `requiresAccount` — whether a caller must be signed in to spend this deployment's provider budget (true unless the operator set `OMUL_GENERATION_ALLOW_ANONYMOUS=true`). Public and read-only — all of it is a fact about the build, not about the caller. A surface offering generation reads this to disable its control with the reason rather than hiding it (ADR-0025).",
+						"Reports whether this deployment is configured to generate a deck from a prompt (REQ007), and on what terms: `available`, a `reason` when it is not (an explicit `null` when it is), the `promptMaxLength` a prompt is held to, the `slideTypes` a generated deck may be built from, and `requiresAccount` — whether a caller must be signed in to spend this deployment's provider budget (true unless the operator set `OMUL_GENERATION_ALLOW_ANONYMOUS=true`). Public and read-only — all of it is a fact about the build, not about the caller. A surface offering generation reads this to disable its control with the reason rather than hiding it.",
 				},
 			})
 

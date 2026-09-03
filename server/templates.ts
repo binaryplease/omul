@@ -3,7 +3,7 @@
  * (REQ006).
  *
  * A module of its own rather than a section of the presentation service,
- * because it depends on nothing the service owns (ADR-0032): no store, no
+ * because it depends on nothing the service owns: no store, no
  * ownership, no join code, no lifecycle. Delete `services/presentations.ts` and
  * every line here still works — the catalog is content plus two pure functions
  * over it. What the two modules share is `Slide`, and that already lives in
@@ -22,8 +22,8 @@
  * two decks that cannot reach each other either.
  *
  * Deliberately plain content: no images or videos, because a template that
- * pointed at somebody else's asset host would be a runtime dependency on it
- * (ADR-0016), and every slide here has to render on a projector that has never
+ * pointed at somebody else's asset host would be a runtime dependency on it,
+ * and every slide here has to render on a projector that has never
  * been online.
  */
 
@@ -40,7 +40,7 @@ import {
  * The catalog as authored. Parsed through {@link DeckTemplateSchema} below, so
  * a malformed entry is a startup crash rather than a card that renders empty in
  * somebody's gallery, and every slide comes out of here fully defaulted — the
- * same complete shape a stored deck's slides have (ADR-0024/ADR-0029).
+ * same complete shape a stored deck's slides have.
  *
  * Six entries, generic on purpose. The set is meant to be recognisable enough
  * that an organizer sees their own meeting in one of them and small enough that
@@ -365,7 +365,7 @@ export function findDeckTemplate(id: string): DeckTemplate | null {
  *
  * Thin on purpose — the re-identification itself is
  * {@link withFreshSlideIds}, which is also what duplicating and importing a
- * deck use (ADR-0026). What this function adds is the name: "the slides a
+ * deck use. What this function adds is the name: "the slides a
  * template hands a new deck" is the operation REQ006 describes, and the create
  * route should read as performing it rather than as spreading an array.
  */

@@ -6,7 +6,7 @@
  * says so. Two things are worth an assertion:
  *
  *   - **It names that screen with the shared label**, the same one the dry run's
- *     presenter pane wears. Composed rather than re-spelled (ADR-0026), because
+ *     presenter pane wears. Composed rather than re-spelled, because
  *     two literals is how one surface comes to call the projector something the
  *     other one does not.
  *   - **It counts slides the way a human does.** The index it is handed is the
@@ -16,7 +16,7 @@
  * And two more about the switch on the frame:
  *
  *   - **The results view is offered on every slide, and refused with a reason
- *     where there is nothing to draw** (ADR-0025). A switch that vanished on a
+ *     where there is nothing to draw**. A switch that vanished on a
  *     text slide would teach an author it does not exist.
  *   - **A view outlives the slide it was chosen on.** The rail selects slides
  *     and the type picker converts them, so the stage has to resolve a results
@@ -51,7 +51,7 @@ describe("the canvas names the screen it is a picture of (REQ152)", () => {
 	});
 });
 
-describe("the stage offers both views, always (REQ154, ADR-0025)", () => {
+describe("the stage offers both views, always (REQ154)", () => {
 	test("every slide type is offered the same two views", () => {
 		for (const type of SlideTypeEnum.options) {
 			const options = slideCanvasViewOptions(newSlide(type));

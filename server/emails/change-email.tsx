@@ -1,6 +1,6 @@
 /**
  * The email-change templates — the two mails in Better Auth's change-email
- * chain, both built on the shared {@link ActionLinkEmail} layout (ADR-0027):
+ * chain, both built on the shared {@link ActionLinkEmail} layout:
  *
  *   1. `changeEmailConfirmationEmail` — sent to the account's *current* address
  *      when a signed-in, verified user asks to change their email. Approving the

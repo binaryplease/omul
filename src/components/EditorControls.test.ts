@@ -7,7 +7,7 @@
  *     the theme currently resolves to would make an unauthored colour
  *     indistinguishable from one typed by hand, and only one of the two follows
  *     the deck when it is re-themed.
- *   - **What an unavailable choice is called** (ADR-0025). A picker keeps the
+ *   - **What an unavailable choice is called**. A picker keeps the
  *     option it cannot offer, so the reason has to be a *value* — one that
  *     reaches an accessible name, not only a hover tooltip nothing but a mouse
  *     ever finds.
@@ -35,7 +35,7 @@ describe("an inherited colour reads as a word (REQ155)", () => {
 	});
 });
 
-describe("an unavailable choice carries its reason (ADR-0025)", () => {
+describe("an unavailable choice carries its reason", () => {
 	test("a pickable option needs no name of its own", () => {
 		expect(choiceOptionName({ value: "results", label: "Results" })).toBe(
 			undefined,

@@ -22,11 +22,11 @@ import { Segmented, Toggle } from "./EditorControls";
 // cross-surface affordance in the plainest sense: the presenter reads a
 // moderation queue, the participant reads (some of) the same list and asks into
 // it, and both must agree about what a question says, how many people are behind
-// it and whether it has been dealt with. Per ADR-0026 that is one descriptor
+// it and whether it has been dealt with. So that is one descriptor
 // (`readQAList`), one shared wrapper (`QAQuestionList`) and one set of labels.
 //
 // It lives in its own module rather than inside Results.tsx or either page
-// because it depends on nothing either of them owns (ADR-0032): only on the Q&A
+// because it depends on nothing either of them owns: only on the Q&A
 // payload, the api client, and the session slice's `qaRevision`.
 //
 // **The list is fetched, never broadcast.** Who may read it is settled on the
@@ -73,7 +73,7 @@ export type QALabels = {
 	moderatedNote: string;
 	/** The upvote control (REQ060). */
 	upvote: string;
-	/** Why it cannot act on a question the reader asked themselves (ADR-0025). */
+	/** Why it cannot act on a question the reader asked themselves. */
 	upvoteOwn: string;
 	/** The badge on a question the presenter has dealt with (REQ060). */
 	answered: string;
@@ -101,7 +101,7 @@ export const QA_LABELS_EN: QALabels = {
  * The same list, in the deck's language (REQ084) — the one place the
  * participant-facing dictionary is mapped onto these labels, so the phone and
  * the presenter's queue wear the same wording in two languages rather than two
- * wordings (ADR-0026).
+ * wordings.
  */
 export function qaLabelsFor(dict: ReturnType<typeof getDict>): QALabels {
 	return {
@@ -159,7 +159,7 @@ export function readQAList(payload: unknown): QAList | null {
 /**
  * The deck's Q&A list as this browser is entitled to see it, kept current.
  *
- * The single fetch-and-subscribe wiring both pages use (ADR-0026). It refetches
+ * The single fetch-and-subscribe wiring both pages use. It refetches
  * on the session slice's `qaRevision`, which the `qa.updated` broadcast bumps —
  * the socket says only *that* the list moved, because who may read it is decided
  * per request from the credentials this fetch carries (REQ037). It also
@@ -203,7 +203,7 @@ export function useQAList(
  *
  * What differs between them is which affordances they are handed — a participant
  * gets the upvote, the presenter gets "mark answered" — not what a question
- * looks like or what its numbers mean (ADR-0027).
+ * looks like or what its numbers mean.
  */
 function QAQuestionRow({
 	question,
@@ -245,7 +245,7 @@ function QAQuestionRow({
 			<div className="flex flex-shrink-0 items-center gap-1.5">
 				{/* The upvote (REQ060). Disabled rather than removed on a question the
 				    reader asked themselves — the count is still the thing they want to
-				    read, and a control that vanished would look like a bug (ADR-0025). */}
+				    read, and a control that vanished would look like a bug. */}
 				{onUpvote && (
 					<button
 						type="button"
@@ -299,7 +299,7 @@ function QAQuestionRow({
 
 /**
  * The question list itself — the one rendering worn by the presenter's queue and
- * every participant's phone (ADR-0026).
+ * every participant's phone.
  *
  * The order is the server's and is not touched here: open questions first, then
  * the most upvoted, then the ones that have waited longest (REQ060). Two
@@ -395,7 +395,7 @@ export function QAComposer({
 
 /**
  * The two switches that govern the layer (REQ036/REQ037), placed on the panel
- * they govern rather than in the page's chrome (ADR-0031).
+ * they govern rather than in the page's chrome.
  *
  * Visibility is offered whether or not the layer is on, because a presenter
  * about to open the floor wants to decide where the questions will go *before*

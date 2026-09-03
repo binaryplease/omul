@@ -10,7 +10,7 @@
  * back. It cannot re-derive a tally that disagrees with the one on screen,
  * because it does not compute one.
  *
- * Two stages, deliberately separated (ADR-0010):
+ * Two stages, deliberately separated:
  *
  *  - {@link buildDeckDocument} — pure data. Deck + rows + aggregates in, a
  *    {@link PdfDocument} of sections and blocks out. Everything worth asserting
@@ -151,7 +151,7 @@ export type DeckPdfInput = ResultsExportInput & {
  * The mark an absent value is drawn under.
  *
  * A dash rather than an empty run of page, for the reason the workbook keeps
- * `null` cells rather than dropping them (ADR-0024): "nobody answered" and "the
+ * `null` cells rather than dropping them: "nobody answered" and "the
  * average was zero" are different readings, and in a rendered document a blank
  * is indistinguishable from a layout that lost the number.
  */
@@ -238,8 +238,8 @@ function selectionRule(slide: Slide): string {
  * Spelled `0 = Slow, 10 = Fast` rather than with an arrow between them, and
  * that is a rendering decision rather than a stylistic one: an arrow is not a
  * character the PDF standard fonts can encode, so it would reach the page as
- * the mark {@link winAnsiText} folds it to (ADR-0022 refuses arrows as icons on
- * the client for its own reasons; here they simply cannot be drawn).
+ * the mark {@link winAnsiText} folds it to (the client refuses arrows as icons
+ * for its own reasons; here they simply cannot be drawn).
  */
 function endLabels(
 	ends: { min: number; max: number; minLabel: string; maxLabel: string },
@@ -573,7 +573,7 @@ function coverSection(
 		facts.push(
 			{ label: "Participants", value: String(participantCount) },
 			// REQ076 — stated on the cover only when the deck actually asked, and
-			// that is not ADR-0025's hidden control: this is a *fact sheet*, and a
+			// that is not a hidden control: this is a *fact sheet*, and a
 			// line reading "Names required: no" on every handout of every anonymous
 			// deck is noise about a setting nobody used. The two exports differ here
 			// on purpose — a spreadsheet column is a schema and keeps its place
@@ -721,7 +721,7 @@ export function buildDeckDocument(input: DeckPdfInput): PdfDocument {
 		sections: [
 			// The workbook's own reading of "how many people answered?", composed
 			// rather than re-derived, so the cover and the Summary sheet cannot come
-			// to disagree (ADR-0026).
+			// to disagree.
 			coverSection(presentation, input, participantIdsIn(input.votes).length),
 			// REQ076 — directly behind the cover, ahead of the slides: it is a fact
 			// about the session rather than about any one question, and the cover has
@@ -964,7 +964,7 @@ type Fonts = { regular: PDFFont; bold: PDFFont };
 /**
  * The page the renderer is currently writing onto, and how far down it is.
  *
- * A factory closure rather than a class (ADR-0007): the whole of the flow is
+ * A factory closure rather than a class: the whole of the flow is
  * "put this at the cursor, and start a page when it will not fit", and every
  * block draws through the same two calls.
  */

@@ -257,7 +257,7 @@ describe("Presenter notes (REQ090)", () => {
 	});
 
 	test("a slide authored without notes carries an empty string, not a missing key", async () => {
-		// ADR-0024: the field is always there, so no client reaches for `??` and a
+		// The field is always there, so no client reaches for `??` and a
 		// noted slide and an un-noted one are the same shape.
 		const presentation = await create([
 			{ id: "plain", type: "word-cloud", question: "One word?" },

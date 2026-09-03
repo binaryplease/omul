@@ -53,7 +53,7 @@ const BARE_HOST_PATTERN = /^[a-z0-9.-]+(:\d{1,5})?$/;
  * The origin named by `OMUL_BASE_HOST`, or `null` when it is unset.
  *
  * Throws on a value that is not a bare host. That is a startup crash rather
- * than a fallback (ADR-0018): the variable exists precisely because the
+ * than a fallback: the variable exists precisely because the
  * observed origin is wrong here, so silently ignoring a malformed one would
  * serve exactly the broken links it was set to prevent, and say nothing.
  */

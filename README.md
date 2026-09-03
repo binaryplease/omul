@@ -114,7 +114,8 @@ deck from a prompt is the single exception**: it sends the prompt to a model
 provider (Google's Generative AI API, through the Vercel AI SDK) and turns the
 answer into slides.
 
-It is an intentional, documented exception to ADR-0016 — the remote service *is*
+It is an intentional, documented exception to the project's rule that
+production depends on no third-party runtime host — the remote service *is*
 the feature, there is no asset to bundle instead — and it is bounded:
 
 - **Off unless you configure it.** No `GOOGLE_GENERATIVE_AI_API_KEY`, no

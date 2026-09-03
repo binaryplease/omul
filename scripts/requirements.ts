@@ -63,7 +63,7 @@
  * structural rather than a habit — there is nowhere in the field to put the
  * thing we are trying not to carry across.
  *
- * The reference is also many-to-many (ADR-0042 §3), which is why the pattern
+ * The reference is also many-to-many, which is why the pattern
  * takes a list: one BR may be answered by several REQs, and one REQ may cite
  * several BRs. The two id sequences are independent — a REQ's number is this
  * catalog's next free one and says nothing about its BR's, whatever the 142
@@ -81,8 +81,8 @@
  * commit that closes a requirement is the implementation commit, and the merge
  * commit names the branch.
  *
- * `status` is omul's own state set — `VALID_STATUSES` below is the authority
- * (ADR-0005 leaves work tracking, states included, to each repo):
+ * `status` is omul's own state set — `VALID_STATUSES` below is the authority,
+ * because work tracking, states included, is each repository's own to choose:
  *   pending      — not yet triaged (the default every file starts at)
  *   planned      — scheduled for a task, not yet approved
  *   ready        — approved for execution

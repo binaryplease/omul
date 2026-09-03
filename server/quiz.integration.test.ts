@@ -325,7 +325,7 @@ describe("quiz competition integration", () => {
 		expect(payload.scoring.totalPoints).toBe(0);
 		expect(payload.scoring.maxPoints).toBe(QUIZ_MAX_POINTS);
 		expect(payload.scoring.timeLimit).toBe(30);
-		// ADR-0024: no answers means no average and no share at all — an explicit
+		// No answers means no average and no share at all — an explicit
 		// null, not a 0 that would read as a room that answered and was all wrong.
 		expect(payload.scoring.averagePoints).toBe(null);
 		expect(payload.scoring.correctShare).toBe(null);
@@ -637,7 +637,7 @@ describe("quiz competition integration", () => {
 		]);
 	});
 
-	test("an unanswered question is spelled with explicit nulls (ADR-0024)", async () => {
+	test("an unanswered question is spelled with explicit nulls", async () => {
 		const pres = await createAndStart();
 		const card = await scorecard(pres.id, "never-answered");
 		expect(card.answeredCount).toBe(0);
@@ -841,7 +841,7 @@ describe("quiz competition integration", () => {
 
 		const payload = await results(pres.id, "mc");
 		expect(payload.options[0].isCorrect).toBe(true);
-		// ADR-0024: the key is present and explicitly null — a choice slide can
+		// The key is present and explicitly null — a choice slide can
 		// have a solution without being a competition.
 		expect(payload).toHaveProperty("scoring");
 		expect(payload.scoring).toBe(null);

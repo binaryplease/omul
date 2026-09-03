@@ -7,13 +7,13 @@ import type { GuessRange } from "../types";
 // number sits among them. Two surfaces draw the same histogram: the editor
 // preview shows the empty frame the author is building, and the shared screen
 // fills it with the room's guesses. What they share is the *frame* — identical
-// columns, identical axis, identical reference band (ADR-0027) — so the picture
+// columns, identical axis, identical reference band — so the picture
 // an author previews is the picture the audience reads. Each composes it with
 // its own data.
 //
 // It lives in its own module rather than inside Results.tsx because it depends
 // on nothing that file owns — only on the range and bucket shapes from the
-// schema (ADR-0032).
+// schema.
 
 /** One column as the results endpoint reports it — or an empty preview column. */
 export type GuessColumn = {

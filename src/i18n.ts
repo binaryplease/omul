@@ -35,7 +35,7 @@ export type Dict = {
 	/** The running remainder, shown beside the budget the participant holds. */
 	pointsRemaining: string;
 	/**
-	 * Why a control cannot act right now (ADR-0025) — the budget is spent, the
+	 * Why a control cannot act right now — the budget is spent, the
 	 * item holds nothing to take back, or the ballot is not yet a full spend.
 	 */
 	pointsNoneLeft: string;
@@ -50,7 +50,7 @@ export type Dict = {
 	guessAllowedRange: string;
 	guessStepHint: string;
 	/**
-	 * Why the submit button cannot act right now (ADR-0025) — nothing entered,
+	 * Why the submit button cannot act right now — nothing entered,
 	 * not a whole number, outside the range, or not one of the selectable values.
 	 */
 	guessEnterNumber: string;
@@ -96,7 +96,7 @@ export type Dict = {
 	formInstruction: string;
 	formRequiredMark: string;
 	/**
-	 * Why the submit button cannot act right now (ADR-0025) — the slide has no
+	 * Why the submit button cannot act right now — the slide has no
 	 * fields to fill in, nothing has been written, a required field is blank, an
 	 * email field holds something that is not an address, or one answer is longer
 	 * than the boundary will take.
@@ -122,7 +122,7 @@ export type Dict = {
 	quizSecondsLeft: string;
 	quizTimesUp: string;
 	/**
-	 * Why the options can no longer be picked (ADR-0025 — the cards stay visible
+	 * Why the options can no longer be picked (the cards stay visible
 	 * and disabled, and say why). The two reasons are kept apart because they
 	 * call for different things from the participant: one has answered and is
 	 * waiting, the other missed the window entirely.
@@ -171,7 +171,7 @@ export type Dict = {
 	 * the list to the moderation view: an empty panel with no explanation reads
 	 * as a broken one, and it is also the honest thing to say about where their
 	 * question just went. `qaUpvoteOwn` is why the upvote on their own question
-	 * is disabled rather than missing (ADR-0025).
+	 * is disabled rather than missing.
 	 */
 	qaTitle: string;
 	qaAsk: string;
@@ -219,9 +219,9 @@ export type Dict = {
 	 * The name a deck can ask for at its door (REQ076). `nameIntro` says what
 	 * becomes of it, because "type your name" with no reason attached is a field
 	 * a room is right to hesitate over; `nameEmpty` is the disabled Continue
-	 * button's stated reason (ADR-0025), never a hidden button. Once stated,
+	 * button's stated reason, never a hidden button. Once stated,
 	 * `nameJoinedAs` reports it back beside the slide with `nameChange` next to it
-	 * — a name is corrected where it is shown (ADR-0031), and a typo the organizer
+	 * — a name is corrected where it is shown, and a typo the organizer
 	 * will read later is worth one control.
 	 */
 	nameTitle: string;

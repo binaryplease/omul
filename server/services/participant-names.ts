@@ -2,7 +2,7 @@
  * The names participants state on joining a deck (REQ076).
  *
  * A module of its own for the reason `services/slide-comments.ts` beside it is
- * one (ADR-0032): it owns its collection, its one-row-per-participant rule and
+ * one: it owns its collection, its one-row-per-participant rule and
  * its normalisation, and it would keep working unchanged if the presentation
  * service were rewritten around it. The dependency runs one way — **nothing here
  * imports the presentation service** — so the presentation service is free to
@@ -127,8 +127,7 @@ export async function setParticipantName(
  * What one participant is called on one deck, or `null` when they have not said.
  *
  * `null` rather than `""`, because "this person never stated a name" and "this
- * person is called nothing" are different facts and only one of them can happen
- * (ADR-0024).
+ * person is called nothing" are different facts and only one of them can happen.
  */
 export async function getParticipantName(
 	presentationId: string,

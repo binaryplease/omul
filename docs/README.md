@@ -25,7 +25,7 @@ number. No BR titles, no summaries of what a BR says, no links into the private
 repository — a reference that quotes its target has carried the target across,
 which is the one thing this split exists to prevent.
 
-**The two numbering lines are independent** (ADR-0042 §3). `REQ042` and `BR042`
+**The two numbering lines are independent**. `REQ042` and `BR042`
 sharing a number means nothing; 142 pairs match today because the two catalogs
 were seeded together, which is history rather than a rule. One BR is answered by
 as many SCRs as the code owes separable contracts — each taking this catalog's
@@ -170,7 +170,7 @@ mise run requirements:index
 
 ## The index
 
-`requirements/` is a **declared knowledge directory** under ADR-0040: its
+`requirements/` is a **declared knowledge directory**: its
 listing lives in the sibling [`Requirements.md`](Requirements.md), named for the
 directory and sitting beside it rather than inside it, so
 `ls -p requirements/ | grep -v /` and the row count are the same number — a
@@ -179,7 +179,7 @@ check anyone can run without trusting the generator.
 That file is **generated** by the shared `index` CLI (`index build
 docs/requirements`, wrapped as `mise run requirements:index`) and never edited
 by hand between its markers; prose above them is ours to write. There is no
-repo-local generator — ADR-0040 §7 allows exactly one implementation — and **no
+repo-local generator — exactly one implementation of it may exist — and **no
 second listing of `requirements/` exists anywhere else**, whatever it might be
 called. Aggregates are not kept in a file either: `triage stats` computes them
 on demand, so they cannot go stale.
@@ -191,8 +191,8 @@ sweep only visits directories that still have an index file, so a *deleted*
 index would pass unnoticed.
 
 **`index` is not vendored here, it is not on npm, and `mise install` does not
-fetch it.** It has to be on `PATH` already; because ADR-0040 §7 permits exactly
-one implementation, there is deliberately no repo-local fallback. Without it on
+fetch it.** It has to be on `PATH` already; because exactly one implementation
+of it may exist, there is deliberately no repo-local fallback. Without it on
 `PATH`, `mise run requirements:index` and the `index check` step of
 `mise run check` fail with `index: command not found` (exit 127) — the catalog
 itself is unaffected, and `bun scripts/triage.ts validate` still checks every

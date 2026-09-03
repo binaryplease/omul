@@ -18,11 +18,12 @@ and will not grow one.
   deliberately. `scripts/dockerfile.test.ts` fails if the pin is dropped.
 - **Runtime**: Bun, serves both API and SPA static files on `$PORT` (default 3000).
 
-Per ADR-0008, the GHCR package name is the repo name directly — no `/app`
+The GHCR package name is the repo name directly — no `/app`
 suffix. The workflow sets `IMAGE_NAME` to `${{ github.repository }}` and never
 spells the name out, so a fork publishes under its own slug with nothing to
-change. ADR-0002 covers the wider convention: build a registry image here,
-redeploy it on the target machine with a webhook listener that re-pulls it.
+change. That is one half of the wider convention this project deploys under:
+build a registry image here, and redeploy it on the target machine with a
+webhook listener that re-pulls it.
 
 ### Running the image
 
@@ -102,7 +103,7 @@ Set via `.mise.toml` for dev, override as needed:
 - `OMUL_AUTH_DB` — Better Auth SQLite file (default `auth.sqlite` beside the docstore file)
 - `OMUL_ADMIN_DB` — admin store SQLite file (default `admin.sqlite` beside the docstore file)
 - `BETTER_AUTH_SECRET` — auth signing secret. **Required everywhere except local development, and enforced: the server refuses to start without it** (REQ171). There is no fallback — a placeholder that ships in the source would let anyone who has read the source forge any session cookie, administrators' included, so an absent secret is a fatal startup error naming the variable rather than a server that looks healthy. The same crash refuses the development literal if it is copied into the variable, and refuses anything shorter than 32 characters (Better Auth's own bar). Generate one with `openssl rand -base64 32`. The value is used **trimmed** of surrounding whitespace. Supplied by the deployment's own secret delivery, not by this repository
-- `OMUL_ALLOW_INSECURE_DEV_AUTH_SECRET` — set to exactly `"true"` to permit the built-in development signing secret instead of the variable above. **Off unless set, and nothing but local development sets it**: the dev tasks in `.mise.toml` and `server/test-preload.ts` do, and no build, container or deployment does. Do not set it on a host that serves anyone but you — it re-opens exactly the hole REQ171 closed. It is a purpose-named runtime switch rather than a `NODE_ENV` check (ADR-0036) because `bun build` folds `process.env.NODE_ENV` into the bundle at build time: gated on that, a bundle built with `NODE_ENV` unset froze **open** and signed every cookie with the placeholder no matter what the running server's environment said
+- `OMUL_ALLOW_INSECURE_DEV_AUTH_SECRET` — set to exactly `"true"` to permit the built-in development signing secret instead of the variable above. **Off unless set, and nothing but local development sets it**: the dev tasks in `.mise.toml` and `server/test-preload.ts` do, and no build, container or deployment does. Do not set it on a host that serves anyone but you — it re-opens exactly the hole REQ171 closed. It is a purpose-named runtime switch rather than a `NODE_ENV` check because `bun build` folds `process.env.NODE_ENV` into the bundle at build time: gated on that, a bundle built with `NODE_ENV` unset froze **open** and signed every cookie with the placeholder no matter what the running server's environment said
 - `OMUL_ADMIN_EMAILS` — comma-separated sign-in addresses of the accounts that may use the admin surface (`/api/admin/*`), matched case-insensitively after trimming and read once at startup (REQ164, `server/admins.ts`). **Unset is the default and means nobody is an administrator**: every admin route answers `403`, including to the operator, and the instance is otherwise complete — nothing a presenter or participant does goes through that surface. The empty default is deliberate rather than an omission. The list used to be compiled in, which named one deployment's administrators in every image built from this source and left a self-hoster no way to name their own short of forking and rebuilding; a shipped fallback list would restore exactly that. Blank, whitespace and stray commas all read as "nobody", so a typo cannot promote anyone. There is still no role column and no self-service grant — who is an administrator is an operator's decision, now taken in configuration instead of in source. Which posture is in force is printed on every boot (`[admin] …`). Supply it the way the signing secret is supplied, by the deployment's own secret/environment delivery, not from this repository
 - `BETTER_AUTH_URL` / `OMUL_BASE_HOST` — canonical public origin for auth callbacks (production, behind a reverse proxy); inferred per-request in dev. `OMUL_BASE_HOST` also adds the public host to Better Auth's trusted origins, so behind a proxy it is **required for sign-in to work at all**, not just for correct mail links. It is a **bare host** (`omul.example.com`, a `:port` allowed) read as `https://`, never a URL — a value carrying a scheme, path or trailing slash is a fatal startup error rather than a silently ignored one. It is also what the `/api` discovery index advertises (REQ151)
 - `OMUL_TRUSTED_ORIGINS` — extra comma-separated origins allowed to drive auth
@@ -123,10 +124,11 @@ omul can turn a short text prompt into a draft deck. It is the **only** part of
 the product that talks to anything outside this deployment, so it gets its own
 section rather than a line in the list above.
 
-**It is an intentional exception to ADR-0016, and this section is the
-documentation that ADR asks for.** The rule forbids depending on a third-party
-host to serve first-party assets and allows "explicit third-party product
-integrations where the remote service is the feature". This is that case: there
+**It is an intentional exception to the rule that production depends on no
+third-party runtime host, and this section is the documentation that exception
+asks for.** The rule forbids depending on a third-party host to serve
+first-party assets and allows explicit third-party product integrations where
+the remote service *is* the feature. This is that case: there
 is no asset that could be bundled instead, because the thing being fetched is the
 provider's own answer to a prompt written seconds ago. Everything else in omul
 — fonts, icons, the template catalog, the QR generator — is bundled or vendored,
@@ -135,7 +137,7 @@ and stays that way.
 | Variable | Default | Effect |
 |---|---|---|
 | `GOOGLE_GENERATIVE_AI_API_KEY` | unset | The credential. **Unset is the default and means generation is off.** |
-| `OMUL_GENERATION_MODEL` | `gemini-flash-latest` | Which model is asked. A floating "latest" alias rather than a pinned snapshot (ADR-0009). |
+| `OMUL_GENERATION_MODEL` | `gemini-flash-latest` | Which model is asked. A floating "latest" alias rather than a pinned snapshot. |
 | `OMUL_GENERATION_ALLOW_ANONYMOUS` | unset (i.e. `false`) | Set to exactly `"true"` to let callers **with no account** generate. The default requires a signed-in account — see below. |
 
 Provider: Google's Generative AI API, reached through the Vercel AI SDK

@@ -230,7 +230,7 @@ describe("Shareable results link integration (REQ098)", () => {
 		expect(after.active).toBe(true);
 		expect(typeof after.issuedAt).toBe("string");
 		// The secret is stored hashed, so the status can say a link exists and can
-		// never say what it is (ADR-0024 — the key is emitted, explicitly empty).
+		// never say what it is (the key is emitted, explicitly empty).
 		expect(after.resultsToken).toBe(null);
 	});
 
