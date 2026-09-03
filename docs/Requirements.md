@@ -187,7 +187,7 @@ Prose outside the markers is preserved.
 | [REQ169.md](requirements/REQ169.md) | The product's fallback mark on participant surfaces is the ring signet | Rendering & Theming | P1 | done | BR146 |
 | [REQ170.md](requirements/REQ170.md) | The brand marks in the tree carry a use position the code license does not grant | Platform & Operations | P0 | done | internal |
 | [REQ171.md](requirements/REQ171.md) | The auth signing secret fails closed outside development instead of falling back to a shipped placeholder | Platform & Operations | P0 | done | internal |
-| [REQ172.md](requirements/REQ172.md) | A stranger can run a production instance from this repository alone | Platform & Operations | P0 | pending | internal |
+| [REQ172.md](requirements/REQ172.md) | A stranger can run a production instance from this repository alone | Platform & Operations | P0 | in-progress | internal |
 | [REQ173.md](requirements/REQ173.md) | A full-history secret scan over this repository returns nothing | Platform & Operations | P0 | blocked | internal |
 | [REQ174.md](requirements/REQ174.md) | The server's configuration surface and database filenames are named for the product | Platform & Operations | P2 | done | BR147 |
 | [REQ175.md](requirements/REQ175.md) | The names on the wire, in browser storage and in an exported file carry the product's name | Access & Sharing | P2 | done | BR147 |

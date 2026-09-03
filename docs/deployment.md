@@ -30,6 +30,17 @@ The server is a **single container with no database sidecar** — everything is
 `bun:sqlite` in one directory. There is nothing else to stand up: no database
 service, no cache, no queue.
 
+**A self-hoster's deployment ships in this repository** (REQ172): `compose.yaml`
+at the root, with `.env.example` as the environment to copy to `.env` and fill
+in. It owes nothing to any particular host — the published image, a named
+volume at `/app/data`, the container port published on the host's loopback, and
+an env file are the whole topology, and the reverse proxy, certificate and DNS
+name in front of it are the operator's. It pulls
+`ghcr.io/binaryplease/omul:latest`; its commented `build:` line builds the same
+image from the tree instead, so a clone is a complete deployment with no
+registry access at all. This section stays the authority on what each variable
+means — the compose file and the example agree with it rather than restating it.
+
 What a deployment has to set, and why each one matters:
 
 | Set in the deployment | Consequence if unset |
@@ -96,7 +107,8 @@ Set via `.mise.toml` for dev, override as needed:
 - `BETTER_AUTH_URL` / `OMUL_BASE_HOST` — canonical public origin for auth callbacks (production, behind a reverse proxy); inferred per-request in dev. `OMUL_BASE_HOST` also adds the public host to Better Auth's trusted origins, so behind a proxy it is **required for sign-in to work at all**, not just for correct mail links. It is a **bare host** (`omul.example.com`, a `:port` allowed) read as `https://`, never a URL — a value carrying a scheme, path or trailing slash is a fatal startup error rather than a silently ignored one. It is also what the `/api` discovery index advertises (REQ151)
 - `OMUL_TRUSTED_ORIGINS` — extra comma-separated origins allowed to drive auth
 - `SEND_EMAILS` — set to exactly `"true"` to actually send mail (else the emailer logs)
-- `BREVO_API_KEY` / `BREVO_SENDER_EMAIL` / `BREVO_SENDER_NAME` — Brevo transactional-email credentials
+- `BREVO_API_KEY` / `BREVO_SENDER_EMAIL` / `BREVO_SENDER_NAME` — Brevo transactional-email credentials. Sending needs all three of `SEND_EMAILS="true"`, the key and the sender address; short of that the emailer stays in log mode and names the one that is missing
+- `BREVO_REPLY_TO_EMAIL` / `BREVO_REPLY_TO_NAME` — the default `Reply-To` on outgoing mail, when replies should not go to the sender address. Both optional and both unset by default; a single message may override them, and the `From` address is always the verified sender either way
 - `OMUL_RATE_LIMITS_DISABLED` — set to exactly `"true"` to switch the abuse limits off (default: on) — see **Abuse limits** below. It takes the generation budget with it, which is why generation carries an account requirement that this switch cannot reach
 - `OMUL_TRUST_PROXY` — number of trusted reverse-proxy hops in front of the server; `"true"` reads as `1` (default `0`: `X-Forwarded-For` is ignored and the socket address is used). **Required behind a reverse proxy** — see below
 - `GOOGLE_GENERATIVE_AI_API_KEY` — the model-provider credential that switches deck generation on (REQ007). **Unset by default, and unset means the feature is off** — see **Generating a deck from a prompt** below

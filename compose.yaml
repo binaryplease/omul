@@ -1,0 +1,75 @@
+# omul — a self-hoster's deployment, complete in this repository.
+#
+#     cp .env.example .env      # then put a generated secret in BETTER_AUTH_SECRET
+#     docker compose up -d
+#
+# One container and one volume is the whole thing: all state is `bun:sqlite` in
+# a single directory, so there is no database service, no cache and no queue to
+# stand up alongside it. README.md ("Self-hosting") is the walk-through and
+# docs/deployment.md is the full environment reference.
+#
+# Nothing here is written for a particular host. The published image, the state
+# volume, the loopback port and the environment file are the entire topology;
+# the reverse proxy, the certificate and the DNS name in front of it are yours,
+# and this file deliberately says nothing about them.
+
+services:
+  omul:
+    image: ghcr.io/binaryplease/omul:latest
+    # Or build the image from this tree instead of pulling it. The Dockerfile
+    # beside this file is the same one .github/workflows/build.yaml builds from,
+    # so a clone needs no registry access at all: uncomment the next line and
+    # run `docker compose up -d --build`.
+    # build: .
+    restart: unless-stopped
+
+    # Everything the deployment supplies. Copy .env.example to .env and edit it
+    # — .env is git-ignored, so a secret put there cannot be committed by
+    # accident. Compose refuses to start when the file is absent, which is the
+    # intended outcome: starting without it only moves the same failure into the
+    # container, where BETTER_AUTH_SECRET is fatal anyway.
+    env_file: .env
+
+    # Published on the host's loopback only. That is the safe default rather
+    # than the finished one: a fresh `up` serves http://localhost:3000 on the
+    # machine you ran it on and offers nothing to the network, so exposing the
+    # instance stays a deliberate act. Serving it to other people is a
+    # TLS-terminating reverse proxy in front of this port, plus OMUL_BASE_HOST
+    # and OMUL_TRUST_PROXY in .env. Dropping the "127.0.0.1:" prefix exposes the
+    # container directly instead — it answers plain HTTP, which is not a thing
+    # to put on the internet unaided.
+    ports:
+      - "127.0.0.1:3000:3000"
+
+    # The directory, not the file. Three SQLite databases live under /app/data —
+    # omul.sqlite (presentations and votes), auth.sqlite (accounts and sessions)
+    # and admin.sqlite (the admin event log) — and the latter two resolve as
+    # siblings of DATABASE_PATH. A volume mounted at the single file would
+    # persist one of the three and silently drop the other two.
+    volumes:
+      - omul-data:/app/data
+
+    # /api/health is the probe the /api discovery index links to. Asked with
+    # `bun`, because bun is what runs the server: the image carries no curl and
+    # no wget, and a probe that shells out to one it does not have reports an
+    # unhealthy container that is in fact fine.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "process.exit((await fetch('http://127.0.0.1:3000/api/health')).ok ? 0 : 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  # A named volume rather than a bind mount, so nothing here assumes a path on
+  # your host; `docker volume inspect omul_omul-data` says where it landed.
+  # Nothing in this repository backs it up, and a copy of a live WAL-mode SQLite
+  # file is not a backup — use `VACUUM INTO`, or copy with the container
+  # stopped. What is not backed up is lost with the host.
+  omul-data:
