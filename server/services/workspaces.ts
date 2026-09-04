@@ -17,10 +17,15 @@
  *
  * What this module deliberately does not do: email an invitation, create an
  * account for an address that has none, or hold a workspace's settings, theme,
- * templates, usage or seats. The first two are the same refusal
+ * usage or seats. The first two are the same refusal
  * `services/collaborators.ts` makes — a membership names a registered account,
  * resolved by the route from the email its owner typed — and the rest are their
- * own pending requirements.
+ * own pending requirements. The templates a workspace publishes (REQ004) are
+ * `services/workspace-templates.ts`'s, a collection with its own module for the
+ * reason this one has its own: the only thing it needs of a workspace is the id.
+ * The single line of it that reaches in here is the sweep {@link deleteWorkspace}
+ * owes — a deleted workspace takes its published templates with it, the way it
+ * takes its memberships.
  */
 
 import { createStore } from "../db";
@@ -32,6 +37,7 @@ import {
 	WORKSPACE_ROLES,
 	type WorkspaceRole,
 } from "../schemas";
+import { deleteWorkspaceTemplates } from "./workspace-templates";
 
 const workspaces = createStore("workspaces", StoredWorkspaceSchema, {
 	indexes: ["createdBy"],
@@ -242,17 +248,22 @@ export async function renameWorkspace(
 }
 
 /**
- * Delete a workspace and every membership of it.
+ * Delete a workspace, every membership of it, and every template it published
+ * (REQ004).
  *
- * The memberships go **first**, on the reading `deletePresentation` takes of the
- * room's records: a membership naming a workspace that no longer exists is a row
- * no route resolves and no screen draws, and dying between the two writes has to
+ * The two dependent collections go **first**, on the reading `deletePresentation`
+ * takes of the room's records: a row naming a workspace that no longer exists is
+ * one no route resolves and no screen draws, and dying between the writes has to
  * leave the recoverable state rather than the permanent one. Whether the
  * workspace still owns decks is not asked here — that is a question about another
- * collection, and the route refuses the delete before reaching this.
+ * collection, and the route refuses the delete before reaching this. A published
+ * template is *not* a deck and does not stand in the way of the delete: it is a
+ * copy the workspace made of itself, and the decks made from it are ordinary
+ * decks that outlive both.
  */
 export async function deleteWorkspace(workspaceId: string): Promise<boolean> {
 	await members.deleteMany({ workspaceId });
+	await deleteWorkspaceTemplates(workspaceId);
 	return workspaces.remove(workspaceId);
 }
 

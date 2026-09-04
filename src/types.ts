@@ -52,6 +52,7 @@ import type {
 	SlideVideo,
 	TallyRevealState,
 	WithheldTally,
+	WorkspaceTemplate,
 } from "../server/schemas";
 import {
 	acceptedQuizAnswers,
@@ -219,6 +220,9 @@ import {
 	withoutPresenterNotes,
 	WORKSPACE_NAME_MAX_LENGTH,
 	WORKSPACE_ROLES,
+	WORKSPACE_TEMPLATE_DESCRIPTION_MAX_LENGTH,
+	WORKSPACE_TEMPLATE_TAG_LIMIT,
+	WORKSPACE_TEMPLATE_TAG_MAX_LENGTH,
 	type Workspace,
 	type WorkspaceMember,
 	type WorkspaceRole,
@@ -226,6 +230,7 @@ import {
 	canAdministerWorkspaceDecks,
 	canCreateWorkspaceDecks,
 	canManageWorkspaceMembers,
+	canPublishWorkspaceTemplates,
 	canReadWorkspace,
 	DEFAULT_WORKSPACE_ROLE,
 	workspaceDeckAccessLevel,
@@ -314,6 +319,7 @@ export type {
 	Workspace,
 	WorkspaceMember,
 	WorkspaceRole,
+	WorkspaceTemplate,
 };
 export {
 	acceptedQuizAnswers,
@@ -472,6 +478,15 @@ export {
 	canReadWorkspace,
 	DEFAULT_WORKSPACE_ROLE,
 	workspaceDeckAccessLevel,
+	// The templates a workspace publishes for itself (REQ004). A published entry
+	// is a catalog entry plus who published it, so it is filtered and drawn by the
+	// very functions the built-in gallery above uses — `filterDeckTemplates` and
+	// the category vocabulary — rather than by a second set that could come to
+	// mean something else by one search.
+	WORKSPACE_TEMPLATE_DESCRIPTION_MAX_LENGTH,
+	WORKSPACE_TEMPLATE_TAG_LIMIT,
+	WORKSPACE_TEMPLATE_TAG_MAX_LENGTH,
+	canPublishWorkspaceTemplates,
 };
 
 export type SlideOption = z.input<typeof MultipleChoiceOptionSchema>;

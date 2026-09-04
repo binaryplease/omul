@@ -46,16 +46,17 @@ server/
   test-preload.ts            # bunfig.toml test preload — switches the abuse limits off for the test run
   routes/
     discovery.ts             # GET /api discovery index + /api/health, and the public origin its absolute links carry (REQ151): OMUL_BASE_HOST, else a trusted X-Forwarded-Proto/Host, else the origin observed
-    templates.ts             # GET /api/templates (+ /:id) — the catalog, listed and filtered (REQ005). Public and read-only; creating *from* an entry is a presentation create
+    templates.ts             # GET /api/templates (+ /:id) — the *built-in* catalog, listed and filtered (REQ005). Public and read-only; creating *from* an entry is a presentation create. What a workspace publishes for itself (REQ004) is written and read against its roster and lives with the workspace routes
     deck-generation.ts       # GET /api/deck-generation (can this build generate, and on what terms — read before the control is drawn) + POST (a prompt in, an ordinary deck out, REQ007). A factory over the generator rather than a bare instance, which is what lets the whole HTTP path be tested with no key and no network
-    presentations.ts         # Presentation REST endpoints (owner-or-edit-token auth, claim, /mine); POST also takes a `templateId` (REQ006) and a `workspaceId` (REQ128), and the deck's move between an account and a workspace lives here because it is a presentation mutation
-    workspaces.ts            # /api/workspaces/* (REQ128, REQ129) — the workspace, its roster and the decks it owns. Every route asks two questions and never mixes them: is this caller in this workspace at all (401 vs 403, and no existence leaked), and does their role authorize this
+    presentations.ts         # Presentation REST endpoints (owner-or-edit-token auth, claim, /mine); POST also takes a `templateId` (REQ006), a `workspaceId` (REQ128) and a `workspaceTemplateId` (REQ004), and the deck's move between an account and a workspace lives here because it is a presentation mutation
+    workspaces.ts            # /api/workspaces/* (REQ128, REQ129, REQ004) — the workspace, its roster, the decks it owns and the templates it publishes. Every route asks two questions and never mixes them: is this caller in this workspace at all (401 vs 403, and no existence leaked), and does their role authorize this
     admin.ts                 # /api/admin/* operator surface (prepare/confirm actions + events)
     static.ts                # SPA static file serving (production only, dist/client/)
   services/
     presentations.ts         # Business logic (async); authorizeEdit / claimOwnership / assignOwner ownership helpers
     collaborators.ts         # One account's standing on one deck (REQ075) — the grants collection and nothing else
     workspaces.ts            # An owner of decks that is not an account, and the roles in it (REQ128, REQ129) — two collections and nothing else. Imports no presentation service, so the presentation service can ask it "what may this account do with a deck this workspace owns?" without a cycle; which decks a workspace owns is a question about the presentations collection and is answered there
+    workspace-templates.ts   # The templates a workspace publishes out of its own decks (REQ004) — one collection, and everything it needs of a workspace is the id. Reads and writes no presentation: it is handed slides already copied and hands them back the same way, which is the whole of the requirement's independence
     slide-comments.ts        # The authoring conversation on a deck's slides (REQ074) — its own collection, read by its own routes
     participant-names.ts     # What each participant is called on a deck (REQ076) — one row per (deck, participant), corrected in place. Owns the collection; decides neither whether the deck asks for a name nor who may read the list, both of which are the deck's questions and are answered where the deck is fetched
 
@@ -88,6 +89,8 @@ src/
     SlideTypeIcon.tsx        # SlideTypeIcon component
     WorkspaceRoles.tsx       # What a workspace role means in words (REQ129) — one descriptor, composed by the roster's picker, the workspace card's badge and the add-member line
     MoveToWorkspaceDialog.tsx # Handing one of your decks to a workspace (REQ128), from the deck's own card. The other direction lives on the workspace's page
+    TemplateCard.tsx         # One template on a card, and the words for its five categories — the descriptor two galleries share, because a template a workspace published (REQ004) *is* a catalog entry (REQ005) plus a publisher. Each surface passes its own actions as children
+    PublishTemplateDialog.tsx # Publishing one of a workspace's decks as its template (REQ004), from the deck's own card: everything about the gallery entry except the slides, which are the deck's and are copied server-side
     ui/
       ConfirmModal.tsx
       Modal.tsx              # Generic titled dialog shell (used by the auth surfaces)
@@ -100,8 +103,8 @@ src/
   pages/
     HomePage.tsx
     WorkspacesPage.tsx       # The workspaces this account is in (REQ128) — and creating one
-    WorkspacePage.tsx        # One workspace: the decks it owns and who is in it, on one screen because they are two views of one question. Every control is drawn for every member and disabled with its reason when their role does not open it
-    TemplatesPage.tsx        # The prebuilt-deck gallery (REQ005) — filtered in the browser with the endpoint's own filter, and the way into a deck from one (REQ006)
+    WorkspacePage.tsx        # One workspace: the decks it owns, the templates it publishes (REQ004) and who is in it, on one screen because they are views of one question. Every control is drawn for every member and disabled with its reason when their role does not open it
+    TemplatesPage.tsx        # The built-in prebuilt-deck gallery (REQ005) — filtered in the browser with the endpoint's own filter, and the way into a deck from one (REQ006)
     GeneratePage.tsx         # Drafting a deck from a prompt (REQ007) — the brief, the draft caveat above the box it qualifies, and the control drawn disabled with its reason on a build with no provider configured
     CreatePage.tsx
     PresenterPage.tsx
@@ -142,6 +145,7 @@ Collections (each one Zod-gated SQLite table of `(id TEXT PRIMARY KEY, doc TEXT)
 - `participantNames` — one document per (deck, participant) name stated on joining (REQ076). A collection rather than a field on each vote for the reason a name is one fact about a person: denormalising it would make correcting a typo a rewrite of every answer already given, and a rewrite that missed one would put the same person in the export twice under two spellings. The join is `participantId`, which every stored row already carries. Gated by `StoredParticipantNameSchema`; owned by `server/services/participant-names.ts`. Swept by `eraseParticipantRecords`, so a **reset** takes it as well as a delete — a re-run is a different room.
 - `workspaces` — one document per workspace (REQ128): an owner of decks that is not an account. A deck it owns names it in `workspaceId` and carries **no** `creatorId` and no `creatorTokenHash` — the two ownership fields are alternatives rather than layers, which is what makes a deck survive any single member's removal. Gated by `StoredWorkspaceSchema`; owned by `server/services/workspaces.ts`.
 - `workspaceMembers` — one document per (workspace, account) membership (REQ129), carrying the role it was added at. Indexed on **both** ends because both are read, and the second constantly: a workspace asks who is in it, and every request touching one of its decks asks what this account's role is. The pair is unique, so "what may this account do here?" has one answer. Gated by `StoredWorkspaceMemberSchema`; owned by `server/services/workspaces.ts`.
+- `workspaceTemplates` — one document per template a workspace has published out of one of its own decks (REQ004), holding a **copy** of that deck's slides taken at publish time. A collection rather than a field on the workspace because a workspace holds many and each is a deck's worth of slides. The (workspace, source deck) pair is unique, so publishing the same deck again refreshes its entry rather than stacking a second beside it, and the copy on the way in — plus a second copy on the way out, when a deck is created from the entry — is the whole of "the instance is an independent deck; later edits to the template do not reach it". Gated by `StoredWorkspaceTemplateSchema`; owned by `server/services/workspace-templates.ts`, and swept when the workspace is deleted.
 - `slideComments` — one document per comment on a slide (REQ074), keyed by `presentationId` and `slideId` and carrying the account that wrote it. A collection rather than a field on the presentation document *because* of the requirement's second half: the deck document is what `GET /join/:code` and every `slide.changed` broadcast are projections of, so a comment stored on it would be one forgotten projection away from the room — here there is nothing to strip, since no participant-facing surface loads this collection at all. Gated by `StoredSlideCommentSchema`; owned by `server/services/slide-comments.ts`.
 
 The `Stored*` schemas live in `server/schemas.ts` (the single source of truth
@@ -171,8 +175,8 @@ and both commented there:
 - **`enforceDefaults: false`** — the library's own defaults walk recognises an
   identity field by the schema object its `ref()` helper returns, and `ref()`
   requires a `prefix_` on the stored value. This catalog's foreign keys are
-  plain `z.string()` over `crypto.randomUUID()`, so the walk reads all eighteen
-  of them — eight distinct names over nine of the eleven collections — as fields
+  plain `z.string()` over `crypto.randomUUID()`, so the walk reads all twenty
+  of them — nine distinct names over ten of the twelve collections — as fields
   that forgot a default. The rule is enforced instead by
   `server/stored-defaults.test.ts`, which spells the exemption out per
   collection — and, so that a hand-written list cannot silently fall behind the

@@ -1,11 +1,19 @@
 /**
- * The workspace surface (REQ128, REQ129) — `/api/workspaces/*`.
+ * The workspace surface (REQ128, REQ129, REQ004) — `/api/workspaces/*`.
  *
  * A route module of its own rather than a section of `routes/presentations.ts`:
  * a workspace is not a presentation, it would still make sense if
- * decks were rewritten around it, and the one place the two meet — the decks a
- * workspace owns — is a read of the presentation service through the projection
- * that file already exports.
+ * decks were rewritten around it, and the two places the two meet — the decks a
+ * workspace owns, and the deck a template is published from — are reads of the
+ * presentation service through the projection that file already exports.
+ *
+ * The templates a workspace publishes (REQ004) live here rather than beside the
+ * built-in catalog in `routes/templates.ts` for the same reason, and a sharper
+ * one: the catalog's two routes are public and have nothing to authorize, while
+ * every one of these is decided against the caller's role in *this* workspace.
+ * Using a published entry is the exception and is a **create**, so it lives with
+ * the other presentation routes where its rate limit already is — exactly where
+ * starting from a built-in entry lives.
  *
  * Every route here answers one of two questions, and they are deliberately never
  * mixed: *is this caller in this workspace at all* (which decides `401` vs `403`
@@ -23,19 +31,33 @@ import {
 	canAdministerWorkspace,
 	canCreateWorkspaceDecks,
 	canManageWorkspaceMembers,
+	canPublishWorkspaceTemplates,
 	canReadDeckAuthoring,
 	canReadWorkspace,
 	CreateWorkspaceSchema,
+	PublishWorkspaceTemplateSchema,
 	RenameWorkspaceSchema,
+	type Slide,
 	type Workspace,
 	type WorkspaceMember,
 	WorkspaceMemberSchema,
 	WorkspaceRoleBodySchema,
 	type WorkspaceRole,
 	WorkspaceSchema,
+	type WorkspaceTemplate,
+	WorkspaceTemplateSchema,
 	workspaceDeckAccessLevel,
 } from "../schemas";
-import { listWorkspacePresentations } from "../services/presentations";
+import {
+	getPresentation,
+	listWorkspacePresentations,
+} from "../services/presentations";
+import {
+	listWorkspaceTemplates,
+	publishWorkspaceTemplate,
+	unpublishWorkspaceTemplate,
+	type WorkspaceTemplateRecord,
+} from "../services/workspace-templates";
 import {
 	addWorkspaceMember,
 	createWorkspace,
@@ -111,6 +133,37 @@ function readMember(
 		mine: member.userId === viewerId,
 		createdAt: member.createdAt,
 		updatedAt: member.updatedAt,
+	});
+}
+
+/**
+ * Project one published template into the shape a member reads (REQ004).
+ *
+ * Built key by key and parsed through {@link WorkspaceTemplateSchema}, the
+ * construction that keeps `creatorId` off a deck and `userId` off a membership:
+ * the account that published is stored as an id, the schema does not declare
+ * one, and what a client is handed is a display name — `null` for an account
+ * that has since been deleted, so the entry stays in the gallery to be used and
+ * taken down rather than disappearing with the person who put it there.
+ *
+ * `workspaceId` is not declared either: a caller reading this list named the
+ * workspace to get it.
+ */
+function readTemplate(template: WorkspaceTemplateRecord): WorkspaceTemplate {
+	const account = template.publishedBy
+		? findUserById(template.publishedBy)
+		: null;
+	return WorkspaceTemplateSchema.parse({
+		id: template.id,
+		title: template.title,
+		description: template.description,
+		category: template.category,
+		tags: template.tags,
+		slides: template.slides,
+		sourcePresentationId: template.sourcePresentationId,
+		publishedByName: account?.name ?? null,
+		createdAt: template.createdAt,
+		updatedAt: template.updatedAt,
 	});
 }
 
@@ -553,6 +606,119 @@ export const workspaceRoutes = new Elysia({ prefix: "/api" })
 				summary: "List the decks a workspace owns",
 				description:
 					"Returns the decks this workspace owns (REQ128), newest first — the workspace's own half of `GET /api/presentations/mine`. Any member reads it, and reads each deck as its author wrote it: quiz answer keys (REQ056) and presenter notes (REQ090) are carried, because what a role governs is what its holder may change rather than a redacted copy of a deck their own workspace owns. `403` for an account that is not a member. A deck listed here has no account owner and no edit token — its standing is this roster, which is why removing any one member leaves every deck exactly where it was.",
+				security: [{ bearerAuth: [] }],
+			},
+		},
+	)
+
+	// ── The templates the workspace publishes (REQ004) ─────
+	.get(
+		"/workspaces/:id/templates",
+		async ({ params, request }) => {
+			const standing = await requireWorkspaceRole(
+				request,
+				params.id,
+				canReadWorkspace,
+				"You are not a member of this workspace",
+			);
+			if (standing instanceof Response) return standing;
+			const published = await listWorkspaceTemplates(params.id);
+			return published.map(readTemplate);
+		},
+		{
+			detail: {
+				tags: ["Workspaces"],
+				summary: "List the templates a workspace publishes",
+				description:
+					"Returns the templates this workspace has published out of its own decks (REQ004), newest first — the same shape `GET /api/templates` answers with (`id`, `title`, `description`, `category`, `tags`, `slides`), plus the deck each was taken from (`sourcePresentationId`), who published it by display name, and when. Any member reads the list and can create from an entry; publishing and unpublishing need `admin` or `owner`. `403` for an account that is not a member — which is also what a workspace id that does not exist answers, so the route cannot be used to probe for one. An entry's id is what `POST /api/presentations` takes as `workspaceTemplateId`.",
+				security: [{ bearerAuth: [] }],
+			},
+		},
+	)
+
+	// ── Publish one of its decks as a template (REQ004) ────
+	.post(
+		"/workspaces/:id/templates",
+		async ({ params, body, request, set }) => {
+			const standing = await requireWorkspaceRole(
+				request,
+				params.id,
+				canPublishWorkspaceTemplates,
+				"Only a workspace admin can publish a template",
+			);
+			if (standing instanceof Response) return standing;
+			// **The deck has to be this workspace's own.** Not merely one the caller
+			// can edit: a template is published into a gallery every member reads, and
+			// a deck from anywhere else would be one account's work handed to a roster
+			// that was never its owner. Refused for a deck that does not exist and for
+			// one this workspace does not own with the same answer, on the reading the
+			// route's own `403` takes — the caller has standing in the workspace, not
+			// in whatever else that id might name.
+			const deck = await getPresentation(body.presentationId);
+			if (!deck || deck.workspaceId !== params.id) {
+				set.status = 404;
+				return { error: "No such deck in this workspace" };
+			}
+			const { created, template } = await publishWorkspaceTemplate(
+				params.id,
+				body.presentationId,
+				standing.userId,
+				{
+					// The entry's own name, or the deck's when the request states none —
+					// the same inheritance a create that names a template performs
+					// (REQ006), in the other direction.
+					title: body.title || ((deck.title as string | undefined) ?? ""),
+					description: body.description,
+					category: body.category,
+					tags: body.tags,
+					// The snapshot's source. `publishWorkspaceTemplate` copies them under
+					// fresh ids, which is what makes this a snapshot rather than a live
+					// mirror of the deck.
+					slides: (deck.slides as Slide[] | undefined) ?? [],
+				},
+			);
+			set.status = created ? 201 : 200;
+			return readTemplate(template);
+		},
+		{
+			body: PublishWorkspaceTemplateSchema,
+			detail: {
+				tags: ["Workspaces"],
+				summary: "Publish one of the workspace's decks as a template",
+				description:
+					"Publishes a deck the **workspace owns** as a template every member can start from (REQ004). The entry stores a **copy** of that deck's slides under fresh ids, so editing the deck afterwards does not change the template — republishing it does, and that is what publishing the same deck again is: idempotent per deck, answering `200` where a new entry gets `201`. `presentationId` is required and must name a deck this workspace owns; anything else — a deck that does not exist, one the caller owns personally, one belonging to another workspace — is `404`. `category` is required, one of `meeting`, `workshop`, `education`, `feedback`, `engagement`; `title` defaults to the deck's own, `description` to empty and `tags` to none. Requires `admin` or `owner`: publishing writes to a surface every member reads. A workspace the caller is not in and one that does not exist answer the same `403`.",
+				security: [{ bearerAuth: [] }],
+			},
+		},
+	)
+
+	// ── Take one back down (REQ004) ────────────────────────
+	.delete(
+		"/workspaces/:id/templates/:templateId",
+		async ({ params, request, set }) => {
+			const standing = await requireWorkspaceRole(
+				request,
+				params.id,
+				canPublishWorkspaceTemplates,
+				"Only a workspace admin can unpublish a template",
+			);
+			if (standing instanceof Response) return standing;
+			const removed = await unpublishWorkspaceTemplate(
+				params.id,
+				params.templateId,
+			);
+			if (!removed) {
+				set.status = 404;
+				return { error: "No such template in this workspace" };
+			}
+			return { ok: true };
+		},
+		{
+			detail: {
+				tags: ["Workspaces"],
+				summary: "Unpublish one of the workspace's templates",
+				description:
+					"Removes one published entry from the workspace's gallery (REQ004), named by its own `id`. **No deck is touched**: every deck made from the entry is an ordinary deck of the workspace's that shares no identity with it, and the deck it was published from was only ever the snapshot's source. Requires `admin` or `owner`, like publishing. A template id belonging to another workspace answers `404`, so an id learned elsewhere cannot be used to write across workspaces.",
 				security: [{ bearerAuth: [] }],
 			},
 		},

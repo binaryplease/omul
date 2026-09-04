@@ -57,9 +57,10 @@ that already exist — compose these, never re-hand-roll:
   picker and the badge on a workspace card. `assignableWorkspaceRoles()` is what
   keeps a picker from drawing a choice the server answers `403` to (an admin
   cannot hand out `owner`). What a role *may do* is not restated here at all: the
-  five predicates come from `server/schemas.ts` through `src/types.ts`
+  predicates come from `server/schemas.ts` through `src/types.ts`
   (`canCreateWorkspaceDecks`, `canAdministerWorkspaceDecks`,
-  `canManageWorkspaceMembers`, `canAdministerWorkspace`, `canReadWorkspace`), so
+  `canManageWorkspaceMembers`, `canAdministerWorkspace`, `canReadWorkspace`,
+  `canPublishWorkspaceTemplates`), so
   a control stops being drawn on the same day the route behind it stops
   authorizing — a surface that compared role strings would drift the first time
   the server's answer changed. Every control the caller's role does not open is
@@ -67,6 +68,20 @@ that already exist — compose these, never re-hand-roll:
   moves live beside the deck each time: into a workspace from the
   deck's card in `HomePage` (`MoveToWorkspaceDialog`), back out from the deck's
   row on `WorkspacePage`.
+- **A template on a card** — `src/components/TemplateCard.tsx`
+  (REQ005/REQ004). Two galleries draw a template — the built-in catalog on
+  `TemplatesPage` and the templates a workspace publishes on `WorkspacePage` —
+  and what they draw is the same entry, because a published one *is* a catalog
+  entry plus a publisher. So `<TemplateCard/>` owns that presentation (the name,
+  the category badge, the description, the deck's shape as one icon per slide,
+  the tags) and `DECK_TEMPLATE_CATEGORY_LABELS` the words for the five
+  categories, guarded by `mise run check`. Each surface passes its own actions as
+  children: the catalog offers `<UseTemplateButton/>` alone, the workspace adds
+  who published it and an unpublish control. Everything a search looks at is on
+  the card, so a match always has a visible reason (REQ019) — and both surfaces
+  narrow with the schema's own `filterDeckTemplates()`, never a second filter.
+  Publishing is `src/components/PublishTemplateDialog.tsx`, on the deck's own
+  card on `WorkspacePage`, beside the control that moves that deck out.
 - **"May this caller edit this deck?"** — `callerCanEditDeck()` in
   `server/schemas.ts`, re-exported through `src/types.ts` (REQ149). The one
   reading of that question, composed by every surface that gates a deck control:

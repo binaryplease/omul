@@ -21,7 +21,7 @@ Prose outside the markers is preserved.
 | [REQ001.md](requirements/REQ001.md) | Create an empty presentation | Deck & Slides | P0 | done | BR001 |
 | [REQ002.md](requirements/REQ002.md) | Create a quiz-shaped deck | Deck & Slides | P0 | done | BR002 |
 | [REQ003.md](requirements/REQ003.md) | Create an audience-paced deck | Deck & Slides | P0 | done | BR003 |
-| [REQ004.md](requirements/REQ004.md) | Publish a deck as a workspace template | Accounts & Workspaces | P1 | pending | BR004 |
+| [REQ004.md](requirements/REQ004.md) | Publish a deck as a workspace template | Accounts & Workspaces | P1 | done | BR004 |
 | [REQ005.md](requirements/REQ005.md) | Template library | Deck & Slides | P1 | done | BR005 |
 | [REQ006.md](requirements/REQ006.md) | Create a deck from a template | Deck & Slides | P1 | done | BR006 |
 | [REQ007.md](requirements/REQ007.md) | Generate a draft deck from a prompt | Deck & Slides | P1 | done | BR007 |

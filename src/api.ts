@@ -7,6 +7,7 @@ import {
 	type DeckCollaborator,
 	type DeckGenerationAvailability,
 	type DeckTemplate,
+	type DeckTemplateCategory,
 	type DeckThemeId,
 	isVoteRefusalCode,
 	isWithheldTally,
@@ -21,6 +22,7 @@ import {
 	type Workspace,
 	type WorkspaceMember,
 	type WorkspaceRole,
+	type WorkspaceTemplate,
 } from "./types";
 import {
 	PARTICIPANT_ID_KEY,
@@ -336,6 +338,14 @@ export const api = {
 		title?: string;
 		slides?: any[];
 		templateId?: string;
+		/**
+		 * One of a workspace's **own** published templates (REQ004), which is why it
+		 * only ever travels with `workspaceId` — the entry belongs to that workspace
+		 * and the server resolves the caller's role there before looking it up. The
+		 * copy it produces is REQ006's copy: fresh ids, nothing recording the
+		 * origin, so the template's later edits cannot reach this deck.
+		 */
+		workspaceTemplateId?: string;
 		/**
 		 * The workspace that will own the deck (REQ128). The server records no
 		 * account owner for one of these and mints no edit token, so there is
@@ -1027,6 +1037,50 @@ export const api = {
 	/** The decks the workspace owns, as their authors wrote them. */
 	listWorkspacePresentations: (workspaceId: string) =>
 		request<any[]>(`/workspaces/${workspaceId}/presentations`),
+
+	// ── The templates a workspace publishes (REQ004) ────────────
+	//
+	// A published entry is a catalog entry (REQ005) plus the deck it was taken
+	// from and who published it, so the gallery that draws one draws the other and
+	// `filterDeckTemplates` narrows both. What is *not* shared is the way in: the
+	// built-in catalog is public and these are read against the workspace's roster
+	// on every request, which is why they live here beside the rest of the
+	// workspace surface rather than beside `listTemplates` above.
+
+	/** What this workspace publishes. Any member reads it. */
+	listWorkspaceTemplates: (workspaceId: string) =>
+		request<WorkspaceTemplate[]>(`/workspaces/${workspaceId}/templates`),
+
+	/**
+	 * Publish one of the workspace's decks as a template (`admin`/`owner`).
+	 *
+	 * Idempotent per deck: publishing one that already has an entry **refreshes**
+	 * it rather than adding a second card, which is what makes "republish" the
+	 * same call as "publish". The entry stores a copy of the deck's slides taken
+	 * now, so editing the deck afterwards changes nothing until this is called
+	 * again.
+	 */
+	publishWorkspaceTemplate: (
+		workspaceId: string,
+		entry: {
+			presentationId: string;
+			title?: string;
+			description?: string;
+			category: DeckTemplateCategory;
+			tags?: string[];
+		},
+	) =>
+		request<WorkspaceTemplate>(`/workspaces/${workspaceId}/templates`, {
+			method: "POST",
+			body: JSON.stringify(entry),
+		}),
+
+	/** Take one back down. No deck is touched — see the server route's note. */
+	unpublishWorkspaceTemplate: (workspaceId: string, templateId: string) =>
+		request<{ ok: true }>(
+			`/workspaces/${workspaceId}/templates/${templateId}`,
+			{ method: "DELETE" },
+		),
 
 	/**
 	 * Move a deck into a workspace, or back out into this account (`null`).

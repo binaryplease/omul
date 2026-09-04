@@ -2,9 +2,12 @@ import { ChevronLeft, LayoutTemplate, Search, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Segmented } from "../components/EditorControls";
-import { HighlightedText } from "../components/HighlightedText";
 import { ICON_BUTTON_HOVER } from "../components/ShareCluster";
-import { SlideTypeIcon } from "../components/SlideTypeIcon";
+import {
+	DECK_TEMPLATE_CATEGORY_LABELS,
+	TemplateCard,
+	UseTemplateButton,
+} from "../components/TemplateCard";
 import { LoadingState } from "../components/ui/Loading";
 import { ThemeToggle } from "../components/ui/Theme";
 import { useToast } from "../components/ui/Toast";
@@ -26,22 +29,10 @@ import { DECK_TEMPLATE_CATEGORIES, filterDeckTemplates } from "../types";
 // what makes the copy REQ006's copy — re-identified slides, a deck of one's own
 // with an edit token, nothing pointing back at the template — rather than a
 // client-side clipboard the organizer could lose by closing the tab.
-
-/**
- * What each category is called on screen. The vocabulary itself is the schema's
- * (`DECK_TEMPLATE_CATEGORIES`); these are the words for it, and they live here
- * because the gallery is the only surface that says them out loud.
- */
-export const DECK_TEMPLATE_CATEGORY_LABELS: Record<
-	DeckTemplateCategory,
-	string
-> = {
-	meeting: "Meetings",
-	workshop: "Workshops",
-	education: "Teaching",
-	feedback: "Feedback",
-	engagement: "Engagement",
-};
+//
+// The card itself is `components/TemplateCard.tsx` and is not this page's: a
+// workspace's own published templates (REQ004) are the same entry with a
+// publisher on it, drawn by the same component on the workspace's page.
 
 /** The category filter's choices: every category, plus "everything". */
 const CATEGORY_FILTER_OPTIONS: { value: string; label: string }[] = [
@@ -211,10 +202,14 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 										template={template}
 										search={search}
 										index={index}
-										creating={creatingId === template.id}
-										busy={creatingId !== null}
-										onUse={() => handleUse(template)}
-									/>
+									>
+										<UseTemplateButton
+											label={`Create a new deck from “${template.title}”`}
+											creating={creatingId === template.id}
+											busy={creatingId !== null}
+											onUse={() => handleUse(template)}
+										/>
+									</TemplateCard>
 								))}
 							</div>
 						)}
@@ -222,91 +217,6 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 				)}
 			</div>
 		</div>
-	);
-}
-
-/**
- * One catalog entry. Everything the search looks at is on the card — title,
- * description, category and tags — so a match always has a visible reason, and
- * the reason is marked where it was found.
- */
-function TemplateCard({
-	template,
-	search,
-	index,
-	creating,
-	busy,
-	onUse,
-}: {
-	template: DeckTemplate;
-	search: string;
-	index: number;
-	/** This entry is the one being created right now. */
-	creating: boolean;
-	/** Some entry is being created — not necessarily this one. */
-	busy: boolean;
-	onUse: () => void;
-}) {
-	const slideCount = template.slides.length;
-	return (
-		<article
-			className={`flex flex-col gap-3 p-5 rounded-xl bg-surface-raised border border-border hover:border-text-dim transition-all shadow-panel slide-in slide-in-delay-${Math.min(index + 1, 5)}`}
-		>
-			<div className="flex items-start justify-between gap-3">
-				<h2 className="font-semibold leading-tight">
-					<HighlightedText text={template.title} search={search} />
-				</h2>
-				<span className="flex-shrink-0 rounded-full border border-border-subtle bg-surface px-2.5 py-0.5 text-xs text-text-muted">
-					<HighlightedText
-						text={DECK_TEMPLATE_CATEGORY_LABELS[template.category]}
-						search={search}
-					/>
-				</span>
-			</div>
-
-			<p className="text-sm text-text-muted">
-				<HighlightedText text={template.description} search={search} />
-			</p>
-
-			{/* The deck's shape at a glance: one icon per slide, in the order they
-			    are in, so the card says what kind of session this is rather than
-			    only how long it is. */}
-			<div className="flex flex-wrap items-center gap-2 text-sm text-text-dim">
-				<span className="font-mono text-xs">
-					{slideCount} slide{slideCount === 1 ? "" : "s"}
-				</span>
-				<span className="flex flex-wrap items-center gap-1.5">
-					{template.slides.map((slide) => (
-						<SlideTypeIcon key={slide.id} type={slide.type} />
-					))}
-				</span>
-			</div>
-
-			<div className="flex flex-wrap gap-1.5">
-				{template.tags.map((tag) => (
-					<span
-						key={tag}
-						className="rounded-md bg-surface px-2 py-0.5 text-xs text-text-dim"
-					>
-						<HighlightedText text={tag} search={search} />
-					</span>
-				))}
-			</div>
-
-			<button
-				type="button"
-				className="btn-primary mt-auto text-sm disabled:opacity-50 disabled:cursor-wait"
-				onClick={onUse}
-				disabled={busy}
-				title={
-					busy && !creating
-						? "Another template is being created — one at a time."
-						: `Create a new deck from “${template.title}”`
-				}
-			>
-				{creating ? "Creating…" : "Use template"}
-			</button>
-		</article>
 	);
 }
 

@@ -182,6 +182,22 @@ const guards: Guard[] = [
 			"Slide editing layer reached outside the editor's stage — author a slide through <SlideCanvas editing=…/> from src/components/SlideCanvas.tsx instead.",
 	},
 	{
+		// REQ004/REQ005: two galleries draw a template — the built-in catalog and
+		// the templates a workspace publishes — and what they draw is the same
+		// entry, so the card and the words for its five categories are one
+		// descriptor owned by one module. A surface that re-declared the label map
+		// is a surface where "Teaching" can quietly become "Education" on one
+		// gallery and not the other; a surface that re-declared the card is where
+		// the tags stop being rendered on one of them and a search starts matching
+		// on something the reader cannot see.
+		name: "re-declared template category labels",
+		pattern: /DECK_TEMPLATE_CATEGORY_LABELS(\s*:|\s*=)/,
+		allowlist: ["components/TemplateCard.tsx"],
+		skipComments: true,
+		message:
+			"Template category labels re-declared — import DECK_TEMPLATE_CATEGORY_LABELS and render <TemplateCard/> from src/components/TemplateCard.tsx instead.",
+	},
+	{
 		// The share-control cluster is a single descriptor + wrapper.
 		// These title strings are unique to those controls; finding them outside
 		// the wrapper means the affordance was hand-rolled again.

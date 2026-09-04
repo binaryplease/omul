@@ -111,9 +111,10 @@ export function openedCollectionNames(): string[] {
  * schema object `ref()` hands out. This catalog's
  * foreign keys are plain `z.string()` over `crypto.randomUUID()` values with no
  * `prefix_` on them, so `ref()` cannot express them and the walk reads all
- * eighteen of them — `presentationId`, `slideId`, `workspaceId`, `userId`,
- * `authorId`, `participantId`, `questionId`, `responseId`, spread over nine of
- * the eleven collections — as ordinary fields that forgot a default. The rule's
+ * twenty of them — `presentationId`, `slideId`, `workspaceId`, `userId`,
+ * `authorId`, `participantId`, `questionId`, `responseId`,
+ * `sourcePresentationId`, spread over ten of the twelve collections — as
+ * ordinary fields that forgot a default. The rule's
  * own exemption for identity fields covers exactly those, and
  * `server/stored-defaults.test.ts` enforces the rule over every collection with
  * that exemption spelled out — over every collection this function has actually

@@ -194,27 +194,91 @@ describe("the mark position is a trademark reservation, not a copyright carve-ou
 });
 
 describe("the contact route is real, singular and identical in every file", () => {
-	// Three files are the only route a reader has: LICENSE-COMMERCIAL is the only
-	// way to reach the commercial half of the dual license, TRADEMARK.md the only
-	// way to ask whether a use of the name is permitted, and CLA.md the only way
-	// to sign without a GitHub account or to send an employer's waiver. A dead or
-	// drifting address in any of them is a route that silently discards every
-	// message, and publishing it does not reverse.
+	// One mailbox answers licensing, trademark, CLA and security mail, and seven
+	// files publish it. Three of them are the only route a reader has:
+	// LICENSE-COMMERCIAL is the only way to reach the commercial half of the dual
+	// license, TRADEMARK.md the only way to ask whether a use of the name is
+	// permitted, and CLA.md the only way to sign without a GitHub account or to
+	// send an employer's waiver. Those three were the set here for a while, and
+	// then the address spread to SECURITY.md, README.md, CODE_OF_CONDUCT.md and
+	// the issue-template config without the set following — the first of those
+	// being the one a stranger reaching for a vulnerability report reads. A dead
+	// or drifting address in any of the seven is a route that silently discards
+	// every message, and publishing it does not reverse.
+	//
+	// Two things are deliberately not a second address. URLs are stripped before
+	// the scan, because `config.yml` is a list of links rather than prose and a
+	// URL can carry an `@` (`git@host`, a scoped package path) while naming no
+	// mailbox at all. And the RFC 2606 documentation domains are skipped: the
+	// `you@example.com` in README.md's `docker run` example is reserved so that
+	// it can appear in documentation, and cannot rot into a dead route because it
+	// was never a live one.
 	const CONTACT = "support@hyhyve.com";
 	const ANY_ADDRESS = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+	const URL = /[a-z][a-z0-9+.-]*:\/\/\S+/g;
+	const DOCUMENTATION_DOMAIN = /@example\.(com|net|org)$/i;
 
-	for (const file of ["LICENSE-COMMERCIAL", "TRADEMARK.md", "CLA.md"]) {
+	const CONTACT_FILES = [
+		"LICENSE-COMMERCIAL",
+		"TRADEMARK.md",
+		"CLA.md",
+		"SECURITY.md",
+		"README.md",
+		"CODE_OF_CONDUCT.md",
+		".github/ISSUE_TEMPLATE/config.yml",
+	];
+
+	/** Every mailbox a file offers, deduplicated; links and examples are not one. */
+	function addressesIn(text: string): string[] {
+		const prose = text.replace(URL, " ");
+		return [...new Set(prose.match(ANY_ADDRESS) ?? [])].filter(
+			(address) => !DOCUMENTATION_DOMAIN.test(address),
+		);
+	}
+
+	/**
+	 * The surface a reader meets before opening any directory: every file at the
+	 * repository root, plus `.github/`. Tracked and not-yet-ignored untracked
+	 * files both, for the reason `scripts/guard-publication-residue.ts` gives —
+	 * the post-session hook is what commits, so a `--cached` list would clear a
+	 * file the very next step commits.
+	 */
+	function surfaceFiles(): string[] {
+		const listing = Bun.spawnSync(
+			["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+			{ cwd: REPO_ROOT },
+		);
+		expect(listing.exitCode).toBe(0);
+		return listing.stdout
+			.toString()
+			.split("\0")
+			.filter((path) => path.length > 0)
+			.filter((path) => !path.includes("/") || path.startsWith(".github/"));
+	}
+
+	for (const file of CONTACT_FILES) {
 		test(`${file} names the contact and nothing else`, () => {
 			const text = readRepoFile(file);
 			expect(text).toContain(CONTACT);
 			// A second address here means two routes, one of which will go stale.
-			expect([...new Set(text.match(ANY_ADDRESS) ?? [])]).toEqual([CONTACT]);
+			expect(addressesIn(text)).toEqual([CONTACT]);
 		});
 
 		test(`${file} no longer carries the unresolved-contact banner`, () => {
 			expect(readRepoFile(file)).not.toContain("UNRESOLVED");
 		});
 	}
+
+	test("no file at the surface names a mailbox this list does not hold", () => {
+		// The list went stale once already, silently, because nothing measured it:
+		// four files gained the address and no test noticed. This is that
+		// measurement — a new file that publishes a mailbox has to be held above,
+		// and a held file that quietly drops the address falls out of this set.
+		const naming = surfaceFiles().filter(
+			(path) => addressesIn(readRepoFile(path)).length > 0,
+		);
+		expect(naming.sort()).toEqual([...CONTACT_FILES].sort());
+	});
 });
 
 describe("the CLA and the check that enforces it say the same thing", () => {

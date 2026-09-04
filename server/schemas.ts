@@ -4958,6 +4958,23 @@ export const CreatePresentationSchema = z
 		 */
 		templateId: z.string().default(""),
 		/**
+		 * The **workspace's own** published template this deck starts from (REQ004)
+		 * — an id from `GET /api/workspaces/:id/templates`, or `""`.
+		 *
+		 * A field of its own rather than a second meaning for `templateId`, and the
+		 * separation is what keeps the built-in catalog's ids a namespace nobody can
+		 * write into: an entry a workspace published is reachable only by a caller
+		 * who has already named that workspace and proved a role in it, so the two
+		 * lookups are never a fallback for one another. The refinement below refuses
+		 * a request that names both, and one that names this without the workspace
+		 * it belongs to.
+		 *
+		 * What it produces is a copy on exactly REQ006's terms: re-identified
+		 * slides, nothing recording the origin, so later edits to the template
+		 * cannot reach the deck.
+		 */
+		workspaceTemplateId: z.string().default(""),
+		/**
 		 * The workspace that will own this deck (REQ128), or `""` for a deck the
 		 * caller owns themselves — spelled as an empty string rather than a
 		 * nullable, like `templateId` directly above it and for the same reason: an
@@ -5015,24 +5032,50 @@ export const CreatePresentationSchema = z
 		themeLogoAlt: z.string().optional().default(""),
 	})
 	// A deck has to come from somewhere: either the request carries a title and
-	// at least one slide, or it names the template both are copied from (REQ006).
+	// at least one slide, or it names the template both are copied from — a
+	// built-in catalog entry (REQ006) or one its own workspace published (REQ004).
 	// Expressed as a refinement rather than as `min(1)` on the two fields so the
 	// boundary stays exactly as strict as it was for every create that names no
 	// template — an empty title or an empty deck is still refused there.
 	.superRefine((created, context) => {
-		if (created.templateId.trim() !== "") return;
+		const fromCatalog = created.templateId.trim() !== "";
+		const fromWorkspace = created.workspaceTemplateId.trim() !== "";
+		// Two templates is not a merge, it is a request that did not decide. Refused
+		// here rather than silently resolved in favour of one of them, which would
+		// hand back a deck the caller can only tell apart by reading its slides.
+		if (fromCatalog && fromWorkspace) {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["workspaceTemplateId"],
+				message:
+					"A deck starts from one template — name templateId or workspaceTemplateId, not both",
+			});
+		}
+		// A published template belongs to a workspace, and the workspace is what the
+		// caller's standing is resolved against *before* the entry is looked up
+		// (REQ004/REQ129). Without it there is nothing to authorize against, so the
+		// request is malformed rather than a lookup across every workspace there is.
+		if (fromWorkspace && created.workspaceId.trim() === "") {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["workspaceId"],
+				message:
+					"A workspace's own template is used inside that workspace — name it as workspaceId",
+			});
+		}
+		if (fromCatalog || fromWorkspace) return;
 		if (created.title.trim() === "") {
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
 				path: ["title"],
-				message: "A presentation needs a title, or a templateId to take one from",
+				message: "A presentation needs a title, or a template to take one from",
 			});
 		}
 		if (created.slides.length === 0) {
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
 				path: ["slides"],
-				message: "A presentation needs at least one slide, or a templateId to copy them from",
+				message: "A presentation needs at least one slide, or a template to copy them from",
 			});
 		}
 	});
@@ -5607,8 +5650,11 @@ export type PostSlideCommentInput = z.infer<typeof PostSlideCommentSchema>;
 //    a sweep for `!== "member"` spelled five different ways.
 //
 // What this slice deliberately does not model: a workspace's own settings, theme,
-// templates, usage or seats. Each is its own pending requirement, and a field
-// here that nothing enforces would be a promise the server does not keep.
+// usage or seats. Each is its own pending requirement, and a field here that
+// nothing enforces would be a promise the server does not keep. The templates a
+// workspace publishes for itself *are* modelled, further down this block
+// (REQ004) — and as a collection of their own rather than a field here, because
+// a workspace holds many and each is a document.
 
 /**
  * The longest a workspace's name may be, in characters. The deck title's cap
@@ -5674,6 +5720,30 @@ export function canReadWorkspace(role: WorkspaceRole | null): boolean {
  */
 export function canCreateWorkspaceDecks(role: WorkspaceRole | null): boolean {
 	return role === "member" || role === "admin" || role === "owner";
+}
+
+/**
+ * Whether a role may **publish** one of the workspace's decks as a template the
+ * workspace starts from, and take a published one back down (REQ004).
+ *
+ * `admin` and `owner` — the reading {@link canAdministerWorkspaceDecks} below
+ * takes rather than the one {@link canCreateWorkspaceDecks} above does, and for
+ * a reason of its own: publishing writes to a surface **every** member reads and
+ * every deck made from it inherits. Being trusted to build a deck is not being
+ * trusted to put one in front of the whole workspace as the way things are done
+ * here. Where two roles are both defensible the narrower one ships: loosening
+ * this later is a decision somebody makes deliberately, while tightening it
+ * takes something away from people who already had it.
+ *
+ * *Using* a published template is not this predicate — it creates an ordinary
+ * deck the workspace owns, so it is {@link canCreateWorkspaceDecks} like any
+ * other create, and REQ131's reduced role will be shut out of both by the one
+ * line it adds there.
+ */
+export function canPublishWorkspaceTemplates(
+	role: WorkspaceRole | null,
+): boolean {
+	return role === "admin" || role === "owner";
 }
 
 /**
@@ -5804,6 +5874,120 @@ export const WorkspaceRoleBodySchema = z.object({
 export const DeckWorkspaceSchema = z.object({
 	workspaceId: z.string().nullable(),
 });
+
+// ── Publishing a deck as a workspace template (REQ004) ───────
+//
+// The catalog further up this file (REQ005) is **code**: authored in
+// `server/templates.ts`, shipped with the build, identical for every caller and
+// unwritable at runtime. This is the other kind — a template a workspace
+// publishes *for itself*, out of a deck it already owns, so the way this team
+// runs a retro is one click away for everybody in it and reaches nobody outside.
+// The workspace is what makes it possible: an entry published here belongs to
+// the workspace and is read against its roster, which is a standing no single
+// account and no forwardable link could have held.
+//
+// Two independences hold the model up, and both are the same operation applied
+// once each — `withFreshSlideIds`, which is already the definition of "copy" the
+// built-in catalog is detached by (REQ006):
+//
+//  - **Publishing takes a snapshot; it does not link the template to the deck.**
+//    The slides are copied under fresh ids on the way in, so editing the deck
+//    afterwards does not reach the entry. Republishing the same deck refreshes
+//    the snapshot, which is what keeps publishing a deliberate act rather than a
+//    live mirror of whatever somebody last typed.
+//  - **Instantiating produces a deck, not a view of the template.** The slides
+//    are copied again on the way out, so later edits to the template do not
+//    reach a deck already made from it. That is REQ004's second sentence, and it
+//    is word for word what REQ006 promises the built-in entries.
+//
+// Everything else about a published template is a catalog entry's shape, on
+// purpose: {@link WorkspaceTemplateSchema} extends {@link DeckTemplateSchema}
+// rather than restating it, so one gallery renders both surfaces and
+// {@link filterDeckTemplates} means the same thing on each. What it adds is what
+// only a published entry has — the deck it came from, who published it, and when.
+
+/**
+ * The longest a published template's description may be, in characters. Room for
+ * the two sentences the built-in entries are written in, and no room to paste a
+ * deck's worth of prose into a card the gallery is meant to be skimmed by.
+ */
+export const WORKSPACE_TEMPLATE_DESCRIPTION_MAX_LENGTH = 500;
+
+/** The longest one of a published template's search tags may be. */
+export const WORKSPACE_TEMPLATE_TAG_MAX_LENGTH = 40;
+
+/**
+ * How many tags one published template may carry. A handful of extra words the
+ * search reads, not a second description — every one of them is rendered on the
+ * card, because a match on a tag nobody can see would be a result with no
+ * visible reason to be there (REQ005's rule, inherited here with the shape).
+ */
+export const WORKSPACE_TEMPLATE_TAG_LIMIT = 10;
+
+/**
+ * One template a workspace publishes, as a member reads it (REQ004).
+ *
+ * An extension of the catalog entry rather than a shape beside it — `id`,
+ * `title`, `description`, `category`, `tags` and `slides` all mean exactly what
+ * they mean on a built-in entry, so a client can render one gallery, filter it
+ * with one function and create from either.
+ *
+ * **No account identifier is declared here**, the construction that keeps
+ * `creatorId` off a deck: the account that published is stored, and what a
+ * client is handed is a display name that a deleted account reads as `null`
+ * rather than as a missing key.
+ */
+export const WorkspaceTemplateSchema = DeckTemplateSchema.extend({
+	/**
+	 * The deck this entry was published from — the handle a republish is matched
+	 * on, and what lets a surface say "published" on the deck it came from. It is
+	 * a deck id and not a secret: every member can already list every deck the
+	 * workspace owns. It may name a deck that has since been deleted, and the
+	 * entry is unaffected by that, which is the snapshot doing its job.
+	 */
+	sourcePresentationId: z.string().default(""),
+	/** Who published it, by display name; `null` when that account is gone. */
+	publishedByName: z.string().nullable().default(null),
+	createdAt: z.string().default(""),
+	updatedAt: z.string().default(""),
+});
+
+export type WorkspaceTemplate = z.infer<typeof WorkspaceTemplateSchema>;
+
+/**
+ * What publishing a deck as a workspace template takes (REQ004).
+ *
+ * `presentationId` is the required input and carries no default — a publish with
+ * no deck behind it is a mistake to fail loudly on rather than one to fill in.
+ * The deck's *slides* are the whole of what is copied; every other field here is
+ * how the entry is **found in a gallery**, which is a decision about the
+ * template and not a fact about the deck.
+ *
+ * `title` defaults to `""` and means "the deck's own", exactly as it does on a
+ * create that names a template (REQ006). `category` is the one field with no
+ * default at all, and deliberately: unlike a role or a grant level, none of the
+ * five occasions is the withholding one, so there is nothing safe to assume —
+ * an entry silently filed under the wrong occasion is worse for every member
+ * browsing than a publish that was refused for not saying.
+ */
+export const PublishWorkspaceTemplateSchema = z.object({
+	presentationId: z.string().min(1),
+	title: z.string().trim().max(DECK_TITLE_MAX_LENGTH).default(""),
+	description: z
+		.string()
+		.trim()
+		.max(WORKSPACE_TEMPLATE_DESCRIPTION_MAX_LENGTH)
+		.default(""),
+	category: DeckTemplateCategoryEnum,
+	tags: z
+		.array(z.string().trim().min(1).max(WORKSPACE_TEMPLATE_TAG_MAX_LENGTH))
+		.max(WORKSPACE_TEMPLATE_TAG_LIMIT)
+		.default([]),
+});
+
+export type PublishWorkspaceTemplateInput = z.infer<
+	typeof PublishWorkspaceTemplateSchema
+>;
 
 // ── Vote schema ──────────────────────────────────────────────
 
@@ -6095,6 +6279,49 @@ export const StoredWorkspaceMemberSchema = z.object({
 });
 
 export type StoredWorkspaceMember = z.infer<typeof StoredWorkspaceMemberSchema>;
+
+/**
+ * One template a workspace has published (REQ004) — the stored half of the
+ * entry, and the first template in this codebase that is a document at all.
+ *
+ * A collection of its own rather than an array on the workspace document, for
+ * the reason the memberships above are one: a workspace holds many, each is a
+ * whole deck's worth of slides, and the read that matters — "what does this
+ * workspace publish?" — is a filter on one indexed field. Putting them on the
+ * workspace would also mean rewriting every entry to add one.
+ *
+ * `workspaceId` and `sourcePresentationId` are the identity pair beside `id` and
+ * carry no default: an entry that lost the first would belong to no workspace,
+ * and one that lost the second could not be recognised as a republish of the
+ * deck it came from. One row per pair, so publishing the same deck twice
+ * refreshes the snapshot instead of stacking a second card beside the first.
+ *
+ * The **slides are a copy taken at publish time**, under ids of their own — the
+ * deck they came from is named here and is otherwise unreachable from the entry,
+ * so editing that deck afterwards changes nothing here. Deleting it changes
+ * nothing here either; `sourcePresentationId` is then a name for a deck that is
+ * gone, which costs the surface a "republish" affordance and costs the template
+ * nothing.
+ */
+export const StoredWorkspaceTemplateSchema = z.object({
+	id: z.string(),
+	workspaceId: z.string(),
+	/** The deck the snapshot was taken from. May name a deleted deck. */
+	sourcePresentationId: z.string(),
+	title: z.string().default(""),
+	description: z.string().default(""),
+	category: DeckTemplateCategoryEnum.default("meeting"),
+	tags: z.array(z.string()).default([]),
+	slides: z.array(SlideSchema).default([]),
+	/** The account that published it (Better Auth `user.id`). Never leaves the server. */
+	publishedBy: z.string().nullable().default(null),
+	createdAt: z.string().default(""),
+	updatedAt: z.string().default(""),
+});
+
+export type StoredWorkspaceTemplate = z.infer<
+	typeof StoredWorkspaceTemplateSchema
+>;
 
 /**
  * One account's standing on one deck (REQ075) — the stored half of a grant.

@@ -125,7 +125,7 @@ action today is **reassign a presentation's owner**.
 | GET | `/api/presentations` | — | List presentations (`?creatorId=`) |
 | GET | `/api/presentations/mine` | ✅ session/key | List the signed-in account's owned decks |
 | GET | `/api/presentations/shared` | ✅ session/key | List the decks other accounts have shared with the caller, each with its `accessLevel` (REQ075) — see **Sharing a deck with other accounts** below |
-| POST | `/api/presentations` | optional session/key | Create; returns `creatorToken` once (null for API-key create; records owner when signed in). `templateId` starts the deck from a catalog entry, copying its slides (REQ006) — see **Deck templates** below. `workspaceId` makes the deck the **workspace's** instead: no account owner, no edit token, and a role check on the caller (REQ128) — see **Workspaces** below |
+| POST | `/api/presentations` | optional session/key | Create; returns `creatorToken` once (null for API-key create; records owner when signed in). `templateId` starts the deck from a catalog entry, copying its slides (REQ006) — see **Deck templates** below. `workspaceId` makes the deck the **workspace's** instead: no account owner, no edit token, and a role check on the caller (REQ128) — see **Workspaces** below. `workspaceTemplateId`, alongside it, starts that deck from one of the workspace's own published templates (REQ004) |
 | GET | `/api/presentations/:id` | — | Get presentation by ID. Reports the caller's own `accessLevel` (REQ075) and account-standing `commentAccess` (REQ074) on it |
 | PATCH | `/api/presentations/:id` | ✅ owner, token or `edit` grant | Update the deck's **authored** fields. The owner, the edit-token hash and the results-link pair are not among them and are dropped, not merged |
 | DELETE | `/api/presentations/:id` | ✅ owner or token | Delete presentation — and every collaborator grant on it. The one mutation an `edit` collaborator is **not** allowed (REQ075) |
@@ -182,6 +182,9 @@ action today is **reassign a presentation's owner**.
 | PATCH | `/api/workspaces/:id/members/:memberId` | ✅ `admin` / `owner` | Change one membership's role `{ role }` — either end touching `owner` needs `owner`; `409` on the last owner |
 | DELETE | `/api/workspaces/:id/members/:memberId` | ✅ `admin` / `owner`, or the member themselves | Remove one membership, or leave — `409` on the last owner. The workspace's decks are untouched |
 | GET | `/api/workspaces/:id/presentations` | ✅ member | The decks the workspace owns, as their authors wrote them |
+| GET | `/api/workspaces/:id/templates` | ✅ member | The templates the workspace publishes out of its own decks (REQ004) — see **Templates a workspace publishes** below |
+| POST | `/api/workspaces/:id/templates` | ✅ `admin` / `owner` | Publish one of its decks as a template `{ presentationId, category, title?, description?, tags? }` — idempotent per deck |
+| DELETE | `/api/workspaces/:id/templates/:templateId` | ✅ `admin` / `owner` | Take one back down. No deck is touched |
 | POST | `/api/admin/actions` | ✅ admin | Prepare a two-step action; returns a one-time `confirmationToken` |
 | POST | `/api/admin/actions/:id/confirm` | ✅ admin | Execute a prepared action `{ confirmationToken }` |
 | GET | `/api/admin/events` | ✅ admin | Append-only admin audit log |
@@ -462,14 +465,16 @@ separates the roles is what they may do to the *workspace*:
 |---|---|---|---|
 | Read, edit, present its decks; create new ones | ✅ | ✅ | ✅ |
 | Delete one of its decks; decide who outside the workspace it is shared with | — | ✅ | ✅ |
+| Publish one of its decks as a template, and take one down (REQ004) | — | ✅ | ✅ |
 | Add, remove and re-role members | — | ✅ | ✅ |
 | Grant or take back the `owner` role | — | — | ✅ |
 | Rename or delete the workspace; move a deck back out of it | — | — | ✅ |
 
 Each row is a **predicate** in `server/schemas.ts`
 (`canCreateWorkspaceDecks`, `canAdministerWorkspaceDecks`,
-`canManageWorkspaceMembers`, `canAdministerWorkspace`), and no route re-derives
-one by comparing role strings. The set is deliberately open at the weak end:
+`canPublishWorkspaceTemplates`, `canManageWorkspaceMembers`,
+`canAdministerWorkspace`), and no route re-derives one by comparing role
+strings. The set is deliberately open at the weak end:
 REQ131 reserves a reduced-capability role that reads and comments but neither
 creates nor presents, and it arrives as one entry at the front of
 `WORKSPACE_ROLES` plus one line in each predicate rather than as a sweep for
@@ -491,8 +496,9 @@ could restore an owner afterwards — the routes that hand the role out are
 themselves owner-gated — so the workspace would be un-renameable, un-addable-to
 and un-deletable for good, with its decks stuck in it.
 
-**Deleting a workspace never deletes a deck.** It is refused with `409`, and the
-count, while the workspace still owns any: it is their owner, so deleting it
+**Deleting a workspace never deletes a deck.** It takes its published templates
+(REQ004) the way it takes its memberships, and no deck either way. It is refused
+with `409`, and the count, while the workspace still owns any: it is their owner, so deleting it
 would leave each of them owned by nothing and reachable by nobody. Move them out
 or delete them first. Removing a *member*, by contrast, touches no deck at all —
 which is the whole point.
@@ -741,9 +747,11 @@ phone would be missing.
 A **template** is a prebuilt deck the catalog offers as a starting point. The
 set is built in — authored in `server/templates.ts`, shipped with the build —
 so the two read routes are public, unauthenticated and identical for every
-caller, and there is no write route for one anywhere. (Publishing a deck *as* a
-template is REQ004, which needs a workspace to own the published entry and is
-still pending.)
+caller, and there is no write route for one anywhere. A workspace can also
+publish a template *of its own*, out of a deck it owns — that is REQ004, it is
+written and read against the workspace's roster rather than shipped with the
+build, and it lives under `/api/workspaces/:id/templates` (**Templates a
+workspace publishes**, directly below this section).
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -788,6 +796,76 @@ omission (REQ036/REQ077/REQ078), and picking a prebuilt deck out of a gallery is
 not the organizer opening their room's chat. The one deck-shaped decision a
 template *can* carry is a slide's own `resultsVisibility` (REQ102), because that
 lives on the slide and travels with it.
+
+## Templates a workspace publishes (REQ004)
+
+The other kind of template, and the only one that is a **document**: a workspace
+takes one of the decks it owns and publishes it as a starting point for
+everybody in it. The catalog above ships with the build and reads the same for
+every caller of every deployment; these are written at runtime, belong to one
+workspace, and are read against its roster — which is exactly the standing no
+single account and no forwardable edit link could have held, and the reason this
+requirement waited for workspaces (REQ128, REQ129).
+
+| Route | Who | What |
+|---|---|---|
+| `GET /api/workspaces/:id/templates` | any member | The workspace's gallery, newest first |
+| `POST /api/workspaces/:id/templates` | `admin` / `owner` | Publish one of its decks, or refresh the entry that deck already has |
+| `DELETE /api/workspaces/:id/templates/:templateId` | `admin` / `owner` | Take one entry back down |
+| `POST /api/presentations` with `workspaceId` + `workspaceTemplateId` | any member who may create decks there | Start a deck from an entry |
+
+An entry is a catalog entry plus a publisher: `id`, `title`, `description`,
+`category` (the same five), `tags` and `slides` mean exactly what they mean
+above, so **one gallery component and one `filterDeckTemplates()` serve both
+surfaces** and a search cannot come to mean two things. What it adds is
+`sourcePresentationId` (the deck it was taken from), `publishedByName` — a
+display name, `null` for an account that has since been deleted, never an
+account id — and `createdAt` / `updatedAt`.
+
+**Publishing is a snapshot, and the snapshot is what makes the requirement
+true.** The entry stores a **copy** of the deck's slides under fresh ids
+(`withFreshSlideIds()`, the same function REQ006's copy is defined by), so:
+
+- editing the deck afterwards changes nothing in the gallery — republishing it
+  does, and that is the whole of how a template's content ever changes;
+- a deck created from an entry copies those slides *again*, so it shares no id
+  with the entry and **later edits to the template do not reach it** — REQ004's
+  second sentence, enforced by the same function REQ006 leans on;
+- deleting the source deck leaves the entry standing, and unpublishing the entry
+  leaves every deck alone: the one it was published from and every one it
+  produced.
+
+**One entry per deck.** Publishing a deck that already has an entry *refreshes*
+it — `200` instead of the `201` a new one gets — rather than stacking a second
+card beside the first, held by a unique (workspace, deck) index rather than by a
+check the routes race each other on. `presentationId` must name a deck **this
+workspace owns**: a deck that does not exist, one the caller owns personally and
+one belonging to another workspace all answer `404`. `category` is required and
+is the one field with no default anywhere in this slice — unlike a role or a
+grant level, none of the five occasions is the withholding one, so an entry
+silently filed under the wrong one is worse for every member browsing than a
+publish that was refused for not saying. `title` defaults to the deck's own.
+
+**Publishing is `admin` / `owner`; using is every role that may create decks.**
+`canPublishWorkspaceTemplates()` in `server/schemas.ts` is the predicate, and it
+is deliberately the narrower of two defensible readings: publishing writes to a
+surface every member reads and every deck made from it inherits. Starting a deck
+from an entry is an ordinary create, gated by `canCreateWorkspaceDecks()` like
+any other — so REQ131's reduced role will be shut out of both by the one line it
+adds there.
+
+**None of these routes is an existence oracle.** Every one of them resolves the
+caller's role in the workspace *first*: a workspace the caller is not in and one
+that does not exist answer the same `403`, exactly as `GET /api/workspaces/:id`
+does. The create is the sharpest case — `workspaceTemplateId` is refused without
+a `workspaceId` (there would be nothing to authorize against) and refused
+together with `templateId` (a deck starts from one template), and the entry is
+looked up only after the role check, scoped to the named workspace, so an
+unknown id answers `400` to a member and nothing at all to anybody else.
+
+**Deleting a workspace takes its gallery with it** and no deck with either: the
+templates are swept the way its memberships are, while the decks still refuse the
+delete with `409` until they are moved out (**Workspaces** above).
 
 ## Generating a deck from a prompt (REQ007)
 
