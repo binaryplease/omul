@@ -1508,9 +1508,35 @@ function acceptsSubmissions(pres: Record<string, unknown>): boolean {
 // ── Voting ───────────────────────────────────────────────────
 
 /**
- * Re-aggregate a slide and push the fresh tally to everyone watching it. Every
- * vote path ends here, so the "recount, then broadcast" pair is written once
- * instead of at each of the branches below.
+ * Which slide's tally a coalesced run is for. Two values in the coalescer's one
+ * string key: a presentation and a slide inside it, because two slides of one
+ * deck are two independent tallies and must not throttle each other.
+ *
+ * Split at the **first** separator, which is exact rather than merely likely: a
+ * presentation id is a `crypto.randomUUID()` and so contains no colon, while a
+ * slide id is whatever the deck that was saved calls it (`SlideSchema.id` is a
+ * plain `z.string()`) and may contain anything at all — including a colon, which
+ * lands harmlessly in the second half.
+ */
+const TALLY_KEY_SEPARATOR = ":";
+
+function tallyKey(presentationId: string, slideId: string): string {
+	return `${presentationId}${TALLY_KEY_SEPARATOR}${slideId}`;
+}
+
+function parseTallyKey(key: string): {
+	presentationId: string;
+	slideId: string;
+} {
+	const boundary = key.indexOf(TALLY_KEY_SEPARATOR);
+	return {
+		presentationId: key.slice(0, boundary),
+		slideId: key.slice(boundary + TALLY_KEY_SEPARATOR.length),
+	};
+}
+
+/**
+ * Re-aggregate one slide and push the fresh tally to everyone watching it.
  *
  * Read **without** `canEdit`, deliberately: this frame goes to the whole room,
  * so what it may carry is what the audience may see (REQ015–REQ017). A slide
@@ -1518,9 +1544,14 @@ function acceptsSubmissions(pres: Record<string, unknown>): boolean {
  * presenter's own screen is not fed from here but from its credentialed poll of
  * the results endpoint, which is where the edit token is proven. Passing
  * `canEdit: true` here to "keep the presenter in sync" would publish a withheld
- * tally to every phone in the room.
+ * tally to every phone in the room. Coalescing changes *when* this runs and
+ * never what it reads, so that stays true of every frame the room receives.
+ *
+ * A quiz answer also moves the deck's standings, which are their own aggregate
+ * on their own window ({@link broadcastStandings}).
  */
-async function broadcastResults(presentationId: string, slideId: string) {
+async function sendSlideTally(key: string): Promise<void> {
+	const { presentationId, slideId } = parseTallyKey(key);
 	const results = await getSlideResults(presentationId, slideId);
 	broadcastToPresentation(presentationId, "results.updated", {
 		presentationId,
@@ -1530,6 +1561,84 @@ async function broadcastResults(presentationId: string, slideId: string) {
 	if ((results as { type?: string } | null)?.type === "quiz") {
 		await broadcastStandings(presentationId);
 	}
+}
+
+/**
+ * How long one slide's tally holds its key, and so the longest a chart on screen
+ * can be behind the store (REQ150).
+ *
+ * A tenth of a second, a fifth of what the standings take — and the difference
+ * is the point rather than a tuning. A leaderboard is a *summary*, read between
+ * questions; a slide tally is the **direct feedback for the gesture the
+ * participant just made**, and a word cloud filling in word by word is part of
+ * what the product is. So the bound is set from the participant's side: a
+ * hundred milliseconds is the long-standing threshold under which a response
+ * still reads as instantaneous, which makes it the largest window that costs the
+ * feedback nothing.
+ *
+ * What that leaves untouched is the case the feel is actually made of. The
+ * leading run fires immediately, so **a room answering slower than ten times a
+ * second still gets exactly one frame per answer, byte for byte as before** —
+ * every small room, every trickle at the end of a question, every lone
+ * participant watching their own word land. Frames merge only above that rate,
+ * where "word by word" was never something a person could follow in the first
+ * place: at a hundred and fifty answers a second the cloud is a blur, and 15
+ * words arriving in one frame is what the eye was going to see either way.
+ *
+ * The bound is per-slide-type-free on purpose. The type with the strongest claim
+ * to every frame is the word cloud, and this window already honours it; no other
+ * type needs *more*, and giving a bar chart a slower one would buy a rounding
+ * error on a burst that lasts seconds while adding a second cadence to reason
+ * about on the one path where a mistake is published to a whole room.
+ */
+const TALLY_BROADCAST_WINDOW_MS = 100;
+
+/**
+ * The slide tally, folded to one run per slide per window — see
+ * `server/coalesce.ts` for why that is safe on a path a whole room walks.
+ *
+ * The re-aggregation is folded **with** the fan-out rather than left to run per
+ * answer behind it. Recomputing more often than sending would keep half the cost
+ * REQ150 measured (300 full-slide rescans per question) and buy nothing: the
+ * coalescer re-reads the store at send time, so what goes out is already the
+ * current tally rather than the one that was current when the last answer
+ * landed. Recomputing a value nobody is sent is work with no reader.
+ */
+const tallyBroadcasts = createCoalescer({
+	windowMs: TALLY_BROADCAST_WINDOW_MS,
+	work: sendSlideTally,
+	onError: (key, cause) =>
+		console.error(`[tally] recount failed for ${key}:`, cause),
+});
+
+/** Drop every pending tally broadcast. For tests that need a clean slate. */
+export function resetTallyBroadcasts(): void {
+	tallyBroadcasts.reset();
+}
+
+/**
+ * Tell everyone watching that a slide's tally moved. Every vote path ends here,
+ * so the "recount, then broadcast" pair is written once instead of at each of
+ * the branches below.
+ *
+ * **Every change still arrives; what changed is how often the same news is
+ * sent** (REQ150). One of the callers — an answer landing — is walked by every
+ * person in the room, and re-aggregating the slide and fanning out per
+ * individual answer made one question on a room of 300 cost 300 re-aggregations
+ * and 90,000 socket writes. It is therefore coalesced on
+ * {@link TALLY_BROADCAST_WINDOW_MS}: the first caller of a quiet slide runs
+ * immediately and is awaited, and everything arriving inside the window behind
+ * it is folded into one trailing run carrying the settled tally. The cost of a
+ * question stops scaling with the size of the room and starts scaling with its
+ * duration.
+ *
+ * It also makes a slide's frames **ordered**, which they were not: two answers
+ * landing together used to put two aggregations in flight over the same socket,
+ * and the one that started first could finish last and overwrite a fresher tally
+ * with a staler one.
+ */
+async function broadcastResults(presentationId: string, slideId: string) {
+	await tallyBroadcasts.run(tallyKey(presentationId, slideId));
 }
 
 /**
