@@ -165,7 +165,7 @@ Prose outside the markers is preserved.
 | [REQ147.md](requirements/REQ147.md) | A quiz answer must stay final when two submissions arrive at once | Quiz & Scoring | P1 | done | internal |
 | [REQ148.md](requirements/REQ148.md) | The Word Cloud / Open Ended response cap must hold under concurrent submissions | Live Session | P2 | done | internal |
 | [REQ149.md](requirements/REQ149.md) | The presenter screen must recognize an account owner who holds no local edit token | Access & Sharing | P2 | done | internal |
-| [REQ150.md](requirements/REQ150.md) | A slide's live tally must not cost one full-room broadcast per individual answer | Live Session | P2 | pending | internal |
+| [REQ150.md](requirements/REQ150.md) | A slide's live tally must not cost one full-room broadcast per individual answer | Live Session | P2 | done | internal |
 | [REQ151.md](requirements/REQ151.md) | The /api discovery index must advertise an origin clients can actually reach | Platform & Operations | P2 | done | internal |
 | [REQ152.md](requirements/REQ152.md) | The editor's stage renders the slide being edited, at every viewport width | Deck & Slides | P1 | done | BR145 |
 | [REQ153.md](requirements/REQ153.md) | Question and answer options are authored in place on the canvas | Deck & Slides | P1 | done | BR145 |

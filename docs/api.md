@@ -1691,8 +1691,7 @@ Two audiences, one predicate (`solutionVisibleToAudience` in
 This covers all three channels a competitor could read: the deck itself
 (`GET /join/:code`, which is never treated as an editor — an organizer opening
 their own join link is in the room as a participant), the `slide.changed`
-broadcast on navigation, and the `results.updated` frame pushed after every
-answer that lands. A question the presenter has **not reached yet** is withheld
+broadcast on navigation, and the `results.updated` frame pushed as answers land. A question the presenter has **not reached yet** is withheld
 too: the whole deck arrives at the join, so a quiz three slides ahead would
 otherwise land answered.
 
@@ -2964,7 +2963,7 @@ Server broadcasts to all subscribers of a presentationId.
 | Event | Direction | Payload |
 |---|---|---|
 | `slide.changed` | server → clients | `{ presentationId, slideIndex, slide }` — the slide as the audience may see it: answer key withheld while the question runs (REQ056), presenter notes empty (REQ090) |
-| `results.updated` | server → clients | `{ presentationId, slideId, results }` — the tally as the **audience** may read it, so a slide whose mode withholds it broadcasts `{ type, withheld: true }` and no numbers (REQ016/REQ017), and an editor-only block on it (a word cloud's `answers`, a form's `submissions`) is `null`. Sent when an answer *lands* and when one is *taken down* (REQ027) — a tally moves both ways |
+| `results.updated` | server → clients | `{ presentationId, slideId, results }` — the tally as the **audience** may read it, so a slide whose mode withholds it broadcasts `{ type, withheld: true }` and no numbers (REQ016/REQ017), and an editor-only block on it (a word cloud's `answers`, a form's `submissions`) is `null`. Sent when an answer *lands* and when one is *taken down* (REQ027) — a tally moves both ways. **Frames may merge, values never do** (REQ150): a slide broadcasts at most once per 100 ms, so a room answering faster than that is folded into one frame carrying the settled tally rather than one frame per answer. A client that reads each frame as the current state is right; one that counted frames to count answers never was |
 | `presentation.started` | server → clients | `{ presentationId }` |
 | `presentation.ended` | server → clients | `{ presentationId }` |
 | `presentation.reset` | server → clients | `{ presentationId }` |

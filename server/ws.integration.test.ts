@@ -220,6 +220,21 @@ async function answerQuiz(
 	expect(res.status).toBe(200);
 }
 
+/** One answer on a slide of the default deck (REQ150's tally tests). */
+async function castVote(
+	presentationId: string,
+	slideId: string,
+	participantId: string,
+	value: string,
+): Promise<void> {
+	const res = await fetch(`${baseUrl}/api/presentations/${presentationId}/vote`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ slideId, value, participantId }),
+	});
+	expect(res.status).toBe(200);
+}
+
 /** Join a presentation and wait for the first participants.count event. */
 async function join(
 	client: ReturnType<typeof openWs>,
@@ -312,8 +327,13 @@ describe("WebSocket integration", () => {
 		// last board this suite moved. Dropped rather than left to fire into a
 		// stopped server, where it would log a failure that is this teardown's
 		// doing rather than the code's.
-		const { resetStandingsBroadcasts } = await import("./services/presentations");
+		const { resetStandingsBroadcasts, resetTallyBroadcasts } = await import(
+			"./services/presentations"
+		);
 		resetStandingsBroadcasts();
+		// And the same for a slide's own tally (REQ150), which is folded the same
+		// way and can be holding a window of its own behind the last answer.
+		resetTallyBroadcasts();
 	});
 
 	// ── Tests ──────────────────────────────────────────────
@@ -667,6 +687,157 @@ describe("WebSocket integration", () => {
 		expect(settled.rankedCount).toBe(ROOM);
 		expect(settled.entries.length).toBeGreaterThan(0);
 		expect(settled.entries[0].totalPoints).toBeGreaterThan(0);
+
+		await viewer.close();
+	});
+
+	test("a room answering together costs one tally broadcast per window, not one per answer (REQ150)", async () => {
+		// The remaining half of the same shape the board fix took off this path:
+		// every answer used to re-aggregate the slide and fan the tally out to the
+		// whole room, so one question on a room of 300 was 300 re-aggregations and
+		// 90,000 socket writes. Coalesced, the cost of a question is set by how long
+		// it runs rather than by how many people are in it.
+		const pres = await createPresentation();
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		await viewer.waitFor("presentation.started");
+		viewer.received.length = 0;
+
+		const ROOM = 40;
+		await Promise.all(
+			Array.from({ length: ROOM }, (_, seat) =>
+				castVote(pres.id, "s1", `participant-${seat}`, seat % 2 ? "a" : "b"),
+			),
+		);
+
+		const tallyFrames = () =>
+			viewer.received.filter(
+				(candidate) =>
+					candidate.event === "results.updated" &&
+					(candidate.data as { slideId: string }).slideId === "s1",
+			);
+
+		// Let the trailing broadcast land — the window is a tenth of a second.
+		await new Promise((resolve) => setTimeout(resolve, 400));
+
+		const frames = tallyFrames();
+		// Far fewer frames than answers is the whole property. Asserted as a bound
+		// rather than an exact count: how many windows 40 concurrent requests span
+		// is a property of the machine, and pinning it would make this a flake.
+		expect(frames.length).toBeGreaterThan(0);
+		expect(frames.length).toBeLessThan(ROOM / 2);
+
+		// And the tally the room is left holding is the *settled* one — coalescing
+		// merges frames, it never drops the last change. A chart stuck mid-count
+		// would be worse than the cost it saved.
+		const settled = frames[frames.length - 1].data.results as {
+			totalVotes: number;
+			options: { id: string; count: number }[];
+		};
+		expect(settled.totalVotes).toBe(ROOM);
+		expect(settled.options.find((option) => option.id === "a")?.count).toBe(
+			ROOM / 2,
+		);
+
+		await viewer.close();
+	});
+
+	test("a room answering slower than the window still sees every answer land (REQ150)", async () => {
+		// The half of REQ150 that is not about cost. A slide tally is the direct
+		// feedback for the gesture just made, and a word cloud filling in word by
+		// word is part of what the product is — so the leading run is immediate and
+		// the window is never extended by what it absorbs. Below one answer per
+		// window that adds up to exactly what it always was: one frame per answer,
+		// which is every small room and the tail of every large one.
+		const pres = await createPresentation();
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		await viewer.waitFor("presentation.started");
+		viewer.received.length = 0;
+
+		const ANSWERS = 3;
+		for (let seat = 0; seat < ANSWERS; seat++) {
+			await castVote(pres.id, "s1", `slow-${seat}`, "a");
+			// Comfortably past the window, so each answer meets a quiet slide the way
+			// a room answering at human speed does.
+			await new Promise((resolve) => setTimeout(resolve, 300));
+		}
+
+		const frames = viewer.received.filter(
+			(candidate) =>
+				candidate.event === "results.updated" &&
+				(candidate.data as { slideId: string }).slideId === "s1",
+		);
+		expect(frames.length).toBe(ANSWERS);
+		expect(
+			frames.map((frame) => (frame.data.results as { totalVotes: number }).totalVotes),
+		).toEqual([1, 2, 3]);
+
+		await viewer.close();
+	});
+
+	test("a coalesced tally on a private deck still broadcasts the withheld marker and no numbers (REQ015–REQ017)", async () => {
+		// The frame goes to every socket in the room, so it may carry only what the
+		// audience may see. Coalescing changes when it is sent and never what it
+		// reads — a burst on a withholding deck must fold to a withheld frame, not
+		// to a tally that slipped out because it was assembled on a different path.
+		const created = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "WS Private",
+				resultsVisibility: "private",
+				slides: [
+					{
+						id: "shut",
+						type: "multiple-choice",
+						question: "Pick one",
+						options: [
+							{ id: "a", text: "A" },
+							{ id: "b", text: "B" },
+						],
+					},
+				],
+			}),
+		});
+		expect(created.status).toBe(201);
+		const pres = (await created.json()) as { id: string; creatorToken: string };
+
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		await viewer.waitFor("presentation.started");
+		viewer.received.length = 0;
+
+		await Promise.all(
+			Array.from({ length: 12 }, (_, seat) =>
+				castVote(pres.id, "shut", `hidden-${seat}`, "a"),
+			),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 400));
+
+		const frames = viewer.received.filter(
+			(candidate) => candidate.event === "results.updated",
+		);
+		expect(frames.length).toBeGreaterThan(0);
+		// Every one of them, leading and trailing alike.
+		for (const frame of frames) {
+			const results = frame.data.results as Record<string, unknown>;
+			expect(results.withheld).toBe(true);
+			expect(results.totalVotes).toBeUndefined();
+			expect(results.options).toBeUndefined();
+		}
 
 		await viewer.close();
 	});
