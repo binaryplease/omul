@@ -1,6 +1,7 @@
 import {
 	Building2,
 	ChevronLeft,
+	LayoutTemplate,
 	LogOut,
 	Pencil,
 	Plus,
@@ -11,6 +12,9 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { AuthControls } from "../auth";
 import { useSession } from "../auth-client";
+import { PublishTemplateDialog } from "../components/PublishTemplateDialog";
+import { ICON_BUTTON_HOVER } from "../components/ShareCluster";
+import { TemplateCard, UseTemplateButton } from "../components/TemplateCard";
 import {
 	assignableWorkspaceRoles,
 	workspaceMemberDisplayName,
@@ -25,21 +29,34 @@ import { ThemeToggle } from "../components/ui/Theme";
 import { useToast } from "../components/ui/Toast";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
-import type { Presentation, Workspace, WorkspaceMember, WorkspaceRole } from "../types";
+import type {
+	Presentation,
+	Workspace,
+	WorkspaceMember,
+	WorkspaceRole,
+	WorkspaceTemplate,
+} from "../types";
 import {
 	canAdministerWorkspace,
 	canCreateWorkspaceDecks,
 	canManageWorkspaceMembers,
+	canPublishWorkspaceTemplates,
 	DEFAULT_WORKSPACE_ROLE,
 	WORKSPACE_NAME_MAX_LENGTH,
 } from "../types";
 
-// ── One workspace: its decks, and who is in it (REQ128, REQ129) ─
+// ── One workspace: its decks, its templates, and who is in it ──
+//                                        (REQ128, REQ129, REQ004)
 //
-// Both halves on one screen, because they are two views of one question — what
-// this workspace owns, and who that means. Split across two pages, a member
-// could be removed from a roster without ever having been shown what they were
-// being removed from.
+// All of it on one screen, because they are views of one question — what this
+// workspace owns, and who that means. Split across pages, a member could be
+// removed from a roster without ever having been shown what they were being
+// removed from.
+//
+// The templates a workspace publishes (REQ004) sit between the two, which is
+// where they belong in both directions: they are made *out of* the decks above
+// them by a control on the deck's own card, and who may publish one is a fact
+// about the roster below them.
 //
 // Every control here is drawn for every member and **disabled with its reason**
 // when their role does not open it, rather than hidden: "you cannot
@@ -58,6 +75,7 @@ export function WorkspacePage({
 	const [workspace, setWorkspace] = useState<Workspace | null>(null);
 	const [members, setMembers] = useState<WorkspaceMember[]>([]);
 	const [decks, setDecks] = useState<Presentation[]>([]);
+	const [templates, setTemplates] = useState<WorkspaceTemplate[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [refused, setRefused] = useState("");
 	const [email, setEmail] = useState("");
@@ -69,6 +87,12 @@ export function WorkspacePage({
 	const [deleteWorkspaceOpen, setDeleteWorkspaceOpen] = useState(false);
 	const [removeTarget, setRemoveTarget] = useState<WorkspaceMember | null>(null);
 	const [moveOutTarget, setMoveOutTarget] = useState<Presentation | null>(null);
+	// The deck whose "publish as template" dialog is open, the entry being taken
+	// back down, and which template is currently being turned into a deck.
+	const [publishTarget, setPublishTarget] = useState<Presentation | null>(null);
+	const [unpublishTarget, setUnpublishTarget] =
+		useState<WorkspaceTemplate | null>(null);
+	const [creatingFromId, setCreatingFromId] = useState<string | null>(null);
 	const { addToast } = useToast();
 	const { data: session } = useSession();
 	const userId = session?.user?.id ?? null;
@@ -78,15 +102,17 @@ export function WorkspacePage({
 	const load = useCallback(async () => {
 		setLoading(true);
 		try {
-			const [found, roster, ownedDecks] = await Promise.all([
+			const [found, roster, ownedDecks, published] = await Promise.all([
 				api.getWorkspace(id),
 				api.listWorkspaceMembers(id),
 				api.listWorkspacePresentations(id),
+				api.listWorkspaceTemplates(id),
 			]);
 			setWorkspace(found);
 			setRenaming(found.name);
 			setMembers(roster);
 			setDecks(ownedDecks);
+			setTemplates(published);
 			setRefused("");
 		} catch (loadError: unknown) {
 			// A refusal is the honest answer to draw, not an empty workspace: the
@@ -110,6 +136,12 @@ export function WorkspacePage({
 	const myRole = workspace?.role ?? null;
 	const canManage = canManageWorkspaceMembers(myRole);
 	const canAdminister = canAdministerWorkspace(myRole);
+	const canPublish = canPublishWorkspaceTemplates(myRole);
+	const canCreateDecks = canCreateWorkspaceDecks(myRole);
+
+	/** The entry this deck already has in the gallery, if it has one. */
+	const publishedFrom = (deck: Presentation): WorkspaceTemplate | null =>
+		templates.find((entry) => entry.sourcePresentationId === deck.id) ?? null;
 
 	const addMember = async () => {
 		const address = email.trim();
@@ -250,6 +282,52 @@ export function WorkspacePage({
 			);
 		} finally {
 			setCreatingDeck(false);
+		}
+	};
+
+	/** A deck of the workspace's, started from one of the workspace's templates. */
+	const createFromTemplate = async (template: WorkspaceTemplate) => {
+		if (creatingFromId) return;
+		setCreatingFromId(template.id);
+		try {
+			const created = await api.createPresentation({
+				workspaceId: id,
+				workspaceTemplateId: template.id,
+			});
+			addToast(`Created from “${template.title}”`, "success");
+			go({ page: "edit", id: created.id });
+		} catch (createError: unknown) {
+			addToast(
+				createError instanceof Error
+					? createError.message
+					: "Could not create a deck from this template",
+				"error",
+			);
+		} finally {
+			setCreatingFromId(null);
+		}
+	};
+
+	const unpublish = async () => {
+		if (!unpublishTarget) return;
+		const target = unpublishTarget;
+		setUnpublishTarget(null);
+		try {
+			await api.unpublishWorkspaceTemplate(id, target.id);
+			setTemplates((current) =>
+				current.filter((entry) => entry.id !== target.id),
+			);
+			addToast(
+				`“${target.title}” is no longer a template — every deck made from it stays`,
+				"info",
+			);
+		} catch (unpublishError: unknown) {
+			addToast(
+				unpublishError instanceof Error
+					? unpublishError.message
+					: "Could not take that template down",
+				"error",
+			);
 		}
 	};
 
@@ -418,6 +496,30 @@ export function WorkspacePage({
 													</span>
 												</div>
 											</div>
+											{/* Publishing sits on the deck it publishes (REQ004), for
+											    the reason moving one out sits on the deck it moves.
+											    Drawn for every member and disabled with its reason
+											    for a role that may not publish, and it says which
+											    of the two acts it is — a deck that already has an
+											    entry is republished rather than published twice. */}
+											<button
+												type="button"
+												className={`p-2 rounded disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-text-muted ${ICON_BUTTON_HOVER}`}
+												onClick={(event) => {
+													event.stopPropagation();
+													setPublishTarget(deck);
+												}}
+												disabled={!canPublish}
+												title={
+													!canPublish
+														? "Publish this deck as a template — only a workspace admin can"
+														: publishedFrom(deck)
+															? "Republish this deck as a template — the entry takes its slides as they are now"
+															: "Publish this deck as a template the whole workspace can start from"
+												}
+											>
+												<LayoutTemplate size={18} />
+											</button>
 											{/* Taking a deck back out of the shared ownership sits on
 											    the deck it moves, and is the owner's own
 											    act — drawn disabled with the reason for everybody
@@ -444,8 +546,69 @@ export function WorkspacePage({
 							)}
 						</section>
 
+						{/* ── What it publishes (REQ004) ────────────────── */}
+						<section className="mb-14 slide-in slide-in-delay-2">
+							<h2 className="text-xl font-semibold text-text-muted mb-6">
+								Templates this workspace publishes
+							</h2>
+							{templates.length === 0 ? (
+								<p className="text-text-muted max-w-2xl">
+									None yet. Publish one of the decks above and everybody here can
+									start from a copy of it — the copy is taken at the moment you
+									publish, so the deck stays yours to keep editing.
+									{canPublish
+										? ""
+										: " Publishing needs the admin role; ask somebody who has it."}
+								</p>
+							) : (
+								<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+									{templates.map((template, index) => (
+										<TemplateCard
+											key={template.id}
+											template={template}
+											search=""
+											index={index}
+										>
+											{/* Who put it here, so a card in a shared gallery has
+											    somebody behind it — an account that has since been
+											    deleted leaves the entry standing and says so. */}
+											<p className="text-xs text-text-dim">
+												Published by{" "}
+												{template.publishedByName ?? "a former member"} ·{" "}
+												{new Date(template.createdAt).toLocaleDateString()}
+											</p>
+											<UseTemplateButton
+												label={`Create a new deck in this workspace from “${template.title}”`}
+												creating={creatingFromId === template.id}
+												busy={creatingFromId !== null}
+												refusal={
+													canCreateDecks
+														? null
+														: "Create a deck from this template — your role in this workspace does not allow it"
+												}
+												onUse={() => createFromTemplate(template)}
+											/>
+											<button
+												type="button"
+												className="text-xs text-text-dim hover:text-error transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-dim"
+												onClick={() => setUnpublishTarget(template)}
+												disabled={!canPublish}
+												title={
+													canPublish
+														? "Take this template out of the gallery — no deck is touched"
+														: "Take this template down — only a workspace admin can"
+												}
+											>
+												Unpublish
+											</button>
+										</TemplateCard>
+									))}
+								</div>
+							)}
+						</section>
+
 						{/* ── Who is in it ──────────────────────────────── */}
-						<section className="slide-in slide-in-delay-2 max-w-2xl">
+						<section className="slide-in slide-in-delay-3 max-w-2xl">
 							<h2 className="text-xl font-semibold mb-6 text-text-muted">
 								Who is in this workspace
 							</h2>
@@ -645,6 +808,38 @@ export function WorkspacePage({
 				confirmLabel="Move to my account"
 				onConfirm={moveDeckOut}
 				onCancel={() => setMoveOutTarget(null)}
+			/>
+
+			{publishTarget ? (
+				<PublishTemplateDialog
+					workspaceId={id}
+					deck={publishTarget}
+					published={publishedFrom(publishTarget)}
+					onClose={() => setPublishTarget(null)}
+					onPublished={(template) => {
+						// Republishing returns the same entry with new slides, so the list
+						// is updated in place; a first publish is prepended, which is where
+						// the server's newest-first order would have put it anyway.
+						setTemplates((current) =>
+							current.some((entry) => entry.id === template.id)
+								? current.map((entry) =>
+										entry.id === template.id ? template : entry,
+									)
+								: [template, ...current],
+						);
+					}}
+					onNotify={addToast}
+				/>
+			) : null}
+
+			<ConfirmModal
+				open={!!unpublishTarget}
+				title="Unpublish template"
+				message={`Take “${unpublishTarget?.title}” out of this workspace's gallery? Nobody will be able to start from it again. No deck is touched — not the one it was published from, and not any deck already made from it.`}
+				confirmLabel="Unpublish"
+				variant="danger"
+				onConfirm={unpublish}
+				onCancel={() => setUnpublishTarget(null)}
 			/>
 
 			<ConfirmModal

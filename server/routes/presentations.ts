@@ -69,6 +69,7 @@ import {
 	setCollaboratorLevel,
 } from "../services/collaborators";
 import { workspaceRoleFor } from "../services/workspaces";
+import { getWorkspaceTemplate } from "../services/workspace-templates";
 import {
 	addSlideComment,
 	deleteSlideComment,
@@ -498,10 +499,6 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				set.status = 400;
 				return { error: "No such template" };
 			}
-			// A template create may leave both out and take them from the entry; the
-			// body schema's refinement is what guarantees they are present otherwise.
-			const slides = template ? copyTemplateSlides(template) : body.slides;
-			const title = body.title.trim() || (template?.title ?? "");
 			// Record the owner when the create is authenticated (cookie session or
 			// personal API key). An API-key create is already owner-editable via that
 			// key, so it is NOT minted a redundant edit token; anonymous and
@@ -528,6 +525,32 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 					};
 				}
 			}
+			// REQ004 — a create that names one of the workspace's *own* published
+			// templates. Looked up **after** the role check above and never before it,
+			// which is the whole of what keeps this from being an oracle: a caller who
+			// is not in the workspace has already been refused, so nothing here can
+			// report whether an entry exists. Scoped to the named workspace too, so an
+			// id learned from another one is simply not found. The body schema is what
+			// guarantees a workspace was named at all.
+			const requestedWorkspaceTemplateId = body.workspaceTemplateId.trim();
+			const workspaceTemplate = requestedWorkspaceTemplateId
+				? await getWorkspaceTemplate(
+						requestedWorkspaceId,
+						requestedWorkspaceTemplateId,
+					)
+				: null;
+			if (requestedWorkspaceTemplateId && !workspaceTemplate) {
+				set.status = 400;
+				return { error: "No such template in this workspace" };
+			}
+			// Either template is the same thing from here on: the slides are copied
+			// under fresh ids and the title is inherited when the request states none.
+			// One code path, so "detached from its source" cannot come to mean two
+			// different things. A create that names neither carries both itself — the
+			// body schema's refinement is what guarantees that.
+			const source = template ?? workspaceTemplate;
+			const slides = source ? copyTemplateSlides(source) : body.slides;
+			const title = body.title.trim() || (source?.title ?? "");
 			const presentation = await createPresentation(
 				title,
 				slides,
@@ -560,7 +583,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Presentations"],
 				summary: "Create presentation",
 				description:
-					"Creates a new presentation in `draft` status. Pass `templateId` (an id from `GET /api/templates`) to start from a catalog entry (REQ005/REQ006): the deck's slides are **copies** of that template's under fresh ids, fully editable and detached from it — nothing records the origin, so editing the deck cannot reach the template and two decks made from one entry cannot reach each other. A template create may omit `title` (it inherits the template's) and `slides` (they come from the template); every other create still requires a non-empty title and at least one slide. An unknown `templateId` is a 400. The deck's own settings — language, pace, reveal mode, the Q&A layer, the participant channels, the theme — are always the request's, never the template's: a template holds slides, not a room's settings. When the request is anonymous or carries a cookie session, the response includes a one-time `creatorToken` that authorizes subsequent mutations and is never returned again. When authenticated with a personal API key (`x-api-key`), the deck is owned by that account and editable via the key, so `creatorToken` is `null`. A signed-in create also records the account as the deck's owner. Pass `workspaceId` to create a deck the **workspace** owns instead (REQ128): the deck records no account owner and is minted no edit token — its standing is the workspace's roster, and every member reads, edits and presents it — so `creatorToken` is `null` and the deck appears in `GET /api/workspaces/:id/presentations` rather than in `/presentations/mine`. The caller must be a member with a role that may create decks there (REQ129); a workspace they are not in and one that does not exist answer the same `403`. Rate-limited per client address (REQ145): over the limit answers `429` with a `Retry-After` header and `retryAfterSeconds` in the body.",
+					"Creates a new presentation in `draft` status. Pass `templateId` (an id from `GET /api/templates`) to start from a catalog entry (REQ005/REQ006): the deck's slides are **copies** of that template's under fresh ids, fully editable and detached from it — nothing records the origin, so editing the deck cannot reach the template and two decks made from one entry cannot reach each other. A template create may omit `title` (it inherits the template's) and `slides` (they come from the template); every other create still requires a non-empty title and at least one slide. An unknown `templateId` is a 400. The deck's own settings — language, pace, reveal mode, the Q&A layer, the participant channels, the theme — are always the request's, never the template's: a template holds slides, not a room's settings. When the request is anonymous or carries a cookie session, the response includes a one-time `creatorToken` that authorizes subsequent mutations and is never returned again. When authenticated with a personal API key (`x-api-key`), the deck is owned by that account and editable via the key, so `creatorToken` is `null`. A signed-in create also records the account as the deck's owner. Pass `workspaceId` to create a deck the **workspace** owns instead (REQ128): the deck records no account owner and is minted no edit token — its standing is the workspace's roster, and every member reads, edits and presents it — so `creatorToken` is `null` and the deck appears in `GET /api/workspaces/:id/presentations` rather than in `/presentations/mine`. The caller must be a member with a role that may create decks there (REQ129); a workspace they are not in and one that does not exist answer the same `403`. Pass `workspaceTemplateId` alongside it to start from one of that workspace's **own** published templates (REQ004, an id from `GET /api/workspaces/:id/templates`): the slides are copied on exactly the terms above, so later edits to the template do not reach the deck. It is refused without a `workspaceId` and refused together with `templateId` — a deck starts from one template — and the entry is resolved only after the caller's role in that workspace has been checked, so an unknown id answers `400` to a member and nothing at all to anyone else. Rate-limited per client address (REQ145): over the limit answers `429` with a `Retry-After` header and `retryAfterSeconds` in the body.",
 			},
 		},
 	)

@@ -9,16 +9,23 @@
  * over it. What the two modules share is `Slide`, and that already lives in
  * `schemas.ts`.
  *
- * **The catalog is code, not data.** There is no `templates` collection and no
- * way to write one: a template is authored here, shipped with the build, and
- * read-only at runtime. That is the whole reason REQ004 (publishing a deck *as*
- * a template) is a separate, still-pending requirement — it needs a workspace to
- * own the published entry, which this codebase does not have.
+ * **This catalog is code, not data.** There is no collection behind the entries
+ * below and no way to write one: a built-in template is authored here, shipped
+ * with the build, and read-only at runtime — the same six entries for every
+ * caller of every deployment.
+ *
+ * The *other* kind of template is a document, and it lives elsewhere: a
+ * workspace publishes one of its own decks (REQ004,
+ * `server/services/workspace-templates.ts`), the workspace owns the published
+ * entry, and its roster is what decides who sees and uses it. Nothing here knows
+ * about that one — the two meet at {@link copyTemplateSlides} below, which is
+ * what "starting from a template" means for both, and at the create route that
+ * calls it.
  *
  * **A copy is a copy.** {@link copyTemplateSlides} re-identifies every slide and
  * every identified row inside it, so the deck a template produces shares no id
  * with the entry it came from and nothing links the two afterwards. Editing the
- * deck cannot reach the catalog, and re-running the same template twice produces
+ * deck cannot reach the template, and re-running the same template twice produces
  * two decks that cannot reach each other either.
  *
  * Deliberately plain content: no images or videos, because a template that
@@ -360,15 +367,24 @@ export function findDeckTemplate(id: string): DeckTemplate | null {
 
 /**
  * The slides a deck started from this template begins life with (REQ006):
- * copies, under identities of their own, sharing nothing with the catalog entry
- * they were taken from.
+ * copies, under identities of their own, sharing nothing with the entry they
+ * were taken from.
  *
  * Thin on purpose — the re-identification itself is
  * {@link withFreshSlideIds}, which is also what duplicating and importing a
  * deck use. What this function adds is the name: "the slides a
  * template hands a new deck" is the operation REQ006 describes, and the create
  * route should read as performing it rather than as spreading an array.
+ *
+ * Takes the *slides*, not a catalog entry, because there are two kinds of
+ * template and this operation is the same one for both: a built-in entry from
+ * the set above, and a template a workspace published out of one of its own
+ * decks (REQ004). One function, so "later edits to the template do not reach the
+ * deck" cannot come to mean two different things — and so a second
+ * implementation of "copy" never gets written for the second caller.
  */
-export function copyTemplateSlides(template: DeckTemplate): Slide[] {
+export function copyTemplateSlides(template: {
+	slides: readonly Slide[];
+}): Slide[] {
 	return withFreshSlideIds(template.slides);
 }

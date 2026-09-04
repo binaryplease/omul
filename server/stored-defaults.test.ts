@@ -26,7 +26,7 @@
  * `.optional()` does not.
  *
  * The list below is written by hand, and a hand-written list is only a guard
- * while it is complete: a twelfth collection added under `server/services/`
+ * while it is complete: a thirteenth collection added under `server/services/`
  * would otherwise be exempt from the rule in the library *and* here, at once and
  * silently. So the last case loads the service modules for their `createStore`
  * side effects and compares what they opened against what is listed.
@@ -50,6 +50,7 @@ import {
 	StoredVoteSchema,
 	StoredWorkspaceMemberSchema,
 	StoredWorkspaceSchema,
+	StoredWorkspaceTemplateSchema,
 } from "./schemas";
 
 /** One collection, as `server/db.ts` opens it, plus what it may leave bare. */
@@ -68,8 +69,9 @@ interface StoredCollection {
 
 /**
  * Every `createStore` call in `server/services/`. Kept in this order so it reads
- * against the three modules that make them: workspaces, slide comments and
- * collaborators, participant names, then the six of `presentations.ts`.
+ * against the modules that make them: workspaces, the templates they publish,
+ * slide comments and collaborators, participant names, then the six of
+ * `presentations.ts`.
  */
 const STORED_COLLECTIONS: StoredCollection[] = [
 	{
@@ -81,6 +83,11 @@ const STORED_COLLECTIONS: StoredCollection[] = [
 		name: "workspaceMembers",
 		schema: StoredWorkspaceMemberSchema,
 		identityFields: ["id", "workspaceId", "userId"],
+	},
+	{
+		name: "workspaceTemplates",
+		schema: StoredWorkspaceTemplateSchema,
+		identityFields: ["id", "workspaceId", "sourcePresentationId"],
 	},
 	{
 		name: "slideComments",
@@ -150,10 +157,12 @@ let openedCollectionNames: string[] = [];
 describe("every stored field either defaults or is identity", () => {
 	beforeAll(async () => {
 		// Imported for their module-load `createStore` calls, not for their exports:
-		// these five modules are every caller of it outside a test. `presentations`
-		// pulls in the other four itself; naming them all keeps the coupling legible
-		// and makes a module that stops being reachable show up here.
+		// these six modules are every caller of it outside a test. `presentations`
+		// pulls in the others itself, and `workspaces` pulls in the templates a
+		// workspace publishes; naming them all keeps the coupling legible and makes a
+		// module that stops being reachable show up here.
 		await import("./services/workspaces");
+		await import("./services/workspace-templates");
 		await import("./services/slide-comments");
 		await import("./services/collaborators");
 		await import("./services/participant-names");
@@ -164,7 +173,7 @@ describe("every stored field either defaults or is identity", () => {
 	});
 
 	test("every collection this server opens is listed here", () => {
-		// The guard on the list itself. A twelfth `createStore` call that nobody
+		// The guard on the list itself. A thirteenth `createStore` call that nobody
 		// adds a row for is a collection the rule stops being enforced over —
 		// silently, because the library's own walk is off. Concretely: that
 		// collection gains a non-identity field with no `.default(...)`, and rows
