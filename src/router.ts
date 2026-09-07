@@ -1,7 +1,17 @@
 import { useEffect } from "react";
+import { APP_BASE_PATH } from "../server/app-paths";
 import { BRAND_NAME } from "./components/BrandMark";
 
 // ── Client-side routing ──────────────────────────────────────
+//
+// Two path shapes live here, and the difference between them is the whole of
+// REQ179. The app's *own* front door — the home page and the two dialogs that
+// hang off it — sits under `APP_BASE_PATH`, because the host root belongs to
+// the marketing site this app now shares a host with. Every page somebody is
+// *sent* to keeps the root it has always had: `/join/:code` above all, which is
+// read aloud to a room, but also the edit, preview, results and workspace links
+// that are already in circulation. `server/app-paths.ts` is the one description
+// of that split; this file only spells the routes on either side of it.
 
 export type Route =
 	| { page: "home" }
@@ -36,10 +46,15 @@ export type Route =
 	| { page: "join" }
 	| { page: "participate"; code: string };
 
-export function getInitialRoute(): Route {
-	const path = window.location.pathname;
-	const hash = window.location.hash.slice(1);
-
+/**
+ * The route a URL names — the path and the hash, without the `#`.
+ *
+ * Split out of {@link getInitialRoute} so the shape of the split can be
+ * asserted without a DOM: which paths kept the root and which moved under the
+ * base is the thing REQ179 has to hold, and a rule only the browser can run is
+ * one nothing checks.
+ */
+export function routeForLocation(path: string, hash: string): Route {
 	if (path.startsWith("/preview/")) {
 		return { page: "preview", id: path.split("/preview/")[1] };
 	}
@@ -66,45 +81,66 @@ export function getInitialRoute(): Route {
 	return { page: "home" };
 }
 
-export function navigate(route: Route) {
+export function getInitialRoute(): Route {
+	return routeForLocation(
+		window.location.pathname,
+		window.location.hash.slice(1),
+	);
+}
+
+/**
+ * The URL a route is written to the address bar as — the counterpart of
+ * {@link routeForLocation}, and pure for the same reason.
+ */
+export function pathForRoute(route: Route): string {
 	switch (route.page) {
+		// The app's own front door and the two dialogs that open on it. The only
+		// routes the split moved: `/` is the marketing site's now.
 		case "home":
-			window.history.pushState(null, "", "/");
-			break;
+			return APP_BASE_PATH;
 		case "create":
-			window.history.pushState(null, "", "/#create");
-			break;
-		case "templates":
-			window.history.pushState(null, "", "/templates");
-			break;
-		case "generate":
-			window.history.pushState(null, "", "/generate");
-			break;
-		case "workspaces":
-			window.history.pushState(null, "", "/workspaces");
-			break;
-		case "workspace":
-			window.history.pushState(null, "", `/workspaces/${route.id}`);
-			break;
-		case "edit":
-			window.history.pushState(null, "", `/edit/${route.id}`);
-			break;
+			return `${APP_BASE_PATH}#create`;
 		case "join":
-			window.history.pushState(null, "", "/#join");
-			break;
+			return `${APP_BASE_PATH}#join`;
+		// Everything below is a link somebody may already hold, so it stays where
+		// it has always been.
+		case "templates":
+			return "/templates";
+		case "generate":
+			return "/generate";
+		case "workspaces":
+			return "/workspaces";
+		case "workspace":
+			return `/workspaces/${route.id}`;
+		case "edit":
+			return `/edit/${route.id}`;
 		case "present":
-			window.history.pushState(null, "", `/present/${route.id}`);
-			break;
+			return `/present/${route.id}`;
 		case "preview":
-			window.history.pushState(null, "", `/preview/${route.id}`);
-			break;
+			return `/preview/${route.id}`;
 		case "results":
-			window.history.pushState(null, "", `/results/${route.id}`);
-			break;
+			return `/results/${route.id}`;
 		case "participate":
-			window.history.pushState(null, "", `/join/${route.code}`);
-			break;
+			return `/join/${route.code}`;
 	}
+}
+
+export function navigate(route: Route) {
+	window.history.pushState(null, "", pathForRoute(route));
+}
+
+/**
+ * The app's home page as an absolute URL, optionally carrying a query string.
+ *
+ * Absolute because the callers that need it are links followed from somewhere
+ * this origin is not implied — a mail client opening a verification link, a
+ * full page load after an account is deleted. One helper rather than an
+ * `origin + "/"` at each of them, which is what put four of them on the
+ * marketing site's front page the moment the base moved.
+ */
+export function appHomeUrl(search?: string): string {
+	const query = search ? `?${search}` : "";
+	return `${window.location.origin}${APP_BASE_PATH}${query}`;
 }
 
 /**

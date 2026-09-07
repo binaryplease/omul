@@ -42,11 +42,20 @@
 // the constant, both of which exist in one place each so that it is a small
 // edit.
 
+import { APP_BASE_PATH } from "../../server/app-paths";
+
 /** The product's name, as it is written: lowercase, one word. */
 export const BRAND_NAME = "omul";
 
-/** Where the drawn mark lives, served as-is. */
-export const SIGNET_URL = "/brand/omul-icon-ring.svg";
+/**
+ * Where the drawn mark lives, served as-is.
+ *
+ * Under the app's base path (REQ179): `public/` is emitted into the built
+ * client and served beneath it, so this is one of the few asset URLs the build
+ * cannot rebase for us — it is a string in the bundle, not a `href` in the HTML
+ * — and it is spelled from the shared constant rather than written out.
+ */
+export const SIGNET_URL = `${APP_BASE_PATH}/brand/omul-icon-ring.svg`;
 
 /**
  * The wordmark's strokes, exactly as `public/brand/omul-wordmark.svg` draws

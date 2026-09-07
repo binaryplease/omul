@@ -30,6 +30,7 @@ import {
 } from "./auth-client";
 import { BRAND_NAME } from "./components/BrandMark";
 import { Modal } from "./components/ui/Modal";
+import { appHomeUrl } from "./router";
 import { PENDING_EMAIL_CHANGE_KEY } from "./storage";
 
 // Shared input styling, matching the field treatment elsewhere in the app.
@@ -77,15 +78,18 @@ const DELETE_CONFIRM_PHRASE = "delete my account";
 
 // The absolute callbackURL handed to Better Auth for both the sign-up email and
 // any later resend. Absolute (not a bare path) because the link is followed from
-// the recipient's mail client, which has no notion of the app's origin.
+// the recipient's mail client, which has no notion of the app's origin. It lands
+// on the app's home page rather than on `/`, which since REQ179 is the marketing
+// site's — a verification link that opened a landing page instead of the app
+// would report success to a surface that has no idea what it means.
 function verifyCallbackUrl(): string {
-	return `${window.location.origin}/?mode=${VERIFY_MODE}`;
+	return appHomeUrl(`mode=${VERIFY_MODE}`);
 }
 
 // The absolute callbackURL for the change-email links (confirmation + new-address
 // verification both land here). Absolute for the same reason as verifyCallbackUrl.
 function changeEmailCallbackUrl(): string {
-	return `${window.location.origin}/?mode=${CHANGE_EMAIL_MODE}`;
+	return appHomeUrl(`mode=${CHANGE_EMAIL_MODE}`);
 }
 
 /* ── Header controls ──────────────────────────────────── */
@@ -252,10 +256,12 @@ function AuthForm({ onDone }: { onDone: () => void }) {
 		try {
 			if (mode === "forgot") {
 				// Server emails a reset link (via Brevo) whose callback lands back on
-				// this origin with `?token=…`, which ResetPasswordForm consumes.
+				// this app's home page with `?token=…`, which ResetPasswordForm
+				// consumes — the app's, not the origin's root, which belongs to the
+				// marketing site (REQ179).
 				const result = await requestPasswordReset({
 					email,
-					redirectTo: `${window.location.origin}/?mode=reset-password`,
+					redirectTo: appHomeUrl("mode=reset-password"),
 				});
 				if (result.error) {
 					setError(result.error.message ?? "Could not send reset email");
@@ -828,7 +834,7 @@ function DeleteAccountForm({ currentEmail }: { currentEmail: string }) {
 				</div>
 				<button
 					type="button"
-					onClick={() => window.location.assign(window.location.origin)}
+					onClick={() => window.location.assign(appHomeUrl())}
 					className={BTN_PRIMARY}
 				>
 					Continue

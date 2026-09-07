@@ -97,7 +97,8 @@ The OFL requires the copyright notice and the license text to travel with the
 font files. They do: the notices and the full license text are in
 [`public/licenses/OFL-1.1-fonts.txt`](public/licenses/OFL-1.1-fonts.txt), which
 Vite copies into `dist/client/licenses/` alongside the fonts and which the
-running server serves at `/licenses/OFL-1.1-fonts.txt`. The container image
+running server serves at `/app/licenses/OFL-1.1-fonts.txt` — under the app's
+base path, with the rest of the built client (REQ179). The container image
 carries it by the same route, through `COPY public ./public`.
 
 Neither typeface is modified, renamed or sold on its own.

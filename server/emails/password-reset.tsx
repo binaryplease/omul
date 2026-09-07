@@ -23,5 +23,5 @@ export function passwordResetEmail(resetUrl: string): ReactElement {
 
 /** Sample render for the dev preview gallery (see scripts/email-preview.ts). */
 export const passwordResetPreview = passwordResetEmail(
-	"https://omul.example/?mode=reset-password&token=preview-reset-token",
+	"https://omul.example/app?mode=reset-password&token=preview-reset-token",
 );

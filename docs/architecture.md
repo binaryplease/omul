@@ -43,6 +43,7 @@ server/
   proxy-trust.ts             # What this server believes a proxy told it (OMUL_TRUST_PROXY): the hop count, and the value a trusted hop wrote into a forwarded header. Shared by the limiter's client address and the discovery index's origin, so the two cannot disagree about what is trusted
   keyed-lock.ts              # In-process queue for read-modify-write sections sharing a key (REQ147): keeps a quiz answer final under concurrent submissions
   store-path.ts              # Which SQLite file this instance opens: one reading of DATABASE_PATH and one default basename that db.ts / accounts.ts / admin-events.ts all hang off, so the path is not spelled out three times
+  app-paths.ts               # Where this app lives on a host it shares with the marketing site (REQ179): the base its home page and built assets moved under, and the root-level prefixes it kept — `/join/*` above all, because that link is read aloud to a room. Dependency-free, because the build (vite.config.ts), the static handler and the client router all have to agree on it
   test-preload.ts            # bunfig.toml test preload — switches the abuse limits off for the test run
   routes/
     discovery.ts             # GET /api discovery index + /api/health, and the public origin its absolute links carry (REQ151): OMUL_BASE_HOST, else a trusted X-Forwarded-Proto/Host, else the origin observed
@@ -51,7 +52,7 @@ server/
     presentations.ts         # Presentation REST endpoints (owner-or-edit-token auth, claim, /mine); POST also takes a `templateId` (REQ006), a `workspaceId` (REQ128) and a `workspaceTemplateId` (REQ004), and the deck's move between an account and a workspace lives here because it is a presentation mutation
     workspaces.ts            # /api/workspaces/* (REQ128, REQ129, REQ004) — the workspace, its roster, the decks it owns and the templates it publishes. Every route asks two questions and never mixes them: is this caller in this workspace at all (401 vs 403, and no existence leaked), and does their role authorize this
     admin.ts                 # /api/admin/* operator surface (prepare/confirm actions + events)
-    static.ts                # SPA static file serving (production only, dist/client/)
+    static.ts                # SPA static file serving (production only, dist/client/), and the server half of the path split (REQ179): assets under /app/, index.html for the app's own pages, 404 for anything at the root the app does not own — because on a shared host that belongs to the marketing site
   services/
     presentations.ts         # Business logic (async); authorizeEdit / claimOwnership / assignOwner ownership helpers
     collaborators.ts         # One account's standing on one deck (REQ075) — the grants collection and nothing else
@@ -71,7 +72,7 @@ src/
   auth-client.ts             # Better Auth browser client (useSession / signIn / signUp / … / apiKey)
   auth.tsx                   # Header auth controls: sign in/up, reset/verify/change-email landings, verify banner, account settings, API-key manager
   constants.ts               # POLL_COLORS and other shared constants
-  router.ts                  # Route type, navigate, getInitialRoute, usePageTitle
+  router.ts                  # Route type, navigate, getInitialRoute, usePageTitle — and the two pure halves under them, routeForLocation / pathForRoute, which is where the split of REQ179 is spelled: home under /app, every link somebody may already hold still at the root
   types.ts                   # Shared TypeScript types (client-side)
   components/
     Results.tsx              # ResultsDisplay component
