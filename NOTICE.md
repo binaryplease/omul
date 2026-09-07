@@ -41,7 +41,7 @@ version: if you change the code, change the mark.
 **An ordinary registry dependency, under the MIT License.** The SQLite document
 store this product persists to is installed from npm as
 [`@binaryplease/zodstore`](https://www.npmjs.com/package/@binaryplease/zodstore)
-and is counted in section 5 like every other dependency. It is written by the
+and is counted in section 6 like every other dependency. It is written by the
 same author who holds copyright in this repository, so the copyright line below
 is the same one at the top of this file — but the grant it travels under is its
 own, and this repository claims nothing further over it.
@@ -109,10 +109,32 @@ Original work by the copyright holder, under the license at the top of this
 file — with the single exception of the brand marks in section 1. No
 third-party artwork, icon set, seed data, sample content or copy-pasted snippet
 is vendored into either directory. Icons are drawn at runtime by
-`lucide-react`, an ISC-licensed dependency (section 5), not copied into the
+`lucide-react`, an ISC-licensed dependency (section 6), not copied into the
 tree.
 
-## 5. Third-party dependency set
+## 5. Contributor agreement text — Creative Commons Attribution 3.0
+
+`CLA.md` is not original work. The agreement it contains is the **Harmony
+Individual Contributor License Agreement, version 1.0**, published by
+[Project Harmony](https://www.harmonyagreements.org/) on 2011-07-04 and
+licensed under a
+[Creative Commons Attribution 3.0 Unported License](https://creativecommons.org/licenses/by/3.0/).
+Its operative text is reproduced word for word.
+
+CC BY 3.0 permits reproduction and adaptation, commercial use included, on one
+condition: attribution. `CLA.md` carries it in its own *Attribution* section,
+and this section is the second place it is recorded. The adaptation made is
+limited to what the template is designed for — filling its bracketed blanks
+(project name, jurisdiction, submission and non-owner instructions, media
+licenses) and choosing one of the five alternative §2.3 clauses the template
+offers. The file lists every one of those choices at the top, so a reader can
+diff it against the published form.
+
+The version this replaced, `CLA.md` 1.0, was drafted for this project and is
+the copyright holder's own work. It was retired on 2026-09-07, before any
+signature existed, in favour of a form contributors have met elsewhere.
+
+## 6. Third-party dependency set
 
 Re-measured on 2026-09-07 over a **clean** installed dependency tree —
 `rm -rf node_modules && bun install --frozen-lockfile`, then each package's own
@@ -194,7 +216,7 @@ build flag and a `require` that throws if it is ever reached. **Re-check this
 pin whenever `exceljs` moves** — the point of it is the license, and a newer
 `exceljs` that asks for a newer `unzipper` on its own retires it.
 
-## 6. What this file is not
+## 7. What this file is not
 
 It is not a license, it grants nothing, and it takes nothing away. Where it and
 an actual license file disagree, the license file is right.

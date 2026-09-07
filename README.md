@@ -180,20 +180,24 @@ code, change the mark.
 
 [NOTICE.md](NOTICE.md) is the third-party position for the whole tree that
 ships: the MIT storage layer and the notice the bundled build carries for it,
-the two OFL-1.1 webfonts and their attribution, the 242-package dependency set
-with its licenses, and one transitive dependency that states no license at all.
+the two OFL-1.1 webfonts and their attribution, the CC BY 3.0 contributor
+agreement text, and the 233-package dependency set with its licenses — every
+one of which states a license.
 
 ## Contributing, conduct, and security
 
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — how to run the project, how work is
   tracked, and what to do before opening a pull request.
 - **[CLA.md](CLA.md)** — the contributor license agreement, which every author
-  of a merged commit signs once. It is a **license, not an assignment**: you
-  keep your copyright and your right to use your own work anywhere else, the
-  maintainer gets the right to license it under both halves of the dual
-  license, and in return your contribution stays available to the public as
-  free software (§5). You sign by replying to the check on your own pull
-  request. Issues and discussion need none of it.
+  of a merged commit signs once. It is the **Harmony Individual Contributor
+  License Agreement 1.0**, a standard off-the-shelf form, with its blanks filled
+  in and nothing drafted for this project. It is a
+  **license, not an assignment**: you keep your copyright and your right to use
+  your own work anywhere else, the maintainer gets the right to license it under
+  both halves
+  of the dual license, and in return your contribution goes on being licensed
+  under omul's open license as well (§2.3). You sign by replying to the check on
+  your own pull request. Issues and discussion need none of it.
 - **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** — the Contributor Covenant,
   reported to `support@hyhyve.com`.
 - **[SECURITY.md](SECURITY.md)** — **never report a vulnerability in a public

@@ -11,7 +11,7 @@
 # that file. Merge them on the maintainer's own authority; a bot has no
 # copyright to grant and nothing is being waived.
 #
-# The npm ecosystem is deliberately absent. NOTICE.md §5 is a measured
+# The npm ecosystem is deliberately absent. NOTICE.md §6 is a measured
 # enumeration of the installed dependency set, and a stream of automated bumps
 # would put it out of date faster than anyone re-measures it.
 version: 2

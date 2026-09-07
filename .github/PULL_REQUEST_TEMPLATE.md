@@ -40,7 +40,7 @@ did not test. -->
       this unticked when you open the pull request — the CLA check runs here and
       tells you what to reply with. Tick it once that check is green.
 - [ ] Anything in this change that is not mine is marked with its source and
-      its license (CLA §6.3), or there is nothing of the kind
+      its license (CLA §3(d)), or there is nothing of the kind
 
 ## Anything a reviewer cannot see from the diff
 

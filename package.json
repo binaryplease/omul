@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "license": "AGPL-3.0-only OR LicenseRef-omul-Commercial",
   "type": "module",
-  "//overrides": "exceljs asks for unzipper@^0.10.11, whose transitive binary -> buffers@0.1.1 states no license anywhere and which bun build inlines into dist/server/index.js. unzipper@0.11 dropped binary, and with it buffers. Forcing it past exceljs's range is safe because nothing here reaches the code that uses it: unzipper is required by exceljs's streaming reader alone, while every read in this repository goes through workbook.xlsx.load(), which uses jszip. Full reasoning in NOTICE.md section 5; re-check this pin whenever exceljs moves.",
+  "//overrides": "exceljs asks for unzipper@^0.10.11, whose transitive binary -> buffers@0.1.1 states no license anywhere and which bun build inlines into dist/server/index.js. unzipper@0.11 dropped binary, and with it buffers. Forcing it past exceljs's range is safe because nothing here reaches the code that uses it: unzipper is required by exceljs's streaming reader alone, while every read in this repository goes through workbook.xlsx.load(), which uses jszip. Full reasoning in NOTICE.md section 6; re-check this pin whenever exceljs moves.",
   "overrides": {
     "unzipper": "^0.11.6"
   },
