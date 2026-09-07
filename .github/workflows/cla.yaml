@@ -10,14 +10,17 @@ name: CLA
 # `main` removes that option for those lines permanently — there is no fix
 # after the fact short of asking the author individually or deleting the code.
 #
-# TWO THINGS THIS FILE CANNOT DO ON ITS OWN, both owed before publication:
+# TWO THINGS THIS FILE CANNOT DO ON ITS OWN. Both were owed before publication
+# and both were done on 2026-09-07; they are recorded here rather than deleted,
+# because neither lives in this repository and a fork or a restored repository
+# starts without them.
 #
-#   1. **Bootstrap the signature store.** The action reads
+#   1. **Bootstrap the signature store.** DONE. The action reads
 #      `signatures/v1/cla.json` on the `cla-signatures` branch and its own
 #      create-on-404 path is dead in v2.6.1 (it compares `error.status`, a
 #      number, against the string `"404"`), so without the branch every run
-#      fails with `Could not retrieve repository contents. Status: 404`. Create
-#      it once, from a checkout of this repository:
+#      fails with `Could not retrieve repository contents. Status: 404`. The
+#      branch now exists, holding `{"signedContributors": []}`. To recreate it:
 #
 #        gh api -X POST repos/binaryplease/omul/git/refs \
 #          -f ref=refs/heads/cla-signatures \
@@ -27,18 +30,35 @@ name: CLA
 #          -f message='chore: bootstrap the CLA signature store' \
 #          -f content="$(printf '{"signedContributors": []}\n' | base64 -w0)"
 #
-#   2. **Make this check blocking.** `main` carries no protection and no
-#      ruleset, so a red CLA check does not stop a merge — it is advisory until
-#      a required-status-check rule names this job:
+#   2. **Make this check blocking.** DONE — ruleset `main: CLA required`
+#      (id 22461120), enforcement active, naming this job as a required status
+#      check on `refs/heads/main`. Until it existed a red CLA check did not stop
+#      a merge.
 #
 #        gh api -X POST repos/binaryplease/omul/rulesets --input - <<'JSON'
 #        {"name":"main: CLA required","target":"branch","enforcement":"active",
+#         "bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole",
+#           "bypass_mode":"always"}],
 #         "conditions":{"ref_name":{"include":["refs/heads/main"],"exclude":[]}},
 #         "rules":[{"type":"required_status_checks","parameters":{
 #           "strict_required_status_checks_policy":false,
 #           "required_status_checks":[
 #             {"context":"Check the contributor license agreement"}]}}]}
 #        JSON
+#
+#      THE `bypass_actors` ENTRY IS A DELIBERATE ADDITION to the command this
+#      comment used to carry, and it is the one part of this worth arguing
+#      about. A required status check is enforced on *direct pushes* as well as
+#      on merges, and this job runs on `pull_request_target` and
+#      `issue_comment` only — so it never reports on a plain push, and without a
+#      bypass the ruleset would reject every push to `main`, including the merge
+#      commits this project's own workflow puts there (AGENTS.md, "Branches,
+#      commits and pushes"). Repository admin (`actor_id: 5`) can therefore
+#      still push, and can still merge a pull request whose CLA check is red.
+#      What the rule buys is that doing so is now a deliberate, logged bypass
+#      instead of the default — which is exactly the posture the allowlist note
+#      below describes for Dependabot. THE STANDING RULE FOR A MAINTAINER: never
+#      bypass a red CLA check except for a bot's own pull request.
 #
 # THERE IS DELIBERATELY NO `allowlist:` INPUT, and adding one re-opens a full
 # bypass. The action matches allowlist entries against a name that comes from
