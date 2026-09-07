@@ -263,8 +263,11 @@ decision, and only for naming (REQ176):
   second external call is an architecture decision, not a drive-by. Full
   rationale in
   [docs/deployment.md](docs/deployment.md#generating-a-deck-from-a-prompt-req007).
-- **This repository is headed for publication.** Nothing that belongs to the
-  business side may land here: pricing and plan tiers, product strategy,
+- **This repository is published.** It went public on 2026-09-07 with release
+  `v1.0.0`, under `AGPL-3.0-only OR LicenseRef-omul-Commercial`. So the rule
+  below is no longer a preparation — a paragraph that lands here is readable by
+  anyone the moment it is pushed, and cannot be recalled. Nothing that belongs
+  to the business side may land here: pricing and plan tiers, product strategy,
   competitive research, or a link into another product's documentation. The
   requirement parser refuses the last of those outright; the rest is on you.
 - **Nor does the internal estate land here** (REQ163). Keeping it out is on you,

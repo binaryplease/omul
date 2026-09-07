@@ -1,7 +1,8 @@
 # omul — a self-hoster's deployment, complete in this repository.
 #
 #     cp .env.example .env      # then put a generated secret in BETTER_AUTH_SECRET
-#     docker compose up -d
+#     # uncomment `build: .` below — the published image is not public yet
+#     docker compose up -d --build
 #
 # One container and one volume is the whole thing: all state is `bun:sqlite` in
 # a single directory, so there is no database service, no cache and no queue to
@@ -16,10 +17,12 @@
 services:
   omul:
     image: ghcr.io/binaryplease/omul:latest
-    # Or build the image from this tree instead of pulling it. The Dockerfile
-    # beside this file is the same one .github/workflows/build.yaml builds from,
-    # so a clone needs no registry access at all: uncomment the next line and
-    # run `docker compose up -d --build`.
+    # Build the image from this tree instead of pulling it — which is what you
+    # want today: the package above is **not public yet**, so an anonymous pull
+    # is refused. The Dockerfile beside this file is the same one
+    # .github/workflows/build.yaml builds from, so a clone needs no registry
+    # access at all: uncomment the next line and run `docker compose up -d
+    # --build`.
     # build: .
     restart: unless-stopped
 

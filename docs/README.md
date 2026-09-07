@@ -15,7 +15,8 @@ code must do, and nothing about what the business wants or why.
 The *why* lives in a **private documentation sidecar**, a separate repository
 that is not published, as business requirements `BRxxx`: user stories, target
 users, plan and packaging decisions, competitive provenance. This repository is
-headed for publication, so none of that can live here.
+**published** — public since 2026-09-07 — so none of that can live here, and a
+slip is not a filing error but a disclosure.
 
 Business requirements derive source-code requirements, and each SCR states the
 ones it answers in its `source` field.

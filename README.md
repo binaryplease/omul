@@ -58,8 +58,18 @@ instance:
 ```sh
 cp .env.example .env
 openssl rand -base64 32     # paste the output into BETTER_AUTH_SECRET= in .env
-docker compose up -d
+# uncomment the `build: .` line in compose.yaml — see the note right below
+docker compose up -d --build
 ```
+
+**Build the image, don't pull it — for now.** The workflow publishes to
+`ghcr.io/binaryplease/omul`, but that package is **not public yet**: an
+anonymous pull is refused, so a plain `docker compose up -d` fails at the pull
+with a permission error rather than at anything in your setup. Uncommenting
+`compose.yaml`'s one `build:` line builds the identical image from this tree —
+same `Dockerfile` the workflow uses — and needs no registry account at all.
+When the package is made public this note goes and the pull becomes the shorter
+path; nothing else about the deployment changes.
 
 That serves a working instance at `http://localhost:3000` **on the machine you
 ran it on, and nowhere else**: the container is published on the host's
@@ -113,10 +123,15 @@ file silently drops two of them. Nothing here backs that directory up, and
 copying a live WAL-mode SQLite file is not a backup — use `VACUUM INTO`, or copy
 with the container stopped.
 
-**`compose.yaml` needs no registry, either.** It pulls the published image by
-default, and uncommenting its one `build:` line builds the same image from this
-tree instead — so a clone is a complete deployment even without access to
-`ghcr.io`.
+**`compose.yaml` needs no registry, either** — and today it needs the build
+line. Its default is the published image, but that package is not public yet
+(see the note above), so uncommenting the one `build:` line is what makes a
+clone a complete deployment: same `Dockerfile`, no `ghcr.io` account, nothing
+else to change.
+
+The same applies to the `docker run` line above: it names
+`ghcr.io/binaryplease/omul:latest`, which an anonymous Docker cannot pull today.
+Build it locally first — `docker build -t omul .` — and run that tag instead.
 
 [docs/deployment.md](docs/deployment.md) is the full reference: every
 environment variable with what breaks when it is unset, the state and backup

@@ -39,7 +39,15 @@ an env file are the whole topology, and the reverse proxy, certificate and DNS
 name in front of it are the operator's. It pulls
 `ghcr.io/binaryplease/omul:latest`; its commented `build:` line builds the same
 image from the tree instead, so a clone is a complete deployment with no
-registry access at all. This section stays the authority on what each variable
+registry access at all.
+
+**The published image is not anonymously pullable yet**, so the build line is
+the working path rather than the fallback: the repository went public on
+2026-09-07, the GHCR package did not, and an anonymous pull is refused (the
+registry mints no pull token for it). Uncomment `build: .` and run
+`docker compose up -d --build`. That is also why REQ172 is `in-progress` rather
+than `done` — everything a stranger needs is in this repository, and the shorter
+of the two paths still needs the package flipped. This section stays the authority on what each variable
 means — the compose file and the example agree with it rather than restating it.
 
 What a deployment has to set, and why each one matters:
