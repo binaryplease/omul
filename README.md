@@ -16,9 +16,17 @@ For a plain shell without auto-start:
 
 ```sh
 nix develop .#shell
+bun install         # the plain shell does not do this for you
 mise trust          # once per clone, before any `mise run` task
 mise run test
 ```
+
+**`bun install` is not optional in this shell.** `nix develop` installs
+dependencies on the way in and `.#shell` does not, so a fresh clone that skips
+it has no `node_modules` and `mise run test` reports 84 failures and 43 errors
+that all read `Cannot find package …` and say nothing about your checkout. With
+the install, a fresh clone of this repository passes 2424 tests across 130
+files.
 
 **`mise trust` is not optional in a fresh clone.** Without it `mise` refuses to
 read `.mise.toml`, and every task fails with `no tasks defined … Are you in a
