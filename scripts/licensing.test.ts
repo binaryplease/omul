@@ -309,49 +309,109 @@ describe("the CLA and the check that enforces it say the same thing", () => {
 
 	test("the signed document is pinned to a commit, not to a moving ref", () => {
 		// The signature record stores no document version, so this URL is the
-		// only evidence of what a signer agreed to — and CLA.md §10 makes a new
-		// version non-retroactive, which `blob/main/` cannot express because
-		// `main` moves. Matching only `/CLA.md` would also accept a URL into
-		// somebody else's repository, so the owner and repo are pinned too.
+		// only evidence of what a signer agreed to — and CLA.md's *How to sign*
+		// makes a new version non-retroactive, which `blob/main/` cannot express
+		// because `main` moves. Matching only `/CLA.md` would also accept a URL
+		// into somebody else's repository, so the owner and repo are pinned too.
 		expect(workflow).toMatch(
 			/path-to-document: https:\/\/github\.com\/binaryplease\/omul\/blob\/[0-9a-f]{40}\/CLA\.md\s*$/m,
 		);
 		expect(workflow).not.toMatch(/path-to-document:.*\/blob\/(main|master)\//);
 	});
 
+	test("the pin names the commit that last changed CLA.md", () => {
+		// The shape assertion above cannot tell a live permalink from a stale
+		// one, and a stale one is the failure that costs: the bot links a signer
+		// to the previous version while recording their signature against the
+		// current store, which is assent to a text nobody showed them.
+		//
+		// Held offline against the repository's own log rather than by fetching
+		// the URL, so it measures in a clone with no network. The skip is the
+		// load-bearing part: a commit permalink cannot name the commit that
+		// carries a new CLA.md until that commit exists, and in this repository
+		// the change's author does not make it — the post-session hook does
+		// (AGENTS.md, "Branches, commits and pushes"). So while CLA.md is still
+		// uncommitted the pin is unfinishable and this says nothing; the moment
+		// it is committed, this goes red and stays red until the re-pin lands.
+		const pinned = workflow.match(
+			/path-to-document: https:\/\/github\.com\/binaryplease\/omul\/blob\/([0-9a-f]{40})\/CLA\.md/,
+		)?.[1];
+		expect(pinned).toBeDefined();
+
+		const committed = Bun.spawnSync(["git", "show", "HEAD:CLA.md"], {
+			cwd: REPO_ROOT,
+		});
+		expect(committed.exitCode).toBe(0);
+		if (committed.stdout.toString() !== cla) return;
+
+		const last = Bun.spawnSync(["git", "rev-list", "-1", "HEAD", "--", "CLA.md"], {
+			cwd: REPO_ROOT,
+		});
+		expect(last.exitCode).toBe(0);
+		expect(pinned).toBe(last.stdout.toString().trim());
+	});
+
+	test("the document version and the signature store move together", () => {
+		// A signature is only evidence of assent to the text that was linked at
+		// the time, so a new version of CLA.md needs a signature store of its
+		// own — otherwise a v1 signer is silently counted as having signed v2.
+		// The pairing is the invariant; the numbers are what has to agree.
+		const version = cla.match(/\*\*Version (\d+)\.\d+\.\*\*/);
+		expect(version).not.toBeNull();
+		expect(workflow).toMatch(
+			new RegExp(
+				`path-to-signatures: signatures/v${version?.[1]}/cla\\.json\\s*$`,
+				"m",
+			),
+		);
+	});
+
 	test("the grant is a license and never an assignment", () => {
 		// The whole contributor-facing promise, in CONTRIBUTING.md and README.md
-		// as well as in §4. A CLA that quietly became an assignment would keep
-		// every other test in this file green. The positive pair is what carries
-		// this; the negative is case-insensitive and covers the phrasings an
-		// assignment clause is actually written in, rather than one literal.
-		expect(cla).toMatch(/This agreement is a license, not an assignment/);
-		expect(cla).toMatch(/You retain all right, title and interest/);
+		// as well as in §2.1(a). A CLA that quietly became an assignment — the
+		// Harmony suite ships one, so the swap is a plausible edit rather than a
+		// hypothetical — would keep every other test in this file green. The
+		// positive is Harmony's own §2.1(a) wording; the negative is
+		// case-insensitive and covers the phrasings an assignment clause is
+		// actually written in, rather than one literal.
+		expect(cla).toMatch(
+			/You retain ownership of the Copyright in Your Contribution/,
+		);
+		expect(cla).toMatch(/Contributor License Agreement/);
+		expect(cla).not.toMatch(/Contributor Assignment Agreement 1\.0/);
 		expect(cla).not.toMatch(
 			/\b(you|contributor)\s+(do\s+)?(hereby\s+)?(irrevocably\s+)?assigns?\b/i,
 		);
 	});
 
-	test("§5 keeps the contribution available as free software", () => {
-		// The consideration the contributor gets back. Without it the agreement
-		// is a one-way grant, and the summary in CONTRIBUTING.md and README.md
-		// that promises it would be false.
-		// `\s+` rather than a space: the document is hard-wrapped, so either
-		// name can straddle a line break and does.
+	test("§2.3 keeps the contribution available under omul's open license", () => {
+		// The consideration the contributor gets back, and the reason Option
+		// Five of Harmony's five outbound-license options is the one adopted:
+		// four of them forbid the commercial half outright, and the fifth allows
+		// it only on this condition. Without the condition sentence the
+		// agreement is a one-way grant, and the summary in CONTRIBUTING.md and
+		// README.md that promises otherwise would be false.
 		expect(cla).toContain("AGPL-3.0-only");
-		expect(cla).toMatch(/Open\s+Source\s+Initiative/);
-		expect(cla).toMatch(/Free\s+Software\s+Foundation/);
+		expect(cla).toMatch(
+			/As a\s+condition on the exercise of this right, We agree to also license the\s+Contribution under the terms of the license or licenses which We are using for\s+the Material on the Submission Date/,
+		);
+		// The two grants are themselves conditioned on that clause, which is
+		// what makes it a term rather than a statement of intent.
+		expect(cla).toMatch(
+			/this license is conditioned upon compliance with\s+Section 2\.3/,
+		);
 	});
 
-	test("§5 keeps the remedy that makes that promise enforceable", () => {
-		// The undertaking without the reversion is a preference, not a term: it
-		// is the clause that costs the Owner something if the free grant stops.
-		// Deleting it leaves every other assertion above green.
-		expect(cla).toMatch(/If the Owner ever fails to keep this undertaking/);
-		expect(cla).toMatch(/revert to a\s+license under AGPL-3\.0-only alone/);
-		// Sublicenses already granted have to survive the reversion, or the
-		// clause would retroactively break third parties who relied on §2.
-		expect(cla).toMatch(/a sublicense already given stays given/i);
+	test("the standard form is named and attributed, because it is CC-BY", () => {
+		// The text is Project Harmony's, reproduced under CC BY 3.0, so the
+		// attribution is a license obligation and not a courtesy. Naming the
+		// form is also the contributor-facing point of adopting one.
+		expect(cla).toMatch(
+			/Harmony Individual Contributor\s+License\s+Agreement,? (version )?1\.0/,
+		);
+		expect(cla).toMatch(/harmonyagreements\.org/);
+		expect(cla).toMatch(/Creative Commons Attribution 3\.0 Unported License/);
+		expect(readRepoFile("NOTICE.md")).toMatch(/harmonyagreements\.org/);
 	});
 
 	test("the contributor-facing files point at it and describe it the same way", () => {
