@@ -114,31 +114,33 @@ tree.
 
 ## 5. Third-party dependency set
 
-Re-measured on 2026-08-31 over the installed dependency tree — **242 packages**,
-runtime and build-time together, transitive dependencies included — by reading
-each package's own `license` field. The previous measurement, on 2026-08-28,
-read 229 packages; the storage-layer swap in section 2 accounts for one of the
-MIT rows, ordinary dependency drift for the rest.
+Re-measured on 2026-09-07 over a **clean** installed dependency tree —
+`rm -rf node_modules && bun install --frozen-lockfile`, then each package's own
+`license` field read — **233 packages**, runtime and build-time together,
+transitive dependencies included. The clean install is not incidental: the
+previous measurement, 242 packages on 2026-08-31, was taken over a tree that
+still carried packages the lockfile had stopped naming, and a stale directory
+counts as a dependency in a scan that walks `node_modules`. The drop of nine is
+the `unzipper` pin below removing a chain of them.
 
 | License | Packages |
 | --- | --- |
-| MIT | 195 |
-| ISC | 16 |
+| MIT | 190 |
+| ISC | 15 |
 | Apache-2.0 | 11 |
 | BSD-2-Clause | 4 |
-| MPL-2.0 | 3 |
 | BSD-3-Clause | 3 |
-| MIT/X11 | 2 |
+| MPL-2.0 | 3 |
 | OFL-1.1 | 2 |
 | 0BSD | 1 |
 | Unlicense | 1 |
 | `(AFL-2.1 OR BSD-3-Clause)` | 1 |
 | `(MIT AND Zlib)` | 1 |
 | `(MIT OR GPL-3.0-or-later)` | 1 |
-| none stated | 1 |
 
-Everything above is compatible with distribution under the AGPL-3.0. The rows
-that are worth a sentence each rather than a number:
+**Every package states a license, and every one of them is compatible with
+distribution under the AGPL-3.0.** The rows that are worth a sentence each
+rather than a number:
 
 - **MPL-2.0** — `lightningcss` and its two platform binaries, which arrive
   through Tailwind. MPL-2.0 is file-level copyleft and is compatible with
@@ -154,22 +156,43 @@ that are worth a sentence each rather than a number:
   **BSD-3-Clause is the option taken here**. Bundled into the built server.
 - **`Unlicense`** (`big-integer`) and **`0BSD`** (`tslib`) — public-domain-
   equivalent and permissive respectively; both bundled into the built server.
-- **`MIT/X11`** — a legacy spelling of MIT in two old manifests, not a
-  different grant.
+  `big-integer` arrives through the `unzipper` pin below.
 
-### One dependency states no license, and it is bundled
+### The one dependency that stated no license is pinned out — `unzipper`
 
-`buffers@0.1.1` carries **no `license` field and no license file**, and its
-README states no terms either. It is reached transitively —
-`exceljs → unzipper → binary → buffers` — and it *is* inlined into
-`dist/server/index.js`.
+Until 2026-09-07 this section recorded an open finding, and it is worth keeping
+what it said: `buffers@0.1.1` carried **no `license` field, no license file and
+no terms in its README**, it was reached transitively through
+`exceljs → unzipper → binary → buffers`, and `bun build` inlined it into
+`dist/server/index.js`. The repository's own claim was never affected — no copy
+of it is in this source tree — but every container image built from this tree
+conveyed a component whose terms its author never stated, which a downstream
+redistributor inherits with no way to comply.
 
-This does not affect the license claim over this repository, whose source tree
-contains no copy of it. It is recorded here because the enumeration has to be
-true rather than tidy: the built server artifact carries a component whose
-terms its own author never stated. It is a small, sixteen-year-old utility, and
-the routes out are to pin around it, to replace `exceljs`'s zip path, or to
-obtain a statement from its author. **Open, and not closed by this file.**
+**Closed by pinning around it.** `package.json` carries an
+[`overrides`](package.json) entry forcing `unzipper` to `^0.11.6`, past the
+`^0.10.11` that `exceljs` asks for. The 0.11 line dropped the `binary`
+dependency, and `buffers` went with it, along with `chainsaw` and `traverse` —
+nine packages in total, which is the drop in the count above.
+
+Two things make the pin safe rather than merely convenient, and both are the
+reason this was preferred to replacing `exceljs`:
+
+- **Nothing here reaches the code that changed.** `unzipper` is required by
+  exceljs's *streaming* reader alone (`lib/stream/xlsx/workbook-reader.js`);
+  every read in this repository and its tests goes through
+  `workbook.xlsx.load()`, which uses `jszip`. The bundler cannot know that,
+  which is why the fix is a dependency pin and not a build exclusion.
+- **No advisory is traded for it.** The only published advisory against
+  `unzipper` is GHSA-884w-698f-927f, fixed in 0.8.13 — both the old and the new
+  version are past it.
+
+The 0.12 line drops `big-integer` and `fstream` as well, and was not taken: its
+`Open` path carries a static `require("@aws-sdk/client-s3")` that `bun build`
+cannot resolve, so it would buy two rows in the table above at the price of a
+build flag and a `require` that throws if it is ever reached. **Re-check this
+pin whenever `exceljs` moves** — the point of it is the license, and a newer
+`exceljs` that asks for a newer `unzipper` on its own retires it.
 
 ## 6. What this file is not
 
