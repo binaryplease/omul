@@ -6,9 +6,9 @@
  * page and served its bundle from `/assets/`, because nothing else was there.
  * It now shares one host with the marketing site, and the reason is a spoken
  * sentence: a presenter reads the join link off the slide to a room, and
- * "omul.app slash join slash 1234" is a sentence a room can hold where
- * "app dot omul dot app slash join slash 1234" is not. So the join link keeps
- * the host root, and what moves is the app's *own* front door.
+ * "omul dot example slash join slash 1234" is a sentence a room can hold where
+ * "app dot omul dot example slash join slash 1234" is not. So the join link
+ * keeps the host root, and what moves is the app's *own* front door.
  *
  * Three consequences, and they are the whole of this module:
  *

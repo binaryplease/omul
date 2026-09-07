@@ -57,6 +57,14 @@ const MIME_TYPES: Record<string, string> = {
 	".txt": "text/plain; charset=utf-8",
 };
 
+/** The two things {@link serveStatic} takes beyond the path itself. */
+interface ServeStaticOptions {
+	/** The request's query string, leading `?` included. */
+	search?: string;
+	/** The built client directory; the tests point it at a fixture. */
+	staticDir?: string;
+}
+
 /**
  * The absolute path of the file `pathname` addresses inside `staticDir`, or
  * `null` when it addresses none.
@@ -78,15 +86,21 @@ function resolveStaticFile(pathname: string, staticDir: string): string | null {
 }
 
 /**
- * What this server answers for `pathname`, given a built client directory.
+ * What this server answers for `requestPath`.
  *
  * Separated from the route so the whole decision — file, fallback, redirect or
  * 404 — can be exercised against a fixture directory without a socket, which is
  * what `server/app-paths.test.ts` does.
+ *
+ * `search` is the request's query string, leading `?` included, and it exists
+ * for the redirect below alone: Elysia hands a handler the pathname with the
+ * query already stripped, so a redirect built from the path could not carry one
+ * even in principle. `staticDir` is the built client directory, overridden only
+ * by the tests.
  */
 export async function serveStatic(
 	requestPath: string,
-	staticDir: string = STATIC_DIR,
+	{ search = "", staticDir = STATIC_DIR }: ServeStaticOptions = {},
 ): Promise<Response> {
 	// Decode first, and decide everything on the decoded path. Percent-escapes
 	// are the reason: `%2f` is a `/` the router never split on, so a path that
@@ -107,10 +121,17 @@ export async function serveStatic(
 	// looking for the app. Temporary rather than permanent: where the app's
 	// front door sits is a deployment's layout, not a fact to cache in a browser
 	// for as long as it feels like.
+	//
+	// The query comes along, and that is not decoration. Every auth callback
+	// minted before this deployment points at `/?mode=…&token=…`, and those
+	// tokens stay valid for an hour after it — a redirect that dropped the query
+	// would land each of those users on the app's home page with the landing
+	// they were sent to silently gone (`src/auth.tsx` reads `mode` and `token`
+	// from the search string, and finds neither).
 	if (pathname === "/") {
 		return new Response(null, {
 			status: 302,
-			headers: { Location: APP_ASSET_BASE },
+			headers: { Location: `${APP_ASSET_BASE}${search}` },
 		});
 	}
 
@@ -147,6 +168,6 @@ export async function serveStatic(
 	return new Response("Not Found", { status: 404 });
 }
 
-export const staticRoutes = new Elysia().get("/*", ({ path }) =>
-	serveStatic(path),
+export const staticRoutes = new Elysia().get("/*", ({ path, request }) =>
+	serveStatic(path, { search: new URL(request.url).search }),
 );

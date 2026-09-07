@@ -142,43 +142,68 @@ describe("what the server answers, against a built client directory", () => {
 
 	test("the app's home page is served under the base", async () => {
 		for (const pathname of [APP_BASE_PATH, APP_ASSET_BASE]) {
-			const response = await serveStatic(pathname, staticDir);
+			const response = await serveStatic(pathname, { staticDir });
 			expect(response.status).toBe(200);
 			expect(response.headers.get("Content-Type")).toBe("text/html");
 		}
 	});
 
 	test("a join link is answered with the app, at the root, unchanged", async () => {
-		const response = await serveStatic("/join/1234", staticDir);
+		const response = await serveStatic("/join/1234", { staticDir });
 		expect(response.status).toBe(200);
 		expect(response.headers.get("Content-Type")).toBe("text/html");
 	});
 
 	test("built assets are served from under the base", async () => {
-		const script = await serveStatic("/app/assets/index.js", staticDir);
+		const script = await serveStatic("/app/assets/index.js", { staticDir });
 		expect(script.status).toBe(200);
 		expect(script.headers.get("Content-Type")).toBe("application/javascript");
-		const signet = await serveStatic("/app/brand/ring.svg", staticDir);
+		const signet = await serveStatic("/app/brand/ring.svg", { staticDir });
 		expect(signet.status).toBe(200);
 		expect(signet.headers.get("Content-Type")).toBe("image/svg+xml");
 	});
 
 	test("the same asset asked for at the root is not served", async () => {
-		const response = await serveStatic("/assets/index.js", staticDir);
+		const response = await serveStatic("/assets/index.js", { staticDir });
 		expect(response.status).toBe(404);
 	});
 
 	test("the host root points at the app rather than answering as it", async () => {
 		// A shared host never routes `/` here at all; a standalone deployment has
 		// no site in front, and the visitor typing the bare host wants the app.
-		const response = await serveStatic("/", staticDir);
+		const response = await serveStatic("/", { staticDir });
 		expect(response.status).toBe(302);
+		expect(response.headers.get("Location")).toBe(APP_ASSET_BASE);
+	});
+
+	test("and it carries the query, because auth links in flight are all query", async () => {
+		// Every callback minted before this deployment points at `/?mode=…&token=…`
+		// and stays valid for an hour after it. A redirect that dropped the query
+		// would land each of those users on the app's home page with the landing
+		// they were sent to gone and nothing said about it — `src/auth.tsx` reads
+		// `mode` and `token` from the search string and would find neither.
+		for (const search of [
+			"?mode=reset-password&token=abc",
+			"?mode=verify-email",
+			"?mode=change-email&error=TOKEN_EXPIRED",
+			"?utm_source=slide",
+		]) {
+			const response = await serveStatic("/", { search, staticDir });
+			expect(response.status).toBe(302);
+			expect(response.headers.get("Location")).toBe(
+				`${APP_ASSET_BASE}${search}`,
+			);
+		}
+	});
+
+	test("a bare host with no query redirects with no stray question mark", async () => {
+		const response = await serveStatic("/", { search: "", staticDir });
 		expect(response.headers.get("Location")).toBe(APP_ASSET_BASE);
 	});
 
 	test("a path the app does not own is not answered with the app", async () => {
 		for (const pathname of ["/preise", "/blog", "/en", "/templates-for-teams"]) {
-			const response = await serveStatic(pathname, staticDir);
+			const response = await serveStatic(pathname, { staticDir });
 			expect(response.status).toBe(404);
 		}
 	});
@@ -193,14 +218,14 @@ describe("what the server answers, against a built client directory", () => {
 			"/app/..%2fomul-secret-neighbour",
 			"/app/assets/..%2f..%2fomul-secret-neighbour",
 		]) {
-			const response = await serveStatic(pathname, staticDir);
+			const response = await serveStatic(pathname, { staticDir });
 			expect(response.status).toBe(404);
 			expect(await response.text()).not.toContain("secret");
 		}
 	});
 
 	test("a malformed percent-escape is refused rather than guessed at", async () => {
-		const response = await serveStatic("/app/assets/%E0%A4%A.js", staticDir);
+		const response = await serveStatic("/app/assets/%E0%A4%A.js", { staticDir });
 		expect(response.status).toBe(404);
 	});
 });
