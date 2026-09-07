@@ -60,9 +60,9 @@ name: CLA
 #      below describes for Dependabot. THE STANDING RULE FOR A MAINTAINER: never
 #      bypass a red CLA check except for a bot's own pull request.
 #
-# CLA VERSION 2.0, AND THE ONE STEP IT CANNOT TAKE FROM INSIDE ITSELF. On
-# 2026-09-07 the bespoke agreement was replaced by the Harmony Individual CLA
-# 1.0 standard form. Two of the three halves of that move are done here:
+# CLA VERSION 2.0 IS LIVE AND SIGNABLE. On 2026-09-07 the bespoke agreement was
+# replaced by the Harmony Individual CLA 1.0 standard form, and all three halves
+# of that move are done:
 #
 #   * `CLA.md` carries the 2.0 text.
 #   * `path-to-signatures` is `signatures/v2/cla.json`, bootstrapped on the
@@ -70,23 +70,26 @@ name: CLA
 #     and read back through the contents API. The action's own create-on-404
 #     path is dead, so a version bump that forgets this step fails every run
 #     with an opaque 404 — bootstrap the new path first.
+#   * `path-to-document` permalinks `77f1cfb`, the commit that carries the 2.0
+#     text. It is the only evidence of what a signer agreed to.
 #
-# THE THIRD IS OWED AND IT IS OWED TO WHOEVER MERGES THIS. `path-to-document`
-# is a commit permalink, so it cannot name the commit that introduces the 2.0
-# text until that commit exists — and this repository's commits are made by the
-# post-session hook, not by the change's author (AGENTS.md, "Branches, commits
-# and pushes"). So it still points at `25b4710`, which holds version **1.0**.
-# Until it is re-pinned, the bot would link a signer to the wrong document
-# while recording their signature against the 2.0 store. RE-PIN IT IN THE SAME
-# LANDING, to the commit that carries `CLA.md` 2.0:
+# THE ORDER OF THOSE THREE IS THE WHOLE TRAP, and it caught this file once. A
+# commit permalink cannot name the commit that introduces a new `CLA.md` until
+# that commit exists, and here the author of a change is not its committer
+# (AGENTS.md, "Branches, commits and pushes"). So a version bump lands the text
+# first and re-pins second, and in the window between them the bot would link a
+# signer to the *previous* version while recording their signature against the
+# new store — assent to a text nobody showed them, over grants that differ
+# materially. Close the window in the same landing:
 #
 #   sed -i "s|blob/[0-9a-f]\{40\}/CLA.md|blob/$(git rev-list -1 HEAD -- CLA.md)/CLA.md|" \
 #     .github/workflows/cla.yaml
 #
 # That is not left to a reader's diligence. `scripts/licensing.test.ts` holds
-# the pin to the commit that last changed `CLA.md` and skips the assertion only
-# while `CLA.md` is still uncommitted — so `mise run test` goes red the moment
-# this change is committed and stays red until the re-pin lands.
+# the pin to the commit that last changed `CLA.md`, and `.github/workflows/
+# test.yaml` runs that suite on every pull request into `main` — so the window
+# is red on the page where the merge decision is actually made, not only in a
+# local `bun test`.
 #
 # `signatures/v1/cla.json` stays where it is, holding its empty list. It is the
 # record that nobody ever signed version 1.0, and deleting it would destroy that
@@ -194,15 +197,13 @@ jobs:
           # non-retroactive. Re-pin this to the commit that carries the new text
           # whenever CLA.md changes, and move the signature path with it.
           #
-          # STALE ON PURPOSE AND GUARDED: `25b4710` holds CLA.md version 1.0,
-          # and the tree's CLA.md is 2.0. The permalink cannot name the commit
-          # that carries 2.0 until that commit exists, so re-pinning it is the
-          # merger's job — see "THE THIRD IS OWED" in the header for the command
-          # and for the test that keeps this from being forgotten. Move
+          # Pinned to `77f1cfb`, the commit that carries CLA.md version 2.0 (the
+          # Harmony Individual CLA 1.0). Re-pin it and move
           # `path-to-signatures` to a new `vN/` in the same change whenever the
           # document version changes; scripts/licensing.test.ts holds the two
-          # numbers to each other so they cannot drift apart silently.
-          path-to-document: https://github.com/binaryplease/omul/blob/25b4710a37001bbd33ee3949039ee0697e122721/CLA.md
+          # numbers to each other, and holds this pin to the commit that last
+          # changed CLA.md, so neither can drift silently.
+          path-to-document: https://github.com/binaryplease/omul/blob/77f1cfb6dfc229248af2af6f86349e2c8eb45227/CLA.md
           # Must stay byte-identical to the sentence quoted in CLA.md and to the
           # one in the `if:` gate above; scripts/licensing.test.ts locks all three.
           custom-pr-sign-comment: I have read the CLA Document and I hereby sign the CLA

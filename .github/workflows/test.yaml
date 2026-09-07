@@ -1,0 +1,94 @@
+name: Tests
+
+# The test suite, on the page where the merge decision is made.
+#
+# WHY THIS FILE EXISTS. Several of this repository's invariants are held by
+# tests and by nothing else — `scripts/licensing.test.ts` alone holds the
+# dual-license expression, the trademark rows, the single contact address, the
+# CLA's signing sentence, and the pin that decides which version of `CLA.md` a
+# contributor is shown before they sign it. Until this workflow existed, every
+# one of those was checked only in whatever local `bun test` run somebody
+# remembered to do. A maintainer merging in the GitHub interface saw one check,
+# the CLA one, and it stays green whatever the suite says. A control that is
+# not on the path where the decision is taken is a control the decision does
+# not have: the CLA pin shipped stale exactly once, with a red test as its only
+# alarm and nothing in CI reading it.
+#
+# `mise run check` is deliberately NOT run here, and this is not an oversight.
+# Its fourth step shells out to a CLI named `index` that this repository does
+# not ship and that is not on npm (AGENTS.md, "Dev commands"), so a runner
+# cannot get it and the step would exit 127 on every run. What that step guards
+# is the generated listing in `docs/Requirements.md`, which is documentation;
+# the three steps that guard the tree — the frontend convention guard, the
+# publication-residue guard and `triage validate` — are pure `bun` and run
+# below, so what is lost in CI is only the index freshness check.
+
+on:
+  push:
+    branches:
+      - main
+      - workbatch/**
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+# `pull_request`, not `pull_request_target`: this job checks out and executes
+# the pull request's own code, which is the whole point of a test run and is
+# only safe because a fork's `pull_request` token is read-only and carries no
+# secrets. Never change this trigger to `pull_request_target` — that would run
+# untrusted code with a writable token. The read-only grant is stated anyway
+# rather than left to the repository default, so a later default change cannot
+# widen it silently.
+permissions:
+  contents: read
+
+concurrency:
+  # Per ref, and superseded runs are cancelled: a push that lands while an
+  # earlier commit is still building tells us nothing we still need.
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test suite
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    steps:
+      # Actions are pinned to commits rather than tags. A tag is mutable, and
+      # this job runs a fork's code — the token is read-only, so the blast
+      # radius is an ephemeral runner rather than this repository, but a pin
+      # costs nothing and `.github/dependabot.yml` maintains it.
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # FULL HISTORY IS REQUIRED, not a default worth trimming.
+          # `scripts/licensing.test.ts` holds `path-to-document` to the commit
+          # that last changed `CLA.md`, which it reads with `git rev-list`. In
+          # the default depth-1 clone that command answers with HEAD whatever
+          # the truth is, and the assertion passes for the wrong reason.
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          # The same major `.mise.toml` pins for developers.
+          bun-version: "1.x"
+
+      - name: Install dependencies
+        # `--frozen-lockfile` so a fork cannot resolve something the lockfile
+        # does not name. `bun.lock` is the real lockfile here; the tracked
+        # `package-lock.json` is read by one name-agreement assertion and by
+        # nothing else.
+        run: bun install --frozen-lockfile
+
+      - name: Guards
+        # The three steps of `mise run check` that need only `bun`.
+        run: |
+          bun scripts/guard-frontend-conventions.ts
+          bun scripts/guard-publication-residue.ts
+          bun scripts/triage.ts validate
+
+      - name: Test suite
+        run: bun test
