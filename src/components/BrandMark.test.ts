@@ -26,6 +26,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { APP_BASE_PATH } from "../../server/app-paths";
 import {
 	BRAND_NAME,
 	brandMarkForm,
@@ -82,8 +83,13 @@ describe("the drawn file and the drawn component are the same mark (REQ167)", ()
 	});
 
 	test("the signet the component points at is a file this repo ships", () => {
-		expect(SIGNET_URL.startsWith("/")).toBe(true);
-		const signet = readRepoFile(join("public", SIGNET_URL));
+		// Served under the app's base path, emitted from `public/` — so the URL is
+		// the base plus the file's place in that directory, and the assertion has to
+		// undo the first to find the second (REQ179).
+		expect(SIGNET_URL.startsWith(`${APP_BASE_PATH}/`)).toBe(true);
+		const signet = readRepoFile(
+			join("public", SIGNET_URL.slice(APP_BASE_PATH.length)),
+		);
 		expect(signet).toContain("<circle");
 		// A tile, not a wordmark: paper ring on an ink ground, fixed in both
 		// schemes, which is why this one stays a file rather than being inlined.

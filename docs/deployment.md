@@ -93,6 +93,52 @@ restores to a torn state. A correct backup is `VACUUM INTO` or `.backup`
 against the live database, or a copy taken with the container stopped. **What
 is not backed up is lost with the host.**
 
+## Sharing one host with the marketing site (REQ179)
+
+This app does not own the whole of its origin. It is built to sit on one host
+beside a separate marketing site, split by **path** rather than by subdomain,
+and the reason is a spoken sentence: a presenter reads the join link off the
+slide to a room. `<host>/join/1234` is a sentence a room can hold;
+`app.<host>/join/1234` is not.
+
+So the split is asymmetric, and deliberately so:
+
+| Path | Whose | Why |
+|---|---|---|
+| `/app`, `/app/*` | **the app** | Its own home page, and every built asset — Vite's `base` is `/app/`, so the HTML asks for `/app/assets/…` |
+| `/join/*` | **the app** | The link that is read aloud and printed on the slide. The one path the whole arrangement exists to keep where it is |
+| `/present/*`, `/preview/*`, `/results/*`, `/edit/*` | **the app** | Links already handed out — a deck being run, a results link given to somebody who was not in the room (REQ098), an edit link mailed to a co-presenter |
+| `/workspaces`, `/workspaces/*`, `/templates`, `/generate` | **the app** | Pages that exist *because* they are linkable; a tab left open on one must not stop resolving |
+| `/api/*`, `/ws` | **the app** | The HTTP surface, its docs and discovery index (REQ151), and the WebSocket |
+| **everything else, `/` included** | **the site** | Including `/assets/*`: both products build into a directory of that name, which is the collision that makes `/app/` a move rather than a preference |
+
+**`server/app-paths.ts` is the authority on that table**, not this page. It is
+read by the build (the base stamped into asset URLs), by the static handler
+(which file, which fallback) and by the client router (which page a URL is), so
+the three cannot drift apart; `server/app-paths.test.ts` asserts the boundary,
+including that `/templates-for-teams` is the site's and not ours.
+
+**What the reverse proxy in front has to do**, and it is the whole of its job
+here: route the prefixes above to this server, and everything else to the site.
+A matcher *wider* than that list has the app's fallback shadowing a site page; a
+matcher narrower than it has a link the app hands out 404ing on the site.
+Deriving it from `APP_OWNED_PREFIXES` rather than transcribing it keeps the two
+halves honest. **No proxy, TLS or DNS configuration lives in this repository**,
+for the reason **Running the image** above already gives: the reverse proxy, the
+certificate and the name in front of the port are the operator's.
+
+**`/` is not this app's, and it does not answer as if it were.** A request for
+it gets a `302` to `/app/` rather than the app's home page: on a shared host the
+proxy never sends `/` here at all, and on a **standalone** deployment — a
+self-hoster running this container with no marketing site in front of it —
+there is nobody else to answer, and the visitor typing the bare host is looking
+for the app. Any other path the app does not own answers `404`, which is what
+keeps a standalone instance from claiming to be a page it is not.
+
+`OMUL_BASE_HOST` is unaffected by all of this: it is still the **bare host**,
+with no path (`omul.example.com`, not `omul.example.com/app`), and a value
+carrying one is still a fatal startup error.
+
 ## Environment variables
 
 Set via `.mise.toml` for dev, override as needed:

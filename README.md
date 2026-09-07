@@ -59,6 +59,15 @@ loopback, so exposing it stays a deliberate step rather than something you get
 by not thinking about it. It is already complete — sign up, build a deck, put
 the 6-digit code on screen, and anything that can reach that port can join.
 
+The app's own front door is `/app`, and the bare host redirects there. It sits
+under a prefix because omul is built to share one host with a separate
+marketing site, split by path — but **join links keep the host root**
+(`http://localhost:3000/join/1234`), which is the entire point of that
+arrangement: the presenter reads that link out loud. Nothing about it requires
+you to run a site; a standalone instance answers everything the app owns and
+`404`s the rest. See
+[docs/deployment.md](docs/deployment.md#sharing-one-host-with-the-marketing-site-req179).
+
 To serve it to other people, put a TLS-terminating reverse proxy in front of
 that port under a name of yours, and add two lines to `.env`:
 
