@@ -322,6 +322,19 @@ default with an explicit way out:
   `302` could collect either credential. The `Location` is printed and
   `--server` is pointed at it by a person.
 
+### The same client, driven by an agent (REQ181)
+
+[`skills/omul/SKILL.md`](../skills/omul/SKILL.md) is this repository's agent
+skill: the standard installer (`npx skills add binaryplease/omul`) puts it in
+front of a coding agent, which then creates a deck and reads its results through
+the verbs above without reading this codebase. It restates what an agent needs
+rather than pointing at this file, because the agent that installs it does not
+have this repository — so a change to the client's verbs, its credential rules
+or its refusals belongs in both places. Two of its paragraphs are the ones to
+keep exact: an agent is never told to put a personal API key on a command line,
+and a deck's edit token is described as returned once, with no way to fetch it
+again.
+
 ## Rate limits (REQ145)
 
 The account-free routes are throttled per client, because without a login there

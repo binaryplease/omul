@@ -64,6 +64,11 @@ omul results <id>                      # add --json for the full tally
 omul help
 ```
 
+A coding agent drives the same client from the skill this repository carries in
+[skills/omul/](skills/omul/SKILL.md) — `npx skills add binaryplease/omul`
+installs it, and the agent then knows the verbs and the credential rules without
+reading this codebase.
+
 In a checkout, `bun link` puts the same command on your PATH and
 `mise run cli -- help` runs it without installing anything. The key is read from
 `OMUL_API_KEY` or a `0600` file in `~/.config/omul/` — never from a flag, so it
