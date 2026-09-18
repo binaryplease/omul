@@ -195,6 +195,8 @@ Prose outside the markers is preserved.
 | [REQ177.md](requirements/REQ177.md) | The storage layer is the published zodstore package, not a vendored snapshot | Platform & Operations | P2 | done | internal |
 | [REQ178.md](requirements/REQ178.md) | The app is set in one sans typeface, Figtree | Rendering & Theming | P2 | done | internal |
 | [REQ179.md](requirements/REQ179.md) | The app shares one host with the marketing site, split by path, and the join link keeps the root | Platform & Operations | P1 | done | internal |
+| [REQ180.md](requirements/REQ180.md) | A command-line client drives the API with an API key, installed from this repository | Platform & Operations | P2 | pending | internal |
+| [REQ181.md](requirements/REQ181.md) | The repository carries an agent skill that teaches an agent to drive omul through the command-line client | Platform & Operations | P2 | pending | internal |
 
-_177 entries — one row per file in `requirements/`._
+_179 entries — one row per file in `requirements/`._
 <!-- index:end -->
