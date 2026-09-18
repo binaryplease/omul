@@ -72,6 +72,10 @@ NODE_ENV=production bun build server/index.ts --outdir dist/server --target bun
 description = "Start production server"
 run = "NODE_ENV=production bun dist/server/index.js"
 
+[tasks.cli]
+description = "Run the command-line client against a server (REQ180) — `mise run cli -- help`"
+run = "bun cli/index.ts"
+
 [tasks."preview:email"]
 description = "Preview the transactional email templates in the browser (dev-only, port 3999)"
 run = "bun scripts/email-preview.ts"
@@ -81,9 +85,15 @@ description = "Run tests"
 run = "bun test"
 
 [tasks.check]
-description = "Run frontend convention guards + publication-residue guard + requirement checks"
+description = "Run frontend convention guards + CLI standalone guard + publication-residue guard + requirement checks"
 run = [
   "bun scripts/guard-frontend-conventions.ts",
+  # REQ180: the command-line client is bundled by the flake in a sandbox with no
+  # node_modules, so it may import nothing but its own modules and runtime
+  # builtins. Nothing else in this repo notices when it does — `bun cli/index.ts`
+  # and `bun test` both resolve the dependency happily — and the failure lands on
+  # whoever next runs `nix build`.
+  "bun scripts/guard-cli-standalone.ts",
   # REQ163 class 2: the private sibling repository's slug. Swept by hand twice
   # and back both times, because a sweep is a measurement and nothing failed
   # when the vocabulary returned. This is the control. It held the internal

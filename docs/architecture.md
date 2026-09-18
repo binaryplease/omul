@@ -16,6 +16,7 @@ and environment variables, and [frontend.md](frontend.md) for UI conventions.
 | Email | Brevo v3 HTTP API + React Email | Transactional mail (password reset, verification, change-email). Bodies authored as React components in `server/emails/`, rendered by `server/email.ts`. Disabled-mode logs instead of sending. |
 | Deck generation | Vercel AI SDK (`ai`) + `@ai-sdk/google` | **Optional and off by default.** The only part of the product that talks to anything outside the deployment (REQ007) — an intentional, documented exception to the rule that production depends on no third-party runtime host, since the remote model *is* the feature. Loaded by a dynamic import inside the one function that calls it, so nothing else resolves it. See [deployment.md](deployment.md#generating-a-deck-from-a-prompt-req007) |
 | Frontend | React 19 | |
+| Command-line client | Bun, no dependencies | `cli/` — one installed `omul` command over the same `/api` (REQ180), for a terminal, a CI job or an agent. Reachable as the flake's `packages.default` / `apps.default` and as the `bin` entry in `package.json`. It imports nothing outside `cli/`, which is what lets the flake bundle it offline from source; see [api.md — Driving the API from a terminal](api.md#driving-the-api-from-a-terminal-req180) |
 | Styling | Tailwind CSS v4 | |
 | Build | Vite (`bunx vite build`) + Bun bundler (server) | `vite.config.ts`; frontend → `dist/client/`, server → `dist/server/` |
 | Dev env | mise | `.mise.toml` declares tool versions, env vars, and tasks |
@@ -113,6 +114,23 @@ src/
     SharedResultsPage.tsx    # /results/:id — the read-only results surface a results link opens (REQ098)
     JoinPage.tsx
     ParticipantPage.tsx
+
+cli/                         # The command-line client (REQ180) — one installed `omul` command that creates a
+                             # presentation and reads its state and results back over the same /api the browser
+                             # uses. Adds no server surface. Imports nothing outside this directory (no npm
+                             # package, not server/ either), which is what lets flake.nix bundle it offline from
+                             # source; `scripts/guard-cli-standalone.ts` holds that property
+  index.ts                   # Entry point (`#!/usr/bin/env bun`, the `bin` of package.json): parse, dispatch, print, exit
+  commands.ts                # The verbs — health, auth, templates, create, list, show, results — each returning both readings of its result (a payload for --json, lines for a person) so nothing prints from inside a command
+  client.ts                  # The one place either credential is attached to a request: x-api-key, and X-Omul-Edit-Token for the deck a call names. Refuses a plaintext hop with a key, refuses to follow a redirect, and times out
+  config.ts                  # Where the server URL and the personal API key come from (--server / environment / config file / default), and the 0600 file `auth login` writes
+  edit-tokens.ts             # The per-presentation edit tokens, 0600 — the only copy of what authorizes a deck created without an account, which is why they are stored and never printed
+  secret-input.ts            # Reading a key from a prompt that does not echo it, or from a pipe — the reason there is no --api-key flag
+  args.ts                    # Positional words and --flags, with an unknown flag refused rather than ignored
+  deck.ts                    # The deck document a create sends, and the one liberty taken with it: ids filled in where a hand-written slide or option carries none
+  payload.ts                 # Reading the fields this client uses out of a response — hand-written rather than Zod, for the no-dependency reason above
+  protocol.ts                # The one constant restated from the server instead of imported, held to its copy by protocol.test.ts
+  render.ts                  # Human output: `(none)` for anything absent, aligned label blocks and tables
 
 public/
   brand/                     # The drawn omul mark (REQ167), served as static assets by Vite
