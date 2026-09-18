@@ -302,17 +302,25 @@ client holds one for the deck the call names — the two are independent standin
 on the server, and sending whichever applies is what lets one command work on
 both kinds of deck.
 
-Two refusals protect the key in transit, and both are the safe default with an
-explicit way out:
+Two refusals protect **both** credentials in transit, and both are the safe
+default with an explicit way out:
 
-- **An API key is not sent to an `http://` host that is not loopback.** In the
-  clear it is readable by every hop on the path and it does not expire. Set
-  `OMUL_CLI_ALLOW_PLAINTEXT_KEY=true` for a host reached over a network you
-  trust — the same shape of deliberate opt-out as `OMUL_RATE_LIMITS_DISABLED`.
+- **Neither credential is sent to an `http://` host that is not loopback.** In
+  the clear each is readable by every hop on the path, and neither expires. The
+  question is asked of what is about to ride the request rather than of the key
+  alone, which matters because an API-key create is minted no edit token: the
+  caller holding a token is by construction the caller with no key, and an
+  intercepted edit token is the less recoverable of the two — no account owns
+  it, so there is nothing to revoke and the only remedy is deleting the deck.
+  Set `OMUL_CLI_ALLOW_PLAINTEXT_CREDENTIALS=true` for a host reached over a
+  network you trust — the same shape of deliberate opt-out as
+  `OMUL_RATE_LIMITS_DISABLED`. A request that carries no credential at all (a
+  health probe, an anonymous create) is not refused; there is nothing on it to
+  protect.
 - **A redirect is reported rather than followed.** `fetch` carries custom headers
   across a redirect, to another origin included, so anything able to answer
-  `302` could collect the key. The `Location` is printed and `--server` is
-  pointed at it by a person.
+  `302` could collect either credential. The `Location` is printed and
+  `--server` is pointed at it by a person.
 
 ## Rate limits (REQ145)
 

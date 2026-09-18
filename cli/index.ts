@@ -26,7 +26,7 @@ import {
 	DEFAULT_SERVER_URL,
 	SERVER_URL_VARIABLE,
 } from "./config";
-import { ALLOW_PLAINTEXT_KEY_VARIABLE } from "./client";
+import { ALLOW_PLAINTEXT_CREDENTIALS_VARIABLE } from "./client";
 import { editTokensPath } from "./edit-tokens";
 import { exitCodeFor } from "./errors";
 
@@ -71,8 +71,9 @@ Credentials:
   exactly once. It is written to ${editTokensPath()} and is never
   printed: that file is the only copy, and losing it means losing the deck's editability.
 
-  An API key is not sent to an http:// host that is not loopback. Set
-  ${ALLOW_PLAINTEXT_KEY_VARIABLE}=true to allow it on a network you trust.
+  Neither credential is sent to an http:// host that is not loopback — an edit token
+  least of all, since no account owns it and there is nothing to revoke. Set
+  ${ALLOW_PLAINTEXT_CREDENTIALS_VARIABLE}=true to allow it on a network you trust.
 
 Environment:
   ${API_KEY_VARIABLE}                The personal API key

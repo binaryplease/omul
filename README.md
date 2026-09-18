@@ -67,8 +67,8 @@ omul help
 In a checkout, `bun link` puts the same command on your PATH and
 `mise run cli -- help` runs it without installing anything. The key is read from
 `OMUL_API_KEY` or a `0600` file in `~/.config/omul/` — never from a flag, so it
-stays out of your shell history — and it is not sent to a plain-`http://` host
-that is not your own machine. Full reference:
+stays out of your shell history — and neither it nor a deck's edit token is sent
+to a plain-`http://` host that is not your own machine. Full reference:
 [docs/api.md](docs/api.md#driving-the-api-from-a-terminal-req180).
 
 ## Self-hosting

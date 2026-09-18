@@ -6,10 +6,12 @@
  * Three of these are the reason this file exists at all, and each of them is a
  * way a long-lived credential ends up somewhere it was not meant to be:
  *
- *  - **the plaintext hop.** An API key on an `http://` request to anything but
- *    this machine is readable by every hop on the path, and it does not expire.
- *    The refusal is the default and the opt-out is an environment variable a
- *    self-hoster sets deliberately.
+ *  - **the plaintext hop.** Either credential on an `http://` request to
+ *    anything but this machine is readable by every hop on the path, and
+ *    neither expires. The refusal is asked of what is about to ride the
+ *    request rather than of the API key alone — the caller holding an edit
+ *    token is by construction the caller with no key — and the opt-out is an
+ *    environment variable a self-hoster sets deliberately.
  *  - **the redirect.** `fetch` follows one by default and carries custom
  *    headers across it, to another origin included — so a server able to answer
  *    `302` could collect the key. The test asserts the second server is never
@@ -24,8 +26,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	ALLOW_PLAINTEXT_KEY_VARIABLE,
-	assertKeyTransportIsProtected,
+	ALLOW_PLAINTEXT_CREDENTIALS_VARIABLE,
+	assertCredentialTransportIsProtected,
 	createApiClient,
 	isLoopbackHost,
 } from "./client";
@@ -35,7 +37,7 @@ import { CliError } from "./errors";
 
 const INHERITED = {
 	dataHome: process.env.XDG_DATA_HOME,
-	allowPlaintext: process.env[ALLOW_PLAINTEXT_KEY_VARIABLE],
+	allowPlaintext: process.env[ALLOW_PLAINTEXT_CREDENTIALS_VARIABLE],
 };
 
 /** What every request that reached the stub server carried. */
@@ -73,14 +75,14 @@ let home = "";
 beforeEach(() => {
 	home = mkdtempSync(join(tmpdir(), "omul-cli-client-"));
 	process.env.XDG_DATA_HOME = home;
-	delete process.env[ALLOW_PLAINTEXT_KEY_VARIABLE];
+	delete process.env[ALLOW_PLAINTEXT_CREDENTIALS_VARIABLE];
 	received.length = 0;
 });
 
 afterEach(() => {
 	rmSync(home, { recursive: true, force: true });
 	restore("XDG_DATA_HOME", INHERITED.dataHome);
-	restore(ALLOW_PLAINTEXT_KEY_VARIABLE, INHERITED.allowPlaintext);
+	restore(ALLOW_PLAINTEXT_CREDENTIALS_VARIABLE, INHERITED.allowPlaintext);
 });
 
 afterAll(() => {
@@ -119,33 +121,36 @@ describe("what counts as this machine", () => {
 	});
 });
 
-describe("a key is not sent in the clear", () => {
+describe("no credential is sent in the clear", () => {
 	test("http to another host is refused", () => {
 		expect(() =>
-			assertKeyTransportIsProtected("http://omul.example.com", "secret"),
+			assertCredentialTransportIsProtected("http://omul.example.com", true),
 		).toThrow(CliError);
 	});
 
-	test("https, loopback, and having no key at all are all fine", () => {
+	test("https, loopback, and carrying nothing at all are all fine", () => {
 		expect(() =>
-			assertKeyTransportIsProtected("https://omul.example.com", "secret"),
+			assertCredentialTransportIsProtected("https://omul.example.com", true),
 		).not.toThrow();
 		expect(() =>
-			assertKeyTransportIsProtected("http://localhost:3000", "secret"),
+			assertCredentialTransportIsProtected("http://localhost:3000", true),
 		).not.toThrow();
+		// A request with no credential on it has nothing to protect: a join-code
+		// lookup or an anonymous create over plaintext is the caller's own
+		// business, and refusing it would refuse the whole client.
 		expect(() =>
-			assertKeyTransportIsProtected("http://omul.example.com", null),
+			assertCredentialTransportIsProtected("http://omul.example.com", false),
 		).not.toThrow();
 	});
 
 	test("the opt-out is explicit, and only the exact value opens it", () => {
-		process.env[ALLOW_PLAINTEXT_KEY_VARIABLE] = "yes";
+		process.env[ALLOW_PLAINTEXT_CREDENTIALS_VARIABLE] = "yes";
 		expect(() =>
-			assertKeyTransportIsProtected("http://omul.example.com", "secret"),
+			assertCredentialTransportIsProtected("http://omul.example.com", true),
 		).toThrow(CliError);
-		process.env[ALLOW_PLAINTEXT_KEY_VARIABLE] = "true";
+		process.env[ALLOW_PLAINTEXT_CREDENTIALS_VARIABLE] = "true";
 		expect(() =>
-			assertKeyTransportIsProtected("http://omul.example.com", "secret"),
+			assertCredentialTransportIsProtected("http://omul.example.com", true),
 		).not.toThrow();
 	});
 
@@ -153,6 +158,36 @@ describe("a key is not sent in the clear", () => {
 		expect(() =>
 			createApiClient(settingsFor("http://omul.example.com", "secret")),
 		).toThrow(CliError);
+	});
+
+	// The hole this pair closes: the guard used to return early when no API key
+	// was configured, and an API-key create is minted no edit token — so the
+	// caller holding a token is exactly the caller the guard waved through.
+	// Every read of an anonymously-created deck then sent the deck's only
+	// credential, one that no account can revoke, over the wire in the clear.
+	test("a held edit token is a credential, even with no key configured", async () => {
+		storeEditToken("deck-1", "token-1");
+		const client = createApiClient(settingsFor("http://omul.example.com", null));
+		let raised: Error | null = null;
+		try {
+			await client.get("/api/presentations/deck-1", {
+				presentationId: "deck-1",
+			});
+		} catch (error) {
+			raised = error as Error;
+		}
+		expect(raised).toBeInstanceOf(CliError);
+		expect(raised?.message).toContain(ALLOW_PLAINTEXT_CREDENTIALS_VARIABLE);
+		expect(raised?.message).not.toContain("token-1");
+		// Refused before the request was built, so nothing went anywhere.
+		expect(received).toHaveLength(0);
+	});
+
+	test("a request about a deck no token is held for still goes out", async () => {
+		storeEditToken("deck-1", "token-1");
+		const client = createApiClient(settingsFor(stubOrigin, null));
+		await client.get("/api/presentations/deck-2", { presentationId: "deck-2" });
+		expect(received).toHaveLength(1);
 	});
 });
 

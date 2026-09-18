@@ -23,12 +23,17 @@
  * Three things are refused rather than worked around, and each is a way a
  * credential leaves the machine it was meant for:
  *
- *  - **A plaintext hop with a key.** An API key sent to an `http://` host that
- *    is not loopback crosses a network in the clear; every observer on the path
- *    gets a permanent account credential out of it. That is refused, and the
- *    opt-out is an explicit environment variable a self-hoster on a trusted
- *    network sets deliberately — the same shape as the server's own
- *    `OMUL_RATE_LIMITS_DISABLED`.
+ *  - **A plaintext hop with a credential on it.** Anything sent to an `http://`
+ *    host that is not loopback crosses a network in the clear, and every
+ *    observer on the path keeps what it saw. That is refused for **either**
+ *    credential, not for the key alone: an API-key create is minted no edit
+ *    token, so the caller who holds a token is precisely the caller who has no
+ *    key — a refusal that returned early on "no key configured" would wave
+ *    through every read of an anonymously-created deck, and an intercepted edit
+ *    token is the less recoverable of the two, since no account owns it and
+ *    there is nothing to revoke. The opt-out is an explicit environment
+ *    variable a self-hoster on a trusted network sets deliberately — the same
+ *    shape as the server's own `OMUL_RATE_LIMITS_DISABLED`.
  *  - **A redirect.** `fetch` follows one by default and carries custom headers
  *    across it, including to another origin, so a server (or anything able to
  *    answer as one) could collect the key by answering `302`. Redirects are not
@@ -52,8 +57,9 @@ import type { Settings } from "./config";
  */
 const REQUEST_TIMEOUT_MS = 30_000;
 
-/** The deliberate opt-out from the plaintext-key refusal. */
-export const ALLOW_PLAINTEXT_KEY_VARIABLE = "OMUL_CLI_ALLOW_PLAINTEXT_KEY";
+/** The deliberate opt-out from the plaintext-credential refusal. */
+export const ALLOW_PLAINTEXT_CREDENTIALS_VARIABLE =
+	"OMUL_CLI_ALLOW_PLAINTEXT_CREDENTIALS";
 
 /** Options for one call. */
 export interface ApiRequestOptions {
@@ -88,25 +94,33 @@ export function isLoopbackHost(hostname: string): boolean {
 }
 
 /**
- * Refuse to send a long-lived key over a hop that does not protect it.
+ * Refuse to send a long-lived credential over a hop that does not protect it.
+ *
+ * Asked of whatever is **about to ride this request**, not of the API key
+ * alone: the personal key and a deck's edit token are both long-lived, and the
+ * token is the one with no account behind it to revoke. A caller with a token
+ * and no key is the ordinary anonymous case rather than an exotic one, so
+ * asking only about the key would be a refusal that protects the credential
+ * that has a remedy and waves through the credential that has none.
  *
  * The safe posture is the default and loosening it is the caller's explicit,
  * documented decision — so this is a hard stop with an environment variable
  * beside it, not a warning that scrolls past in a CI log.
  */
-export function assertKeyTransportIsProtected(
+export function assertCredentialTransportIsProtected(
 	baseUrl: string,
-	apiKey: string | null,
+	carriesCredential: boolean,
 ): void {
-	if (!apiKey) return;
+	if (!carriesCredential) return;
 	const url = new URL(baseUrl);
 	if (url.protocol === "https:") return;
 	if (isLoopbackHost(url.hostname)) return;
-	if (process.env[ALLOW_PLAINTEXT_KEY_VARIABLE] === "true") return;
+	if (process.env[ALLOW_PLAINTEXT_CREDENTIALS_VARIABLE] === "true") return;
 	throw new CliError(
-		`Refusing to send an API key in the clear to ${url.origin}. ` +
+		`Refusing to send a credential in the clear to ${url.origin}. ` +
+			"An API key and a deck's edit token are both long-lived, and an edit token cannot be revoked. " +
 			"Use https://, or set " +
-			`${ALLOW_PLAINTEXT_KEY_VARIABLE}=true if that host is reached over a network you trust.`,
+			`${ALLOW_PLAINTEXT_CREDENTIALS_VARIABLE}=true if that host is reached over a network you trust.`,
 	);
 }
 
@@ -115,19 +129,34 @@ export function assertKeyTransportIsProtected(
  * other service module in this repository.
  */
 export function createApiClient(settings: Settings): ApiClient {
-	assertKeyTransportIsProtected(settings.baseUrl, settings.apiKey);
+	// A configured key fails here rather than on the first request: the whole
+	// client is unusable in that configuration, and saying so before anything is
+	// attempted is a clearer answer than one refusal per command. The edit token
+	// cannot be asked about yet — which deck a call is about is per request — so
+	// the same question is asked again below, where the answer is complete.
+	assertCredentialTransportIsProtected(
+		settings.baseUrl,
+		settings.apiKey !== null,
+	);
 
 	async function request(
 		method: "GET" | "POST",
 		path: string,
 		options: ApiRequestOptions,
 	): Promise<unknown> {
+		// Resolved before the assertion and before any header is set, so what the
+		// guard is asked about is exactly what would go out.
+		const editToken = options.presentationId
+			? readEditToken(options.presentationId)
+			: null;
+		assertCredentialTransportIsProtected(
+			settings.baseUrl,
+			settings.apiKey !== null || editToken !== null,
+		);
+
 		const headers = new Headers({ Accept: "application/json" });
 		if (settings.apiKey) headers.set("x-api-key", settings.apiKey);
-		if (options.presentationId) {
-			const token = readEditToken(options.presentationId);
-			if (token) headers.set(EDIT_TOKEN_HEADER, token);
-		}
+		if (editToken) headers.set(EDIT_TOKEN_HEADER, editToken);
 		if (options.body !== undefined) {
 			headers.set("Content-Type", "application/json");
 		}
