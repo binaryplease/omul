@@ -32,8 +32,10 @@ Run `omul help` first — if it answers, you have it. If it is not on PATH:
 ## Point it at a server
 
 Every command takes `--server URL`; `OMUL_SERVER_URL` in the environment says
-the same thing once. The default is `http://localhost:3000`, which is a dev
-server on the same machine.
+the same thing once. Failing both, the client uses the server the config file
+names (`omul auth login --server URL` records it there), and failing that
+`http://localhost:3000`, which is a dev server on the same machine.
+`omul auth status` shows which of these won.
 
 Ask which server you are working against rather than guessing one — omul is
 self-hosted, so there is no single public instance. `omul health` proves the
@@ -58,11 +60,16 @@ written to shell history verbatim.
 
 **A deck's edit token** is what authorizes a deck created without an account.
 The server returns it **exactly once**, in the create — there is no way to fetch
-it again. The client writes it to `~/.local/share/omul/edit-tokens.json` (mode
-`0600`) and never prints it, not even under `--json`.
+it again. The client writes it to `$XDG_DATA_HOME/omul/edit-tokens.json`
+(`~/.local/share/omul/edit-tokens.json` when that is unset; mode `0600`) and
+never prints it, not even under `--json`.
 
 - That file is the only copy. Do not delete it, do not move it, and do not
   hand it to anything.
+- In a container or sandbox that is thrown away afterwards, the file goes with
+  it, and the deck can never be edited again. Before creating a deck there
+  without an API key, tell the person, and ask whether the data directory is
+  kept.
 - It is what lets you read a deck you created anonymously in full, so a deck
   created this way is editable and fully readable from this machine only.
 
@@ -138,7 +145,9 @@ omul results <id> --json    # the aggregated tally for every slide
 `--json` prints the server's payload as it arrived — per-option counts,
 word-cloud words, scale statistics, quiz scoring — and is what you want when you
 are going to parse it. Without it each command prints a summary for a person,
-one line per slide, with `(none)` where the server reported nothing.
+with `(none)` where the server reported nothing: `show` prints one row per
+slide, and `results` prints two per slide — the question, then its type and
+counts on the line below.
 
 **A slide that reads `"withheld": true` is not an empty room.** It means this
 caller is not being shown that tally: the deck's results visibility is
@@ -172,9 +181,10 @@ it rather than re-interpreting it.
   key on the command line.
 - *"Refusing to send a credential in the clear"* — you are pointing at an
   `http://` host that is not this machine, and neither secret is sent over a
-  plaintext hop. Use `https://`, or set
-  `OMUL_CLI_ALLOW_PLAINTEXT_CREDENTIALS=true` if the person tells you that host
-  is reached over a network they trust.
+  plaintext hop. Use `https://` if the server offers it. Otherwise stop and ask
+  the person: only they can decide that the network is trusted, and if so they
+  set `OMUL_CLI_ALLOW_PLAINTEXT_CREDENTIALS=true` themselves. Never set it on
+  your own to get past the refusal.
 - A `404` from `show` or `results` — the id belongs to another server, or to
   nothing. Check `--server`.
 - A schema refusal from `create` — the deck document is wrong, and the message
