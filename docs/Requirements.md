@@ -196,6 +196,7 @@ Prose outside the markers is preserved.
 | [REQ178.md](requirements/REQ178.md) | The app is set in one sans typeface, Figtree | Rendering & Theming | P2 | done | internal |
 | [REQ179.md](requirements/REQ179.md) | The app shares one host with the marketing site, split by path, and the join link keeps the root | Platform & Operations | P1 | done | internal |
 | [REQ182.md](requirements/REQ182.md) | Deleting an account must resolve the presentations that ran under it | Platform & Operations | P1 | pending | internal |
+| [REQ183.md](requirements/REQ183.md) | Legal texts must be reachable in the app and named where a contract is concluded | Platform & Operations | P0 | pending | internal |
 
-_178 entries — one row per file in `requirements/`._
+_179 entries — one row per file in `requirements/`._
 <!-- index:end -->
