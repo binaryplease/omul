@@ -43,6 +43,38 @@ nothing about your change. `mise` supplies Bun 1.3.x and the same suite passes
 
 - **Server** — Bun + Elysia, `@binaryplease/zodstore` (SQLite), WebSocket
 - **Frontend** — React 19, Tailwind 4
+- **Command-line client** — Bun, no dependencies (`cli/`)
+
+## Driving it from a terminal
+
+The whole HTTP API is documented and programmatically reachable, and this
+repository ships a client for it — one `omul` command that creates a
+presentation and reads its results back, authenticated by a personal API key you
+mint in your account settings. No browser step, nothing to hand-write against
+`/api`.
+
+```sh
+nix run github:binaryplease/omul#omul -- --server https://omul.example.com health
+```
+
+```sh
+omul auth login                        # paste the key at a prompt that does not echo it
+omul create --template retrospective --title "Sprint 42"
+omul results <id>                      # add --json for the full tally
+omul help
+```
+
+A coding agent drives the same client from the skill this repository carries in
+[skills/omul/](skills/omul/SKILL.md) — `npx skills add binaryplease/omul`
+installs it, and the agent then knows the verbs and the credential rules without
+reading this codebase.
+
+In a checkout, `bun link` puts the same command on your PATH and
+`mise run cli -- help` runs it without installing anything. The key is read from
+`OMUL_API_KEY` or a `0600` file in `~/.config/omul/` — never from a flag, so it
+stays out of your shell history — and neither it nor a deck's edit token is sent
+to a plain-`http://` host that is not your own machine. Full reference:
+[docs/api.md](docs/api.md#driving-the-api-from-a-terminal-req180).
 
 ## Self-hosting
 

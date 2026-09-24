@@ -239,6 +239,102 @@ sources is in force is stated in the startup log, because a proxied deployment
 that sets neither variable looks, from inside the process, exactly like a direct
 one that is right to report what it sees.
 
+## Driving the API from a terminal (REQ180)
+
+Everything above is reachable with `curl`, and `cli/` is the client that means
+you do not have to. One installed command — `omul` — creates a presentation and
+reads its state and results back over exactly the routes documented here. It
+adds **no server surface**: every call it makes is a route in the table above,
+and `GET /api` is what it follows to find them.
+
+```sh
+nix run github:binaryplease/omul#omul -- --server https://omul.example.com health
+# or, in a checkout:
+bun link && omul help          # the `bin` entry of package.json
+mise run cli -- help           # without installing anything
+```
+
+| Command | What it does |
+|---|---|
+| `omul health` | `GET /api/health` and `GET /api` — is it there, and what does it advertise |
+| `omul auth login` | Read a personal API key from a prompt (or a pipe) and store it |
+| `omul auth status` | What this client would use, and from where — printing neither secret |
+| `omul auth logout` | Forget the stored key; the edit tokens are kept |
+| `omul templates` | `GET /api/templates` — the catalog `--template` takes an id from |
+| `omul create` | `POST /api/presentations`, from `--deck <file>` or `--template <id>` |
+| `omul list` | `GET /api/presentations/mine` — needs a key |
+| `omul show <id>` | `GET /api/presentations/:id` |
+| `omul results <id>` | `GET /api/presentations/:id/results` |
+
+`--json` prints the server's payload as it arrived, for a caller that is a
+program; without it each command prints a summary, with `(none)` for anything
+the server reported as absent. `--server` (or `OMUL_SERVER_URL`) says which
+server; the default is `http://localhost:3000`. Exit codes are `0` success, `1`
+the attempt failed, `2` the invocation was wrong. Every other verb group — the
+lifecycle routes, the Q&A layer, the exports — is its own requirement; a client
+that cannot yet do everything the browser can still does this.
+
+### The two credentials, and where they live
+
+The client holds both long-lived secrets this API has, and neither can be typed
+onto a command line:
+
+- **The personal API key** is read from `OMUL_API_KEY`, or from
+  `$XDG_CONFIG_HOME/omul/config.json` (`~/.config/omul/config.json`), which
+  `omul auth login` writes with mode `0600` inside a `0700` directory. There is
+  deliberately **no `--api-key` flag**: argv is readable by every other process
+  of the same user and is written to shell history verbatim. `auth login` reads
+  the key from a prompt that does not echo it, or from standard input
+  (`omul auth login < key.txt`), and spends it once against
+  `GET /api/presentations/mine` before storing it, so a typo is refused at the
+  prompt rather than resurfacing later as an unexplained `401`.
+- **A deck's edit token** is what a create authorizes when there is no account
+  behind it. The server returns it exactly once, so the client writes it to
+  `$XDG_DATA_HOME/omul/edit-tokens.json` (`~/.local/share/omul/edit-tokens.json`,
+  mode `0600`) and **never prints it** — not in a summary, not in `--json`, not
+  in an error. That file is the only copy, and `auth logout` does not touch it:
+  signing out of an account is not disowning the decks created without one. A
+  create authenticated by an API key is minted no token at all (see
+  **Per-presentation edit token** above), and nothing is written.
+
+A request carries the key when one is configured, and the edit token when this
+client holds one for the deck the call names — the two are independent standings
+on the server, and sending whichever applies is what lets one command work on
+both kinds of deck.
+
+Two refusals protect **both** credentials in transit, and both are the safe
+default with an explicit way out:
+
+- **Neither credential is sent to an `http://` host that is not loopback.** In
+  the clear each is readable by every hop on the path, and neither expires. The
+  question is asked of what is about to ride the request rather than of the key
+  alone, which matters because an API-key create is minted no edit token: the
+  caller holding a token is by construction the caller with no key, and an
+  intercepted edit token is the less recoverable of the two — no account owns
+  it, so there is nothing to revoke and the only remedy is deleting the deck.
+  Set `OMUL_CLI_ALLOW_PLAINTEXT_CREDENTIALS=true` for a host reached over a
+  network you trust — the same shape of deliberate opt-out as
+  `OMUL_RATE_LIMITS_DISABLED`. A request that carries no credential at all (a
+  health probe, an anonymous create) is not refused; there is nothing on it to
+  protect.
+- **A redirect is reported rather than followed.** `fetch` carries custom headers
+  across a redirect, to another origin included, so anything able to answer
+  `302` could collect either credential. The `Location` is printed and
+  `--server` is pointed at it by a person.
+
+### The same client, driven by an agent (REQ181)
+
+[`skills/omul/SKILL.md`](../skills/omul/SKILL.md) is this repository's agent
+skill: the standard installer (`npx skills add binaryplease/omul`) puts it in
+front of a coding agent, which then creates a deck and reads its results through
+the verbs above without reading this codebase. It restates what an agent needs
+rather than pointing at this file, because the agent that installs it does not
+have this repository — so a change to the client's verbs, its credential rules
+or its refusals belongs in both places. Two of its paragraphs are the ones to
+keep exact: an agent is never told to put a personal API key on a command line,
+and a deck's edit token is described as returned once, with no way to fetch it
+again.
+
 ## Rate limits (REQ145)
 
 The account-free routes are throttled per client, because without a login there
