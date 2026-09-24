@@ -198,6 +198,7 @@ Prose outside the markers is preserved.
 | [REQ180.md](requirements/REQ180.md) | A command-line client drives the API with an API key, installed from this repository | Platform & Operations | P2 | done | internal |
 | [REQ181.md](requirements/REQ181.md) | The repository carries an agent skill that teaches an agent to drive omul through the command-line client | Platform & Operations | P2 | done | internal |
 | [REQ182.md](requirements/REQ182.md) | Deleting an account must resolve the presentations that ran under it | Platform & Operations | P1 | pending | internal |
+| [REQ183.md](requirements/REQ183.md) | Legal texts must be reachable in the app and named where a contract is concluded | Platform & Operations | P0 | pending | internal |
 
-_180 entries — one row per file in `requirements/`._
+_181 entries — one row per file in `requirements/`._
 <!-- index:end -->
