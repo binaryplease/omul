@@ -117,6 +117,7 @@ action today is **reassign a presentation's owner**.
 |---|---|---|---|
 | GET | `/api` | — | Discovery index: absolute links to the OpenAPI spec, docs UI, health probe and WebSocket — see **The discovery index** below |
 | GET | `/api/health` | — | Health check |
+| GET | `/api/legal` | — | Where this deployment's imprint, privacy policy and terms live: `{ imprintUrl, privacyUrl, termsUrl }`, each an `http(s)://` URL, a path on this host, or an explicit `null` when the operator configured none (REQ183). The client draws a footer link under every route and a sentence at each contract-conclusion point only for what is set — see `OMUL_IMPRINT_URL` in [deployment.md](deployment.md#environment-variables) |
 | ANY | `/api/auth/*` | — | Better Auth (sign-up/in/out, session, reset, verify, change-email, delete-user, API keys) |
 | GET | `/api/templates` | — | The prebuilt-deck catalog, filtered by `?category=` and `?search=` (REQ005) — see **Deck templates** below |
 | GET | `/api/templates/:id` | — | One catalog entry by its id (REQ005) |

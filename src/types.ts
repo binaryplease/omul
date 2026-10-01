@@ -251,6 +251,14 @@ export type {
 } from "../server/deck-generator";
 
 /**
+ * Where this instance's legal texts live (REQ183), as `GET /api/legal` reports
+ * them. Type-only for the reason the generation report above is: the module
+ * that owns the shape reads the server's environment, which a browser has none
+ * of.
+ */
+export type { LegalLinks } from "../server/legal-links";
+
+/**
  * Breaking a slide's results down by an earlier slide's answers (REQ020,
  * REQ116).
  *

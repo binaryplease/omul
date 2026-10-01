@@ -2,6 +2,7 @@ import { ChevronLeft, LayoutTemplate, Search, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Segmented } from "../components/EditorControls";
+import { LegalNotice } from "../components/LegalLinks";
 import { ICON_BUTTON_HOVER } from "../components/ShareCluster";
 import {
 	DECK_TEMPLATE_CATEGORY_LABELS,
@@ -133,6 +134,9 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 						the slides are copied into a new presentation and are yours to edit,
 						reorder or throw away.
 					</p>
+					{/* Picking a template creates a deck — the same contract the
+					    blank editor's Create concludes (REQ183). */}
+					<LegalNotice action="using a template" className="mt-3 max-w-xl" />
 				</header>
 
 				{/* The two filters, above the results they narrow. */}

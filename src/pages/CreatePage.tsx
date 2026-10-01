@@ -23,6 +23,7 @@ import {
 	DeckMark,
 	deckThemeOptions,
 } from "../components/DeckTheme";
+import { LegalNotice } from "../components/LegalLinks";
 import { PresenterNotesStrip } from "../components/PresenterNotes";
 import { PreviewLink } from "../components/PreviewLink";
 import { ICON_BUTTON_HOVER } from "../components/ShareCluster";
@@ -756,6 +757,17 @@ export function CreatePage({
 						</button>
 					</div>
 				</div>
+
+				{/* Creating a deck concludes a contract — with or without an account —
+				    so the terms and the privacy policy are named under the Create
+				    button before it is pressed (REQ183). Saving an existing deck does
+				    not, so the edit form carries no notice. */}
+				{!isEdit && (
+					<LegalNotice
+						action="creating this presentation"
+						className="px-3 sm:px-6 pb-2 text-right"
+					/>
+				)}
 
 				{error && (
 					<div className="flex items-center gap-2 px-4 sm:px-6 py-2 bg-error/10 border-t border-error/30 text-error text-sm">

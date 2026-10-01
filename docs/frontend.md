@@ -37,6 +37,15 @@ that already exist — compose these, never re-hand-roll:
 - **Icon-button hover** — `ICON_BUTTON_HOVER` in `ShareCluster.tsx` is the shared
   muted→accent interaction-state token. Compose it; don't inline
   `text-text-muted hover:text-accent` per surface.
+- **Legal texts** — `src/components/LegalLinks.tsx` (REQ183).
+  `LEGAL_TEXT_DESCRIPTORS` names the imprint, privacy policy and terms once,
+  `LEGAL_LINK_CLASS` is the one style a legal link wears, and `useLegalLinks()`
+  the one read of `GET /api/legal`, shared by every surface. `<LegalFooter/>` is
+  mounted by `App` under every route; `<LegalNotice action="…"/>` is the
+  sentence at a point where a contract is concluded, placed before the control
+  that submits. Both render nothing for an address the operator did not
+  configure, so never draw a legal link by hand — a hand-rolled one is the link
+  that survives on an instance that set none.
 - **Deck sharing** — `src/components/CollaboratorsDialog.tsx` (REQ075).
   `DECK_ACCESS_LEVEL_DESCRIPTORS` is the single descriptor for the three access
   levels — one entry per level the API accepts, in the same order — and

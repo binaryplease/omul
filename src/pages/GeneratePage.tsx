@@ -2,6 +2,7 @@ import { AlertTriangle, ChevronLeft, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useSession } from "../auth-client";
+import { LegalNotice } from "../components/LegalLinks";
 import { SlideTypeIcon } from "../components/SlideTypeIcon";
 import { LoadingState } from "../components/ui/Loading";
 import { ThemeToggle } from "../components/ui/Theme";
@@ -212,6 +213,9 @@ export function GeneratePage({ go }: { go: (r: Route) => void }) {
 							{blocked && (
 								<p className="text-sm text-text-dim max-w-xl">{blocked}</p>
 							)}
+							{/* Generating creates a deck — the same contract the blank
+							    editor's Create concludes (REQ183). */}
+							<LegalNotice action="generating a draft" className="max-w-xl" />
 						</div>
 
 						{availability && availability.available && (

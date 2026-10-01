@@ -11,6 +11,7 @@ import {
 	type DeckThemeId,
 	isVoteRefusalCode,
 	isWithheldTally,
+	type LegalLinks,
 	type ParticipantRosterEntry,
 	type ReactionKind,
 	RESULTS_TOKEN_HEADER,
@@ -385,6 +386,13 @@ export const api = {
 	 */
 	getDeckGeneration: () =>
 		request<DeckGenerationAvailability>("/deck-generation"),
+
+	/**
+	 * Where this deployment's imprint, privacy policy and terms live (REQ183).
+	 * Each is `null` when the operator configured none, and the client draws no
+	 * link for it.
+	 */
+	getLegalLinks: () => request<LegalLinks>("/legal"),
 
 	/**
 	 * Draft a deck from a prompt (REQ007). Answers with an ordinary presentation

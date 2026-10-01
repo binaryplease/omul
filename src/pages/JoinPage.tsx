@@ -2,6 +2,7 @@ import { QrCode } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { DeckMark, DeckThemeScope } from "../components/DeckTheme";
+import { LegalNotice } from "../components/LegalLinks";
 import { ThemeToggle } from "../components/ui/Theme";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
@@ -264,6 +265,13 @@ export function JoinPage({ go }: { go: (r: Route) => void }) {
 						</button>
 					</>
 				)}
+
+				{/* Joining a room concludes a contract, so the terms and the privacy
+				    policy are named before the code is submitted (REQ183) — below
+				    both ways in, typed and scanned, since either one joins. English
+				    like the rest of this screen: no deck, and so no deck language,
+				    is known until the code resolves. */}
+				<LegalNotice action="joining" className="mt-6 max-w-xs text-center" />
 
 				<button
 					type="button"
