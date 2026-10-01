@@ -12,6 +12,7 @@ import {
 	ParticipantSlideView,
 } from "../components/ParticipantSlideView";
 import { DeckMark, DeckThemeScope } from "../components/DeckTheme";
+import { LegalNotice } from "../components/LegalLinks";
 import {
 	ChatComposer,
 	ChatHeading,
@@ -446,6 +447,19 @@ export function ParticipantPage({
 	const nameLabels = participantNameLabelsFor(t);
 
 	/**
+	 * REQ183 — the terms and the privacy policy, named on every screen from which
+	 * a participant can submit something. A `/join/<code>` link or the room's QR
+	 * code lands here directly, past `JoinPage` and its notice, so this page has
+	 * to carry the sentence itself: under the name form, on the waiting screen,
+	 * and under the answer controls of the live slide. Draws nothing on an
+	 * instance that configured neither text. English, like `JoinPage`'s: it is
+	 * the operator's sentence, not the deck's.
+	 */
+	const legalNotice = (
+		<LegalNotice action="taking part" className="mt-6 max-w-xs text-center" />
+	);
+
+	/**
 	 * REQ076 — the name gate, and it is an **early return** rather than an
 	 * overlay on the slide.
 	 *
@@ -489,6 +503,7 @@ export function ParticipantPage({
 									}
 						}
 					/>
+					{legalNotice}
 				</div>
 			</div>,
 		);
@@ -526,6 +541,7 @@ export function ParticipantPage({
 					    is told it landed, and can correct it here rather than having to
 					    wait for a slide to appear before the control does. */}
 					{nameBadge && <div className="mt-4">{nameBadge}</div>}
+					{legalNotice}
 				</div>
 			</div>,
 		);
@@ -599,6 +615,8 @@ export function ParticipantPage({
 						transport={transport}
 						onError={setError}
 					/>
+
+					{legalNotice}
 
 					{/* Survey-mode navigation (REQ003/REQ082) */}
 					{isSurvey && (

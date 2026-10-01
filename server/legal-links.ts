@@ -40,8 +40,12 @@ export const LegalLinksSchema = z.object({
 
 export type LegalLinks = z.infer<typeof LegalLinksSchema>;
 
-/** A path on this host — one leading slash, so `//elsewhere` is not one. */
-const SAME_HOST_PATH = /^\/(?!\/)\S*$/;
+/**
+ * A path on this host — one leading slash, and no backslash anywhere: a browser
+ * reads `\` as `/`, so `//elsewhere`, `/\elsewhere` and `\\elsewhere` all leave
+ * the host, and none of them is a path on it.
+ */
+const SAME_HOST_PATH = /^\/(?!\/)[^\s\\]*$/;
 
 function isAcceptedLegalUrl(value: string): boolean {
 	if (SAME_HOST_PATH.test(value)) return true;

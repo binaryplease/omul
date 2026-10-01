@@ -194,4 +194,49 @@ describe("the notice where a contract is concluded (REQ183)", () => {
 		expect(mount).toBeGreaterThan(source.indexOf("Scan QR Code"));
 		expect(mount).toBeLessThan(source.indexOf("Back to home"));
 	});
+
+	/**
+	 * The way most of a room arrives: the projected QR code and the
+	 * `/join/<code>` link open `ParticipantPage` directly, past `JoinPage` and
+	 * its notice, and the join lookup runs on arrival. So the participant page
+	 * names the terms itself, on every screen a participant can submit from.
+	 */
+	test("a /join/<code> link lands on a page that names the terms wherever it takes input", () => {
+		const router = readSource("router.ts");
+		expect(router).toContain('return { page: "participate", code:');
+
+		const source = readSource("pages/ParticipantPage.tsx");
+		expect(source).toMatch(
+			/import \{ LegalNotice \} from "\.\.\/components\/LegalLinks";/,
+		);
+		expect(source).toContain('<LegalNotice action="taking part"');
+
+		const uses = [...source.matchAll(/\{legalNotice\}/g)].map(
+			(match) => match.index ?? -1,
+		);
+		expect(uses).toHaveLength(3);
+		const [afterNameForm, onWaitingScreen, underAnswers] = uses;
+
+		// Under the name form — the first thing a deck that asks for one submits —
+		// and still inside that screen's early return.
+		const nameGate = source.indexOf("<ParticipantNameGate");
+		expect(afterNameForm).toBeGreaterThan(nameGate);
+		expect(afterNameForm).toBeLessThan(source.indexOf("const nameBadge"));
+
+		// On the screen a participant waits on before the deck starts, inside that
+		// screen's early return too.
+		const waiting = source.indexOf("{t.waitingPresenter}");
+		expect(onWaitingScreen).toBeGreaterThan(waiting);
+		expect(onWaitingScreen).toBeLessThan(
+			source.indexOf("if (!activeSlide) return null;"),
+		);
+
+		// Directly under the live slide's answer controls, ahead of everything
+		// else on that screen.
+		const answers = source.indexOf("<ParticipantSlideView");
+		expect(underAnswers).toBeGreaterThan(answers);
+		expect(underAnswers).toBeLessThan(
+			source.indexOf("Survey-mode navigation"),
+		);
+	});
 });

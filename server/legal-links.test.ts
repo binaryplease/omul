@@ -95,6 +95,11 @@ describe("reading the legal-text addresses (REQ183)", () => {
 		"example.com/imprint",
 		"imprint",
 		"//example.com/imprint",
+		// A browser reads "\\" as "/", so each of these leaves the host too.
+		"/\\example.com/imprint",
+		"/\\\\example.com/imprint",
+		"\\\\example.com/imprint",
+		"/imprint\\..\\elsewhere",
 		"https://",
 		"/with space",
 	]) {
