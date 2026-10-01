@@ -4542,6 +4542,13 @@ export const DeckThemeIdEnum = z.enum(DECK_THEME_IDS);
 export type DeckThemeId = z.infer<typeof DeckThemeIdEnum>;
 
 /**
+ * The built-in set alone, without `custom` — what a value may hold when it
+ * names a theme but carries no brand to paint `custom` with, as a
+ * workspace's default theme does (REQ086).
+ */
+export const BuiltInDeckThemeIdEnum = z.enum(BUILT_IN_DECK_THEME_IDS);
+
+/**
  * What an unstated theme means. The house theme, deliberately: the field is
  * being appended to a schema that has been storing decks for a while, and every
  * one of them re-parses forward onto this value — so the default has
@@ -5060,8 +5067,14 @@ export const CreatePresentationSchema = z
 		 * The deck's appearance (REQ079, REQ080) and the organizer's own mark
 		 * (REQ136). Authored with the deck, like its language and its pace —
 		 * `themeBrand` only reaches a screen when `theme` is `custom`.
+		 *
+		 * `null` — the default — means the request named no theme, and that is
+		 * not the same request as one naming the house theme (REQ086): a deck
+		 * created in a workspace without a theme takes the workspace's default,
+		 * while one that asked for `signal` keeps it. A personal deck that named
+		 * none still gets the house theme, decided in `createPresentation`.
 		 */
-		theme: DeckThemeIdEnum.optional().default(DEFAULT_DECK_THEME),
+		theme: DeckThemeIdEnum.nullable().default(null),
 		themeBrand: DeckBrandSchema.optional().default({}),
 		themeLogoUrl: z.string().optional().default(""),
 		themeLogoAlt: z.string().optional().default(""),
@@ -5709,12 +5722,14 @@ export type PostSlideCommentInput = z.infer<typeof PostSlideCommentSchema>;
 //    at the front of {@link WORKSPACE_ROLES} and one line in each predicate — not
 //    a sweep for `!== "member"` spelled five different ways.
 //
-// What this slice deliberately does not model: a workspace's own settings, theme,
+// What this slice deliberately does not model: a workspace's own settings,
 // usage or seats. Each is its own pending requirement, and a field here that
-// nothing enforces would be a promise the server does not keep. The templates a
-// workspace publishes for itself *are* modelled, further down this block
-// (REQ004) — and as a collection of their own rather than a field here, because
-// a workspace holds many and each is a document.
+// nothing enforces would be a promise the server does not keep. The one setting
+// that is modelled is the default theme (REQ086), because the deck create keeps
+// it: a deck made in the workspace without naming a theme starts in it. The
+// templates a workspace publishes for itself *are* modelled, further down this
+// block (REQ004) — and as a collection of their own rather than a field here,
+// because a workspace holds many and each is a document.
 
 /**
  * The longest a workspace's name may be, in characters. The deck title's cap
@@ -5853,6 +5868,8 @@ export function canAdministerWorkspace(role: WorkspaceRole | null): boolean {
 export const WorkspaceSchema = z.object({
 	id: z.string(),
 	name: z.string().default(""),
+	/** The theme a deck created here starts in when it names none (REQ086). */
+	defaultTheme: BuiltInDeckThemeIdEnum.default(DEFAULT_DECK_THEME),
 	role: WorkspaceRoleEnum.nullable().default(null),
 	createdAt: z.string().default(""),
 	updatedAt: z.string().default(""),
@@ -5901,6 +5918,19 @@ export type CreateWorkspaceInput = z.infer<typeof CreateWorkspaceSchema>;
  */
 export const RenameWorkspaceSchema = z.object({
 	name: z.string().trim().min(1).max(WORKSPACE_NAME_MAX_LENGTH),
+});
+
+/**
+ * Setting a workspace's default theme (REQ086). No default, like
+ * {@link WorkspaceRoleBodySchema}: this request exists only to name a theme, so
+ * an absent one is malformed rather than a silent reset to the house theme.
+ *
+ * Built-in themes only. `custom` names a palette authored *on a deck*, and a
+ * workspace has no brand of its own to lend one (that is REQ130's), so a deck
+ * created into it would be "custom" with nothing to be custom with.
+ */
+export const WorkspaceDefaultThemeSchema = z.object({
+	defaultTheme: BuiltInDeckThemeIdEnum,
 });
 
 /**
@@ -6309,10 +6339,16 @@ export function canGrandfatherLegacyDeck({
  * same moment (see `services/workspaces.ts`). It is nullable because the account
  * may since have been deleted, and because every non-identity
  * field wants a value a row written before it existed re-parses onto.
+ *
+ * `defaultTheme` (REQ086) is the theme a deck created in the workspace starts
+ * in when its create names none. It defaults to the house theme, so every
+ * workspace written before it existed creates decks exactly as it did — and
+ * it is read only at create time, so changing it re-themes no existing deck.
  */
 export const StoredWorkspaceSchema = z.object({
 	id: z.string(),
 	name: z.string().default(""),
+	defaultTheme: BuiltInDeckThemeIdEnum.default(DEFAULT_DECK_THEME),
 	createdBy: z.string().nullable().default(null),
 	createdAt: z.string().default(""),
 	updatedAt: z.string().default(""),

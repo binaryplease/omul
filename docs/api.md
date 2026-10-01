@@ -178,6 +178,7 @@ action today is **reassign a presentation's owner**.
 | POST | `/api/workspaces` | ✅ session/key | Create one `{ name }`; the caller becomes its `owner` in the same act |
 | GET | `/api/workspaces/:id` | ✅ member | One workspace, with the caller's own role on it |
 | PATCH | `/api/workspaces/:id` | ✅ `owner` | Rename it `{ name }` |
+| PUT | `/api/workspaces/:id/default-theme` | ✅ `owner` | Set the theme a deck created in it starts in `{ defaultTheme }` — a built-in theme id (REQ086). Not retroactive — see **A workspace's default theme** below |
 | DELETE | `/api/workspaces/:id` | ✅ `owner` | Delete it and every membership — `409` while it still owns decks |
 | GET | `/api/workspaces/:id/members` | ✅ member | The roster; `email` only for a reader who may manage it |
 | POST | `/api/workspaces/:id/members` | ✅ `admin` / `owner` | Add a registered account `{ email, role? }` — idempotent per account; granting `owner` needs `owner` |
@@ -567,6 +568,7 @@ separates the roles is what they may do to the *workspace*:
 | Add, remove and re-role members | — | ✅ | ✅ |
 | Grant or take back the `owner` role | — | — | ✅ |
 | Rename or delete the workspace; move a deck back out of it | — | — | ✅ |
+| Set the theme its new decks start in (REQ086) | — | — | ✅ |
 
 Each row is a **predicate** in `server/schemas.ts`
 (`canCreateWorkspaceDecks`, `canAdministerWorkspaceDecks`,
@@ -619,6 +621,27 @@ carried only for a reader whose role may manage the roster and is an explicit
 `null` otherwise: a member sees who they are working with by name,
 while the address somebody was invited at is management data, and the narrower
 default is the one that ships.
+
+### A workspace's default theme (REQ086)
+
+A workspace carries a `defaultTheme`: the theme a deck created in it starts in
+when its create names none. Every member reads it on `GET /api/workspaces` and
+`GET /api/workspaces/:id`; `PUT …/default-theme` with `{ defaultTheme }` sets
+it, and it is renaming's role — `owner` only, `403` for an admin and a member
+alike.
+
+- **A built-in theme id, defaulting to `signal`.** `custom` is refused (`422`):
+  it names a palette authored *on a deck*, and a workspace has no brand of its
+  own to lend one. A workspace written before the field existed reads as
+  `signal`, so it creates decks exactly as it always did.
+- **A named theme wins.** `POST /api/presentations` with `workspaceId` and no
+  `theme` gets the workspace's default; one that names a `theme` — `signal`
+  included — keeps it. A personal deck (no `workspaceId`) gets `signal`
+  whatever the creating account's workspaces say. A template holds no theme, so
+  a deck made from one takes the default like any other.
+- **Read at create time and nowhere else.** Changing the default re-themes no
+  existing deck, and a deck moved in later keeps its own. Each deck can still
+  change its theme with `PATCH /api/presentations/:id`.
 
 ### Moving a deck in and out
 
@@ -1104,7 +1127,7 @@ participants' door.
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `theme` | one of `signal`, `pulse`, `ember`, `editorial`, `broadcast`, `custom` | `signal` | Which theme the deck is drawn in (REQ079/REQ080) |
+| `theme` | one of `signal`, `pulse`, `ember`, `editorial`, `broadcast`, `custom` | `signal`, or the workspace's `defaultTheme` for a deck created in one (REQ086) | Which theme the deck is drawn in (REQ079/REQ080) |
 | `themeBrand` | object, below | every field at its default | The theme the deck defines for *itself*, applied when `theme` is `custom` (REQ080/REQ135) |
 | `themeLogoUrl` | string | `""` | The organizer's mark, as an image URL (REQ136) |
 | `themeLogoAlt` | string | `""` | Its accessible name; falls back to the deck's title |

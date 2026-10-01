@@ -103,7 +103,7 @@ Prose outside the markers is preserved.
 | [REQ083.md](requirements/REQ083.md) | Repeat runs per device in audience-paced mode | Live Session | P2 | pending | BR083 |
 | [REQ084.md](requirements/REQ084.md) | Presentation language | Rendering & Theming | P0 | done | BR084 |
 | [REQ085.md](requirements/REQ085.md) | Profanity filter on free text | Live Session | P2 | pending | BR085 |
-| [REQ086.md](requirements/REQ086.md) | Workspace default theme | Accounts & Workspaces | P2 | pending | BR086 |
+| [REQ086.md](requirements/REQ086.md) | Workspace default theme | Accounts & Workspaces | P2 | done | BR086 |
 | [REQ087.md](requirements/REQ087.md) | Per-slide layout | Rendering & Theming | P1 | done | BR087 |
 | [REQ088.md](requirements/REQ088.md) | Links in slide text | Rendering & Theming | P1 | done | BR088 |
 | [REQ089.md](requirements/REQ089.md) | Markdown in slide text | Rendering & Theming | P1 | done | BR089 |

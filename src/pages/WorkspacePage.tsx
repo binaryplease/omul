@@ -12,6 +12,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { AuthControls } from "../auth";
 import { useSession } from "../auth-client";
+import { builtInDeckThemeOptions } from "../components/DeckTheme";
+import { ChoiceCards } from "../components/EditorControls";
 import { PublishTemplateDialog } from "../components/PublishTemplateDialog";
 import { ICON_BUTTON_HOVER } from "../components/ShareCluster";
 import { TemplateCard, UseTemplateButton } from "../components/TemplateCard";
@@ -30,6 +32,7 @@ import { useToast } from "../components/ui/Toast";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 import type {
+	BuiltInDeckThemeId,
 	Presentation,
 	Workspace,
 	WorkspaceMember,
@@ -216,6 +219,29 @@ export function WorkspacePage({
 				removeError instanceof Error
 					? removeError.message
 					: "Could not remove that member",
+				"error",
+			);
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	/** The theme a deck created here starts in when it names none (REQ086). */
+	const changeDefaultTheme = async (defaultTheme: BuiltInDeckThemeId) => {
+		if (defaultTheme === workspace?.defaultTheme || busy) return;
+		setBusy(true);
+		try {
+			const updated = await api.setWorkspaceDefaultTheme(id, defaultTheme);
+			setWorkspace(updated);
+			addToast(
+				"New decks here start in this theme — existing decks keep theirs",
+				"success",
+			);
+		} catch (themeError: unknown) {
+			addToast(
+				themeError instanceof Error
+					? themeError.message
+					: "Could not change the default theme",
 				"error",
 			);
 		} finally {
@@ -462,6 +488,37 @@ export function WorkspacePage({
 									<Plus size={14} />
 									{creatingDeck ? "Creating…" : "New deck"}
 								</button>
+							</div>
+							{/* The theme a new deck here starts in (REQ086) sits with the
+							    decks it governs, under the control that creates them.
+							    Drawn for every member, and disabled with its reason for
+							    every role but the one that may rename the workspace. */}
+							<div className="mb-6 max-w-2xl">
+								<h3 className="text-sm font-medium text-text-muted mb-1">
+									New decks start in
+								</h3>
+								<p className="text-xs text-text-dim mb-3">
+									A deck created here without a theme of its own takes this
+									one, and can change it afterwards. Decks that already exist
+									keep theirs.
+									{canAdminister
+										? ""
+										: " Only the workspace's owner can change it."}
+								</p>
+								<ChoiceCards
+									ariaLabel="Default theme for new decks in this workspace"
+									variant="tile"
+									columns={3}
+									value={workspace.defaultTheme}
+									onChange={changeDefaultTheme}
+									options={builtInDeckThemeOptions().map((option) => ({
+										...option,
+										disabled: !canAdminister || busy,
+										disabledReason: canAdminister
+											? "Saving the default theme…"
+											: "Only the workspace's owner can change its default theme",
+									}))}
+								/>
 							</div>
 							{decks.length === 0 ? (
 								<p className="text-text-muted">
@@ -762,7 +819,8 @@ export function WorkspacePage({
 								worked on. Deleting a deck and deciding who outside the
 								workspace it is shared with need the admin role;{" "}
 								{workspaceRoleLabel("owner").toLowerCase()} is the only role
-								that can rename or delete the workspace itself.
+								that can rename or delete the workspace itself, or change the
+								theme its new decks start in.
 							</p>
 
 							{/* Deleting the workspace is the last thing on the page, below

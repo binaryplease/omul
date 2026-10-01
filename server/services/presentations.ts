@@ -19,7 +19,7 @@ import {
 	setParticipantName,
 } from "./participant-names";
 import { deleteDeckComments } from "./slide-comments";
-import { workspaceRoleFor } from "./workspaces";
+import { defaultDeckThemeFor, workspaceRoleFor } from "./workspaces";
 import {
 	acceptedQuizAnswers,
 	audienceViewBlanked,
@@ -38,7 +38,6 @@ import {
 	decodeQuizAnswer,
 	decodeRanking,
 	deckRequiresParticipantName,
-	DEFAULT_DECK_THEME,
 	type DeckBrand,
 	type DeckThemeId,
 	EDIT_TOKEN_HEADER,
@@ -352,6 +351,8 @@ export async function createPresentation(
 		/**
 		 * The deck's appearance (REQ079/REQ080) and the organizer's mark (REQ136) —
 		 * a built-in theme's id, the theme the deck defines for itself, or both.
+		 * Absent means the create named none, and the deck takes its workspace's
+		 * default theme, or the house theme when it has no workspace (REQ086).
 		 */
 		theme?: DeckThemeId;
 		themeBrand?: DeckBrand;
@@ -414,11 +415,12 @@ export async function createPresentation(
 		// client that has never heard of this setting must not create a deck that
 		// asks a room for its names.
 		requireParticipantName: opts.requireParticipantName ?? false,
-		// REQ079/REQ080/REQ136 — the house theme is what an unstated one means, an
-		// unstated brand authors nothing, and an unstated logo is no logo. All
-		// spelled out rather than left to the stored schema's defaults, so what a
-		// create actually writes is readable here.
-		theme: opts.theme ?? DEFAULT_DECK_THEME,
+		// REQ079/REQ080/REQ136 — an unstated theme is the workspace's default for
+		// a workspace deck (REQ086) and the house theme otherwise, an unstated
+		// brand authors nothing, and an unstated logo is no logo. All spelled out
+		// rather than left to the stored schema's defaults, so what a create
+		// actually writes is readable here.
+		theme: opts.theme ?? (await defaultDeckThemeFor(workspaceId)),
 		themeBrand: opts.themeBrand ?? EMPTY_DECK_BRAND,
 		themeLogoUrl: opts.themeLogoUrl ?? "",
 		themeLogoAlt: opts.themeLogoAlt ?? "",

@@ -2,6 +2,7 @@
 
 import { filenameFromContentDisposition } from "./download";
 import {
+	type BuiltInDeckThemeId,
 	type DeckAccessLevel,
 	type DeckBrand,
 	type DeckCollaborator,
@@ -1013,6 +1014,19 @@ export const api = {
 		request<Workspace>(`/workspaces/${workspaceId}`, {
 			method: "PATCH",
 			body: JSON.stringify({ name }),
+		}),
+
+	/**
+	 * Set the theme a deck created here starts in when it names none (REQ086).
+	 * The `owner` role only, enforced on the server; no existing deck changes.
+	 */
+	setWorkspaceDefaultTheme: (
+		workspaceId: string,
+		defaultTheme: BuiltInDeckThemeId,
+	) =>
+		request<Workspace>(`/workspaces/${workspaceId}/default-theme`, {
+			method: "PUT",
+			body: JSON.stringify({ defaultTheme }),
 		}),
 
 	/** Delete one. Refused while it still owns decks — they are its, not a member's. */
