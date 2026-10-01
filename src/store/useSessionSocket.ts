@@ -32,6 +32,7 @@ export function useSessionSocket(
 			applyDeckResultsVisibility,
 			applySlideStarted,
 			applyParticipantNameSetting,
+			applyJoinBarSetting,
 			applyQASettings,
 			applyQAChanged,
 			applyChannelSettings,
@@ -74,6 +75,10 @@ export function useSessionSocket(
 			onWsEvent("presentation.participant-name", (data) =>
 				applyParticipantNameSetting(data),
 			),
+			// Whether the presenter surface draws its join bar (REQ073). Only a
+			// presenter screen reads it, and it rides the socket because the screen
+			// being projected may be a second browser of the same deck.
+			onWsEvent("presentation.join-bar", (data) => applyJoinBarSetting(data)),
 			onWsEvent("qa.settings", (data) => applyQASettings(data)),
 			// Payload-free by design (REQ037): the list itself is fetched, never
 			// broadcast, because who may read it is decided per request from the

@@ -154,6 +154,8 @@ export interface SessionSlice {
 	) => Promise<void>;
 	/** Blank the shared screen, or bring it back (REQ109). */
 	setAudienceBlanked: (id: string, blanked: boolean) => Promise<void>;
+	/** Show or hide the presenter surface's join bar (REQ073). */
+	setJoinBarShown: (id: string, shown: boolean) => Promise<void>;
 	/** Take one submitted answer off a word cloud or open-ended slide (REQ027). */
 	deleteSubmittedAnswer: (
 		id: string,
@@ -187,6 +189,8 @@ export interface SessionSlice {
 	applyParticipantNameSetting: (payload: {
 		requireParticipantName: boolean;
 	}) => void;
+	/** The presenter surface's join bar was shown or hidden (REQ073). */
+	applyJoinBarSetting: (payload: { showJoinBar: boolean }) => void;
 	/** The Q&A layer was switched on/off or re-scoped (REQ036/REQ037/REQ038). */
 	applyQASettings: (payload: {
 		qaEnabled: boolean;
@@ -511,6 +515,14 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 			patchPresentation({ audienceBlanked: updated?.audienceBlanked === true });
 		},
 
+		setJoinBarShown: async (id, shown) => {
+			// Through the deck PATCH, the one writer of the field, and read back off
+			// its response like the switches above — the broadcast is what moves
+			// every other presenter screen of the deck.
+			const updated = await api.updatePresentation(id, { showJoinBar: shown });
+			patchPresentation({ showJoinBar: updated?.showJoinBar !== false });
+		},
+
 		/**
 		 * Take one submitted answer off the slide (REQ027), then re-read the slide's
 		 * tally on this browser's own credentials.
@@ -615,6 +627,8 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 
 		applyParticipantNameSetting: ({ requireParticipantName }) =>
 			patchPresentation({ requireParticipantName }),
+
+		applyJoinBarSetting: ({ showJoinBar }) => patchPresentation({ showJoinBar }),
 
 		applyQASettings: ({ qaEnabled, qaVisibility, qaApprovalRequired }) =>
 			patchPresentation({ qaEnabled, qaVisibility, qaApprovalRequired }),

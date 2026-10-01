@@ -5160,6 +5160,12 @@ export const UpdatePresentationSchema = z.object({
 	reactionsEnabled: z.boolean().optional(),
 	chatEnabled: z.boolean().optional(),
 	requireParticipantName: z.boolean().optional(),
+	/**
+	 * Whether the presenter surface draws its join bar (REQ073). Written here and
+	 * nowhere else: it is a decision about the projected screen, and only a caller
+	 * who may change the deck reaches this route.
+	 */
+	showJoinBar: z.boolean().optional(),
 	theme: DeckThemeIdEnum.optional(),
 	themeBrand: DeckBrandSchema.optional(),
 	themeLogoUrl: z.string().optional(),
@@ -5304,6 +5310,17 @@ export const PresentationSchema = z.object({
 	 * {@link deckRequiresParticipantName}.
 	 */
 	requireParticipantName: z.boolean().default(false),
+	/**
+	 * Whether the presenter surface draws the join bar — the join code and the
+	 * share controls beside it (REQ073).
+	 *
+	 * A statement about one screen and nothing more: hiding the bar leaves the
+	 * code, the join route, the deck's status and every participant's way in
+	 * exactly as they were, so nothing that admits a room ever reads it. Public
+	 * because every presenter screen of the deck has to draw the same header,
+	 * and the screen being projected may be a second browser.
+	 */
+	showJoinBar: z.boolean().default(true),
 	/**
 	 * The deck's theme (REQ079), the one it authored for itself (REQ080/REQ135)
 	 * and the logo it carries (REQ136).
@@ -6184,6 +6201,12 @@ export const StoredPresentationSchema = z.object({
 	 * question at its door that its organizer never asked.
 	 */
 	requireParticipantName: z.boolean().default(false),
+	/**
+	 * Whether the presenter surface draws its join bar (REQ073). Defaulted
+	 * **shown**, so every deck written before this field existed re-parses
+	 * forward onto the header it already had.
+	 */
+	showJoinBar: z.boolean().default(true),
 	/**
 	 * The theme this deck is drawn in (REQ079, REQ080) and the organizer's own
 	 * mark (REQ136), stored as an authored URL and its accessible name.

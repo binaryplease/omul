@@ -460,6 +460,8 @@ export const api = {
 			reactionsEnabled?: boolean;
 			chatEnabled?: boolean;
 			requireParticipantName?: boolean;
+			/** Whether the presenter surface draws its join bar (REQ073). */
+			showJoinBar?: boolean;
 			theme?: DeckThemeId;
 			themeBrand?: DeckBrand;
 			themeLogoUrl?: string;

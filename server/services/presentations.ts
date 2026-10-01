@@ -1009,6 +1009,17 @@ export async function updatePresentation(
 	if ("requireParticipantName" in changes) {
 		broadcastParticipantNameSetting(id, updated);
 	}
+	// REQ073 — the join bar is drawn by every presenter screen of the deck, and
+	// the one being projected may be a second browser, so the switch has to reach
+	// it rather than wait for its next reload. It names only the switch: hiding
+	// the bar changes nothing about who may join, so no phone has anything to do
+	// with the frame. This PATCH is the only writer of the field.
+	if ("showJoinBar" in changes) {
+		broadcastToPresentation(id, "presentation.join-bar", {
+			presentationId: id,
+			showJoinBar: updated.showJoinBar,
+		});
+	}
 	return updated;
 }
 

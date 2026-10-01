@@ -8,6 +8,8 @@ import {
 	MessageCircleQuestion,
 	MessageSquare,
 	MessagesSquare,
+	PanelTop,
+	PanelTopDashed,
 	Pencil,
 	RefreshCw,
 	StickyNote,
@@ -124,6 +126,7 @@ export function PresenterPage({
 		(state) => state.setSlideParticipation,
 	);
 	const setAudienceBlanked = useStore((state) => state.setAudienceBlanked);
+	const setJoinBarShown = useStore((state) => state.setJoinBarShown);
 	const deleteSubmittedAnswer = useStore(
 		(state) => state.deleteSubmittedAnswer,
 	);
@@ -409,6 +412,22 @@ export function PresenterPage({
 	};
 
 	/**
+	 * Show or hide the join bar on this screen (REQ073). No toast, for the
+	 * reason the blank has none: the presenter is looking at what it did. And no
+	 * confirmation, because nothing about the room moves — the code, the join
+	 * route and the deck's status stay exactly as they were.
+	 */
+	const handleSetJoinBarShown = async (shown: boolean) => {
+		try {
+			await setJoinBarShown(id, shown);
+		} catch (joinBarError: unknown) {
+			setError(
+				joinBarError instanceof Error ? joinBarError.message : "Unknown error",
+			);
+		}
+	};
+
+	/**
 	 * Switch the Q&A layer on/off (REQ036) or change who reads it (REQ037). Both
 	 * land on the same endpoint and the same broadcast, so a room learns the
 	 * floor is open — or has just been closed — without reloading anything.
@@ -627,6 +646,19 @@ export function PresenterPage({
 		? "Share the results — create, copy or revoke a read-only link to this deck's results"
 		: "Share the results — you cannot edit this presentation, so its results are not yours to share";
 
+	// REQ073 — the join bar is the deck's setting, not this browser's, so every
+	// presenter screen of the deck draws the same header. The label says what
+	// hiding leaves alone, because the one wrong reading of this control is that
+	// it closes the door.
+	const joinBarShown = pres.showJoinBar;
+	const joinBarButtonLabel = !isOwner
+		? joinBarShown
+			? "Hide the join bar — you cannot edit this presentation, so its join bar is not yours to hide"
+			: "Show the join bar — you cannot edit this presentation, so its join bar is not yours to show"
+		: joinBarShown
+			? "Hide the join bar — the join code stays valid and the room can still join"
+			: "Show the join bar — put the join code and share controls back on this screen";
+
 	const resetButtonLabel = isOwner
 		? "Reset results — clear every response and return the deck to draft, so it can be run again"
 		: "Reset results — you cannot edit this presentation, so its results are not yours to clear";
@@ -834,14 +866,41 @@ export function PresenterPage({
 						</div>
 
 						<div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+							{/* REQ073 — show or hide the join bar, on the spot where the
+							    bar sits on xl viewports and directly above the row it
+							    occupies below that. Pressed means hidden, like the blank
+							    beside it: both take something off the projected screen.
+							    Offered to a viewer who does not hold the deck too, disabled
+							    with its reason. */}
+							<button
+								type="button"
+								onClick={() => handleSetJoinBarShown(!joinBarShown)}
+								disabled={!isOwner}
+								aria-pressed={!joinBarShown}
+								aria-label={joinBarButtonLabel}
+								title={joinBarButtonLabel}
+								className={`flex items-center px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-surface-raised border text-sm ${
+									joinBarShown ? "border-border" : "border-accent"
+								} ${ICON_BUTTON_HOVER} disabled:opacity-50 disabled:cursor-not-allowed`}
+							>
+								{joinBarShown ? (
+									<PanelTop size={16} />
+								) : (
+									<PanelTopDashed size={16} />
+								)}
+							</button>
+
 							{/* Join code cluster — only inline on very wide viewports.
 							    On md..lg the controls take priority and the join code is
-							    shown on its own row below (see below). */}
-							<ShareCluster
-								variant="bar"
-								className="hidden xl:flex"
-								controls={shareControls}
-							/>
+							    shown on its own row below (see below). Neither is drawn
+							    while the deck hides its join bar (REQ073). */}
+							{joinBarShown && (
+								<ShareCluster
+									variant="bar"
+									className="hidden xl:flex"
+									controls={shareControls}
+								/>
+							)}
 
 							{/* Participant count */}
 							<div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-surface-raised border border-border text-sm text-text-muted">
@@ -1151,12 +1210,15 @@ export function PresenterPage({
 						</div>
 					</div>
 
-					{/* Join code row — visible below xl (where the cluster above is hidden). */}
-					<ShareCluster
-						variant="compact"
-						className="xl:hidden px-4 pb-2 flex"
-						controls={shareControls}
-					/>
+					{/* Join code row — visible below xl (where the cluster above is
+					    hidden), unless the deck hides its join bar (REQ073). */}
+					{joinBarShown && (
+						<ShareCluster
+							variant="compact"
+							className="xl:hidden px-4 pb-2 flex"
+							controls={shareControls}
+						/>
+					)}
 				</header>
 
 				{/* QR Code overlay */}

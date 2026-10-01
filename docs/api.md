@@ -128,7 +128,7 @@ action today is **reassign a presentation's owner**.
 | GET | `/api/presentations/shared` | ✅ session/key | List the decks other accounts have shared with the caller, each with its `accessLevel` (REQ075) — see **Sharing a deck with other accounts** below |
 | POST | `/api/presentations` | optional session/key | Create; returns `creatorToken` once (null for API-key create; records owner when signed in). `templateId` starts the deck from a catalog entry, copying its slides (REQ006) — see **Deck templates** below. `workspaceId` makes the deck the **workspace's** instead: no account owner, no edit token, and a role check on the caller (REQ128) — see **Workspaces** below. `workspaceTemplateId`, alongside it, starts that deck from one of the workspace's own published templates (REQ004) |
 | GET | `/api/presentations/:id` | — | Get presentation by ID. Reports the caller's own `accessLevel` (REQ075) and account-standing `commentAccess` (REQ074) on it |
-| PATCH | `/api/presentations/:id` | ✅ owner, token or `edit` grant | Update the deck's **authored** fields. The owner, the edit-token hash and the results-link pair are not among them and are dropped, not merged |
+| PATCH | `/api/presentations/:id` | ✅ owner, token or `edit` grant | Update the deck's **authored** fields — including `showJoinBar`, whether the presenter surface draws its join bar (REQ073). The owner, the edit-token hash and the results-link pair are not among them and are dropped, not merged |
 | DELETE | `/api/presentations/:id` | ✅ owner or token | Delete presentation — and every collaborator grant on it. The one mutation an `edit` collaborator is **not** allowed (REQ075) |
 | POST | `/api/presentations/:id/start` | ✅ owner, token or `edit` grant | Go live |
 | POST | `/api/presentations/:id/end` | ✅ owner, token or `edit` grant | End presentation |
@@ -2614,6 +2614,28 @@ Two things the roster is explicitly **not**: it does not re-point the leaderboar
 and it does not name the author of a Q&A question or a chat message — both of
 those channels stay anonymous to the room.
 
+## The join bar (REQ073)
+
+The presenter surface draws a **join bar** — the join code and the share
+controls beside it, inline on wide screens and on its own row below the header
+otherwise. `showJoinBar` decides whether it is drawn, and that is all it decides.
+
+**It is the deck's, and it is shown.** The field is written by the ordinary
+`PATCH /api/presentations/:id` and by nothing else, so the caller is whoever may
+change the deck — the owner, the edit-token holder or an `edit` collaborator —
+and every other caller is refused by that route's own authorization. It defaults
+to `true` on every schema that stores or returns it, which is what a deck stored
+before the field existed reads as. It is not a create field: a new deck shows
+its bar. It is public on the deck document because every presenter screen of the
+deck has to draw the same header, and the one being projected may be a second
+browser; a change reaches those screens on the `presentation.join-bar` frame.
+
+**It changes nothing about the door.** Hiding the bar leaves the join code, `GET
+/api/join/:code`, the deck's `status` and every submission route exactly as they
+were — none of them reads the field. A room that already has the code, or the
+link, or the QR printed on a handout, joins as before; what is gone is the code
+drawn on this screen.
+
 ## Preview and test votes (REQ103, REQ104)
 
 A **preview** is a dry run of a deck before a room exists: the organizer walks
@@ -3110,6 +3132,7 @@ Server broadcasts to all subscribers of a presentationId.
 | `slide.participation` | server → clients | `{ presentationId, slideId, open }` — one slide was opened or closed to submissions (REQ111). Carries its value, like the settings frames below: a phone that learned about a closed question only by having an answer bounce is the failure the switch exists to prevent |
 | `presentation.blanked` | server → clients | `{ presentationId, blanked }` — the shared screen was blanked, or brought back (REQ109). Broadcast because the screen being projected may be a second browser rather than the presenter's own |
 | `presentation.participant-name` | server → clients | `{ presentationId, requireParticipantName }` — the deck started or stopped asking joiners for a name (REQ076). Sent by its one writer, the deck PATCH. Carries the **switch and nothing else**: a frame naming somebody would put a name on every phone in the room, and the roster is fetched by a credentialed caller instead |
+| `presentation.join-bar` | server → clients | `{ presentationId, showJoinBar }` — the presenter surface's join bar was shown or hidden (REQ073). Sent by its one writer, the deck PATCH, so every presenter screen of the deck draws the same header; a participant's screen has nothing to do with it, since hiding the bar changes nothing about who may join |
 | `qa.settings` | server → clients | `{ presentationId, qaEnabled, qaVisibility, qaApprovalRequired }` — the Q&A layer was switched on/off, re-scoped, or approval was required or relaxed (REQ036/REQ037/REQ038) |
 | `qa.updated` | server → clients | `{ presentationId }` — the question list moved: asked, upvoted, marked answered or approved (REQ036/REQ038/REQ060) |
 | `channels.settings` | server → clients | `{ presentationId, reactionsEnabled, chatEnabled }` — a participant channel was opened or closed (REQ077/REQ078). Sent by both its writers: the channels endpoint, and a deck PATCH that names either field |

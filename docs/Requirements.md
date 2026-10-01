@@ -90,7 +90,7 @@ Prose outside the markers is preserved.
 | [REQ070.md](requirements/REQ070.md) | Per-slide background color | Rendering & Theming | P2 | done | BR070 |
 | [REQ071.md](requirements/REQ071.md) | Per-slide background image | Rendering & Theming | P2 | done | BR071 |
 | [REQ072.md](requirements/REQ072.md) | QR code for the join link | Access & Sharing | P0 | done | BR072 |
-| [REQ073.md](requirements/REQ073.md) | Toggle the join bar | Access & Sharing | P2 | pending | BR073 |
+| [REQ073.md](requirements/REQ073.md) | Toggle the join bar | Access & Sharing | P2 | done | BR073 |
 | [REQ074.md](requirements/REQ074.md) | Comments on slides | Accounts & Workspaces | P1 | done | BR074 |
 | [REQ075.md](requirements/REQ075.md) | Invite collaborators to a deck | Accounts & Workspaces | P1 | done | BR075 |
 | [REQ076.md](requirements/REQ076.md) | Participant names | Live Session | P2 | done | BR076 |
