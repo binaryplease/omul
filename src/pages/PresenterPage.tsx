@@ -416,6 +416,7 @@ export function PresenterPage({
 	const handleQASettings = async (changes: {
 		enabled?: boolean;
 		visibility?: "presenter" | "everyone";
+		approvalRequired?: boolean;
 	}) => {
 		try {
 			await setQASettings(id, changes);
@@ -436,6 +437,17 @@ export function PresenterPage({
 				answeredError instanceof Error
 					? answeredError.message
 					: "Unknown error",
+			);
+		}
+	};
+
+	/** Let a question awaiting approval through to the room (REQ038). */
+	const handleQuestionApproved = async (questionId: string) => {
+		try {
+			await api.approveQuestion(id, questionId);
+		} catch (approveError: unknown) {
+			setError(
+				approveError instanceof Error ? approveError.message : "Unknown error",
 			);
 		}
 	};
@@ -1306,17 +1318,22 @@ export function PresenterPage({
 					    screen, and a panel that covered it would make reading one cost
 					    the other.
 
-					    The layer's two controls sit inside this panel, on the list they
-					    govern — turning Q&A on and deciding who reads it are
-					    changes to *this*, not to the deck's chrome. Both are offered
-					    whether or not the layer is on, so the question of where the
-					    questions will go is settled before the first one arrives. */}
+					    The layer's controls sit inside this panel, on the list they
+					    govern — turning Q&A on, deciding who reads it and whether each
+					    question waits for approval (REQ038) are changes to *this*, not
+					    to the deck's chrome. All are offered whether or not the layer is
+					    on, so the question of where the questions will go is settled
+					    before the first one arrives. The approve control rides the rows
+					    only while approval is in play — the setting on, or a question
+					    still waiting from when it was — the way the upvote is offered
+					    only where the room may vote. */}
 					{isOwner && qaOpen && (
 						<aside className="md:w-80 flex-shrink-0 border-t md:border-t-0 md:border-l border-border bg-surface/50 overflow-y-auto p-4 flex flex-col gap-4">
 							<QAHeading labels={QA_LABELS_EN} list={qaList} />
 							<QALayerControls
 								enabled={pres.qaEnabled}
 								visibility={pres.qaVisibility}
+								approvalRequired={pres.qaApprovalRequired}
 								onChange={handleQASettings}
 							/>
 							<div className="border-t border-border pt-4">
@@ -1324,6 +1341,11 @@ export function PresenterPage({
 									list={qaList}
 									labels={QA_LABELS_EN}
 									onToggleAnswered={handleQuestionAnswered}
+									onApprove={
+										pres.qaApprovalRequired || (qaList?.pendingCount ?? 0) > 0
+											? handleQuestionApproved
+											: undefined
+									}
 								/>
 							</div>
 						</aside>

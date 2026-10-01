@@ -55,7 +55,7 @@ Prose outside the markers is preserved.
 | [REQ035.md](requirements/REQ035.md) | Q&A layer | Q&A | P0 | done | BR035 |
 | [REQ036.md](requirements/REQ036.md) | Enable Q&A for a deck | Q&A | P1 | done | BR036 |
 | [REQ037.md](requirements/REQ037.md) | Audience visibility of the question list | Q&A | P1 | done | BR037 |
-| [REQ038.md](requirements/REQ038.md) | Approve questions before publication | Q&A | P2 | pending | BR038 |
+| [REQ038.md](requirements/REQ038.md) | Approve questions before publication | Q&A | P2 | done | BR038 |
 | [REQ039.md](requirements/REQ039.md) | Guess-the-number slide | Question Types | P2 | done | BR039 |
 | [REQ040.md](requirements/REQ040.md) | Guess-the-number range | Question Types | P1 | done | BR040 |
 | [REQ041.md](requirements/REQ041.md) | Guess-the-number reference value | Question Types | P1 | done | BR041 |

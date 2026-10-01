@@ -153,9 +153,10 @@ action today is **reassign a presentation's owner**.
 | DELETE | `/api/presentations/:id/answers/:answerId` | ✅ owner, token or `edit` grant | Delete one submitted answer from a word-cloud or open-ended slide (REQ027) — see **Removing a submitted answer** below |
 | GET | `/api/presentations/:id/qa?participantId=` | — | The deck-wide Q&A list, as this caller may read it (REQ036/REQ037) — see **The Q&A layer** below |
 | POST | `/api/presentations/:id/qa` | — | Ask a question `{ text, participantId }` (REQ036) |
-| POST | `/api/presentations/:id/qa/settings` | ✅ owner, token or `edit` grant | Switch the Q&A layer on/off and choose who reads it `{ enabled?, visibility? }` (REQ036/REQ037) |
+| POST | `/api/presentations/:id/qa/settings` | ✅ owner, token or `edit` grant | Switch the Q&A layer on/off, choose who reads it and whether each question waits for approval `{ enabled?, visibility?, approvalRequired? }` (REQ036/REQ037/REQ038) |
 | POST | `/api/presentations/:id/qa/:questionId/upvote` | — | Toggle this participant's upvote on a question `{ participantId }` (REQ060) |
 | POST | `/api/presentations/:id/qa/:questionId/answered` | ✅ owner, token or `edit` grant | Mark a question answered, or reopen it `{ answered? }` (REQ060) |
+| POST | `/api/presentations/:id/qa/:questionId/approve` | ✅ owner, token or `edit` grant | Publish a question awaiting approval to the room; one-way (REQ038) — see **Approval before publication** below |
 | POST | `/api/presentations/:id/channels` | ✅ owner, token or `edit` grant | Open or close the room's reactions and live chat `{ reactionsEnabled?, chatEnabled? }` (REQ077/REQ078) — see **Participant channels** below |
 | POST | `/api/presentations/:id/reactions` | — | Send a reaction from any slide `{ kind, slideId?, participantId }` (REQ077). Broadcast and **not stored** |
 | GET | `/api/presentations/:id/chat?participantId=` | — | The deck's live chat, newest 200 messages, oldest-first (REQ078) |
@@ -2242,7 +2243,7 @@ rate, and the answers are read where they belong: in the credentialed
 (REQ095), whose Responses sheet carries one row per submission with every
 answered field named by what it asked.
 
-## The Q&A layer (REQ036, REQ037, REQ060)
+## The Q&A layer (REQ036, REQ037, REQ038, REQ060)
 
 Q&A is **not a slide type** — it is an overarching interactivity layer switched
 on for the whole deck (REQ036), so a participant asks from whatever slide is on
@@ -2252,14 +2253,15 @@ The `open-text` slide type is untouched: a deck that wants a dedicated
 upvotes on the votes it collects. What changed is that a deck no longer *has* to
 have one for questions to be askable.
 
-Two settings live on the presentation, beside `resultsVisibility` and its
-neighbours, and are authored in the editor's deck settings or flipped live from
-the presenter's Q&A panel:
+Three settings live on the presentation, beside `resultsVisibility` and its
+neighbours. The first two are authored in the editor's deck settings or flipped
+live from the presenter's Q&A panel; the third lives on that panel alone:
 
 | Setting | Meaning |
 |---|---|
 | `qaEnabled` | Whether questions can be asked at all. `false` on a fresh deck |
 | `qaVisibility` | `presenter` (the default) keeps the list to the moderation view; `everyone` publishes it to the room, upvotes included |
+| `qaApprovalRequired` | Whether each new question waits for an editor's approval before anyone else can see or upvote it (REQ038). `false` on a fresh deck and on every deck stored before it existed. Flipped from the presenter's Q&A panel or `POST /qa/settings` only — the deck PATCH, the create body and an import do not carry it — see **Approval before publication** below |
 
 **The restrictive value is the default, deliberately.** Publishing unfiltered
 audience questions to a projector is the failure an organizer cannot take back,
@@ -2293,10 +2295,10 @@ rather than matching every row that also has no id.
 
 | Field on the payload | Meaning |
 |---|---|
-| `enabled` / `visibility` | The layer's two settings, so a client renders from one payload |
+| `enabled` / `visibility` / `approvalRequired` | The layer's settings, so a client renders from one payload |
 | `canSeeAll` | Whether this caller has the room's list or only their own questions |
-| `questions[]` | Ordered — see below. Each `{ id, text, upvotes, answered, answeredAt, createdAt, own, upvoted }` |
-| `totalCount` / `openCount` / `answeredCount` | Counts over **the list that came back**, never the volume behind it — a total over rows the caller cannot see would report the size of a list the organizer decided to keep back |
+| `questions[]` | Ordered — see below. Each `{ id, text, upvotes, answered, answeredAt, approved, createdAt, own, upvoted }`; `approved` is `false` only on an editor's list (REQ038) |
+| `totalCount` / `openCount` / `answeredCount` / `pendingCount` | Counts over **the list that came back**, never the volume behind it — a total over rows the caller cannot see would report the size of a list the organizer decided to keep back. `pendingCount` (questions awaiting approval) is therefore only ever non-zero for an editor |
 
 **The asking participant's id is never emitted.** It is that participant's only
 credential — the ask and upvote endpoints are public and accept whatever id they
@@ -2344,6 +2346,41 @@ queue the presenter is working from.
   that could set it would be able to retire a question nobody answered. It is
   **reversible** on purpose — a mis-click during a live session should cost one
   more click, not a question the presenter can no longer find.
+
+### Approval before publication (REQ038)
+
+With `qaApprovalRequired` on, every question asked afterwards is stored with
+`approved: false`, and `POST /qa` says so with `pending: true` (it is `false` on
+every other outcome). Until an editor approves it, such a question is:
+
+- **an editor's alone** — absent from every other caller's `GET /qa`, **its own
+  asker's included**, on either visibility. "You always see what you asked" is
+  proof of receipt on a withheld list; a question nobody has approved has not
+  been published to anybody, so it is not handed back even to the phone that
+  typed it.
+- **not upvotable** — `POST /qa/:questionId/upvote` answers it with the same
+  `400` and body a question from another deck gets, so the route cannot be used
+  to learn that a withheld id exists.
+- **not a fold target** — a re-asked question on a published deck folds only into
+  an approved one. Folding onto a pending question would upvote something the
+  room was never shown and tell the asker, through `merged`, that it exists.
+
+`POST /qa/:questionId/approve` (owner, edit token or `edit` grant — authorized
+exactly as "mark as answered" is) sets `approved: true` and broadcasts
+`qa.updated`, so every surface refetches and the question joins whatever list
+the deck's visibility allows. It answers `{ ok: true, approved: true }`, also
+for a question already approved; an id that is unknown or belongs to another
+deck answers `404`. Approval is **one-way**: there is no un-approve and no
+reject, and a question nobody approves simply stays an editor's.
+
+It is the question's own flag that decides, not the deck's current setting.
+Switching approval off changes what the *next* question is written as and
+nothing else — a backlog still waiting stays editor-only until it is approved,
+because releasing questions nobody looked at is what the setting was switched on
+to prevent. Questions stored before approval existed read as approved. On an
+editor's list a pending question leads its group (open or answered): nobody else
+can see or upvote it, so ranked by score it would sink below the queue it has to
+be approved from.
 
 Asking, upvoting and marking answered all meet the same submission rule a vote
 does: a `live` deck must have been started, a survey deck must not have ended.
@@ -3070,8 +3107,8 @@ Server broadcasts to all subscribers of a presentationId.
 | `slide.participation` | server → clients | `{ presentationId, slideId, open }` — one slide was opened or closed to submissions (REQ111). Carries its value, like the settings frames below: a phone that learned about a closed question only by having an answer bounce is the failure the switch exists to prevent |
 | `presentation.blanked` | server → clients | `{ presentationId, blanked }` — the shared screen was blanked, or brought back (REQ109). Broadcast because the screen being projected may be a second browser rather than the presenter's own |
 | `presentation.participant-name` | server → clients | `{ presentationId, requireParticipantName }` — the deck started or stopped asking joiners for a name (REQ076). Sent by its one writer, the deck PATCH. Carries the **switch and nothing else**: a frame naming somebody would put a name on every phone in the room, and the roster is fetched by a credentialed caller instead |
-| `qa.settings` | server → clients | `{ presentationId, qaEnabled, qaVisibility }` — the Q&A layer was switched on/off or re-scoped (REQ036/REQ037) |
-| `qa.updated` | server → clients | `{ presentationId }` — the question list moved: asked, upvoted or marked answered (REQ036/REQ060) |
+| `qa.settings` | server → clients | `{ presentationId, qaEnabled, qaVisibility, qaApprovalRequired }` — the Q&A layer was switched on/off, re-scoped, or approval was required or relaxed (REQ036/REQ037/REQ038) |
+| `qa.updated` | server → clients | `{ presentationId }` — the question list moved: asked, upvoted, marked answered or approved (REQ036/REQ038/REQ060) |
 | `channels.settings` | server → clients | `{ presentationId, reactionsEnabled, chatEnabled }` — a participant channel was opened or closed (REQ077/REQ078). Sent by both its writers: the channels endpoint, and a deck PATCH that names either field |
 | `reaction.sent` | server → clients | `{ presentationId, id, kind, slideId, at }` — somebody reacted to what is on screen (REQ077). The one frame here that carries its content; nothing is stored behind it |
 | `chat.updated` | server → clients | `{ presentationId }` — the live chat has a new message (REQ078). Surfaces re-fetch `GET /api/presentations/:id/chat` |

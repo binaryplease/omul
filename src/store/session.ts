@@ -129,10 +129,17 @@ export interface SessionSlice {
 	revealResults: (id: string, slideId: string, reveal: boolean) => void;
 	/** Reopen one slide's question, restarting its countdown (REQ057). */
 	restartSlideTimer: (id: string, slideId: string) => Promise<void>;
-	/** Switch the Q&A layer on/off (REQ036) and choose who reads it (REQ037). */
+	/**
+	 * Switch the Q&A layer on/off (REQ036), choose who reads it (REQ037) and
+	 * whether each question waits for approval (REQ038).
+	 */
 	setQASettings: (
 		id: string,
-		changes: { enabled?: boolean; visibility?: QAVisibility },
+		changes: {
+			enabled?: boolean;
+			visibility?: QAVisibility;
+			approvalRequired?: boolean;
+		},
 	) => Promise<void>;
 	/** Open or close the reaction and chat channels (REQ077/REQ078). */
 	setParticipantChannels: (
@@ -180,10 +187,11 @@ export interface SessionSlice {
 	applyParticipantNameSetting: (payload: {
 		requireParticipantName: boolean;
 	}) => void;
-	/** The Q&A layer was switched on/off or re-scoped (REQ036/REQ037). */
+	/** The Q&A layer was switched on/off or re-scoped (REQ036/REQ037/REQ038). */
 	applyQASettings: (payload: {
 		qaEnabled: boolean;
 		qaVisibility: QAVisibility;
+		qaApprovalRequired: boolean;
 	}) => void;
 	/** The question list moved — see {@link SessionSlice.qaRevision}. */
 	applyQAChanged: () => void;
@@ -465,6 +473,7 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 			patchPresentation({
 				qaEnabled: !!updated?.qaEnabled,
 				qaVisibility: (updated?.qaVisibility as QAVisibility) ?? "presenter",
+				qaApprovalRequired: !!updated?.qaApprovalRequired,
 			});
 		},
 
@@ -607,8 +616,8 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		applyParticipantNameSetting: ({ requireParticipantName }) =>
 			patchPresentation({ requireParticipantName }),
 
-		applyQASettings: ({ qaEnabled, qaVisibility }) =>
-			patchPresentation({ qaEnabled, qaVisibility }),
+		applyQASettings: ({ qaEnabled, qaVisibility, qaApprovalRequired }) =>
+			patchPresentation({ qaEnabled, qaVisibility, qaApprovalRequired }),
 
 		applyQAChanged: () => set({ qaRevision: get().qaRevision + 1 }),
 

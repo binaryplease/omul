@@ -77,6 +77,7 @@ import {
 	type SlideCommentRecord,
 } from "../services/slide-comments";
 import {
+	approveQuestion,
 	authorizeEdit,
 	authorizeResultsLink,
 	claimOwnership,
@@ -1341,7 +1342,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Q&A"],
 				summary: "List the deck's Q&A questions",
 				description:
-					"Returns the presentation-wide Q&A list (REQ036) as this caller may read it, with the layer's `enabled`/`visibility` settings alongside it. A caller that can edit the deck (owner or edit token) always reads the whole list, layer switched off included. Everyone else reads it when the layer is on and `visibility` is `everyone` (REQ037); otherwise they read only the questions their own `participantId` asked, and `canSeeAll` is `false`. Each entry carries its `upvotes` and `answered` state (REQ060) plus `own`/`upvoted` for this caller — never the asking participant's id, which is that participant's only credential. Questions are ordered open-first, then most upvoted, then longest-waiting. 404 if the presentation is missing.",
+					"Returns the presentation-wide Q&A list (REQ036) as this caller may read it, with the layer's `enabled`/`visibility`/`approvalRequired` settings alongside it. A caller that can edit the deck (owner or edit token) always reads the whole list, layer switched off and questions awaiting approval included. Everyone else reads it when the layer is on and `visibility` is `everyone` (REQ037); otherwise they read only the questions their own `participantId` asked, and `canSeeAll` is `false`. A question awaiting approval (`approved: false`, REQ038) is absent from every non-editor's list, its asker's included; `pendingCount` counts them on an editor's. Each entry carries its `upvotes` and `answered` state (REQ060) plus `own`/`upvoted` for this caller — never the asking participant's id, which is that participant's only credential. Questions are ordered open-first, then most upvoted, then longest-waiting. 404 if the presentation is missing.",
 			},
 		},
 	)
@@ -1376,7 +1377,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Q&A"],
 				summary: "Ask a Q&A question",
 				description:
-					"Submits a question to the presentation-wide Q&A layer (REQ036) from whatever slide is on screen. Public endpoint. Returns 400 when the layer is off, or when the deck is not accepting submissions (a `live` deck must be started; a survey deck must not be ended) — the same rule a vote meets. On a deck whose list is published to the room (`visibility: everyone`), a question that repeats one already asked becomes an upvote on it instead of a second row (`merged: true`); on a moderated deck every submission is stored as its own question. Rate-limited on the same per-address and per-`participantId` submission budget a vote spends (REQ145), answering `429` over the limit.",
+					"Submits a question to the presentation-wide Q&A layer (REQ036) from whatever slide is on screen. Public endpoint. Returns 400 when the layer is off, or when the deck is not accepting submissions (a `live` deck must be started; a survey deck must not be ended) — the same rule a vote meets. On a deck whose list is published to the room (`visibility: everyone`), a question that repeats one already asked becomes an upvote on it instead of a second row (`merged: true`); on a moderated deck every submission is stored as its own question. A repeat folds only into an approved question. On a deck with `approvalRequired` (REQ038) a new question is stored awaiting approval and the response says `pending: true`. Rate-limited on the same per-address and per-`participantId` submission budget a vote spends (REQ145), answering `429` over the limit.",
 			},
 		},
 	)
@@ -1390,6 +1391,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 			const updated = await setQASettings(params.id, {
 				enabled: body.enabled,
 				visibility: body.visibility,
+				approvalRequired: body.approvalRequired,
 			});
 			if (!updated) {
 				set.status = 404;
@@ -1403,7 +1405,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Q&A"],
 				summary: "Turn the Q&A layer on/off and set who reads it",
 				description:
-					"Switches the presentation-wide Q&A layer on or off (REQ036) and chooses whether submitted questions are published to the room or kept to the moderation view (REQ037). Both keys are independently optional — an absent one is left as it stands. A fresh deck carries `enabled: false` and `visibility: presenter`, so publishing the room's questions is always a deliberate choice. Requires `Authorization: Bearer <creatorToken>`.",
+					"Switches the presentation-wide Q&A layer on or off (REQ036), chooses whether submitted questions are published to the room or kept to the moderation view (REQ037), and sets whether each new question must be approved before anyone but an editor can see or upvote it (`approvalRequired`, REQ038). Every key is independently optional — an absent one is left as it stands. A fresh deck carries `enabled: false`, `visibility: presenter` and `approvalRequired: false`, so publishing the room's questions is always a deliberate choice. Turning `approvalRequired` off affects only questions asked afterwards: one still waiting stays editor-only until it is approved. Requires `Authorization: Bearer <creatorToken>`.",
 				security: [{ bearerAuth: [] }],
 			},
 		},
@@ -1437,7 +1439,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Q&A"],
 				summary: "Upvote a Q&A question",
 				description:
-					"Toggles this participant's upvote on a submitted question (REQ060), which is what orders the presenter's queue. Public endpoint, and only on a deck whose list the room can actually read (`visibility: everyone`) — voting on a question you were not shown is not prioritization. Returns 400 without a `participantId`, when the layer is off or moderated, when the deck is not accepting submissions, or when the question does not belong to this presentation. Rate-limited on the same per-address and per-`participantId` submission budget a vote spends (REQ145), answering `429` over the limit.",
+					"Toggles this participant's upvote on a submitted question (REQ060), which is what orders the presenter's queue. Public endpoint, and only on a deck whose list the room can actually read (`visibility: everyone`) — voting on a question you were not shown is not prioritization. Returns 400 without a `participantId`, when the layer is off or moderated, when the deck is not accepting submissions, or when the question does not belong to this presentation or is still awaiting approval (REQ038) — the same answer for both, so the route cannot probe for a withheld question. Rate-limited on the same per-address and per-`participantId` submission budget a vote spends (REQ145), answering `429` over the limit.",
 			},
 		},
 	)
@@ -1466,6 +1468,30 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				summary: "Mark a Q&A question answered (or reopen it)",
 				description:
 					"Sets a question's processing status (REQ060) so a long list stays workable: answered questions sink below the open ones on every surface. Defaults to marking answered (`answered: true`); pass `answered: false` to put it back in the queue, because a mis-click during a live session should cost one click and not a question the presenter can no longer find. Requires `Authorization: Bearer <creatorToken>`.",
+				security: [{ bearerAuth: [] }],
+			},
+		},
+	)
+
+	// ── Q&A layer: approve a question (requires creator token, REQ038) ─
+	.post(
+		"/presentations/:id/qa/:questionId/approve",
+		async ({ params, request, set }) => {
+			const auth = await requireEdit(request, params.id);
+			if (auth instanceof Response) return auth;
+			const result = await approveQuestion(params.id, params.questionId);
+			if (!result) {
+				set.status = 404;
+				return { error: "Not found" };
+			}
+			return result;
+		},
+		{
+			detail: {
+				tags: ["Q&A"],
+				summary: "Approve a Q&A question for the room",
+				description:
+					"Publishes a question that is awaiting approval (REQ038): once approved it appears on every list the deck's visibility allows and can be upvoted. One-way — there is no un-approve or reject, and a question that is never approved stays visible to editors only. Approving an already-approved question is a no-op that still answers `200`. A question id from another deck answers the same `404` an unknown one does. Requires `Authorization: Bearer <creatorToken>`.",
 				security: [{ bearerAuth: [] }],
 			},
 		},

@@ -3943,7 +3943,7 @@ export function withAudienceSlides<
 	return withoutPresenterNotes(withAudienceSolutions(slides, deck, now));
 }
 
-// ── Q&A layer (REQ036, REQ037, REQ060) ───────────────────────
+// ── Q&A layer (REQ036, REQ037, REQ038, REQ060) ───────────────
 //
 // Q&A is not a slide type here — it is an **overarching interactivity layer**
 // (REQ036) switched on for the whole deck, so a participant can ask a question
@@ -4002,16 +4002,19 @@ export function normalizeQuestionText(text: string): string {
 export type QASettings = {
 	qaEnabled?: boolean | undefined;
 	qaVisibility?: QAVisibility | undefined;
+	qaApprovalRequired?: boolean | undefined;
 };
 
-/** The Q&A layer's settings with both values filled in, from any of its shapes. */
+/** The Q&A layer's settings with every value filled in, from any of its shapes. */
 export function qaSettingsFor(deck: QASettings): {
 	enabled: boolean;
 	visibility: QAVisibility;
+	approvalRequired: boolean;
 } {
 	return {
 		enabled: deck.qaEnabled ?? false,
 		visibility: deck.qaVisibility ?? "presenter",
+		approvalRequired: deck.qaApprovalRequired ?? false,
 	};
 }
 
@@ -4043,6 +4046,8 @@ export function qaListVisibleToAudience(
 type QAQuestionRow = {
 	id: string;
 	participantId?: string | undefined;
+	/** Whether an editor has let it through (REQ038); absent reads as approved. */
+	approved?: boolean | undefined;
 };
 
 /**
@@ -4059,15 +4064,27 @@ type QAQuestionRow = {
  * presenter switching the layer off mid-session takes the room's list away
  * without also taking each participant's own words off their screen — which
  * would read as their question having been deleted.
+ *
+ * **An unapproved question is an editor's alone** (REQ038), and that comes
+ * first: it is dropped from every non-editor's list before either rule above
+ * runs, the asker's own view included. "You always see what you asked" is about
+ * proof of receipt on a list the organizer withholds; a question still waiting
+ * for approval has not been published to anybody, and handing it back to the one
+ * phone that typed it would put it on screen beside the room's list as though it
+ * were part of it. It is the question's own flag that decides, not the deck's
+ * current setting, so switching approval off later releases nothing that was
+ * never approved.
  */
 export function qaQuestionsVisibleTo<QuestionShape extends QAQuestionRow>(
 	questions: QuestionShape[],
 	deck: QASettings,
 	caller: { canEdit: boolean; participantId: string },
 ): QuestionShape[] {
-	if (qaListVisibleToAudience(deck, caller.canEdit)) return questions;
+	if (caller.canEdit) return questions;
+	const published = questions.filter((question) => question.approved !== false);
+	if (qaListVisibleToAudience(deck, caller.canEdit)) return published;
 	if (!caller.participantId) return [];
-	return questions.filter(
+	return published.filter(
 		(question) => question.participantId === caller.participantId,
 	);
 }
@@ -4088,6 +4105,11 @@ export type QAListEntry = {
 	answered: boolean;
 	/** When it was marked answered, ISO — an explicit `null` while open. */
 	answeredAt: string | null;
+	/**
+	 * Whether an editor has let it through (REQ038). Always `true` on a
+	 * non-editor's list, which never carries an unapproved question at all.
+	 */
+	approved: boolean;
 	createdAt: string;
 	/** Whether the caller asked it. */
 	own: boolean;
@@ -4107,12 +4129,19 @@ export type QAListEntry = {
  * requirement asks for; ties go to whoever asked first, so a question does not
  * lose its place merely by being early, and the last tie-break is the id so the
  * same list is drawn the same way every re-render.
+ *
+ * Within each of those two groups a question still **waiting for approval**
+ * (REQ038) comes first. Only an editor's list ever holds one, and to an editor
+ * it is the most urgent row there: nobody else can see it, and it has drawn no
+ * upvotes because nobody else can — so ranked by score it would sit at the
+ * bottom of the queue the presenter is meant to approve it from.
  */
 export function rankQAQuestions<EntryShape extends QAListEntry>(
 	entries: EntryShape[],
 ): EntryShape[] {
 	return [...entries].sort((left, right) => {
 		if (left.answered !== right.answered) return left.answered ? 1 : -1;
+		if (left.approved !== right.approved) return left.approved ? 1 : -1;
 		if (left.upvotes !== right.upvotes) return right.upvotes - left.upvotes;
 		const byAge =
 			Date.parse(left.createdAt || "") - Date.parse(right.createdAt || "");
@@ -5240,6 +5269,14 @@ export const PresentationSchema = z.object({
 	qaEnabled: z.boolean().default(false),
 	qaVisibility: QAVisibilityEnum.default("presenter"),
 	/**
+	 * Whether a question asked through the layer waits for an editor's approval
+	 * before the room can see or upvote it (REQ038). Public for the same reason
+	 * as the two above — a phone has to know its question will not appear at once
+	 * — and off by default, which is also what every deck stored before it
+	 * existed reads as.
+	 */
+	qaApprovalRequired: z.boolean().default(false),
+	/**
 	 * The two participant channels (REQ077, REQ078): whether reactions may be
 	 * sent from any slide, and whether the deck carries a live chat.
 	 *
@@ -6124,6 +6161,8 @@ export const StoredPresentationSchema = z.object({
 	/** The Q&A layer: on/off across every slide (REQ036) and who reads it (REQ037). */
 	qaEnabled: z.boolean().default(false),
 	qaVisibility: QAVisibilityEnum.default("presenter"),
+	/** Whether each new question waits for an editor's approval (REQ038). */
+	qaApprovalRequired: z.boolean().default(false),
 	/**
 	 * The participant channels: reactions on any slide (REQ077) and the deck's
 	 * live chat (REQ078). Both defaulted off, so every deck written
@@ -6432,6 +6471,13 @@ export const StoredQAQuestionSchema = z.object({
 	answered: z.boolean().default(false),
 	/** When they did, ISO; null while the question is still open. */
 	answeredAt: z.string().nullable().default(null),
+	/**
+	 * Whether the room may see and upvote it (REQ038). Defaults `true`: every
+	 * question stored before approval existed was already published, and reading
+	 * one as withheld would take it off screens it is on. A question asked while
+	 * its deck requires approval is written `false` explicitly.
+	 */
+	approved: z.boolean().default(true),
 	createdAt: z.string().default(""),
 });
 
@@ -6527,13 +6573,15 @@ export const QAAnsweredSchema = z.object({
 });
 
 /**
- * Turning the layer on or off (REQ036) and choosing who reads it (REQ037).
- * Both keys are independently optional — the presenter's two switches move
- * separately, and sending one must not quietly re-assert the other.
+ * Turning the layer on or off (REQ036), choosing who reads it (REQ037) and
+ * whether each question waits for approval (REQ038). Every key is independently
+ * optional — the presenter's switches move separately, and sending one must not
+ * quietly re-assert another.
  */
 export const QASettingsSchema = z.object({
 	enabled: z.boolean().optional(),
 	visibility: QAVisibilityEnum.optional(),
+	approvalRequired: z.boolean().optional(),
 });
 
 // ── Participant-channel request schemas (REQ077, REQ078) ─────

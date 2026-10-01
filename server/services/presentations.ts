@@ -2495,7 +2495,7 @@ export async function deleteSubmittedAnswer(
 	return { ok: true, slideId };
 }
 
-// ── Q&A layer (REQ036, REQ037, REQ060) ───────────────────────
+// ── Q&A layer (REQ036, REQ037, REQ038, REQ060) ───────────────
 //
 // Q&A here is a property of the *presentation*, not of a slide: switched on once
 // (REQ036), it takes questions from whatever is on screen, and the list it
@@ -2515,6 +2515,7 @@ function qaSettingsOf(pres: Record<string, unknown>): QASettings {
 	return {
 		qaEnabled: pres.qaEnabled as boolean | undefined,
 		qaVisibility: pres.qaVisibility as QAVisibility | undefined,
+		qaApprovalRequired: pres.qaApprovalRequired as boolean | undefined,
 	};
 }
 
@@ -2551,15 +2552,26 @@ function broadcastQASettings(
 		presentationId,
 		qaEnabled: settings.enabled,
 		qaVisibility: settings.visibility,
+		qaApprovalRequired: settings.approvalRequired,
 	});
 }
 
 /**
- * Turn the Q&A layer on or off (REQ036) and choose who reads it (REQ037).
+ * Turn the Q&A layer on or off (REQ036), choose who reads it (REQ037) and
+ * whether each new question waits for approval (REQ038).
+ *
+ * Switching approval off changes what the *next* question is written as, and
+ * nothing else: a question still waiting stays an editor's until somebody
+ * approves it, because releasing a backlog nobody looked at is exactly what
+ * requiring approval was switched on to prevent.
  */
 export async function setQASettings(
 	presentationId: string,
-	changes: { enabled?: boolean; visibility?: QAVisibility },
+	changes: {
+		enabled?: boolean;
+		visibility?: QAVisibility;
+		approvalRequired?: boolean;
+	},
 ) {
 	const pres = await presentations.findOne(presentationId);
 	if (!pres) return null;
@@ -2568,6 +2580,7 @@ export async function setQASettings(
 	const updated = await presentations.update(presentationId, {
 		qaEnabled: changes.enabled ?? current.enabled,
 		qaVisibility: changes.visibility ?? current.visibility,
+		qaApprovalRequired: changes.approvalRequired ?? current.approvalRequired,
 	});
 	if (updated) broadcastQASettings(presentationId, updated);
 	return updated;
@@ -2593,6 +2606,7 @@ async function qaEntriesFor(
 			participantId: (question.participantId as string) ?? "",
 			answered: !!question.answered,
 			answeredAt: (question.answeredAt as string | null) ?? null,
+			approved: question.approved !== false,
 			createdAt: (question.createdAt as string) ?? "",
 		})),
 		qaSettingsOf(pres),
@@ -2625,6 +2639,7 @@ async function qaEntriesFor(
 			upvotes: upvoters.get(question.id)?.size ?? 0,
 			answered: question.answered,
 			answeredAt: question.answeredAt,
+			approved: question.approved,
 			createdAt: question.createdAt,
 			own: !!caller.participantId && question.participantId === caller.participantId,
 			upvoted: ownUpvotes.has(question.id),
@@ -2656,12 +2671,15 @@ export async function getQAList(
 		presentationId,
 		enabled: settings.enabled,
 		visibility: settings.visibility,
+		approvalRequired: settings.approvalRequired,
 		/** Whether this caller is reading the room's list or only their own. */
 		canSeeAll: qaListVisibleToAudience(qaSettingsOf(pres), caller.canEdit),
 		questions,
 		totalCount: questions.length,
 		openCount: questions.filter((question) => !question.answered).length,
 		answeredCount: questions.filter((question) => question.answered).length,
+		/** Questions waiting for approval (REQ038) — only ever non-zero for an editor. */
+		pendingCount: questions.filter((question) => !question.approved).length,
 	};
 }
 
@@ -2684,6 +2702,13 @@ export async function getQAList(
  * Re-asking a question **you** already asked is a no-op either way: it is one
  * person saying one thing, and neither a second row nor an upvote on yourself is
  * a truthful record of that.
+ *
+ * **And only into an approved question** (REQ038). One still waiting for
+ * approval is on nobody's screen but an editor's, so folding onto it would both
+ * upvote something the room was never shown and tell the asker, by way of
+ * `merged`, that a withheld question with their wording exists. A deck that
+ * requires approval writes every new question unapproved, and says so with
+ * `pending`.
  *
  * What came of the submission is reported rather than flattened into `ok`, so no
  * caller has to guess: `stored` says a new question was written, `merged` says it
@@ -2708,12 +2733,18 @@ export async function submitQuestion(
 
 	if (settings.visibility === "everyone") {
 		const target = normalizeQuestionText(trimmed);
-		const existing = await qaQuestions.find({ presentationId });
-		const duplicate = existing.find(
+		const existing = (await qaQuestions.find({ presentationId })).filter(
 			(question) =>
 				normalizeQuestionText(String(question.text ?? "")) === target,
 		);
-		if (duplicate && duplicate.participantId !== participantId) {
+		const ownDuplicate = existing.find(
+			(question) => question.participantId === participantId,
+		);
+		if (ownDuplicate) {
+			return { ok: true, stored: false, merged: false, pending: false };
+		}
+		const duplicate = existing.find((question) => question.approved !== false);
+		if (duplicate) {
 			await addQAUpvote(
 				presentationId,
 				duplicate.id as string,
@@ -2721,21 +2752,22 @@ export async function submitQuestion(
 				{ toggle: false },
 			);
 			broadcastQAChanged(presentationId);
-			return { ok: true, stored: false, merged: true };
+			return { ok: true, stored: false, merged: true, pending: false };
 		}
-		if (duplicate) return { ok: true, stored: false, merged: false };
 	}
 
+	const approved = !settings.approvalRequired;
 	await qaQuestions.insert({
 		presentationId,
 		text: trimmed,
 		participantId,
 		answered: false,
 		answeredAt: null,
+		approved,
 		createdAt: new Date().toISOString(),
 	});
 	broadcastQAChanged(presentationId);
-	return { ok: true, stored: true, merged: false };
+	return { ok: true, stored: true, merged: false, pending: !approved };
 }
 
 /**
@@ -2790,6 +2822,10 @@ async function addQAUpvote(
  * You cannot upvote your own question. Asking it *is* the support, and counting
  * it twice would mean a question's score started at one for its asker and zero
  * for everyone else — a scale on which nothing the room does can be read.
+ *
+ * Nor one still waiting for approval (REQ038), and it is refused exactly as a
+ * question from another deck is, so the endpoint cannot tell a caller that a
+ * withheld id exists.
  */
 export async function upvoteQuestion(
 	presentationId: string,
@@ -2806,6 +2842,7 @@ export async function upvoteQuestion(
 
 	const question = await qaQuestions.findOne(questionId);
 	if (!question || question.presentationId !== presentationId) return null;
+	if (question.approved === false) return null;
 	if (question.participantId === participantId) return null;
 
 	await addQAUpvote(presentationId, questionId, participantId, { toggle: true });
@@ -2844,6 +2881,33 @@ export async function setQuestionAnswered(
 
 	broadcastQAChanged(presentationId);
 	return { ok: true, answered };
+}
+
+/**
+ * Let a question waiting for approval through to the room (REQ038).
+ *
+ * Authorized at the route exactly as {@link setQuestionAnswered} is — owner or
+ * edit token — because publishing a question is the presenter's decision about
+ * their own session. One-way by design in this slice: there is no un-approve and
+ * no reject, and a question nobody approves simply stays an editor's. Approving
+ * one already approved is a harmless no-op that still answers `ok`.
+ */
+export async function approveQuestion(
+	presentationId: string,
+	questionId: string,
+) {
+	const pres = await presentations.findOne(presentationId);
+	if (!pres) return null;
+
+	const question = await qaQuestions.findOne(questionId);
+	if (!question || question.presentationId !== presentationId) return null;
+
+	if (question.approved === false) {
+		const updated = await qaQuestions.update(questionId, { approved: true });
+		if (!updated) return null;
+		broadcastQAChanged(presentationId);
+	}
+	return { ok: true, approved: true };
 }
 
 // ── Participant channels: reactions and live chat (REQ077, REQ078) ──

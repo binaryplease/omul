@@ -661,10 +661,24 @@ export const api = {
 			headers: authHeaders(presentationId),
 		}),
 
-	/** Switch the layer on/off (REQ036) and choose who reads it (REQ037). */
+	/** Let a question awaiting approval through to the room (REQ038). */
+	approveQuestion: (presentationId: string, questionId: string) =>
+		request<any>(`/presentations/${presentationId}/qa/${questionId}/approve`, {
+			method: "POST",
+			headers: authHeaders(presentationId),
+		}),
+
+	/**
+	 * Switch the layer on/off (REQ036), choose who reads it (REQ037) and whether
+	 * each question waits for approval (REQ038).
+	 */
 	setQASettings: (
 		presentationId: string,
-		changes: { enabled?: boolean; visibility?: "presenter" | "everyone" },
+		changes: {
+			enabled?: boolean;
+			visibility?: "presenter" | "everyone";
+			approvalRequired?: boolean;
+		},
 	) =>
 		request<any>(`/presentations/${presentationId}/qa/settings`, {
 			method: "POST",

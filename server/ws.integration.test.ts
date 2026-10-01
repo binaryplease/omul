@@ -900,7 +900,7 @@ describe("WebSocket integration", () => {
 	// room, since nothing about the deck a client holds would have changed to
 	// make it refetch — and REQ037 is the control that exists to withdraw it.
 
-	test("the settings endpoint broadcasts qa.settings (REQ036/REQ037)", async () => {
+	test("the settings endpoint broadcasts qa.settings (REQ036/REQ037/REQ038)", async () => {
 		const pres = await createPresentation();
 		const client = openWs();
 		await client.ready;
@@ -911,7 +911,11 @@ describe("WebSocket integration", () => {
 			pres.creatorToken,
 			{
 				method: "POST",
-				body: JSON.stringify({ enabled: true, visibility: "everyone" }),
+				body: JSON.stringify({
+					enabled: true,
+					visibility: "everyone",
+					approvalRequired: true,
+				}),
 			},
 		);
 		expect(res.status).toBe(200);
@@ -921,6 +925,7 @@ describe("WebSocket integration", () => {
 			presentationId: pres.id,
 			qaEnabled: true,
 			qaVisibility: "everyone",
+			qaApprovalRequired: true,
 		});
 
 		await client.close();
@@ -956,6 +961,7 @@ describe("WebSocket integration", () => {
 			// keys that happened to be sent.
 			qaEnabled: true,
 			qaVisibility: "presenter",
+			qaApprovalRequired: false,
 		});
 
 		await client.close();
