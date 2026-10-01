@@ -2353,8 +2353,11 @@ With `qaApprovalRequired` on, every question asked afterwards is stored with
 `approved: false`, and `POST /qa` says so with `pending: true` (it is `false` on
 every other outcome). Until an editor approves it, such a question is:
 
-- **an editor's alone** — absent from every other caller's `GET /qa`, **its own
-  asker's included**, on either visibility. "You always see what you asked" is
+- **an editor's alone** — read only by a caller who may *change* the deck (the
+  owner, the edit token, an `edit` grant), and absent from every other caller's
+  `GET /qa`: a `view` or `comment` collaborator's, who otherwise reads the
+  moderated list as the owner does, and **its own asker's**, on either
+  visibility. "You always see what you asked" is
   proof of receipt on a withheld list; a question nobody has approved has not
   been published to anybody, so it is not handed back even to the phone that
   typed it.

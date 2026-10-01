@@ -1324,8 +1324,13 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				set.status = 404;
 				return { error: "Not found" };
 			}
+			// Two questions of one resolved level: any grant reads the moderated
+			// list (REQ037), only an edit-level caller reads what is still awaiting
+			// approval (REQ038). Legacy grandfathering off, as in `canEditDeck`.
+			const access = await resolveDeckAccess(pres, request.headers, false);
 			const list = await getQAList(params.id, {
-				canEdit: await canEditDeck(pres, request),
+				canEdit: canReadDeckAuthoring(access.level),
+				canModerate: canMutateDeck(access.level),
 				participantId: query.participantId ?? "",
 			});
 			if (!list) {
@@ -1342,7 +1347,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Q&A"],
 				summary: "List the deck's Q&A questions",
 				description:
-					"Returns the presentation-wide Q&A list (REQ036) as this caller may read it, with the layer's `enabled`/`visibility`/`approvalRequired` settings alongside it. A caller that can edit the deck (owner or edit token) always reads the whole list, layer switched off and questions awaiting approval included. Everyone else reads it when the layer is on and `visibility` is `everyone` (REQ037); otherwise they read only the questions their own `participantId` asked, and `canSeeAll` is `false`. A question awaiting approval (`approved: false`, REQ038) is absent from every non-editor's list, its asker's included; `pendingCount` counts them on an editor's. Each entry carries its `upvotes` and `answered` state (REQ060) plus `own`/`upvoted` for this caller — never the asking participant's id, which is that participant's only credential. Questions are ordered open-first, then most upvoted, then longest-waiting. 404 if the presentation is missing.",
+					"Returns the presentation-wide Q&A list (REQ036) as this caller may read it, with the layer's `enabled`/`visibility`/`approvalRequired` settings alongside it. A caller that can edit the deck (owner or edit token) always reads the whole list, layer switched off and questions awaiting approval included. Everyone else reads it when the layer is on and `visibility` is `everyone` (REQ037); otherwise they read only the questions their own `participantId` asked, and `canSeeAll` is `false`. A question awaiting approval (`approved: false`, REQ038) is read only by a caller who may edit the deck — owner, edit token or an `edit` grant; a `view`/`comment` collaborator does not get it — and is absent from every other list, its asker's included; `pendingCount` counts them on an editor's. Each entry carries its `upvotes` and `answered` state (REQ060) plus `own`/`upvoted` for this caller — never the asking participant's id, which is that participant's only credential. Questions are ordered open-first, then most upvoted, then longest-waiting. 404 if the presentation is missing.",
 			},
 		},
 	)

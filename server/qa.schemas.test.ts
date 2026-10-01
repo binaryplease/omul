@@ -149,7 +149,7 @@ describe("qaQuestionsVisibleTo", () => {
 		const visible = qaQuestionsVisibleTo(
 			questions,
 			{ qaEnabled: true, qaVisibility: "everyone" },
-			{ canEdit: false, participantId: "alice" },
+			{ canEdit: false, canModerate: false, participantId: "alice" },
 		);
 		expect(visible.map((question) => question.id)).toEqual(["q1", "q2", "q3"]);
 	});
@@ -158,7 +158,7 @@ describe("qaQuestionsVisibleTo", () => {
 		const visible = qaQuestionsVisibleTo(
 			questions,
 			{ qaEnabled: true, qaVisibility: "presenter" },
-			{ canEdit: false, participantId: "alice" },
+			{ canEdit: false, canModerate: false, participantId: "alice" },
 		);
 		expect(visible.map((question) => question.id)).toEqual(["q1"]);
 	});
@@ -167,7 +167,7 @@ describe("qaQuestionsVisibleTo", () => {
 		const visible = qaQuestionsVisibleTo(
 			questions,
 			{ qaEnabled: true, qaVisibility: "presenter" },
-			{ canEdit: false, participantId: "" },
+			{ canEdit: false, canModerate: false, participantId: "" },
 		);
 		expect(visible).toEqual([]);
 	});
@@ -176,7 +176,7 @@ describe("qaQuestionsVisibleTo", () => {
 		const visible = qaQuestionsVisibleTo(
 			questions,
 			{ qaEnabled: true, qaVisibility: "presenter" },
-			{ canEdit: true, participantId: "" },
+			{ canEdit: true, canModerate: true, participantId: "" },
 		);
 		expect(visible).toHaveLength(3);
 	});
@@ -193,7 +193,7 @@ describe("qaQuestionsVisibleTo", () => {
 		const visible = qaQuestionsVisibleTo(
 			withPending,
 			{ qaEnabled: true, qaVisibility: "everyone", qaApprovalRequired: true },
-			{ canEdit: false, participantId: "alice" },
+			{ canEdit: false, canModerate: false, participantId: "alice" },
 		);
 		expect(visible.map((question) => question.id)).toEqual(["q1", "q3"]);
 	});
@@ -203,7 +203,7 @@ describe("qaQuestionsVisibleTo", () => {
 			const visible = qaQuestionsVisibleTo(
 				withPending,
 				{ qaEnabled: true, qaVisibility, qaApprovalRequired: true },
-				{ canEdit: false, participantId: "bob" },
+				{ canEdit: false, canModerate: false, participantId: "bob" },
 			);
 			expect(visible.map((question) => question.id)).not.toContain("q2");
 		}
@@ -213,7 +213,18 @@ describe("qaQuestionsVisibleTo", () => {
 		const visible = qaQuestionsVisibleTo(
 			withPending,
 			{ qaEnabled: true, qaVisibility: "everyone", qaApprovalRequired: false },
-			{ canEdit: false, participantId: "alice" },
+			{ canEdit: false, canModerate: false, participantId: "alice" },
+		);
+		expect(visible.map((question) => question.id)).toEqual(["q1", "q3"]);
+	});
+
+	test("a reader with any grant but not edit does not read them (review finding 1)", () => {
+		// A `view`/`comment` collaborator: reads the moderated list, as REQ037 has
+		// it, but not what is still awaiting approval.
+		const visible = qaQuestionsVisibleTo(
+			withPending,
+			{ qaEnabled: true, qaVisibility: "presenter", qaApprovalRequired: true },
+			{ canEdit: true, canModerate: false, participantId: "" },
 		);
 		expect(visible.map((question) => question.id)).toEqual(["q1", "q3"]);
 	});
@@ -222,7 +233,7 @@ describe("qaQuestionsVisibleTo", () => {
 		const visible = qaQuestionsVisibleTo(
 			withPending,
 			{ qaEnabled: true, qaVisibility: "everyone", qaApprovalRequired: true },
-			{ canEdit: true, participantId: "" },
+			{ canEdit: true, canModerate: true, participantId: "" },
 		);
 		expect(visible.map((question) => question.id)).toEqual(["q1", "q2", "q3"]);
 	});

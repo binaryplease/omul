@@ -4066,8 +4066,13 @@ type QAQuestionRow = {
  * would read as their question having been deleted.
  *
  * **An unapproved question is an editor's alone** (REQ038), and that comes
- * first: it is dropped from every non-editor's list before either rule above
- * runs, the asker's own view included. "You always see what you asked" is about
+ * first: it is dropped from every list but an editor's before either rule above
+ * runs, the asker's own view included. "Editor" here is `canModerate` — the
+ * level that may *change* the deck (owner, edit token, an `edit` grant) — and
+ * deliberately not `canEdit`, which any grant carries: a `view` or `comment`
+ * collaborator reads the moderated list as its owner does, but a question nobody
+ * has approved is waiting on somebody who can approve it, and a reader who
+ * cannot is part of the audience it is withheld from. "You always see what you asked" is about
  * proof of receipt on a list the organizer withholds; a question still waiting
  * for approval has not been published to anybody, and handing it back to the one
  * phone that typed it would put it on screen beside the room's list as though it
@@ -4078,10 +4083,11 @@ type QAQuestionRow = {
 export function qaQuestionsVisibleTo<QuestionShape extends QAQuestionRow>(
 	questions: QuestionShape[],
 	deck: QASettings,
-	caller: { canEdit: boolean; participantId: string },
+	caller: { canEdit: boolean; canModerate: boolean; participantId: string },
 ): QuestionShape[] {
-	if (caller.canEdit) return questions;
-	const published = questions.filter((question) => question.approved !== false);
+	const published = caller.canModerate
+		? questions
+		: questions.filter((question) => question.approved !== false);
 	if (qaListVisibleToAudience(deck, caller.canEdit)) return published;
 	if (!caller.participantId) return [];
 	return published.filter(

@@ -2596,7 +2596,7 @@ export async function setQASettings(
 async function qaEntriesFor(
 	presentationId: string,
 	pres: Record<string, unknown>,
-	caller: { canEdit: boolean; participantId: string },
+	caller: { canEdit: boolean; canModerate: boolean; participantId: string },
 ): Promise<QAListEntry[]> {
 	const stored = await qaQuestions.find({ presentationId });
 	const visible = qaQuestionsVisibleTo(
@@ -2659,7 +2659,7 @@ async function qaEntriesFor(
  */
 export async function getQAList(
 	presentationId: string,
-	caller: { canEdit: boolean; participantId: string },
+	caller: { canEdit: boolean; canModerate: boolean; participantId: string },
 ) {
 	const pres = await presentations.findOne(presentationId);
 	if (!pres) return null;
