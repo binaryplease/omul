@@ -1219,14 +1219,26 @@ export async function startPresentation(presentationId: string) {
 		? withSlideOpenedOnce(slideStartedAtIn(pres), first.id, openedAt)
 		: null;
 
+	// The session clock (REQ108) runs from the moment the deck goes live. A start
+	// on a deck that is already live keeps the clock it has — a second click must
+	// not wipe the duration of the session in progress — while going live from
+	// draft or ended begins a fresh one.
+	const sessionStartedAt =
+		pres.status === "live" && typeof pres.sessionStartedAt === "string"
+			? pres.sessionStartedAt
+			: openedAt;
+
 	const updated = await presentations.update(presentationId, {
 		status: "live",
 		activeSlideIndex: 0,
+		sessionStartedAt,
+		sessionEndedAt: null,
 		...(stamps ? { slideStartedAt: stamps } : {}),
 	});
 	if (updated) {
 		broadcastToPresentation(presentationId, "presentation.started", {
 			presentationId,
+			startedAt: sessionStartedAt,
 		});
 		if (stamps && first) {
 			broadcastToPresentation(presentationId, "slide.started", {
@@ -1240,12 +1252,25 @@ export async function startPresentation(presentationId: string) {
 }
 
 export async function endPresentation(presentationId: string) {
+	const pres = await presentations.findOne(presentationId);
+	if (!pres) return null;
+
+	// The session clock stops where the session ended (REQ108). Only a live deck
+	// is ending anything: ending one that is already ended keeps the instant it
+	// first stopped at, and a deck that never went live has no clock to stop.
+	const sessionEndedAt =
+		pres.status === "live"
+			? new Date().toISOString()
+			: ((pres.sessionEndedAt as string | null | undefined) ?? null);
+
 	const updated = await presentations.update(presentationId, {
 		status: "ended",
+		sessionEndedAt,
 	});
 	if (updated) {
 		broadcastToPresentation(presentationId, "presentation.ended", {
 			presentationId,
+			endedAt: sessionEndedAt,
 		});
 	}
 	return updated;
@@ -1264,11 +1289,16 @@ export async function resetPresentation(presentationId: string) {
 	// A re-run that inherited the last session's closed questions would refuse a
 	// room that had done nothing, and one that inherited a blanked screen would
 	// start behind a dark projector with no answer to why.
+	//
+	// The session clock goes too (REQ108): the next run is timed from its own
+	// start, not from the last one's.
 	const updated = await presentations.update(presentationId, {
 		status: "draft",
 		activeSlideIndex: 0,
 		revealedSlideIds: [],
 		slideStartedAt: {},
+		sessionStartedAt: null,
+		sessionEndedAt: null,
 		closedSlideIds: [],
 		audienceBlanked: false,
 	});

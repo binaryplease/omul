@@ -170,8 +170,10 @@ export interface SessionSlice {
 		results: SlideResults;
 	}) => void;
 	applyParticipantCount: (payload: { count: number }) => void;
-	applyStarted: () => void;
-	applyEnded: () => void;
+	/** The deck went live; `startedAt` is when its session clock began (REQ108). */
+	applyStarted: (payload?: { startedAt?: string | null }) => void;
+	/** The deck ended; `endedAt` is where its session clock stopped (REQ108). */
+	applyEnded: (payload?: { endedAt?: string | null }) => void;
 	applyReset: () => void;
 	applyRevealed: (payload: { slideId: string; revealed: boolean }) => void;
 	/**
@@ -273,6 +275,29 @@ function startedStampsIn(
 	return stamps && typeof stamps === "object"
 		? { slideStartedAt: stamps as Presentation["slideStartedAt"] }
 		: {};
+}
+
+/**
+ * The session clock's two instants carried by a start or end response, or by
+ * the frame announcing one (REQ108), as a patch. A value that is not a string
+ * reads as "not recorded" — the server writes `null` for exactly that — so the
+ * clock never runs from an instant nobody stamped.
+ */
+export function sessionStampsIn(
+	source: unknown,
+): Pick<Presentation, "sessionStartedAt" | "sessionEndedAt"> {
+	const stamps = (source ?? {}) as {
+		sessionStartedAt?: unknown;
+		sessionEndedAt?: unknown;
+	};
+	return {
+		sessionStartedAt:
+			typeof stamps.sessionStartedAt === "string"
+				? stamps.sessionStartedAt
+				: null,
+		sessionEndedAt:
+			typeof stamps.sessionEndedAt === "string" ? stamps.sessionEndedAt : null,
+	};
 }
 
 /**
@@ -439,12 +464,15 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 				// presenter already has in hand means their own countdown never waits
 				// on a broadcast to start running.
 				...startedStampsIn(updated),
+				// The session clock starts off the same response (REQ108), for the
+				// same reason: the presenter's own clock must not wait on a frame.
+				...sessionStampsIn(updated),
 			});
 		},
 
 		endPresentation: async (id) => {
-			await api.endPresentation(id);
-			patchPresentation({ status: "ended" });
+			const updated = await api.endPresentation(id);
+			patchPresentation({ status: "ended", ...sessionStampsIn(updated) });
 		},
 
 		resetPresentation: async (id) => {
@@ -566,9 +594,24 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 
 		applyParticipantCount: ({ count }) => set({ participantCount: count }),
 
-		applyStarted: () => patchPresentation({ status: "live" }),
+		// Each frame carries the session clock's instant (REQ108), so a second
+		// presenter screen of the deck runs the same clock as the one that clicked.
+		// A frame without one leaves the clock this screen already holds.
+		applyStarted: (payload) =>
+			patchPresentation({
+				status: "live",
+				...(typeof payload?.startedAt === "string"
+					? { sessionStartedAt: payload.startedAt, sessionEndedAt: null }
+					: {}),
+			}),
 
-		applyEnded: () => patchPresentation({ status: "ended" }),
+		applyEnded: (payload) =>
+			patchPresentation({
+				status: "ended",
+				...(payload && "endedAt" in payload
+					? { sessionEndedAt: payload.endedAt ?? null }
+					: {}),
+			}),
 
 		applyReset: () => {
 			const current = get().presentation;
@@ -588,6 +631,10 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 						// room can already see.
 						closedSlideIds: [],
 						audienceBlanked: false,
+						// The session clock with them (REQ108): the next run is
+						// timed from its own start.
+						sessionStartedAt: null,
+						sessionEndedAt: null,
 					},
 				});
 			}

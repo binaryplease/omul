@@ -5152,7 +5152,8 @@ export const CreatePresentationSchema = z
  *
  * Server-managed state is absent by design and is moved by its own routes:
  * `status` (start/end), `activeSlideIndex` (slide), `revealedSlideIds` (reveal),
- * `slideStartedAt` (timer), `closedSlideIds` (participation, REQ111),
+ * `slideStartedAt` (timer), `sessionStartedAt` / `sessionEndedAt` (start/end,
+ * REQ108), `closedSlideIds` (participation, REQ111),
  * `audienceBlanked` (blank, REQ109), the results link (results-link), the join
  * `code` and `createdAt` (neither is authored at all).
  */
@@ -5282,6 +5283,20 @@ export const PresentationSchema = z.object({
 	 * on when the question closes.
 	 */
 	slideStartedAt: z.record(z.string(), z.string()).default({}),
+	/**
+	 * When the current session went live and, once it has, when it ended — ISO
+	 * instants, `null` until each happens (REQ108). The presenter surface's
+	 * session clock is derived from the pair; see `sessionElapsedMs` in
+	 * `src/components/SessionClock.tsx`.
+	 *
+	 * Written by the server alone, on start and end, and cleared by a reset with
+	 * the rest of the run's state. Public like `slideStartedAt` above: two
+	 * instants say nothing a participant could not already see, and every
+	 * presenter screen of the deck — a second browser included — has to agree on
+	 * when the session began.
+	 */
+	sessionStartedAt: z.string().nullable().default(null),
+	sessionEndedAt: z.string().nullable().default(null),
 	/**
 	 * The Q&A layer (REQ036/REQ037): whether questions can be asked from any
 	 * slide, and who may read the list.
@@ -6211,6 +6226,13 @@ export const StoredPresentationSchema = z.object({
 	audienceBlanked: z.boolean().default(false),
 	/** When each slide's question was opened, ISO by slide id (REQ057). */
 	slideStartedAt: z.record(z.string(), z.string()).default({}),
+	/**
+	 * When the current session went live and when it ended, ISO (REQ108).
+	 * Defaulted `null` — no session recorded — which is what every deck written
+	 * before these fields existed re-parses forward onto.
+	 */
+	sessionStartedAt: z.string().nullable().default(null),
+	sessionEndedAt: z.string().nullable().default(null),
 	/** The Q&A layer: on/off across every slide (REQ036) and who reads it (REQ037). */
 	qaEnabled: z.boolean().default(false),
 	qaVisibility: QAVisibilityEnum.default("presenter"),

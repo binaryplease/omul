@@ -48,8 +48,8 @@ export function useSessionSocket(
 			onWsEvent("results.updated", (data) => applyResultsUpdated(data)),
 			onWsEvent("participants.count", (data) => applyParticipantCount(data)),
 			onWsEvent("slide.changed", (data) => applySlideChanged(data)),
-			onWsEvent("presentation.started", () => applyStarted()),
-			onWsEvent("presentation.ended", () => applyEnded()),
+			onWsEvent("presentation.started", (data) => applyStarted(data)),
+			onWsEvent("presentation.ended", (data) => applyEnded(data)),
 			onWsEvent("presentation.reset", () => applyReset()),
 			onWsEvent("slide.revealed", (data) => applyRevealed(data)),
 			// The deck's reveal mode, set for every question slide at once (REQ018).

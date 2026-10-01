@@ -61,6 +61,7 @@ import {
 } from "../components/ParticipantName";
 import { PreviewLink } from "../components/PreviewLink";
 import { ResultsLinkDialog } from "../components/ResultsLinkDialog";
+import { SessionClock } from "../components/SessionClock";
 import {
 	buildShareControls,
 	ICON_BUTTON_HOVER,
@@ -863,6 +864,10 @@ export function PresenterPage({
 								{pres.title}
 							</h1>
 							<StatusBadge status={pres.status} />
+							{/* REQ108 — how long this session has been running, beside
+							    the status it measures. Stops at the end, gone after a
+							    reset; nothing at all on a deck that has not gone live. */}
+							<SessionClock deck={pres} clockOffsetMs={serverClockOffsetMs} />
 						</div>
 
 						<div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">

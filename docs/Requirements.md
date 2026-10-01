@@ -125,7 +125,7 @@ Prose outside the markers is preserved.
 | [REQ105.md](requirements/REQ105.md) | Presenter surface | Live Session | P0 | done | BR105 |
 | [REQ106.md](requirements/REQ106.md) | Mobile presenter remote | Live Session | P2 | pending | BR106 |
 | [REQ107.md](requirements/REQ107.md) | Countdown slide | Deck & Slides | P2 | pending | BR107 |
-| [REQ108.md](requirements/REQ108.md) | Session timer | Live Session | P2 | pending | BR108 |
+| [REQ108.md](requirements/REQ108.md) | Session timer | Live Session | P2 | done | BR108 |
 | [REQ109.md](requirements/REQ109.md) | Blank the audience view | Live Session | P3 | done | BR109 |
 | [REQ110.md](requirements/REQ110.md) | Skip a slide | Deck & Slides | P3 | pending | BR110 |
 | [REQ111.md](requirements/REQ111.md) | Open and close participation per slide | Live Session | P2 | done | BR111 |

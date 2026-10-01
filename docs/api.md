@@ -3123,7 +3123,9 @@ slide, drops `revealedSlideIds` and the `slideStartedAt` stamps (a re-run is a
 fresh quiz — a deck that kept its old stamps would open every question already
 expired, REQ057), clears the live-room switches `closedSlideIds` and
 `audienceBlanked` (REQ111/REQ109 — a re-run that inherited the last session's
-closed questions would refuse a room that had done nothing), and deletes every
+closed questions would refuse a room that had done nothing), clears the session
+clock's `sessionStartedAt` / `sessionEndedAt` (REQ108 — the next run is timed
+from its own start), and deletes every
 vote, response upvote, Q&A question, Q&A
 upvote, chat message (REQ078) and stated participant name (REQ076) the
 presentation holds. Reactions (REQ077) are
@@ -3146,8 +3148,8 @@ Server broadcasts to all subscribers of a presentationId.
 |---|---|---|
 | `slide.changed` | server → clients | `{ presentationId, slideIndex, slide }` — the slide as the audience may see it: answer key withheld while the question runs (REQ056), presenter notes empty (REQ090) |
 | `results.updated` | server → clients | `{ presentationId, slideId, results }` — the tally as the **audience** may read it, so a slide whose mode withholds it broadcasts `{ type, withheld: true }` and no numbers (REQ016/REQ017), and an editor-only block on it (a word cloud's `answers`, a form's `submissions`) is `null`. Sent when an answer *lands* and when one is *taken down* (REQ027) — a tally moves both ways. **Frames may merge, values never do** (REQ150): a slide broadcasts at most once per 100 ms, so a room answering faster than that is folded into one frame carrying the settled tally rather than one frame per answer. A client that reads each frame as the current state is right; one that counted frames to count answers never was |
-| `presentation.started` | server → clients | `{ presentationId }` |
-| `presentation.ended` | server → clients | `{ presentationId }` |
+| `presentation.started` | server → clients | `{ presentationId, startedAt }` — `startedAt` is when the session clock began (REQ108), the deck's `sessionStartedAt`. A start on a deck already live keeps its clock, so the frame repeats the instant it already had |
+| `presentation.ended` | server → clients | `{ presentationId, endedAt }` — `endedAt` is where the session clock stopped (REQ108), the deck's `sessionEndedAt`; `null` for a deck that ended without ever going live |
 | `presentation.reset` | server → clients | `{ presentationId }` |
 | `slide.revealed` | server → clients | `{ presentationId, slideId, revealed }` (REQ016/REQ102) |
 | `presentation.results-visibility` | server → clients | `{ presentationId, resultsVisibility }` — the deck's reveal mode moved (REQ015–REQ018). Sent by both its writers: the deck-wide endpoint, and a deck PATCH that names the field. Carries the deck-level setting only; clients re-read the deck for the per-slide overrides — see **The deck's reveal mode** above |
