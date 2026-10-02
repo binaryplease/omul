@@ -29,3 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Presenters can hide the join bar on the presenter screen and show it again. The choice is saved with the presentation and followed by every open presenter screen. Hiding the bar does not change who can join.
 - A workspace owner can choose a default theme for the workspace. A presentation created in the workspace starts with that theme unless another theme is chosen, and each presentation can still change its own.
 - The presenter screen shows how long the session has been running. The clock stops when the session ends, survives a page reload, and is cleared by a reset.
+
+### Changed
+
+- The storage library `@binaryplease/zodstore` is updated from 0.4.2 to 0.5.0, which brings its fixes to filtering on empty values and to how it checks a database file on open. The first start on an existing database renames the indexes that cover two fields to the library's new naming scheme. This needs no action and keeps every stored presentation, vote and question.

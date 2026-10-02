@@ -21,7 +21,7 @@
   "dependencies": {
     "@ai-sdk/google": "^3.0.64",
     "@better-auth/api-key": "^1.6.19",
-    "@binaryplease/zodstore": "^0.4.2",
+    "@binaryplease/zodstore": "^0.5.0",
     "@elysiajs/openapi": "^1.4.15",
     "@fontsource-variable/figtree": "^5.3.0",
     "@fontsource/dm-mono": "^5.2.5",

@@ -174,7 +174,11 @@ without a migration: old rows read forward with defaults filling any
 gap. Identity fields (`id` and the presentation/slide/response references) carry
 no default and fail loudly when absent.
 `server/stored-defaults.test.ts` enforces that over every collection, with each
-one's identity fields named.
+one's identity fields named. Like the library's own check since 0.5.0, it walks
+the whole stored document: a slide's members are held to the rule under
+`slides[]`, because a parent's default does not cover fields added inside it.
+The bare nested paths it allows (a row's identity and its creation-time input)
+are listed there. So are the two that still break the rule (REQ184).
 
 `server/db.ts` exports `createStore(name, schema, { indexes })` which wraps one
 zodstore collection behind an **async** `Store` (`insert`, `update`, `remove`,

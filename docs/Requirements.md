@@ -199,6 +199,7 @@ Prose outside the markers is preserved.
 | [REQ181.md](requirements/REQ181.md) | The repository carries an agent skill that teaches an agent to drive omul through the command-line client | Platform & Operations | P2 | done | internal |
 | [REQ182.md](requirements/REQ182.md) | Deleting an account must resolve the presentations that ran under it | Platform & Operations | P1 | pending | internal |
 | [REQ183.md](requirements/REQ183.md) | Legal texts must be reachable in the app and named where a contract is concluded | Platform & Operations | P0 | done | internal |
+| [REQ184.md](requirements/REQ184.md) | The two bare optional slide fields must declare what their absence means | Platform & Operations | P3 | pending | internal |
 
-_181 entries — one row per file in `requirements/`._
+_182 entries — one row per file in `requirements/`._
 <!-- index:end -->
