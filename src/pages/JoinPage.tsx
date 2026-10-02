@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { DeckMark, DeckThemeScope } from "../components/DeckTheme";
 import { LegalNotice } from "../components/LegalLinks";
-import { ThemeToggle } from "../components/ui/Theme";
+import { AppMenu } from "../components/ui/AppMenu";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 
@@ -157,7 +157,7 @@ export function JoinPage({ go }: { go: (r: Route) => void }) {
 	return themed(
 		<div className="participant-view bg-void bg-noise">
 			<div className="absolute top-4 right-4 z-20">
-				<ThemeToggle />
+				<AppMenu />
 			</div>
 			<div className="relative z-10 flex flex-col items-center w-full max-w-md px-4">
 				<DeckMark deck={null} className="mb-6" />

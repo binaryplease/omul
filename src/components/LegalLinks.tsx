@@ -1,11 +1,12 @@
 /**
  * The operator's legal texts, where a visitor meets them (REQ183).
  *
- * Two surfaces, one descriptor and one link style between them:
+ * Two surfaces, one descriptor and one link between them:
  *
- *   - **`<LegalFooter/>`** — mounted once by `App`, under every route, so the
- *     imprint, the privacy policy and the terms are reachable from anywhere in
- *     the app.
+ *   - **`<AppMenu/>`** (`ui/AppMenu.tsx`) — the small menu that sits wherever
+ *     the theme switch is, on every screen but a loading one. Under its
+ *     Appearance section it lists the imprint, the privacy policy and the
+ *     terms, so all three are reachable from anywhere in the app.
  *   - **`<LegalNotice action=…/>`** — the sentence at each point a contract is
  *     concluded (signing up, creating a deck, joining a room), naming the terms
  *     and the privacy policy *before* the action is submitted.
@@ -13,9 +14,10 @@
  * Where the texts live is the deployment's to say (`GET /api/legal`, from
  * `OMUL_IMPRINT_URL` / `OMUL_PRIVACY_URL` / `OMUL_TERMS_URL`). A text whose
  * address was not configured gets no link, and a surface with nothing to link
- * renders nothing at all — so an instance that configured none looks exactly as
- * it did before this existed. Until the one request answers, every surface
- * draws as unconfigured; it is sent when `App` mounts, long before anybody has
+ * renders nothing at all — the menu shows only Appearance, and no notice is
+ * drawn — so an instance that configured none looks as it did before this
+ * existed. Until the one request answers, every surface draws as unconfigured;
+ * it is sent as soon as the first surface mounts, long before anybody has
  * filled in a form.
  *
  * Every link opens in a new tab: two of the three contract points are forms,
@@ -33,18 +35,18 @@ export const NO_LEGAL_LINKS: LegalLinks = {
 	termsUrl: null,
 };
 
-/** The three texts, in the order the footer lists them, and their names. */
+/** The three texts, in the order they are listed, and their names. */
 export const LEGAL_TEXT_DESCRIPTORS = [
 	{ field: "imprintUrl", label: "Imprint" },
 	{ field: "privacyUrl", label: "Privacy Policy" },
 	{ field: "termsUrl", label: "Terms of Service" },
 ] as const satisfies readonly { field: keyof LegalLinks; label: string }[];
 
-/** The one style a legal link wears, in the footer and in a notice alike. */
+/** The style a legal link wears inside a sentence (a notice). */
 export const LEGAL_LINK_CLASS =
 	"underline underline-offset-2 hover:text-text transition-colors";
 
-/** The texts this deployment configured, in footer order, unset ones dropped. */
+/** The texts this deployment configured, in descriptor order, unset ones dropped. */
 export function configuredLegalLinks(
 	links: LegalLinks,
 ): { label: string; href: string }[] {
@@ -97,49 +99,37 @@ export function useLegalLinks(): LegalLinks {
 
 // ── Rendering ─────────────────────────────────────────────────
 
-function LegalLink({ href, children }: { href: string; children: ReactNode }) {
+/**
+ * One link to a legal text: a new tab, and nothing handed to the opener. Every
+ * surface draws its links through this, never by hand; `className` is the
+ * surface's own look, inline in a sentence by default.
+ */
+export function LegalLink({
+	href,
+	className = LEGAL_LINK_CLASS,
+	children,
+}: {
+	href: string;
+	className?: string;
+	children: ReactNode;
+}) {
 	return (
 		<a
 			href={href}
 			target="_blank"
 			rel="noopener noreferrer"
-			className={LEGAL_LINK_CLASS}
+			className={className}
 		>
 			{children}
 		</a>
 	);
 }
 
-/** The footer for a given set of addresses — nothing when none is set. */
-export function LegalFooterLinks({ links }: { links: LegalLinks }) {
-	const configured = configuredLegalLinks(links);
-	if (configured.length === 0) return null;
-	return (
-		<footer className="relative z-10 border-t border-border bg-void px-6 py-3 font-mono text-xs text-text-dim">
-			<nav
-				aria-label="Legal"
-				className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1"
-			>
-				{configured.map((link) => (
-					<LegalLink key={link.label} href={link.href}>
-						{link.label}
-					</LegalLink>
-				))}
-			</nav>
-		</footer>
-	);
-}
-
-/** The app-wide footer, under every route. */
-export function LegalFooter() {
-	return <LegalFooterLinks links={useLegalLinks()} />;
-}
-
 /**
  * The sentence at a contract-conclusion point, for a given set of addresses.
  * `action` completes "By …," — "creating an account", "joining". Names the
  * terms when they are configured and the privacy policy when it is; nothing
- * when neither is (the imprint is the footer's alone).
+ * when neither is (the imprint is the menu's alone).
  */
 export function LegalNoticeText({
 	links,

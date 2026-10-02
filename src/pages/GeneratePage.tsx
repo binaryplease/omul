@@ -4,8 +4,8 @@ import { api } from "../api";
 import { useSession } from "../auth-client";
 import { LegalNotice } from "../components/LegalLinks";
 import { SlideTypeIcon } from "../components/SlideTypeIcon";
+import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
-import { ThemeToggle } from "../components/ui/Theme";
 import { useToast } from "../components/ui/Toast";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
@@ -133,7 +133,7 @@ export function GeneratePage({ go }: { go: (r: Route) => void }) {
 	return (
 		<div className="min-h-screen w-full bg-void bg-grid bg-noise">
 			<div className="absolute top-4 right-4 sm:top-6 sm:right-6 lg:right-12 z-20">
-				<ThemeToggle />
+				<AppMenu />
 			</div>
 
 			<div className="relative z-10 w-full px-6 sm:px-12 lg:px-24 py-12 sm:py-16">

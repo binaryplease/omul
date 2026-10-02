@@ -25,8 +25,8 @@ import { SlideAppearanceScope } from "../components/SlideAppearance";
 import { SlideBackground } from "../components/SlideBackground";
 import { ICON_BUTTON_HOVER } from "../components/ShareCluster";
 import { SlideRailItem } from "../components/SlideRail";
+import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
-import { ThemeToggle } from "../components/ui/Theme";
 import { useToast } from "../components/ui/Toast";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
@@ -362,6 +362,9 @@ export function PreviewPage({
 	if (error && !pres) {
 		return themed(
 			<div className="min-h-screen bg-void flex items-center justify-center text-error">
+				<div className="absolute top-4 right-4 z-20">
+					<AppMenu />
+				</div>
 				{error}
 			</div>,
 		);
@@ -401,7 +404,7 @@ export function PreviewPage({
 						</div>
 
 						<div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-							<ThemeToggle />
+							<AppMenu />
 							<button
 								type="button"
 								className="btn-secondary text-sm flex items-center gap-1.5"

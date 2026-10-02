@@ -803,6 +803,9 @@ function deckWearsHouseAccent(deck: DeckThemeSettings | null): boolean {
 	return brand.accent === "";
 }
 
+/** The attribute that marks a {@link DeckThemeScope}'s box in the DOM. */
+export const DECK_THEME_SCOPE_ATTRIBUTE = "data-deck-theme-scope";
+
 /**
  * Paint a subtree in the deck's theme (REQ079, REQ080).
  *
@@ -810,6 +813,10 @@ function deckWearsHouseAccent(deck: DeckThemeSettings | null): boolean {
  * the join screen where a code is still being typed — wears the built-in default
  * through this same wrapper rather than through a second code path, so "which
  * theme is this screen in?" has one answer everywhere.
+ *
+ * The wrapper is marked {@link DECK_THEME_SCOPE_ATTRIBUTE} so that a layer
+ * drawn outside its trigger's box — `AppMenu`'s panel, portaled to escape a
+ * scrolling header — can still be drawn inside the theme it was opened in.
  */
 export function DeckThemeScope({
 	deck,
@@ -823,6 +830,7 @@ export function DeckThemeScope({
 		<div
 			className={deckThemeClassName(deck)}
 			style={deckThemeStyle(deck, resolvedTheme)}
+			{...{ [DECK_THEME_SCOPE_ATTRIBUTE]: "" }}
 		>
 			{children}
 		</div>

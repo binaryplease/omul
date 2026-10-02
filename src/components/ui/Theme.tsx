@@ -1,4 +1,4 @@
-import { Monitor, Moon, Sun } from "lucide-react";
+import { type LucideIcon, Monitor, Moon, Sun } from "lucide-react";
 import type React from "react";
 import {
 	createContext,
@@ -69,38 +69,18 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 	);
 }
 
-// ── Theme toggle component ────────────────────────────────────
+// ── Theme options ─────────────────────────────────────────────
 
-export function ThemeToggle() {
-	const { theme, setTheme } = useTheme();
-	const options: {
-		value: ThemePreference;
-		icon: React.ReactNode;
-		label: string;
-	}[] = [
-		{ value: "light", icon: <Sun size={14} />, label: "Light" },
-		{ value: "dark", icon: <Moon size={14} />, label: "Dark" },
-		{ value: "auto", icon: <Monitor size={14} />, label: "Auto" },
-	];
-
-	return (
-		<div className="flex items-center bg-surface-raised border border-border rounded-lg p-0.5 gap-0.5">
-			{options.map((opt) => (
-				<button
-					key={opt.value}
-					type="button"
-					onClick={() => setTheme(opt.value)}
-					title={opt.label}
-					className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer border-none ${
-						theme === opt.value
-							? "bg-surface-hover text-accent-text shadow-sm"
-							: "text-text-dim hover:text-text-muted bg-transparent"
-					}`}
-				>
-					{opt.icon}
-					<span className="hidden sm:inline">{opt.label}</span>
-				</button>
-			))}
-		</div>
-	);
-}
+/**
+ * The three appearances a visitor can choose, in the order they are offered.
+ * The one list of them: `AppMenu` renders it, and nothing restates it.
+ */
+export const THEME_OPTIONS = [
+	{ value: "light", label: "Light", Icon: Sun },
+	{ value: "dark", label: "Dark", Icon: Moon },
+	{ value: "auto", label: "Auto", Icon: Monitor },
+] as const satisfies readonly {
+	value: ThemePreference;
+	label: string;
+	Icon: LucideIcon;
+}[];

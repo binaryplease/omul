@@ -1,10 +1,11 @@
 /**
  * Where this instance's legal texts live, over HTTP (REQ183).
  *
- * One public, read-only route: the client reads it once per page load to draw
- * the footer on every route and the sentence at each point a contract is
- * concluded. What it reports is a fact about the deployment, not about the
- * caller, so it asks for no credential — see `server/legal-links.ts`.
+ * One public, read-only route: the client reads it once per page load to list
+ * the texts in the app menu on every route and to draw the sentence at each
+ * point a contract is concluded. What it reports is a fact about the
+ * deployment, not about the caller, so it asks for no credential — see
+ * `server/legal-links.ts`.
  */
 
 import { Elysia } from "elysia";

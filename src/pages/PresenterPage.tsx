@@ -75,11 +75,11 @@ import {
 } from "../components/SlideComments";
 import { SlideBackground } from "../components/SlideBackground";
 import { SlideRailItem } from "../components/SlideRail";
+import { AppMenu } from "../components/ui/AppMenu";
 import { ConfirmModal } from "../components/ui/ConfirmModal";
 import { LoadingState } from "../components/ui/Loading";
 import { QRCodeDisplay } from "../components/ui/QRCode";
 import { StatusBadge } from "../components/ui/StatusBadge";
-import { ThemeToggle } from "../components/ui/Theme";
 import { useToast } from "../components/ui/Toast";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
@@ -609,6 +609,9 @@ export function PresenterPage({
 	if (error)
 		return themed(
 			<div className="min-h-screen bg-void flex items-center justify-center text-error">
+				<div className="absolute top-4 right-4 z-20">
+					<AppMenu />
+				</div>
 				{error}
 			</div>,
 		);
@@ -796,6 +799,11 @@ export function PresenterPage({
 	if (sharedScreenView(pres) === "blank") {
 		return themed(
 			<div className="min-h-screen w-full bg-void bg-grid bg-noise flex flex-col">
+				{/* The theme switch and the legal texts (REQ183): a control, and
+				    one that shows nothing of the deck, so it stays. */}
+				<div className="absolute top-4 right-4 z-20">
+					<AppMenu />
+				</div>
 				<main className="relative z-10 flex flex-1 items-center justify-center p-4 sm:p-8">
 					<div className="w-full max-w-3xl">
 						<AudienceBlankCurtain
@@ -1077,8 +1085,8 @@ export function PresenterPage({
 								{screenBlanked ? <EyeOff size={16} /> : <Eye size={16} />}
 							</button>
 
-							{/* Theme toggle */}
-							<ThemeToggle />
+							{/* Theme switch and legal texts (REQ183) */}
+							<AppMenu />
 
 							{/* The dry run (REQ103). Offered whatever the deck's status —
 							    a preview writes nothing and starts nothing, so there is no

@@ -36,8 +36,8 @@ import {
 } from "../components/ReactionBar";
 import { SlideAppearanceScope } from "../components/SlideAppearance";
 import { SlideBackground } from "../components/SlideBackground";
+import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
-import { ThemeToggle } from "../components/ui/Theme";
 import { useToast } from "../components/ui/Toast";
 import { getDict } from "../i18n";
 import type { Route } from "../router";
@@ -397,6 +397,9 @@ export function ParticipantPage({
 	if (error)
 		return themed(
 			<div className="participant-view bg-void bg-noise">
+				<div className="absolute top-4 right-4 z-20">
+					<AppMenu />
+				</div>
 				<div className="relative z-10 text-center">
 					<p className="text-error mb-4">{error}</p>
 					<button
@@ -423,7 +426,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<ThemeToggle />
+					<AppMenu />
 				</div>
 				<div className="relative z-10 flex flex-col items-center text-center">
 					{/* REQ136 — the organizer's mark on the last screen the room sees,
@@ -479,7 +482,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<ThemeToggle />
+					<AppMenu />
 				</div>
 				<div className="relative z-10 flex flex-col items-center px-4">
 					<DeckMark deck={pres} className="mb-6" />
@@ -528,7 +531,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<ThemeToggle />
+					<AppMenu />
 				</div>
 				<div className="relative z-10 flex flex-col items-center text-center">
 					{/* REQ136 — the join screen's mark: the organizer's logo when the
@@ -570,7 +573,7 @@ export function ParticipantPage({
 				    cannot swallow a tap meant for the answer below it. */}
 				<ReactionStream reactions={liveReactions} />
 				<div className="absolute top-4 right-4 z-20">
-					<ThemeToggle />
+					<AppMenu />
 				</div>
 				<div
 					className={`relative z-10 w-full ${

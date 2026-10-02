@@ -42,9 +42,9 @@ import {
 import { slideRailItemSurface } from "../components/SlideRail";
 import { SlideThumbnail } from "../components/SlideThumbnail";
 import { SlideTypeMenu } from "../components/SlideTypeMenu";
+import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
-import { ThemeToggle } from "../components/ui/Theme";
 import { useToast } from "../components/ui/Toast";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
@@ -722,7 +722,7 @@ export function CreatePage({
 					<StatusBadge status="draft" />
 
 					<div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-						<ThemeToggle />
+						<AppMenu />
 						{/* The dry run, beside the deck it rehearses (REQ103).
 						    Only on a saved deck: a preview reads the presentation the
 						    server holds, so there is nothing to preview until there is

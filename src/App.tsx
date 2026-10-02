@@ -4,7 +4,6 @@ import {
 	acceptShareToken,
 	RESULTS_LINK_FRAGMENT,
 } from "./api";
-import { LegalFooter } from "./components/LegalLinks";
 import { ThemeProvider } from "./components/ui/Theme";
 import { ToastProvider } from "./components/ui/Toast";
 import { CreatePage } from "./pages/CreatePage";
@@ -119,9 +118,6 @@ export default function App() {
 			<ToastProvider>
 				<StoreProvider>
 					{content}
-					{/* The operator's legal texts, under every route (REQ183). Draws
-					    nothing on an instance that configured none. */}
-					<LegalFooter />
 				</StoreProvider>
 			</ToastProvider>
 		</ThemeProvider>

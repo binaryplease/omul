@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An installable agent skill (`npx skills add binaryplease/omul`) that teaches an AI agent to create a presentation and read its results through the `omul` client.
 - Links to the instance's imprint, privacy policy and terms:
   - Set them with `OMUL_IMPRINT_URL`, `OMUL_PRIVACY_URL` and `OMUL_TERMS_URL`. Each takes an absolute `http(s)://` URL or a path on the same host such as `/imprint`. Any other value stops the server at startup with an error naming the variable.
-  - Each one that is set appears as a link in a footer under every page.
+  - Each one that is set appears as a link in the app menu, on every page.
   - The terms and the privacy policy are also named, with links, before a visitor signs up, creates a presentation (from the editor, a template or a generated draft), or joins one with a code, a link or the QR code.
   - Nothing is shown while the variables are unset.
   - The configured links are served at `GET /api/legal`.
@@ -32,4 +32,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The Light / Dark / Auto theme switch is now a small app menu, opened from a three-dot button in the same place on every page. It holds the theme choice and, when they are configured, the links to the imprint, privacy policy and terms. The menu also appears on the shared results page, on error screens and on the presenter's blanked screen, where there was no theme switch before.
 - The storage library `@binaryplease/zodstore` is updated from 0.4.2 to 0.5.0, which brings its fixes to filtering on empty values and to how it checks a database file on open. The first start on an existing database renames the indexes that cover two fields to the library's new naming scheme. This needs no action and keeps every stored presentation, vote and question.

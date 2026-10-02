@@ -129,7 +129,7 @@ const app = new Elysia()
 
 	// ── Legal texts (REQ183) ──────────────────────────────────
 	// Where the operator's imprint, privacy policy and terms live, read by the
-	// client's footer and contract-conclusion notices. Unset means no link.
+	// client's app menu and contract-conclusion notices. Unset means no link.
 	.use(legalRoutes)
 
 	// ── User accounts (Better Auth) ───────────────────────────

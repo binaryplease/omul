@@ -3,21 +3,23 @@
  *
  * Two halves, matching what the requirement asks for:
  *
- *   - **The footer under every route.** Each of the three links is drawn when
- *     its address is configured and absent when it is not, and a footer with
- *     nothing to link is no footer at all — so an instance that configured none
- *     renders exactly as before. `App` mounts it once, beside the route switch,
- *     which is what puts it under every page.
+ *   - **The texts reachable from every route.** `AppMenu` — the small menu that
+ *     took the theme switch's place on every non-loading screen — lists each of
+ *     the three under a Legal section when its address is configured and leaves
+ *     it out when it is not; with nothing configured there is no Legal section
+ *     at all, and the menu holds Appearance alone. Every page `App` routes to
+ *     mounts it, which is what puts the texts under every route now that the
+ *     app-wide footer is gone.
  *   - **The sentence at each contract-conclusion point.** It names the terms and
  *     the privacy policy with links to them when configured, and is absent when
  *     neither is. Signing up, creating a deck and joining with a code each mount
  *     it ahead of the control that submits — and unconditionally, not behind a
  *     state the visitor reaches only by submitting.
  *
- * The two components are rendered to static markup with React's own server
- * renderer, which needs no DOM. Where each page *places* the notice is markup
- * in a page this repo does not render in tests, so it is asserted by reading the
- * sources, the way `CreatePage.test.ts` asserts its own.
+ * The menu's panel and the notice are rendered to static markup with React's
+ * own server renderer, which needs no DOM. Where each page *places* them is
+ * markup in a page this repo does not render in tests, so it is asserted by
+ * reading the sources, the way `CreatePage.test.ts` asserts its own.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -28,10 +30,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { LegalLinks } from "../types";
 import {
 	configuredLegalLinks,
-	LegalFooterLinks,
 	LegalNoticeText,
 	NO_LEGAL_LINKS,
 } from "./LegalLinks";
+import { AppMenuPanel } from "./ui/AppMenu";
 
 const ALL_LINKS: LegalLinks = {
 	imprintUrl: "https://example.com/imprint",
@@ -39,8 +41,22 @@ const ALL_LINKS: LegalLinks = {
 	termsUrl: "/terms",
 };
 
-function footer(links: LegalLinks): string {
-	return renderToStaticMarkup(createElement(LegalFooterLinks, { links }));
+function menuPanel(links: LegalLinks): string {
+	return renderToStaticMarkup(
+		createElement(AppMenuPanel, {
+			id: "app-menu",
+			links,
+			theme: "dark",
+			onThemeChange: () => {},
+		}),
+	);
+}
+
+/** The menu's legal links, by their visible label, in the order drawn. */
+function legalLinkLabels(markup: string): string[] {
+	return [...markup.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a>/g)].map((match) =>
+		textOf(match[1]).replace(" (opens in a new tab)", ""),
+	);
 }
 
 function notice(links: LegalLinks, action = "joining"): string {
@@ -58,13 +74,18 @@ function readSource(relativePath: string): string {
 	return readFileSync(join(SRC, relativePath), "utf8");
 }
 
-describe("the footer under every route (REQ183)", () => {
-	test("all three configured: three links, in footer order", () => {
-		const markup = footer(ALL_LINKS);
+describe("the legal texts in the app menu, on every route (REQ183)", () => {
+	test("all three configured: three links, in descriptor order", () => {
+		const markup = menuPanel(ALL_LINKS);
 		expect(markup).toContain('href="https://example.com/imprint"');
 		expect(markup).toContain('href="https://example.com/privacy"');
 		expect(markup).toContain('href="/terms"');
-		expect(textOf(markup)).toBe("ImprintPrivacy PolicyTerms of Service");
+		expect(legalLinkLabels(markup)).toEqual([
+			"Imprint",
+			"Privacy Policy",
+			"Terms of Service",
+		]);
+		expect(markup).toContain(">Legal</p>");
 	});
 
 	for (const [field, label] of [
@@ -72,36 +93,107 @@ describe("the footer under every route (REQ183)", () => {
 		["privacyUrl", "Privacy Policy"],
 		["termsUrl", "Terms of Service"],
 	] as const) {
-		test(`${label} is drawn alone when it is the only one configured`, () => {
+		test(`${label} is listed alone when it is the only one configured`, () => {
 			const links = { ...NO_LEGAL_LINKS, [field]: ALL_LINKS[field] };
-			const markup = footer(links);
+			const markup = menuPanel(links);
 			expect(markup).toContain(`href="${ALL_LINKS[field]}"`);
-			expect(textOf(markup)).toBe(label);
+			expect(legalLinkLabels(markup)).toEqual([label]);
 		});
 
 		test(`${label} is absent when it is not configured`, () => {
 			const links = { ...ALL_LINKS, [field]: null };
-			const markup = footer(links);
+			const markup = menuPanel(links);
 			expect(markup).not.toContain(`href="${ALL_LINKS[field]}"`);
-			expect(textOf(markup)).not.toContain(label);
+			expect(legalLinkLabels(markup)).not.toContain(label);
+			expect(legalLinkLabels(markup)).toHaveLength(2);
 			expect(configuredLegalLinks(links)).toHaveLength(2);
 		});
 	}
 
-	test("nothing configured: no footer at all", () => {
-		expect(footer(NO_LEGAL_LINKS)).toBe("");
+	test("nothing configured: no Legal section, Appearance alone", () => {
+		const markup = menuPanel(NO_LEGAL_LINKS);
+		expect(markup).not.toContain("<a");
+		expect(markup).not.toContain("<nav");
+		expect(textOf(markup)).not.toContain("Legal");
+		expect(textOf(markup)).toContain("Appearance");
 		expect(configuredLegalLinks(NO_LEGAL_LINKS)).toEqual([]);
 	});
 
+	test("Appearance offers the three themes as a radio group, the chosen one checked", () => {
+		const markup = menuPanel(NO_LEGAL_LINKS);
+		expect(markup).toContain('role="radiogroup"');
+		expect(markup.match(/role="radio"/g)).toHaveLength(3);
+		expect(textOf(markup)).toContain("LightDarkAuto");
+		expect(markup).toMatch(/aria-checked="true"[^>]*data-theme-option="dark"/);
+		expect(markup.match(/aria-checked="true"/g)).toHaveLength(1);
+		expect(markup).not.toContain('role="menu"');
+	});
+
 	test("a link opens in a new tab and hands the opener nothing", () => {
-		const markup = footer(ALL_LINKS);
+		const markup = menuPanel(ALL_LINKS);
 		expect(markup.match(/target="_blank"/g)).toHaveLength(3);
 		expect(markup.match(/rel="noopener noreferrer"/g)).toHaveLength(3);
 	});
 
-	test("App mounts the footer beside the route switch, so every route has it", () => {
+	/** Every page component `App`'s route switch renders. */
+	function routedPages(): string[] {
 		const app = readSource("App.tsx");
-		expect(app).toMatch(/\{content\}\s*(\{\/\*[\s\S]*?\*\/\}\s*)?<LegalFooter \/>/);
+		return [
+			...new Set(
+				[...app.matchAll(/return <(\w+Page)\b/g)].map((match) => match[1]),
+			),
+		];
+	}
+
+	test("App routes to the pages this test reads", () => {
+		expect(routedPages().length).toBeGreaterThanOrEqual(11);
+	});
+
+	test("every routed page mounts the menu, and none the old theme toggle", () => {
+		for (const page of routedPages()) {
+			const source = readSource(`pages/${page}.tsx`);
+			expect(source).toContain(
+				'import { AppMenu } from "../components/ui/AppMenu";',
+			);
+			expect(source).toContain("<AppMenu />");
+			expect(source).not.toContain("ThemeToggle");
+		}
+	});
+
+	/**
+	 * Pages with more than one screen mount the menu on each one but a loading
+	 * spinner: the footer used to sit under every render branch, so a branch
+	 * without the menu is a screen the texts cannot be reached from.
+	 */
+	const SCREENS_PER_PAGE = {
+		PresenterPage: ["error", "blanked screen", "live"],
+		PreviewPage: ["error", "dry run"],
+		ParticipantPage: ["error", "ended", "name gate", "waiting", "slide"],
+		SharedResultsPage: ["unavailable link", "results"],
+	} as const;
+
+	for (const [page, screens] of Object.entries(SCREENS_PER_PAGE)) {
+		test(`${page} mounts the menu on each of its screens: ${screens.join(", ")}`, () => {
+			const source = readSource(`pages/${page}.tsx`);
+			expect(source.match(/<AppMenu \/>/g)).toHaveLength(screens.length);
+		});
+	}
+
+	test("the presenter's blanked screen carries the menu inside its early return", () => {
+		const source = readSource("pages/PresenterPage.tsx");
+		const blank = source.indexOf('if (sharedScreenView(pres) === "blank")');
+		const curtain = source.indexOf("<AudienceBlankCurtain", blank);
+		const menu = source.indexOf("<AppMenu />", blank);
+		expect(blank).toBeGreaterThan(-1);
+		expect(menu).toBeGreaterThan(blank);
+		expect(menu).toBeLessThan(curtain);
+	});
+
+	test("App no longer mounts a legal footer", () => {
+		const app = readSource("App.tsx");
+		expect(app).not.toContain("LegalFooter");
+		expect(app).not.toContain("<footer");
+		expect(app).toMatch(/\{content\}\s*<\/StoreProvider>/);
 	});
 });
 

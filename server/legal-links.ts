@@ -6,7 +6,7 @@
  * its own, and none of them is in the tree. So their addresses are runtime
  * configuration, read from three environment variables, and the client draws a
  * link only for an address that was configured. An instance that configured none
- * looks and behaves exactly as one built before this existed — no footer, no
+ * looks and behaves exactly as one built before this existed — no menu entry, no
  * notice, nothing to click on that leads nowhere.
  *
  * **What a value may be.** An absolute `http(s)://` URL, or a path on this
@@ -101,8 +101,8 @@ export function resolveLegalLinks(
 
 /**
  * What the boot log says about the legal links, one line per text. Printed
- * because an unconfigured link is invisible from outside — the footer simply is
- * not there — and reading the variables here makes a malformed one fatal at
+ * because an unconfigured link is invisible from outside — the app menu simply
+ * has no Legal section — and reading the variables here makes a malformed one fatal at
  * boot rather than a 500 on the first page load.
  */
 export function legalLinksStartupReport(

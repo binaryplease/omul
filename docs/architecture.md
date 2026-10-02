@@ -100,7 +100,8 @@ src/
       Loading.tsx
       QRCode.tsx
       StatusBadge.tsx
-      Theme.tsx              # ThemeProvider + ThemeToggle; exports useTheme
+      AppMenu.tsx            # The theme switch + legal links popover every non-loading screen mounts (REQ183)
+      Theme.tsx              # ThemeProvider + THEME_OPTIONS; exports useTheme
       Toast.tsx              # ToastProvider; exports useToast
   pages/
     HomePage.tsx
