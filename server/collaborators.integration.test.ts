@@ -850,6 +850,68 @@ describe("sharing a deck with other accounts (REQ075)", () => {
 		expect(list[0].level).toBe("view");
 	});
 
+	test("a question awaiting approval reaches an `edit` collaborator, not a weaker one (REQ038)", async () => {
+		const deck = await createOwnedDeck();
+		const ownerHeaders = {
+			"Content-Type": "application/json",
+			"x-api-key": ownerKey,
+		};
+		await fetch(`${baseUrl}/api/presentations/${deck.id}/start`, {
+			method: "POST",
+			headers: ownerHeaders,
+		});
+		await fetch(`${baseUrl}/api/presentations/${deck.id}/qa/settings`, {
+			method: "POST",
+			headers: ownerHeaders,
+			body: JSON.stringify({ enabled: true, approvalRequired: true }),
+		});
+		const asked = await fetch(`${baseUrl}/api/presentations/${deck.id}/qa`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ text: "Waiting on the presenter", participantId: "p1" }),
+		});
+		expect((await asked.json()).pending).toBe(true);
+		await fetch(`${baseUrl}/api/presentations/${deck.id}/qa`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ text: "Second one", participantId: "p2" }),
+		});
+
+		const listAsCollaborator = async () =>
+			(
+				await fetch(`${baseUrl}/api/presentations/${deck.id}/qa`, {
+					headers: { "x-api-key": collaboratorKey },
+				})
+			).json();
+
+		// A `view` or `comment` grant reads the moderated list as the owner does
+		// (REQ037), but a question nobody has approved is not on it.
+		for (const level of ["view", "comment"] as const) {
+			await share(deck.id, level);
+			const list = await listAsCollaborator();
+			expect(list.canSeeAll).toBe(true);
+			expect(list.questions).toHaveLength(0);
+			expect(list.pendingCount).toBe(0);
+		}
+
+		await share(deck.id, "edit");
+		const editor = await listAsCollaborator();
+		expect(editor.questions).toHaveLength(2);
+		expect(editor.pendingCount).toBe(2);
+
+		// Once approved, the weaker grant reads it like everything else.
+		const approved = await fetch(
+			`${baseUrl}/api/presentations/${deck.id}/qa/${editor.questions[0].id}/approve`,
+			{ method: "POST", headers: { "x-api-key": collaboratorKey } },
+		);
+		expect(approved.status).toBe(200);
+		await share(deck.id, "view");
+		const viewer = await listAsCollaborator();
+		expect(viewer.questions.map((question: Any) => question.id)).toEqual([
+			editor.questions[0].id,
+		]);
+	});
+
 	test("deleting a deck takes its grants with it", async () => {
 		const deck = await createOwnedDeck();
 		await share(deck.id, "edit");

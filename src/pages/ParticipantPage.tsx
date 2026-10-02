@@ -12,6 +12,7 @@ import {
 	ParticipantSlideView,
 } from "../components/ParticipantSlideView";
 import { DeckMark, DeckThemeScope } from "../components/DeckTheme";
+import { LegalNotice } from "../components/LegalLinks";
 import {
 	ChatComposer,
 	ChatHeading,
@@ -35,8 +36,8 @@ import {
 } from "../components/ReactionBar";
 import { SlideAppearanceScope } from "../components/SlideAppearance";
 import { SlideBackground } from "../components/SlideBackground";
+import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
-import { ThemeToggle } from "../components/ui/Theme";
 import { useToast } from "../components/ui/Toast";
 import { getDict } from "../i18n";
 import type { Route } from "../router";
@@ -396,6 +397,9 @@ export function ParticipantPage({
 	if (error)
 		return themed(
 			<div className="participant-view bg-void bg-noise">
+				<div className="absolute top-4 right-4 z-20">
+					<AppMenu />
+				</div>
 				<div className="relative z-10 text-center">
 					<p className="text-error mb-4">{error}</p>
 					<button
@@ -422,7 +426,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<ThemeToggle />
+					<AppMenu />
 				</div>
 				<div className="relative z-10 flex flex-col items-center text-center">
 					{/* REQ136 — the organizer's mark on the last screen the room sees,
@@ -446,6 +450,19 @@ export function ParticipantPage({
 	const nameLabels = participantNameLabelsFor(t);
 
 	/**
+	 * REQ183 — the terms and the privacy policy, named on every screen from which
+	 * a participant can submit something. A `/join/<code>` link or the room's QR
+	 * code lands here directly, past `JoinPage` and its notice, so this page has
+	 * to carry the sentence itself: under the name form, on the waiting screen,
+	 * and under the answer controls of the live slide. Draws nothing on an
+	 * instance that configured neither text. English, like `JoinPage`'s: it is
+	 * the operator's sentence, not the deck's.
+	 */
+	const legalNotice = (
+		<LegalNotice action="taking part" className="mt-6 max-w-xs text-center" />
+	);
+
+	/**
 	 * REQ076 — the name gate, and it is an **early return** rather than an
 	 * overlay on the slide.
 	 *
@@ -465,7 +482,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<ThemeToggle />
+					<AppMenu />
 				</div>
 				<div className="relative z-10 flex flex-col items-center px-4">
 					<DeckMark deck={pres} className="mb-6" />
@@ -489,6 +506,7 @@ export function ParticipantPage({
 									}
 						}
 					/>
+					{legalNotice}
 				</div>
 			</div>,
 		);
@@ -513,7 +531,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<ThemeToggle />
+					<AppMenu />
 				</div>
 				<div className="relative z-10 flex flex-col items-center text-center">
 					{/* REQ136 — the join screen's mark: the organizer's logo when the
@@ -526,6 +544,7 @@ export function ParticipantPage({
 					    is told it landed, and can correct it here rather than having to
 					    wait for a slide to appear before the control does. */}
 					{nameBadge && <div className="mt-4">{nameBadge}</div>}
+					{legalNotice}
 				</div>
 			</div>,
 		);
@@ -554,7 +573,7 @@ export function ParticipantPage({
 				    cannot swallow a tap meant for the answer below it. */}
 				<ReactionStream reactions={liveReactions} />
 				<div className="absolute top-4 right-4 z-20">
-					<ThemeToggle />
+					<AppMenu />
 				</div>
 				<div
 					className={`relative z-10 w-full ${
@@ -599,6 +618,8 @@ export function ParticipantPage({
 						transport={transport}
 						onError={setError}
 					/>
+
+					{legalNotice}
 
 					{/* Survey-mode navigation (REQ003/REQ082) */}
 					{isSurvey && (

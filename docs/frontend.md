@@ -37,6 +37,27 @@ that already exist — compose these, never re-hand-roll:
 - **Icon-button hover** — `ICON_BUTTON_HOVER` in `ShareCluster.tsx` is the shared
   muted→accent interaction-state token. Compose it; don't inline
   `text-text-muted hover:text-accent` per surface.
+- **Theme switch and legal texts** — `<AppMenu/>` in
+  `src/components/ui/AppMenu.tsx` (REQ183) is the one shared primitive for both:
+  a 34px icon trigger (lucide `Ellipsis`) opening a disclosure panel with an
+  Appearance section (Light / Dark / Auto, from `THEME_OPTIONS` in `Theme.tsx`)
+  and a Legal section listing the configured texts. Every screen but a loading
+  spinner mounts it — top-right, or in its toolbar where it has one — and that
+  is what keeps the imprint, the privacy policy and the terms reachable from
+  every route; there is no app-wide footer. Never re-hand-roll a theme toggle
+  or a legal-links row: mount `<AppMenu/>`. Its panel is portaled to the
+  nearest `DeckThemeScope` (so it escapes a scrolling header but keeps the
+  deck's colours) and clamped to the viewport.
+- **Legal texts** — `src/components/LegalLinks.tsx` (REQ183).
+  `LEGAL_TEXT_DESCRIPTORS` names the imprint, privacy policy and terms once,
+  `<LegalLink/>` is the one anchor a legal link is drawn with (new tab,
+  `rel="noopener noreferrer"`), and `useLegalLinks()` the one read of
+  `GET /api/legal`, shared by every surface. `<AppMenu/>` lists the texts on
+  every route; `<LegalNotice action="…"/>` is the sentence at a point where a
+  contract is concluded, placed before the control that submits. Both render
+  nothing for an address the operator did not configure, so never draw a legal
+  link by hand — a hand-rolled one is the link that survives on an instance that
+  set none.
 - **Deck sharing** — `src/components/CollaboratorsDialog.tsx` (REQ075).
   `DECK_ACCESS_LEVEL_DESCRIPTORS` is the single descriptor for the three access
   levels — one entry per level the API accepts, in the same order — and

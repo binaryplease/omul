@@ -2,6 +2,7 @@
 
 import { filenameFromContentDisposition } from "./download";
 import {
+	type BuiltInDeckThemeId,
 	type DeckAccessLevel,
 	type DeckBrand,
 	type DeckCollaborator,
@@ -11,6 +12,7 @@ import {
 	type DeckThemeId,
 	isVoteRefusalCode,
 	isWithheldTally,
+	type LegalLinks,
 	type ParticipantRosterEntry,
 	type ReactionKind,
 	RESULTS_TOKEN_HEADER,
@@ -387,6 +389,13 @@ export const api = {
 		request<DeckGenerationAvailability>("/deck-generation"),
 
 	/**
+	 * Where this deployment's imprint, privacy policy and terms live (REQ183).
+	 * Each is `null` when the operator configured none, and the client draws no
+	 * link for it.
+	 */
+	getLegalLinks: () => request<LegalLinks>("/legal"),
+
+	/**
 	 * Draft a deck from a prompt (REQ007). Answers with an ordinary presentation
 	 * — the same shape, and the same one-time `creatorToken`, that
 	 * `createPresentation` returns — so it is stored here the same way and the
@@ -452,6 +461,8 @@ export const api = {
 			reactionsEnabled?: boolean;
 			chatEnabled?: boolean;
 			requireParticipantName?: boolean;
+			/** Whether the presenter surface draws its join bar (REQ073). */
+			showJoinBar?: boolean;
 			theme?: DeckThemeId;
 			themeBrand?: DeckBrand;
 			themeLogoUrl?: string;
@@ -653,10 +664,24 @@ export const api = {
 			headers: authHeaders(presentationId),
 		}),
 
-	/** Switch the layer on/off (REQ036) and choose who reads it (REQ037). */
+	/** Let a question awaiting approval through to the room (REQ038). */
+	approveQuestion: (presentationId: string, questionId: string) =>
+		request<any>(`/presentations/${presentationId}/qa/${questionId}/approve`, {
+			method: "POST",
+			headers: authHeaders(presentationId),
+		}),
+
+	/**
+	 * Switch the layer on/off (REQ036), choose who reads it (REQ037) and whether
+	 * each question waits for approval (REQ038).
+	 */
 	setQASettings: (
 		presentationId: string,
-		changes: { enabled?: boolean; visibility?: "presenter" | "everyone" },
+		changes: {
+			enabled?: boolean;
+			visibility?: "presenter" | "everyone";
+			approvalRequired?: boolean;
+		},
 	) =>
 		request<any>(`/presentations/${presentationId}/qa/settings`, {
 			method: "POST",
@@ -989,6 +1014,19 @@ export const api = {
 		request<Workspace>(`/workspaces/${workspaceId}`, {
 			method: "PATCH",
 			body: JSON.stringify({ name }),
+		}),
+
+	/**
+	 * Set the theme a deck created here starts in when it names none (REQ086).
+	 * The `owner` role only, enforced on the server; no existing deck changes.
+	 */
+	setWorkspaceDefaultTheme: (
+		workspaceId: string,
+		defaultTheme: BuiltInDeckThemeId,
+	) =>
+		request<Workspace>(`/workspaces/${workspaceId}/default-theme`, {
+			method: "PUT",
+			body: JSON.stringify({ defaultTheme }),
 		}),
 
 	/** Delete one. Refused while it still owns decks — they are its, not a member's. */

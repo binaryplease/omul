@@ -23,6 +23,7 @@ import {
 	DeckMark,
 	deckThemeOptions,
 } from "../components/DeckTheme";
+import { LegalNotice } from "../components/LegalLinks";
 import { PresenterNotesStrip } from "../components/PresenterNotes";
 import { PreviewLink } from "../components/PreviewLink";
 import { ICON_BUTTON_HOVER } from "../components/ShareCluster";
@@ -41,9 +42,9 @@ import {
 import { slideRailItemSurface } from "../components/SlideRail";
 import { SlideThumbnail } from "../components/SlideThumbnail";
 import { SlideTypeMenu } from "../components/SlideTypeMenu";
+import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
-import { ThemeToggle } from "../components/ui/Theme";
 import { useToast } from "../components/ui/Toast";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
@@ -721,7 +722,7 @@ export function CreatePage({
 					<StatusBadge status="draft" />
 
 					<div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-						<ThemeToggle />
+						<AppMenu />
 						{/* The dry run, beside the deck it rehearses (REQ103).
 						    Only on a saved deck: a preview reads the presentation the
 						    server holds, so there is nothing to preview until there is
@@ -756,6 +757,17 @@ export function CreatePage({
 						</button>
 					</div>
 				</div>
+
+				{/* Creating a deck concludes a contract — with or without an account —
+				    so the terms and the privacy policy are named under the Create
+				    button before it is pressed (REQ183). Saving an existing deck does
+				    not, so the edit form carries no notice. */}
+				{!isEdit && (
+					<LegalNotice
+						action="creating this presentation"
+						className="px-3 sm:px-6 pb-2 text-right"
+					/>
+				)}
 
 				{error && (
 					<div className="flex items-center gap-2 px-4 sm:px-6 py-2 bg-error/10 border-t border-error/30 text-error text-sm">

@@ -32,6 +32,7 @@ export function useSessionSocket(
 			applyDeckResultsVisibility,
 			applySlideStarted,
 			applyParticipantNameSetting,
+			applyJoinBarSetting,
 			applyQASettings,
 			applyQAChanged,
 			applyChannelSettings,
@@ -47,8 +48,8 @@ export function useSessionSocket(
 			onWsEvent("results.updated", (data) => applyResultsUpdated(data)),
 			onWsEvent("participants.count", (data) => applyParticipantCount(data)),
 			onWsEvent("slide.changed", (data) => applySlideChanged(data)),
-			onWsEvent("presentation.started", () => applyStarted()),
-			onWsEvent("presentation.ended", () => applyEnded()),
+			onWsEvent("presentation.started", (data) => applyStarted(data)),
+			onWsEvent("presentation.ended", (data) => applyEnded(data)),
 			onWsEvent("presentation.reset", () => applyReset()),
 			onWsEvent("slide.revealed", (data) => applyRevealed(data)),
 			// The deck's reveal mode, set for every question slide at once (REQ018).
@@ -74,6 +75,10 @@ export function useSessionSocket(
 			onWsEvent("presentation.participant-name", (data) =>
 				applyParticipantNameSetting(data),
 			),
+			// Whether the presenter surface draws its join bar (REQ073). Only a
+			// presenter screen reads it, and it rides the socket because the screen
+			// being projected may be a second browser of the same deck.
+			onWsEvent("presentation.join-bar", (data) => applyJoinBarSetting(data)),
 			onWsEvent("qa.settings", (data) => applyQASettings(data)),
 			// Payload-free by design (REQ037): the list itself is fetched, never
 			// broadcast, because who may read it is decided per request from the

@@ -25,10 +25,10 @@ import {
 	deckAccessLevelLabel,
 } from "../components/CollaboratorsDialog";
 import { MoveToWorkspaceDialog } from "../components/MoveToWorkspaceDialog";
+import { AppMenu } from "../components/ui/AppMenu";
 import { ConfirmModal } from "../components/ui/ConfirmModal";
 import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
-import { ThemeToggle } from "../components/ui/Theme";
 import { useToast } from "../components/ui/Toast";
 import { saveBlobAs } from "../download";
 import type { Route } from "../router";
@@ -167,7 +167,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 			{/* Account controls + theme toggle - top right */}
 			<div className="absolute top-4 right-4 sm:top-6 sm:right-6 lg:right-12 z-20 flex items-center gap-2">
 				<AuthControls />
-				<ThemeToggle />
+				<AppMenu />
 			</div>
 			{/* Hero section - full width */}
 			<div className="relative z-10 w-full px-6 sm:px-12 lg:px-24 py-16 sm:py-24">

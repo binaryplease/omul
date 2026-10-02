@@ -399,6 +399,29 @@ body {
 	animation-delay: 0.25s;
 }
 
+/* ── Popover open ─────────────────────────────────────────── */
+/*
+ * A small panel dropping out of its trigger (AppMenu). Short and close, unlike
+ * `slide-in`, which is an entrance for a page's content. Reduced motion: the
+ * panel simply appears.
+ */
+.popover-in {
+	animation: popover-in 0.14s ease-out;
+}
+
+@keyframes popover-in {
+	from {
+		opacity: 0;
+		transform: translateY(-4px);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.popover-in {
+		animation: none;
+	}
+}
+
 /* ── Reaction float (REQ077) ──────────────────────────────── */
 /*
  * One reaction crossing the screen. It rises, drifts a little to one side and
