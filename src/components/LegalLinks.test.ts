@@ -179,6 +179,45 @@ describe("the legal texts in the app menu, on every route (REQ183)", () => {
 		});
 	}
 
+	/**
+	 * A page-level `return null` draws a screen with no menu on it, and so no
+	 * way to the legal texts — the footer used to cover it, nothing does now.
+	 * Each one left is listed with why it cannot be a screen a visitor stays on.
+	 */
+	const NULL_RETURNS_ALLOWED: Record<string, string[]> = {
+		// After the loading and error branches: one of `pres` or `error` is set.
+		PresenterPage: ["if (!pres) return null;"],
+		ParticipantPage: [
+			"if (!pres) return null;",
+			// A survey deck with no active slide. Not shown reachable; kept as the
+			// open question the REQ183 review left rather than silently endorsed.
+			"if (!activeSlide) return null;",
+		],
+	};
+
+	test("no routed page renders nothing outside the listed unreachable cases", () => {
+		for (const page of routedPages()) {
+			const source = readSource(`pages/${page}.tsx`);
+			const nullReturns = [
+				...source.matchAll(/^\t((?:if \(.*\) )?return null;)/gm),
+			].map((match) => match[1]);
+			expect(nullReturns).toEqual(NULL_RETURNS_ALLOWED[page] ?? []);
+		}
+	});
+
+	test("a preview whose run cannot be read shows the error screen, menu and all", () => {
+		// The review's case: a visitor without edit rights reads the deck, gets a
+		// 401 for `/preview`, and used to fall through to `return null`.
+		const source = readSource("pages/PreviewPage.tsx");
+		expect(source).toContain("const runMissing = !pres || !preview;");
+		const errorBranch = source.indexOf("if (error && runMissing) {");
+		const menu = source.indexOf("<AppMenu />", errorBranch);
+		const nextBranch = source.indexOf("if (loading ||", errorBranch);
+		expect(errorBranch).toBeGreaterThan(-1);
+		expect(menu).toBeGreaterThan(errorBranch);
+		expect(menu).toBeLessThan(nextBranch);
+	});
+
 	test("the presenter's blanked screen carries the menu inside its early return", () => {
 		const source = readSource("pages/PresenterPage.tsx");
 		const blank = source.indexOf('if (sharedScreenView(pres) === "blank")');

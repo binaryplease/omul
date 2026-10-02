@@ -803,7 +803,10 @@ function deckWearsHouseAccent(deck: DeckThemeSettings | null): boolean {
 	return brand.accent === "";
 }
 
-/** The attribute that marks a {@link DeckThemeScope}'s box in the DOM. */
+/**
+ * The attribute that marks a box carrying theme colours in the DOM: every
+ * {@link DeckThemeScope}, and a `SlideAppearanceScope` painted over one.
+ */
 export const DECK_THEME_SCOPE_ATTRIBUTE = "data-deck-theme-scope";
 
 /**

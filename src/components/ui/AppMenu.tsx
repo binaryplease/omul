@@ -33,8 +33,9 @@ import { THEME_OPTIONS, type ThemePreference, useTheme } from "./Theme";
 // The panel is portaled. The presenter and preview headers scroll horizontally,
 // which clips anything absolutely positioned inside them, and their
 // `backdrop-blur` makes them the containing block for a `fixed` descendant too.
-// So the panel is drawn at the end of the nearest deck-theme scope — still in
-// the deck's colours — at a fixed position computed from the trigger, clamped
+// So the panel is drawn at the end of the nearest theme scope — the deck's, or
+// a slide's own appearance over it, so it wears the same colours as its
+// trigger — at a fixed position computed from the trigger, clamped
 // to the viewport.
 
 /** Space between trigger and panel, and the least room kept to a viewport edge. */
@@ -250,7 +251,8 @@ export function AppMenu() {
 	//
 	// The panel sits at the end of the scope, not after the trigger, so the tab
 	// order is kept by hand: tabbing off either end closes it and lands back on
-	// the trigger, as if the panel had been drawn right after it.
+	// the trigger. Off the far end that is one stop short of where a panel drawn
+	// right after the trigger would leave focus — one more Tab, never a trap.
 	const handlePanelKey = (event: KeyboardEvent<HTMLDivElement>) => {
 		event.stopPropagation();
 		if (event.key === "Escape") {
@@ -278,7 +280,8 @@ export function AppMenu() {
 				aria-label="Appearance and legal"
 				title="Appearance and legal"
 				aria-expanded={open}
-				aria-controls={panelId}
+				// Only while the panel exists: an id naming nothing is no reference.
+				aria-controls={open ? panelId : undefined}
 				className={`flex size-8.5 flex-shrink-0 items-center justify-center rounded-lg border bg-surface-raised hover:border-accent/50 ${
 					open ? "border-accent/50" : "border-border"
 				} ${ICON_BUTTON_HOVER}`}
@@ -289,13 +292,15 @@ export function AppMenu() {
 				portalHost &&
 				createPortal(
 					<>
-						{/* Click-away backdrop closes the panel. */}
+						{/* Click-away backdrop closes the panel, handing focus back to
+						    the trigger rather than dropping it on the page body as the
+						    backdrop unmounts under it. */}
 						<button
 							type="button"
 							tabIndex={-1}
 							aria-label="Close appearance and legal menu"
 							className="fixed inset-0 z-40 cursor-default"
-							onClick={() => close(false)}
+							onClick={() => close(true)}
 						/>
 						<AppMenuPanel
 							ref={panelRef}

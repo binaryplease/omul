@@ -228,12 +228,14 @@ export function PreviewPage({
 	useEffect(() => {
 		let cancelled = false;
 		setLoading(true);
+		// Cleared as the load starts, not as it lands: the run's first read can
+		// fail before the deck arrives, and that error is this screen's to show.
+		setError("");
 		api
 			.getPresentation(id)
 			.then((deck) => {
 				if (cancelled) return;
 				setPres(deck);
-				setError("");
 			})
 			.catch((loadError: unknown) =>
 				setError(
@@ -352,14 +354,12 @@ export function PreviewPage({
 		<DeckThemeScope deck={pres}>{screen}</DeckThemeScope>
 	);
 
-	if (loading) {
-		return themed(
-			<div className="min-h-screen bg-void flex items-center justify-center">
-				<LoadingState />
-			</div>,
-		);
-	}
-	if (error && !pres) {
+	// Two reads stand behind this screen — the deck and its dry run — and either
+	// may fail on its own: a visitor who may read the deck but not rehearse it
+	// gets the deck and a 401 for the run. That is an error screen, with the menu
+	// on it (REQ183), never a page that draws nothing.
+	const runMissing = !pres || !preview;
+	if (error && runMissing) {
 		return themed(
 			<div className="min-h-screen bg-void flex items-center justify-center text-error">
 				<div className="absolute top-4 right-4 z-20">
@@ -369,7 +369,14 @@ export function PreviewPage({
 			</div>,
 		);
 	}
-	if (!pres || !previewPres || !audiencePres || !preview) return null;
+	// Loading the deck, or still waiting on its first run: transient either way.
+	if (loading || runMissing || !previewPres || !audiencePres) {
+		return themed(
+			<div className="min-h-screen bg-void flex items-center justify-center">
+				<LoadingState />
+			</div>,
+		);
+	}
 
 	const activeSlide = pres.slides[activeIndex];
 	const audienceSlide = audiencePres.slides[activeIndex];
