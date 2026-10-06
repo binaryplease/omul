@@ -804,12 +804,22 @@ function deckWearsHouseAccent(deck: DeckThemeSettings | null): boolean {
 }
 
 /**
+ * The attribute that marks a box carrying theme colours in the DOM: every
+ * {@link DeckThemeScope}, and a `SlideAppearanceScope` painted over one.
+ */
+export const DECK_THEME_SCOPE_ATTRIBUTE = "data-deck-theme-scope";
+
+/**
  * Paint a subtree in the deck's theme (REQ079, REQ080).
  *
  * `deck` is nullable on purpose: a surface reached before any deck is known —
  * the join screen where a code is still being typed — wears the built-in default
  * through this same wrapper rather than through a second code path, so "which
  * theme is this screen in?" has one answer everywhere.
+ *
+ * The wrapper is marked {@link DECK_THEME_SCOPE_ATTRIBUTE} so that a layer
+ * drawn outside its trigger's box — `AppMenu`'s panel, portaled to escape a
+ * scrolling header — can still be drawn inside the theme it was opened in.
  */
 export function DeckThemeScope({
 	deck,
@@ -823,6 +833,7 @@ export function DeckThemeScope({
 		<div
 			className={deckThemeClassName(deck)}
 			style={deckThemeStyle(deck, resolvedTheme)}
+			{...{ [DECK_THEME_SCOPE_ATTRIBUTE]: "" }}
 		>
 			{children}
 		</div>
@@ -958,12 +969,7 @@ export function deckThemeOptions(
 ): ChoiceOption<DeckThemeId>[] {
 	const authored = deckBrandAppearance(brand ?? EMPTY_DECK_BRAND);
 	return [
-		...BUILT_IN_DECK_THEME_IDS.map((theme) => ({
-			value: theme as DeckThemeId,
-			label: DECK_THEME_APPEARANCE[theme].label,
-			description: DECK_THEME_APPEARANCE[theme].description,
-			icon: <DeckThemeSwatch appearance={DECK_THEME_APPEARANCE[theme]} />,
-		})),
+		...builtInDeckThemeOptions(),
 		{
 			value: CUSTOM_DECK_THEME_ID as DeckThemeId,
 			label: authored.label,
@@ -971,6 +977,21 @@ export function deckThemeOptions(
 			icon: <DeckThemeSwatch appearance={authored} />,
 		},
 	];
+}
+
+/**
+ * The built-in themes alone — what a picker offers when there is no deck to
+ * author a theme on, as a workspace's default theme (REQ086) has none. The
+ * same cards {@link deckThemeOptions} leads with, so a theme reads the same in
+ * both places.
+ */
+export function builtInDeckThemeOptions(): ChoiceOption<BuiltInDeckThemeId>[] {
+	return BUILT_IN_DECK_THEME_IDS.map((theme) => ({
+		value: theme,
+		label: DECK_THEME_APPEARANCE[theme].label,
+		description: DECK_THEME_APPEARANCE[theme].description,
+		icon: <DeckThemeSwatch appearance={DECK_THEME_APPEARANCE[theme]} />,
+	}));
 }
 
 /** The faces as the editor offers them (REQ092) — one descriptor, as above. */

@@ -7,6 +7,7 @@ import { SegmentedResults } from "../components/SegmentedResults";
 import { SlideAppearanceScope } from "../components/SlideAppearance";
 import { SlideText } from "../components/SlideText";
 import { SlideTypeIcon } from "../components/SlideTypeIcon";
+import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { usePageTitle } from "../router";
@@ -22,7 +23,9 @@ import { slideHasResults, slideTextSizeFor } from "../types";
 // controls at all,
 // and drawing a greyed-out "End presentation" for a stakeholder reading a
 // summary would be inventing an affordance to take away). The page is a read,
-// and the only thing it can do is re-read.
+// and the only thing it can do is re-read. The one control it does carry is
+// every screen's `AppMenu` — the theme switch and the operator's legal texts
+// (REQ183) — which acts on this browser and the visitor, never on the deck.
 //
 // It is deliberately reachable **without** a link, too: the URL is just the
 // deck's results, and a visitor with no token reads exactly what the public
@@ -143,6 +146,9 @@ export function SharedResultsPage({ id }: { id: string }) {
 	if (state.kind !== "ready") {
 		return themed(
 			<div className="min-h-screen flex items-center justify-center p-6">
+				<div className="absolute top-4 right-4 z-20">
+					<AppMenu />
+				</div>
 				<div className="max-w-md text-center flex flex-col items-center gap-3">
 					<Link2Off size={28} className="text-text-dim" />
 					<h1 className="text-lg font-semibold">
@@ -174,6 +180,11 @@ export function SharedResultsPage({ id }: { id: string }) {
 					<DeckMark deck={state.deck} size="md" fallback="none" />
 					<h1 className="text-2xl sm:text-3xl font-bold">{state.deck.title}</h1>
 					<StatusBadge status={state.deck.status} />
+					{/* The theme switch and the legal texts (REQ183) — not a way
+					    into the deck, so it belongs on a read-only page too. */}
+					<div className="ml-auto">
+						<AppMenu />
+					</div>
 				</div>
 				{/* What this page is, said out loud. A recipient who was handed a URL
 				    with no covering note should be able to tell from the page itself

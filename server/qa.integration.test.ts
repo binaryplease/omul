@@ -6,6 +6,9 @@
  *              anywhere, and the endpoints refuse while it is off
  *   - REQ037 — who reads the list, decided per request from the caller's own
  *              credentials rather than filtered on a client
+ *   - REQ038 — approval before publication: an unapproved question reaches only
+ *              an editor, cannot be upvoted, and is released by an approve
+ *              that only owner/edit-token authority may perform
  *   - REQ060 — upvotes, "mark as answered", and the order the queue is worked in
  *
  * The store is in-process (bun:sqlite ":memory:"), matching the p0/p1 harnesses.
@@ -114,6 +117,14 @@ async function listAs(
 	);
 	expect(res.status).toBe(200);
 	return await res.json();
+}
+
+async function approve(pres: AnyJson, questionId: string, token?: string) {
+	const path = `/api/presentations/${pres.id}/qa/${questionId}/approve`;
+	if (token === undefined) {
+		return fetch(`${baseUrl}${path}`, { method: "POST" });
+	}
+	return authed(path, token, { method: "POST" });
 }
 
 /** The list as the deck's owner reads it — the edit token on the fetch. */
@@ -578,5 +589,218 @@ describe("Q&A layer integration (REQ036/REQ037/REQ060)", () => {
 	test("the list 404s for a presentation that does not exist", async () => {
 		const res = await fetch(`${baseUrl}/api/presentations/nope/qa`);
 		expect(res.status).toBe(404);
+	});
+
+	// ── REQ038 — approve questions before publication ────────
+
+	test("approval is off on a fresh deck, and nothing changes while it is", async () => {
+		const pres = await createAndStart({
+			qaEnabled: true,
+			qaVisibility: "everyone",
+		});
+		expect(pres.qaApprovalRequired).toBe(false);
+
+		const asked = await (await ask(pres.id, "Straight through?", "alice")).json();
+		expect(asked).toEqual({
+			ok: true,
+			stored: true,
+			merged: false,
+			pending: false,
+		});
+		const room = await listAs(pres.id, "bob");
+		expect(room.approvalRequired).toBe(false);
+		expect(room.questions).toHaveLength(1);
+		expect(room.questions[0].approved).toBe(true);
+		expect(
+			(await upvote(pres.id, room.questions[0].id, "bob")).status,
+		).toBe(200);
+		expect((await listAsOwner(pres)).pendingCount).toBe(0);
+	});
+
+	test("the approval switch is a presentation mutation, not a public one", async () => {
+		const pres = await createAndStart({ qaEnabled: true });
+		const refused = await fetch(
+			`${baseUrl}/api/presentations/${pres.id}/qa/settings`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ approvalRequired: true }),
+			},
+		);
+		expect(refused.status).toBe(401);
+		expect((await listAsOwner(pres)).approvalRequired).toBe(false);
+
+		const switched = await setSettings(pres, { approvalRequired: true });
+		expect(switched.status).toBe(200);
+		const body = await switched.json();
+		expect(body.qaApprovalRequired).toBe(true);
+		// Moving one switch leaves the others where they were.
+		expect(body.qaEnabled).toBe(true);
+		expect(body.qaVisibility).toBe("presenter");
+		expect(body.creatorTokenHash).toBeUndefined();
+		expect(body.creatorId).toBeUndefined();
+	});
+
+	test("with approval on, nobody but an editor sees a new question — its asker included", async () => {
+		const pres = await createAndStart({
+			qaEnabled: true,
+			qaVisibility: "everyone",
+		});
+		await setSettings(pres, { approvalRequired: true });
+
+		const asked = await (await ask(pres.id, "Held back?", "alice")).json();
+		expect(asked.stored).toBe(true);
+		expect(asked.pending).toBe(true);
+
+		const asker = await listAs(pres.id, "alice");
+		expect(asker.approvalRequired).toBe(true);
+		expect(asker.questions).toHaveLength(0);
+		expect(asker.totalCount).toBe(0);
+		expect(asker.pendingCount).toBe(0);
+		expect((await listAs(pres.id, "bob")).questions).toHaveLength(0);
+		expect((await listAs(pres.id, "")).questions).toHaveLength(0);
+
+		const owner = await listAsOwner(pres);
+		expect(owner.questions).toHaveLength(1);
+		expect(owner.questions[0].approved).toBe(false);
+		expect(owner.pendingCount).toBe(1);
+	});
+
+	test("on a moderated deck too, the asker's own unapproved question stays out of their view", async () => {
+		const pres = await createAndStart({ qaEnabled: true });
+		await setSettings(pres, { approvalRequired: true });
+		await ask(pres.id, "Mine, but not yet", "alice");
+
+		expect((await listAs(pres.id, "alice")).questions).toHaveLength(0);
+		expect((await listAsOwner(pres)).questions).toHaveLength(1);
+	});
+
+	test("an unapproved question cannot be upvoted, and answers as an unknown id would", async () => {
+		const pres = await createAndStart({
+			qaEnabled: true,
+			qaVisibility: "everyone",
+		});
+		await setSettings(pres, { approvalRequired: true });
+		await ask(pres.id, "Not yet votable", "alice");
+		const questionId = (await listAsOwner(pres)).questions[0].id;
+
+		const pending = await upvote(pres.id, questionId, "bob");
+		const unknown = await upvote(pres.id, "no-such-question", "bob");
+		expect(pending.status).toBe(400);
+		expect(pending.status).toBe(unknown.status);
+		expect(await pending.json()).toEqual(await unknown.json());
+		expect((await listAsOwner(pres)).questions[0].upvotes).toBe(0);
+	});
+
+	test("a re-asked question folds only into an approved one", async () => {
+		const pres = await createAndStart({
+			qaEnabled: true,
+			qaVisibility: "everyone",
+		});
+		await setSettings(pres, { approvalRequired: true });
+		await ask(pres.id, "Same words", "alice");
+
+		// Alice's row is still waiting, so Bob's is its own pending row rather
+		// than an upvote that would tell him a withheld question exists.
+		const second = await (await ask(pres.id, "same   WORDS", "bob")).json();
+		expect(second.merged).toBe(false);
+		expect(second.stored).toBe(true);
+		let owner = await listAsOwner(pres);
+		expect(owner.questions).toHaveLength(2);
+		expect(
+			owner.questions.every((question: AnyJson) => question.upvotes === 0),
+		).toBe(true);
+
+		// Once one is approved, a third asker folds onto it.
+		const aliceRow = owner.questions.find(
+			(question: AnyJson) => question.text === "Same words",
+		);
+		expect((await approve(pres, aliceRow.id, pres.creatorToken)).status).toBe(
+			200,
+		);
+		const third = await (await ask(pres.id, "Same words", "carol")).json();
+		expect(third.merged).toBe(true);
+		owner = await listAsOwner(pres);
+		expect(
+			owner.questions.find((question: AnyJson) => question.id === aliceRow.id)
+				.upvotes,
+		).toBe(1);
+	});
+
+	test("approving publishes the question to the room and opens it to upvotes", async () => {
+		const pres = await createAndStart({
+			qaEnabled: true,
+			qaVisibility: "everyone",
+		});
+		await setSettings(pres, { approvalRequired: true });
+		await ask(pres.id, "Worth asking?", "alice");
+		const questionId = (await listAsOwner(pres)).questions[0].id;
+
+		const approved = await approve(pres, questionId, pres.creatorToken);
+		expect(approved.status).toBe(200);
+		expect(await approved.json()).toEqual({ ok: true, approved: true });
+
+		const room = await listAs(pres.id, "bob");
+		expect(room.questions).toHaveLength(1);
+		expect(room.questions[0].approved).toBe(true);
+		expect((await listAs(pres.id, "alice")).questions[0].own).toBe(true);
+		expect((await upvote(pres.id, questionId, "bob")).status).toBe(200);
+		expect((await listAs(pres.id, "bob")).questions[0].upvotes).toBe(1);
+		expect((await listAsOwner(pres)).pendingCount).toBe(0);
+
+		// Approving again is a harmless no-op.
+		expect((await approve(pres, questionId, pres.creatorToken)).status).toBe(
+			200,
+		);
+	});
+
+	test("approving is refused without owner or edit-token authority", async () => {
+		const pres = await createAndStart({
+			qaEnabled: true,
+			qaVisibility: "everyone",
+		});
+		const other = await createAndStart();
+		await setSettings(pres, { approvalRequired: true });
+		await ask(pres.id, "Only the presenter may release me", "alice");
+		const questionId = (await listAsOwner(pres)).questions[0].id;
+
+		expect((await approve(pres, questionId)).status).toBe(401);
+		// Another deck's edit token is no credential for this one.
+		expect((await approve(pres, questionId, other.creatorToken)).status).toBe(
+			401,
+		);
+
+		expect((await listAsOwner(pres)).questions[0].approved).toBe(false);
+		expect((await listAs(pres.id, "bob")).questions).toHaveLength(0);
+	});
+
+	test("an approve names a question of this deck, or answers 404", async () => {
+		const pres = await createAndStart({ qaEnabled: true });
+		const other = await createAndStart({ qaEnabled: true });
+		await setSettings(other, { approvalRequired: true });
+		await ask(other.id, "Belongs elsewhere", "alice");
+		const foreignId = (await listAsOwner(other)).questions[0].id;
+
+		expect((await approve(pres, foreignId, pres.creatorToken)).status).toBe(
+			404,
+		);
+		expect((await listAsOwner(other)).questions[0].approved).toBe(false);
+	});
+
+	test("switching approval off releases nothing still waiting", async () => {
+		const pres = await createAndStart({
+			qaEnabled: true,
+			qaVisibility: "everyone",
+		});
+		await setSettings(pres, { approvalRequired: true });
+		await ask(pres.id, "Asked while held", "alice");
+		await setSettings(pres, { approvalRequired: false });
+		await ask(pres.id, "Asked after", "bob");
+
+		const room = await listAs(pres.id, "carol");
+		expect(room.questions.map((question: AnyJson) => question.text)).toEqual([
+			"Asked after",
+		]);
+		expect((await listAsOwner(pres)).pendingCount).toBe(1);
 	});
 });

@@ -116,7 +116,9 @@ export default function App() {
 	return (
 		<ThemeProvider>
 			<ToastProvider>
-				<StoreProvider>{content}</StoreProvider>
+				<StoreProvider>
+					{content}
+				</StoreProvider>
 			</ToastProvider>
 		</ThemeProvider>
 	);

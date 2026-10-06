@@ -39,6 +39,7 @@ import {
 	RenameWorkspaceSchema,
 	type Slide,
 	type Workspace,
+	WorkspaceDefaultThemeSchema,
 	type WorkspaceMember,
 	WorkspaceMemberSchema,
 	WorkspaceRoleBodySchema,
@@ -68,6 +69,7 @@ import {
 	listWorkspacesForUser,
 	removeWorkspaceMember,
 	renameWorkspace,
+	setWorkspaceDefaultTheme,
 	setWorkspaceMemberRole,
 	type WorkspaceMemberRecord,
 	type WorkspaceRecord,
@@ -101,6 +103,7 @@ function readWorkspace(
 	return WorkspaceSchema.parse({
 		id: workspace.id,
 		name: workspace.name,
+		defaultTheme: workspace.defaultTheme,
 		role,
 		createdAt: workspace.createdAt,
 		updatedAt: workspace.updatedAt,
@@ -318,6 +321,39 @@ export const workspaceRoutes = new Elysia({ prefix: "/api" })
 				summary: "Rename a workspace",
 				description:
 					"Changes a workspace's name (REQ129 — authorized against the caller's role on the server, not in the UI). The `owner` role only: `403` for an admin and for an ordinary member alike. `name` is required and trimmed; a request that carries none is `422` rather than a workspace called nothing.",
+				security: [{ bearerAuth: [] }],
+			},
+		},
+	)
+
+	// ── Its default theme ──────────────────────────────────
+	.put(
+		"/workspaces/:id/default-theme",
+		async ({ params, body, request, set }) => {
+			const standing = await requireWorkspaceRole(
+				request,
+				params.id,
+				canAdministerWorkspace,
+				"Only a workspace owner can change its default theme",
+			);
+			if (standing instanceof Response) return standing;
+			const workspace = await setWorkspaceDefaultTheme(
+				params.id,
+				body.defaultTheme,
+			);
+			if (!workspace) {
+				set.status = 404;
+				return { error: "Not found" };
+			}
+			return readWorkspace(workspace, standing.role);
+		},
+		{
+			body: WorkspaceDefaultThemeSchema,
+			detail: {
+				tags: ["Workspaces"],
+				summary: "Set a workspace's default theme",
+				description:
+					"Sets the theme a deck created in this workspace starts in when its create names none (REQ086) — one of the built-in theme ids; `custom` is refused, because a workspace has no palette of its own to lend a deck. The same role as renaming: the `owner` only, `403` for an admin and for an ordinary member alike; every member reads it as `defaultTheme` on the workspace. A create that names a `theme` keeps it, and a personal deck is untouched. Not retroactive: no existing deck changes theme, and a deck moved in later keeps its own. Each deck can still change its theme afterwards with `PATCH /api/presentations/:id`. `defaultTheme` is required; a request that carries none, or an id outside the built-in set, is `422`.",
 				security: [{ bearerAuth: [] }],
 			},
 		},

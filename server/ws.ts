@@ -16,10 +16,11 @@
  *   presentation.results-visibility
  *                     – the deck's reveal mode was set for every question slide
  *                       in it, in one operation (REQ018)
- *   qa.settings       – the Q&A layer was switched on/off, or its visibility
- *                       changed (REQ036/REQ037)
- *   qa.updated        – the Q&A question list moved: asked, upvoted or marked
- *                       answered (REQ036/REQ060)
+ *   qa.settings       – the Q&A layer was switched on/off, its visibility
+ *                       changed, or approval was required or relaxed
+ *                       (REQ036/REQ037/REQ038)
+ *   qa.updated        – the Q&A question list moved: asked, upvoted, marked
+ *                       answered or approved (REQ036/REQ038/REQ060)
  *   channels.settings – the participant channels were opened or closed:
  *                       reactions (REQ077) and the live chat (REQ078)
  *   reaction.sent     – somebody reacted to what is on screen (REQ077)

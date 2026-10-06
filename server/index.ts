@@ -5,9 +5,11 @@ import { auth, ensureAuthSchema } from "./accounts";
 import { adminAllowlistStartupReport } from "./admins";
 import { connectDb } from "./db";
 import { deckGenerationStartupReport } from "./deck-generator";
+import { legalLinksStartupReport } from "./legal-links";
 import { adminRoutes } from "./routes/admin";
 import { deckGenerationRoutes } from "./routes/deck-generation";
 import { discoveryRoutes, publicOriginStartupReport } from "./routes/discovery";
+import { legalRoutes } from "./routes/legal";
 import { rateLimitStartupReport } from "./rate-limit";
 import { presentationRoutes } from "./routes/presentations";
 import { staticRoutes } from "./routes/static";
@@ -17,6 +19,11 @@ import { joinRoom, registerClient, removeClient } from "./ws";
 
 const PORT = process.env.PORT || 3000;
 const isDev = process.env.NODE_ENV !== "production";
+
+// Read the legal-text addresses (REQ183) before anything else is opened, so a
+// malformed one stops the boot instead of answering the first page load with a
+// 500. Printed with the other reports once the server is listening.
+const legalLinksReport = legalLinksStartupReport();
 
 // Open the document store before starting the server.
 await connectDb();
@@ -119,6 +126,11 @@ const app = new Elysia()
 	// The health probe (`/api/health`) travels with it — it is a link the index
 	// hands out, and it is followed to check this service before anything else.
 	.use(discoveryRoutes)
+
+	// ── Legal texts (REQ183) ──────────────────────────────────
+	// Where the operator's imprint, privacy policy and terms live, read by the
+	// client's app menu and contract-conclusion notices. Unset means no link.
+	.use(legalRoutes)
 
 	// ── User accounts (Better Auth) ───────────────────────────
 	// Email + password sign-up/in/out, sessions, password reset, email
@@ -228,3 +240,7 @@ for (const line of deckGenerationStartupReport()) console.log(line);
 // from outside — every /api/admin/* call answers 403 either way — so the process
 // says which one it is rather than leaving an operator at a 403 they cannot read.
 for (const line of adminAllowlistStartupReport()) console.log(line);
+
+// Which legal texts this deployment links (REQ183). An unset one is simply not
+// drawn, which from outside looks the same as a page that forgot it.
+for (const line of legalLinksReport) console.log(line);

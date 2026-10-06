@@ -55,7 +55,7 @@ Prose outside the markers is preserved.
 | [REQ035.md](requirements/REQ035.md) | Q&A layer | Q&A | P0 | done | BR035 |
 | [REQ036.md](requirements/REQ036.md) | Enable Q&A for a deck | Q&A | P1 | done | BR036 |
 | [REQ037.md](requirements/REQ037.md) | Audience visibility of the question list | Q&A | P1 | done | BR037 |
-| [REQ038.md](requirements/REQ038.md) | Approve questions before publication | Q&A | P2 | pending | BR038 |
+| [REQ038.md](requirements/REQ038.md) | Approve questions before publication | Q&A | P2 | done | BR038 |
 | [REQ039.md](requirements/REQ039.md) | Guess-the-number slide | Question Types | P2 | done | BR039 |
 | [REQ040.md](requirements/REQ040.md) | Guess-the-number range | Question Types | P1 | done | BR040 |
 | [REQ041.md](requirements/REQ041.md) | Guess-the-number reference value | Question Types | P1 | done | BR041 |
@@ -90,7 +90,7 @@ Prose outside the markers is preserved.
 | [REQ070.md](requirements/REQ070.md) | Per-slide background color | Rendering & Theming | P2 | done | BR070 |
 | [REQ071.md](requirements/REQ071.md) | Per-slide background image | Rendering & Theming | P2 | done | BR071 |
 | [REQ072.md](requirements/REQ072.md) | QR code for the join link | Access & Sharing | P0 | done | BR072 |
-| [REQ073.md](requirements/REQ073.md) | Toggle the join bar | Access & Sharing | P2 | pending | BR073 |
+| [REQ073.md](requirements/REQ073.md) | Toggle the join bar | Access & Sharing | P2 | done | BR073 |
 | [REQ074.md](requirements/REQ074.md) | Comments on slides | Accounts & Workspaces | P1 | done | BR074 |
 | [REQ075.md](requirements/REQ075.md) | Invite collaborators to a deck | Accounts & Workspaces | P1 | done | BR075 |
 | [REQ076.md](requirements/REQ076.md) | Participant names | Live Session | P2 | done | BR076 |
@@ -103,7 +103,7 @@ Prose outside the markers is preserved.
 | [REQ083.md](requirements/REQ083.md) | Repeat runs per device in audience-paced mode | Live Session | P2 | pending | BR083 |
 | [REQ084.md](requirements/REQ084.md) | Presentation language | Rendering & Theming | P0 | done | BR084 |
 | [REQ085.md](requirements/REQ085.md) | Profanity filter on free text | Live Session | P2 | pending | BR085 |
-| [REQ086.md](requirements/REQ086.md) | Workspace default theme | Accounts & Workspaces | P2 | pending | BR086 |
+| [REQ086.md](requirements/REQ086.md) | Workspace default theme | Accounts & Workspaces | P2 | done | BR086 |
 | [REQ087.md](requirements/REQ087.md) | Per-slide layout | Rendering & Theming | P1 | done | BR087 |
 | [REQ088.md](requirements/REQ088.md) | Links in slide text | Rendering & Theming | P1 | done | BR088 |
 | [REQ089.md](requirements/REQ089.md) | Markdown in slide text | Rendering & Theming | P1 | done | BR089 |
@@ -125,7 +125,7 @@ Prose outside the markers is preserved.
 | [REQ105.md](requirements/REQ105.md) | Presenter surface | Live Session | P0 | done | BR105 |
 | [REQ106.md](requirements/REQ106.md) | Mobile presenter remote | Live Session | P2 | pending | BR106 |
 | [REQ107.md](requirements/REQ107.md) | Countdown slide | Deck & Slides | P2 | pending | BR107 |
-| [REQ108.md](requirements/REQ108.md) | Session timer | Live Session | P2 | pending | BR108 |
+| [REQ108.md](requirements/REQ108.md) | Session timer | Live Session | P2 | done | BR108 |
 | [REQ109.md](requirements/REQ109.md) | Blank the audience view | Live Session | P3 | done | BR109 |
 | [REQ110.md](requirements/REQ110.md) | Skip a slide | Deck & Slides | P3 | pending | BR110 |
 | [REQ111.md](requirements/REQ111.md) | Open and close participation per slide | Live Session | P2 | done | BR111 |
@@ -198,7 +198,8 @@ Prose outside the markers is preserved.
 | [REQ180.md](requirements/REQ180.md) | A command-line client drives the API with an API key, installed from this repository | Platform & Operations | P2 | done | internal |
 | [REQ181.md](requirements/REQ181.md) | The repository carries an agent skill that teaches an agent to drive omul through the command-line client | Platform & Operations | P2 | done | internal |
 | [REQ182.md](requirements/REQ182.md) | Deleting an account must resolve the presentations that ran under it | Platform & Operations | P1 | pending | internal |
-| [REQ183.md](requirements/REQ183.md) | Legal texts must be reachable in the app and named where a contract is concluded | Platform & Operations | P0 | pending | internal |
+| [REQ183.md](requirements/REQ183.md) | Legal texts must be reachable in the app and named where a contract is concluded | Platform & Operations | P0 | done | internal |
+| [REQ184.md](requirements/REQ184.md) | The two bare optional slide fields must declare what their absence means | Platform & Operations | P3 | pending | internal |
 
-_181 entries — one row per file in `requirements/`._
+_182 entries — one row per file in `requirements/`._
 <!-- index:end -->
