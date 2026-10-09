@@ -13,6 +13,11 @@
  *      admin who prepared it, and only while still pending and unexpired.
  *   3. GET  /api/admin/events           — the append-only admin audit log.
  *
+ * Beside the actions, one read: GET /api/admin/feedback, the feedback people
+ * sent about omul (REQ185), one channel and one page at a time. It is the only
+ * route that reads the feedback database, and it turns a stored contact account
+ * into its current email here, at read time — the database never holds one.
+ *
  * Admins are a deployment-supplied email allowlist (server/admins.ts, REQ164),
  * empty unless `OMUL_ADMIN_EMAILS` names someone — so an instance nobody has
  * been named on refuses every route here, which is the safe posture rather than
@@ -21,11 +26,27 @@
  * in but not an admin.
  */
 
-import { Elysia } from "elysia";
+import { Elysia, status } from "elysia";
 import { z } from "zod";
-import { findUserByEmail, resolveSessionAccount } from "../accounts";
+import {
+	findUserByEmail,
+	findUserById,
+	resolveSessionAccount,
+} from "../accounts";
 import { adminStore } from "../admin-events";
 import { isAdminEmail } from "../admins";
+import {
+	type FeedbackStore,
+	feedbackStore as defaultFeedbackStore,
+} from "../feedback-store";
+import {
+	AdminFeedbackErrorSchema,
+	type AdminFeedbackPage,
+	AdminFeedbackPageSchema,
+	AdminFeedbackQuerySchema,
+	FEEDBACK_PAGE_SIZE,
+	type FeedbackContact,
+} from "../schemas";
 import { assignOwner, getPresentation } from "../services/presentations";
 
 /** A JSON error Response with the given status. */
@@ -36,18 +57,34 @@ function jsonError(status: number, error: string): Response {
 	});
 }
 
+/** Why a request may not use the admin surface. */
+interface AdminRefusal {
+	status: 401 | 403;
+	error: string;
+}
+
 /**
- * Resolve the admin behind a request, or a Response to short-circuit with.
- * 401 when there is no cookie session; 403 when the session's email is not on
- * the allowlist. API keys are deliberately not honoured here.
+ * Resolve the admin behind a request, or why it is refused: 401 when there is
+ * no cookie session; 403 when the session's email is not on the allowlist. API
+ * keys are deliberately not honoured here.
  */
+async function resolveAdmin(
+	request: Request,
+): Promise<{ userId: string; email: string } | AdminRefusal> {
+	const account = await resolveSessionAccount(request.headers);
+	if (!account) {
+		return { status: 401, error: "Sign in to use the admin surface" };
+	}
+	if (!isAdminEmail(account.email)) return { status: 403, error: "Not an admin" };
+	return account;
+}
+
+/** {@link resolveAdmin}, with a refusal as the Response to short-circuit with. */
 async function requireAdmin(
 	request: Request,
 ): Promise<{ userId: string; email: string } | Response> {
-	const account = await resolveSessionAccount(request.headers);
-	if (!account) return jsonError(401, "Sign in to use the admin surface");
-	if (!isAdminEmail(account.email)) return jsonError(403, "Not an admin");
-	return account;
+	const admin = await resolveAdmin(request);
+	return "error" in admin ? jsonError(admin.status, admin.error) : admin;
 }
 
 // The action catalog. Only `reassign-presentation` exists today; new privileged
@@ -57,6 +94,19 @@ const PrepareActionSchema = z.object({
 	presentationId: z.string().min(1),
 	targetEmail: z.string().email(),
 });
+
+/**
+ * Who an administrator can write back to about one app-menu entry: nobody when
+ * the sender did not ask, the account's email as it stands now, or `deleted`
+ * when the account is gone — so a deleted account leaves no address anywhere.
+ */
+function resolveFeedbackContact(
+	contactAccountId: string | null,
+): FeedbackContact {
+	if (contactAccountId === null) return null;
+	const account = findUserById(contactAccountId);
+	return account ? { status: "email", email: account.email } : { status: "deleted" };
+}
 
 export const adminRoutes = new Elysia({ prefix: "/api/admin" })
 	// ── Prepare an action (no mutation yet) ────────────────
@@ -194,3 +244,91 @@ export const adminRoutes = new Elysia({ prefix: "/api/admin" })
 			},
 		},
 	);
+
+/**
+ * The administrators' read of the feedback database (REQ185) over a given
+ * store, or `null` for a deployment with the feedback channel off. A factory
+ * for the reason the feedback routes are one: the tests read both postures
+ * over their own store. It is the only route that reads the feedback database.
+ */
+export function createAdminFeedbackRoutes(
+	feedback: FeedbackStore | null = defaultFeedbackStore,
+) {
+	return new Elysia({ prefix: "/api/admin", name: "admin-feedback" })
+		.get(
+			"/feedback",
+			({ query, set }) => {
+				set.headers["Cache-Control"] = "no-store";
+				// Off is the answer POST /api/feedback gives: nothing is collected, and
+				// no database is opened to say there is nothing in it.
+				if (!feedback) {
+					return status(404, {
+						error: "Feedback is not collected on this server",
+					});
+				}
+
+				const pageRequest = {
+					cursor: query.cursor ?? null,
+					limit: FEEDBACK_PAGE_SIZE,
+				};
+				let page: AdminFeedbackPage;
+				if (query.channel === "user") {
+					const listed = feedback.listUserFeedback(pageRequest);
+					if (!listed) return status(400, { error: "Unknown cursor" });
+					page = {
+						channel: "user",
+						...feedback.summarize("user"),
+						nextCursor: listed.nextCursor,
+						// Field by field, so the account id never leaves this handler.
+						entries: listed.entries.map((entry) => ({
+							id: entry.id,
+							rating: entry.rating,
+							comment: entry.comment,
+							surface: entry.surface,
+							language: entry.language,
+							createdOn: entry.createdOn,
+							contact: resolveFeedbackContact(entry.contactAccountId),
+						})),
+					};
+				} else {
+					const listed = feedback.listParticipantFeedback(pageRequest);
+					if (!listed) return status(400, { error: "Unknown cursor" });
+					page = {
+						channel: "participant",
+						...feedback.summarize("participant"),
+						nextCursor: listed.nextCursor,
+						entries: listed.entries,
+					};
+				}
+				return page;
+			},
+			{
+				// The admin gate runs before the query is validated, so a caller who
+				// may not read feedback learns nothing from it — not even that the
+				// channel it asked for is malformed.
+				transform: async ({ request }) => {
+					const admin = await resolveAdmin(request);
+					if ("error" in admin) {
+						throw status(admin.status, { error: admin.error });
+					}
+				},
+				query: AdminFeedbackQuerySchema,
+				response: {
+					200: AdminFeedbackPageSchema,
+					400: AdminFeedbackErrorSchema,
+					401: AdminFeedbackErrorSchema,
+					403: AdminFeedbackErrorSchema,
+					404: AdminFeedbackErrorSchema,
+				},
+				detail: {
+					tags: ["Admin"],
+					summary: "Read the feedback sent about omul",
+					description:
+						"Returns one channel of the feedback database (REQ185) — `channel=user` for the app menu's form, `channel=participant` for the prompt after a session (REQ186) — with the channel's `total`, its `ratingCounts` for 1 to 5, its `unratedCount` (comment only), and fifty `entries`, newest first. Pass the answer's `nextCursor` as `cursor` for the next page; it is `null` on the last. A `user` entry's `contact` is resolved when it is read and never stored: `null` when the sender did not ask to be contacted, `{ status: \"email\", email }` with the account's current address, or `{ status: \"deleted\" }` once the account is gone. Requires an admin cookie session (`401` without a session, `403` when not an admin); then `404` while `OMUL_FEEDBACK_ENABLED` is not `true`, `400` for a cursor that names no entry of the channel, and `422` for any other channel.",
+				},
+			},
+		);
+}
+
+/** The feedback read the server mounts, over the environment's store. */
+export const adminFeedbackRoutes = createAdminFeedbackRoutes();

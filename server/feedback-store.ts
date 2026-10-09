@@ -14,9 +14,9 @@
  * the point: no email address, participant id, name, presentation, workspace,
  * IP address or user agent, and no time finer than the UTC day. An account id
  * is kept only as `contactAccountId`, and only when the sender asked to be
- * contacted; the operator view (REQ185 slice 3, not built yet) is to resolve it
- * to an address at read time, so a changed address is followed and a deleted
- * account leaves nothing behind here.
+ * contacted; the operator view (`GET /api/admin/feedback`) resolves it to an
+ * address at read time, so a changed address is followed and a deleted account
+ * leaves nothing behind here.
  *
  * **Off unless `OMUL_FEEDBACK_ENABLED` is exactly `"true"`**, and off means
  * nothing is opened: the process-wide store is `null` and no file is created.
@@ -27,7 +27,11 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { FeedbackSurface } from "./schemas";
+import type {
+	FeedbackChannel,
+	FeedbackRatingCounts,
+	FeedbackSurface,
+} from "./schemas";
 import { siblingDbPath } from "./sibling-db-path";
 
 /** The switch that turns the feedback channel on. */
@@ -54,6 +58,42 @@ export interface UserFeedbackEntry {
 	createdOn: string;
 }
 
+/**
+ * One entry from the prompt after a session (REQ186), as stored — every column
+ * of `participant_feedback` and nothing else.
+ */
+export interface ParticipantFeedbackEntry {
+	id: string;
+	rating: number | null;
+	comment: string | null;
+	language: string;
+	/** UTC date, `YYYY-MM-DD` — never a finer time. */
+	createdOn: string;
+}
+
+/** A channel's totals, over every entry it holds. */
+export interface FeedbackSummary {
+	total: number;
+	ratingCounts: FeedbackRatingCounts;
+	/** Entries that hold only a comment. */
+	unratedCount: number;
+}
+
+/**
+ * One page of a channel, newest first. `nextCursor` is the id of the page's
+ * last entry when more follow it, and `null` on the last page.
+ */
+export interface FeedbackPage<Entry> {
+	entries: Entry[];
+	nextCursor: string | null;
+}
+
+/** Which page to read: the first (`cursor: null`), or the one after `cursor`. */
+export interface FeedbackPageRequest {
+	cursor: string | null;
+	limit: number;
+}
+
 export interface FeedbackStore {
 	/** Where this store's database lives (`:memory:` for an ephemeral one). */
 	path: string;
@@ -70,8 +110,31 @@ export interface FeedbackStore {
 		language: string;
 		now?: number;
 	}): UserFeedbackEntry;
+	/** A channel's total, and how many of its entries carry each rating or none. */
+	summarize(channel: FeedbackChannel): FeedbackSummary;
+	/**
+	 * One page of app-menu entries, newest first — or `null` when `cursor` names
+	 * no entry of this channel.
+	 */
+	listUserFeedback(
+		request: FeedbackPageRequest,
+	): FeedbackPage<UserFeedbackEntry> | null;
+	/** The same, for the participant channel (REQ186). */
+	listParticipantFeedback(
+		request: FeedbackPageRequest,
+	): FeedbackPage<ParticipantFeedbackEntry> | null;
 	close(): void;
 }
+
+/** Each channel's table — a fixed map, so no caller ever names a table. */
+const CHANNEL_TABLES: Record<FeedbackChannel, string> = {
+	user: "user_feedback",
+	participant: "participant_feedback",
+};
+
+const USER_FEEDBACK_COLUMNS =
+	"id, rating, comment, surface, contactAccountId, language, createdOn";
+const PARTICIPANT_FEEDBACK_COLUMNS = "id, rating, comment, language, createdOn";
 
 /** The UTC day a timestamp falls on, and nothing finer. */
 export function feedbackDay(timestamp: number): string {
@@ -144,11 +207,97 @@ export function createFeedbackStore(path: string): FeedbackStore {
 		return entry;
 	}
 
+	function summarize(channel: FeedbackChannel): FeedbackSummary {
+		const groups = db
+			.query<{ rating: number | null; count: number }, []>(
+				`SELECT rating, COUNT(*) AS count FROM ${CHANNEL_TABLES[channel]} GROUP BY rating`,
+			)
+			.all();
+		const summary: FeedbackSummary = {
+			total: 0,
+			ratingCounts: { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 },
+			unratedCount: 0,
+		};
+		for (const group of groups) {
+			summary.total += group.count;
+			if (group.rating === null) summary.unratedCount = group.count;
+			else {
+				const rating = String(group.rating) as keyof FeedbackRatingCounts;
+				summary.ratingCounts[rating] = group.count;
+			}
+		}
+		return summary;
+	}
+
+	// Newest first is the day, then the order rows were written within it — the
+	// rowid, since the day is all the time a row keeps. A cursor is the last
+	// entry's id; the next page is every row strictly before it in that order, so
+	// entries sent while an administrator pages land ahead of the first page
+	// rather than repeating on a later one.
+	function pageOf<Entry extends { id: string }>(
+		table: string,
+		columns: string,
+		request: FeedbackPageRequest,
+	): FeedbackPage<Entry> | null {
+		const order = "ORDER BY createdOn DESC, rowid DESC LIMIT ?";
+		let rows: Entry[];
+		if (request.cursor === null) {
+			rows = db
+				.query<Entry, [number]>(`SELECT ${columns} FROM ${table} ${order}`)
+				.all(request.limit + 1);
+		} else {
+			const anchor = db
+				.query<{ createdOn: string; position: number }, [string]>(
+					`SELECT createdOn, rowid AS position FROM ${table} WHERE id = ?`,
+				)
+				.get(request.cursor);
+			if (!anchor) return null;
+			rows = db
+				.query<Entry, [string, number, number]>(
+					`SELECT ${columns} FROM ${table} WHERE (createdOn, rowid) < (?, ?) ${order}`,
+				)
+				.all(anchor.createdOn, anchor.position, request.limit + 1);
+		}
+		const entries = rows.slice(0, request.limit);
+		const last = entries[entries.length - 1];
+		return {
+			entries,
+			nextCursor: rows.length > request.limit && last ? last.id : null,
+		};
+	}
+
+	function listUserFeedback(
+		request: FeedbackPageRequest,
+	): FeedbackPage<UserFeedbackEntry> | null {
+		return pageOf<UserFeedbackEntry>(
+			CHANNEL_TABLES.user,
+			USER_FEEDBACK_COLUMNS,
+			request,
+		);
+	}
+
+	function listParticipantFeedback(
+		request: FeedbackPageRequest,
+	): FeedbackPage<ParticipantFeedbackEntry> | null {
+		return pageOf<ParticipantFeedbackEntry>(
+			CHANNEL_TABLES.participant,
+			PARTICIPANT_FEEDBACK_COLUMNS,
+			request,
+		);
+	}
+
 	function close(): void {
 		db.close();
 	}
 
-	return { path, recordUserFeedback, close };
+	return {
+		path,
+		recordUserFeedback,
+		summarize,
+		listUserFeedback,
+		listParticipantFeedback,
+		close,
+	};
 }
 
 /** Whether the channel is on: exactly `"true"`, and nothing else. */
@@ -196,11 +345,11 @@ export function feedbackStartupReport(
 		];
 	}
 	const lines = [
-		`[feedback] on — feedback sent to POST /api/feedback is stored in ${store.path}. The app menu offers a feedback form; the administrators' view of the answers is not built yet (REQ185).`,
+		`[feedback] on — feedback sent to POST /api/feedback is stored in ${store.path}. The app menu offers a feedback form; administrators read the answers from GET /api/admin/feedback, and their page is not built yet (REQ185).`,
 	];
 	if (administrators.length === 0) {
 		lines.push(
-			"[feedback] WARNING — OMUL_ADMIN_EMAILS is empty, so nobody is an administrator and nobody will be able to read the answers once the administrators' view lands.",
+			"[feedback] WARNING — OMUL_ADMIN_EMAILS is empty, so nobody is an administrator and nobody can read the answers.",
 		);
 	}
 	return lines;

@@ -7,7 +7,7 @@ import { connectDb } from "./db";
 import { deckGenerationStartupReport } from "./deck-generator";
 import { feedbackStartupReport, feedbackStore } from "./feedback-store";
 import { legalLinksStartupReport } from "./legal-links";
-import { adminRoutes } from "./routes/admin";
+import { adminFeedbackRoutes, adminRoutes } from "./routes/admin";
 import { deckGenerationRoutes } from "./routes/deck-generation";
 import { discoveryRoutes, publicOriginStartupReport } from "./routes/discovery";
 import { feedbackRoutes } from "./routes/feedback";
@@ -175,6 +175,8 @@ const app = new Elysia()
 
 	// ── Admin surface (operator-only, /api/admin/*) ───────────
 	.use(adminRoutes)
+	// The administrators' read of the feedback database (REQ185).
+	.use(adminFeedbackRoutes)
 
 	// ── WebSocket ─────────────────────────────────────────────
 	.ws("/ws", {

@@ -5015,6 +5015,109 @@ export const FeedbackConfigSchema = z.object({
 
 export type FeedbackConfig = z.infer<typeof FeedbackConfigSchema>;
 
+/**
+ * The two feedback channels an administrator reads (REQ185): `user`, sent from
+ * the app menu, and `participant`, the prompt after a session (REQ186).
+ */
+export const FeedbackChannelSchema = z.enum(["user", "participant"]);
+
+export type FeedbackChannel = z.infer<typeof FeedbackChannelSchema>;
+
+/** How many entries one page of `GET /api/admin/feedback` holds. */
+export const FEEDBACK_PAGE_SIZE = 50;
+
+/**
+ * What `GET /api/admin/feedback` takes — the channel, and the `nextCursor` of
+ * the page before when paging on. A cursor is an entry id, opaque to the caller.
+ */
+export const AdminFeedbackQuerySchema = z.object({
+	channel: FeedbackChannelSchema,
+	cursor: z.string().min(1).optional(),
+});
+
+export type AdminFeedbackQuery = z.infer<typeof AdminFeedbackQuerySchema>;
+
+/**
+ * Who an administrator can write back to about one app-menu entry, resolved
+ * from its account when it is read and never stored: `null` when the sender
+ * did not ask to be contacted, `email` with the account's current address, or
+ * `deleted` when that account no longer exists.
+ */
+export const FeedbackContactSchema = z
+	.discriminatedUnion("status", [
+		z.object({ status: z.literal("email"), email: z.string() }),
+		z.object({ status: z.literal("deleted") }),
+	])
+	.nullable()
+	.default(null);
+
+export type FeedbackContact = z.infer<typeof FeedbackContactSchema>;
+
+/** One app-menu entry as an administrator reads it — never its account id. */
+export const AdminUserFeedbackEntrySchema = z.object({
+	id: z.string(),
+	rating: z.number().int().min(1).max(5).nullable().default(null),
+	comment: z.string().nullable().default(null),
+	surface: FeedbackSurfaceSchema,
+	language: z.string(),
+	createdOn: z.string(),
+	contact: FeedbackContactSchema,
+});
+
+/** One participant-prompt entry as an administrator reads it (REQ186). */
+export const AdminParticipantFeedbackEntrySchema = z.object({
+	id: z.string(),
+	rating: z.number().int().min(1).max(5).nullable().default(null),
+	comment: z.string().nullable().default(null),
+	language: z.string(),
+	createdOn: z.string(),
+});
+
+/** How many entries of a channel carry each rating, 1 to 5. */
+export const FeedbackRatingCountsSchema = z.object({
+	"1": z.number().int().default(0),
+	"2": z.number().int().default(0),
+	"3": z.number().int().default(0),
+	"4": z.number().int().default(0),
+	"5": z.number().int().default(0),
+});
+
+export type FeedbackRatingCounts = z.infer<typeof FeedbackRatingCountsSchema>;
+
+/**
+ * What every channel's page carries: its totals — over every entry, whichever
+ * page is asked for, `unratedCount` being the entries that hold only a comment —
+ * and the cursor to the next page.
+ */
+const FeedbackPageShape = {
+	total: z.number().int().default(0),
+	ratingCounts: FeedbackRatingCountsSchema,
+	unratedCount: z.number().int().default(0),
+	nextCursor: z.string().nullable().default(null),
+};
+
+/**
+ * What `GET /api/admin/feedback` answers (REQ185): a channel's totals, and one
+ * page of its entries, newest first. `nextCursor` is `null` on the last page.
+ */
+export const AdminFeedbackPageSchema = z.discriminatedUnion("channel", [
+	z.object({
+		channel: z.literal("user"),
+		...FeedbackPageShape,
+		entries: z.array(AdminUserFeedbackEntrySchema).default([]),
+	}),
+	z.object({
+		channel: z.literal("participant"),
+		...FeedbackPageShape,
+		entries: z.array(AdminParticipantFeedbackEntrySchema).default([]),
+	}),
+]);
+
+export type AdminFeedbackPage = z.infer<typeof AdminFeedbackPageSchema>;
+
+/** What `GET /api/admin/feedback` answers when it has no page to give. */
+export const AdminFeedbackErrorSchema = z.object({ error: z.string() });
+
 // ── Presentation schema ──────────────────────────────────────
 
 export const CreatePresentationSchema = z

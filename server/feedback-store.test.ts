@@ -179,6 +179,50 @@ describe("what a stored entry holds (REQ185)", () => {
 	});
 });
 
+describe("reading a channel back (REQ185)", () => {
+	test("an empty channel has no entries, no next page and nothing counted", () => {
+		const store = createFeedbackStore(":memory:");
+		expect(store.summarize("user")).toEqual({
+			total: 0,
+			ratingCounts: { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 },
+			unratedCount: 0,
+		});
+		expect(store.listParticipantFeedback({ cursor: null, limit: 10 })).toEqual({
+			entries: [],
+			nextCursor: null,
+		});
+		store.close();
+	});
+
+	test("pages run newest first, end on a null cursor, and refuse a stranger's cursor", () => {
+		const store = createFeedbackStore(":memory:");
+		const ids = [1, 2, 3].map(
+			(rating) =>
+				store.recordUserFeedback({
+					rating,
+					comment: "",
+					surface: "other",
+					contactAccountId: null,
+					language: "en",
+					now: Date.UTC(2026, 0, 1),
+				}).id,
+		);
+		const first = store.listUserFeedback({ cursor: null, limit: 2 });
+		expect(first?.entries.map((entry) => entry.id)).toEqual([ids[2], ids[1]]);
+		expect(first?.nextCursor).toBe(ids[1] ?? "");
+		const second = store.listUserFeedback({
+			cursor: first?.nextCursor ?? null,
+			limit: 2,
+		});
+		expect(second).toEqual({
+			entries: [expect.objectContaining({ id: ids[0], rating: 1 })],
+			nextCursor: null,
+		});
+		expect(store.listUserFeedback({ cursor: "no-such-entry", limit: 2 })).toBeNull();
+		store.close();
+	});
+});
+
 describe("the boot line (REQ185)", () => {
 	test("off says so", () => {
 		const lines = feedbackStartupReport(null, []);
@@ -191,6 +235,7 @@ describe("the boot line (REQ185)", () => {
 		const unread = feedbackStartupReport(store, []);
 		expect(unread[0]).toStartWith("[feedback] on");
 		expect(unread[0]).toContain(":memory:");
+		expect(unread[0]).toContain("GET /api/admin/feedback");
 		expect(unread[1]).toContain("OMUL_ADMIN_EMAILS is empty");
 		expect(feedbackStartupReport(store, ["admin@example.com"])).toHaveLength(1);
 		store.close();

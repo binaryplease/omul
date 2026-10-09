@@ -4,8 +4,8 @@
  * Two public routes. `GET /api/feedback/config` says whether this deployment
  * collects feedback at all — a fact about the deployment, not the caller, read
  * once per page load the way `GET /api/legal` is. `POST /api/feedback` stores
- * one entry in the feedback database (`server/feedback-store.ts`) — the app
- * menu's form that sends it is REQ185 slice 2, not built yet — and answers `404`
+ * one entry in the feedback database (`server/feedback-store.ts`) — what the app
+ * menu's form sends — and answers `404`
  * while the channel is off, whatever the request carries.
  *
  * **JSON only.** A form-encoded, multipart or plain-text post is refused `415`
@@ -61,7 +61,7 @@ export function createFeedbackRoutes(
 					tags: ["Feedback"],
 					summary: "Whether this server collects feedback about omul",
 					description:
-						"Reports whether this deployment collects feedback about omul (REQ185) — what the app menu's feedback form, still to come, will read before offering itself: `enabled` is true only when the operator set `OMUL_FEEDBACK_ENABLED=true`. Public and read-only — a fact about the deployment, not the caller. An object rather than a bare boolean, because further fields join it.",
+						"Reports whether this deployment collects feedback about omul (REQ185) — what the app menu's feedback form reads before offering itself: `enabled` is true only when the operator set `OMUL_FEEDBACK_ENABLED=true`. Public and read-only — a fact about the deployment, not the caller. An object rather than a bare boolean, because further fields join it.",
 				},
 			})
 
