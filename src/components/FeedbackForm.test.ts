@@ -147,20 +147,20 @@ describe("the stars", () => {
 });
 
 describe("the contact box", () => {
-	test("signed in: drawn ticked, naming the account's address", () => {
-		const markup = form(draftOf({}), "maria.keller@example.org");
+	test("signed in: drawn unticked on a fresh form, naming the account's address", () => {
+		const markup = form(EMPTY_FEEDBACK_DRAFT, "maria.keller@example.org");
 		expect(markup).toContain('type="checkbox"');
-		expect(markup).toMatch(/<input[^>]*type="checkbox"[^>]*checked=""/);
+		expect(markup).not.toMatch(/<input[^>]*type="checkbox"[^>]*checked=""/);
 		expect(textOf(markup)).toContain("You can contact me about this");
 		expect(textOf(markup)).toContain(
 			"We'd write to maria.keller@example.org (your account email)",
 		);
 	});
 
-	test("unticked, it is drawn unticked", () => {
-		const markup = form(draftOf({ contactMe: false }), "a@example.org");
+	test("ticked by the sender, it is drawn ticked", () => {
+		const markup = form(draftOf({ contactMe: true }), "a@example.org");
 		expect(markup).toContain('type="checkbox"');
-		expect(markup).not.toMatch(/<input[^>]*type="checkbox"[^>]*checked=""/);
+		expect(markup).toMatch(/<input[^>]*type="checkbox"[^>]*checked=""/);
 	});
 
 	test("without an address — signed out, or the participant prompt — not drawn at all", () => {
@@ -170,8 +170,8 @@ describe("the contact box", () => {
 		expect(textOf(markup)).not.toContain("We'd write to");
 	});
 
-	test("starts ticked", () => {
-		expect(EMPTY_FEEDBACK_DRAFT.contactMe).toBe(true);
+	test("starts unticked", () => {
+		expect(EMPTY_FEEDBACK_DRAFT.contactMe).toBe(false);
 	});
 
 	test("is never called consent", () => {
