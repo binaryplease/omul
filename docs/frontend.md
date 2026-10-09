@@ -58,6 +58,16 @@ that already exist — compose these, never re-hand-roll:
   nothing for an address the operator did not configure, so never draw a legal
   link by hand — a hand-rolled one is the link that survives on an instance that
   set none.
+- **Feedback about omul** — `src/components/FeedbackForm.tsx` (REQ185). The
+  one form feedback is written in: five optional stars (a second tap on the
+  chosen one clears it), a comment, the "You can contact me about this" box —
+  drawn only when the caller hands in an address, so signed out and in the
+  participant prompt (REQ186) it never is — a send button that wakes on a
+  rating or a non-blank comment, and the thanks. The rules and the request body
+  are `src/feedback.ts`'s, beside `useFeedbackConfig()`, the one read of
+  `GET /api/feedback/config`. `<AppMenu/>` offers "Send feedback" between
+  Appearance and Legal only when that read says `enabled`, and opens the form in
+  a dialog. Never call the contact box consent, in code or copy.
 - **Deck sharing** — `src/components/CollaboratorsDialog.tsx` (REQ075).
   `DECK_ACCESS_LEVEL_DESCRIPTORS` is the single descriptor for the three access
   levels — one entry per level the API accepts, in the same order — and

@@ -2,6 +2,7 @@
 
 import { filenameFromContentDisposition } from "./download";
 import {
+	type AdminFeedbackPage,
 	type BuiltInDeckThemeId,
 	type DeckAccessLevel,
 	type DeckBrand,
@@ -10,15 +11,19 @@ import {
 	type DeckTemplate,
 	type DeckTemplateCategory,
 	type DeckThemeId,
+	type FeedbackChannel,
+	type FeedbackConfig,
 	isVoteRefusalCode,
 	isWithheldTally,
 	type LegalLinks,
+	type ParticipantFeedbackSubmission,
 	type ParticipantRosterEntry,
 	type ReactionKind,
 	RESULTS_TOKEN_HEADER,
 	type ResultsLink,
 	type ResultsVisibility,
 	type SlideComment,
+	type UserFeedbackSubmission,
 	type VoteRefusalCode,
 	withFreshSlideIds,
 	type Workspace,
@@ -43,11 +48,19 @@ const BASE = "";
  */
 export class ApiError extends Error {
 	readonly refused: VoteRefusalCode | null;
+	/**
+	 * The HTTP status the refusal came with, for a surface whose answer depends
+	 * on *which* refusal it was rather than on its prose — the administrators'
+	 * feedback page tells signed-out, not-an-admin and channel-off apart by it
+	 * (REQ185).
+	 */
+	readonly status: number;
 
-	constructor(message: string, refused: VoteRefusalCode | null) {
+	constructor(message: string, refused: VoteRefusalCode | null, status = 0) {
 		super(message);
 		this.name = "ApiError";
 		this.refused = refused;
+		this.status = status;
 	}
 }
 
@@ -68,6 +81,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 		throw new ApiError(
 			err.error || err.summary || err.message || res.statusText,
 			isVoteRefusalCode(err.refused) ? err.refused : null,
+			res.status,
 		);
 	}
 	return res.json();
@@ -394,6 +408,49 @@ export const api = {
 	 * link for it.
 	 */
 	getLegalLinks: () => request<LegalLinks>("/legal"),
+
+	/**
+	 * Whether this deployment collects feedback about omul (REQ185). `enabled`
+	 * is false unless the operator switched the channel on, and the app menu
+	 * offers no feedback item while it is.
+	 */
+	getFeedbackConfig: () => request<FeedbackConfig>("/feedback/config"),
+
+	/**
+	 * Send one piece of feedback about omul to whoever runs this instance
+	 * (REQ185). JSON, as `request` always sends — the route refuses any other
+	 * content type. No account is named: the server takes it from the session,
+	 * and only when `contactMe` is true.
+	 */
+	sendFeedback: (submission: UserFeedbackSubmission) =>
+		request<{ id: string }>("/feedback", {
+			method: "POST",
+			body: JSON.stringify(submission),
+		}),
+
+	/**
+	 * Answer the prompt after a session (REQ186): a rating and/or a comment and
+	 * the deck's language, and nothing else — no participant id, no deck, and no
+	 * session is read by the route. JSON, as `request` always sends.
+	 */
+	sendParticipantFeedback: (submission: ParticipantFeedbackSubmission) =>
+		request<{ id: string }>("/feedback/participant", {
+			method: "POST",
+			body: JSON.stringify(submission),
+		}),
+
+	/**
+	 * One page of a feedback channel, as an administrator reads it (REQ185):
+	 * the channel's totals and fifty entries, newest first. Pass the previous
+	 * page's `nextCursor` to read on. The cookie session is the credential;
+	 * `401`, `403` and the channel-off `404` arrive as an `ApiError` carrying
+	 * that status.
+	 */
+	getAdminFeedback: (channel: FeedbackChannel, cursor: string | null = null) => {
+		const query = new URLSearchParams({ channel });
+		if (cursor) query.set("cursor", cursor);
+		return request<AdminFeedbackPage>(`/admin/feedback?${query}`);
+	},
 
 	/**
 	 * Draft a deck from a prompt (REQ007). Answers with an ordinary presentation

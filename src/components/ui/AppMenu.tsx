@@ -1,4 +1,4 @@
-import { Ellipsis, ExternalLink } from "lucide-react";
+import { Ellipsis, ExternalLink, MessageSquareText, X } from "lucide-react";
 import {
 	type KeyboardEvent,
 	type Ref,
@@ -10,17 +10,28 @@ import {
 	useState,
 } from "react";
 import { createPortal } from "react-dom";
-import type { LegalLinks } from "../../types";
+import { api } from "../../api";
+import { useSession } from "../../auth-client";
+import {
+	buildUserFeedbackSubmission,
+	type FeedbackDraft,
+	feedbackSurfaceForRoute,
+	screenLanguage,
+	useFeedbackConfig,
+} from "../../feedback";
+import { routeForLocation } from "../../router";
+import type { FeedbackSurface, LegalLinks } from "../../types";
 import { DECK_THEME_SCOPE_ATTRIBUTE } from "../DeckTheme";
+import { FeedbackForm } from "../FeedbackForm";
 import { configuredLegalLinks, LegalLink, useLegalLinks } from "../LegalLinks";
 import { ICON_BUTTON_HOVER } from "../ShareCluster";
 import { THEME_OPTIONS, type ThemePreference, useTheme } from "./Theme";
 
-// ── App menu: appearance + legal texts (REQ183) ───────────────
+// ── App menu: appearance, feedback + legal texts (REQ183, REQ185) ──
 //
 // One small trigger, wherever a screen offers the theme switch, opening a panel
-// with two sections: the Light / Dark / Auto choice, and the operator's legal
-// texts. It is what puts the imprint, the privacy policy and the terms within
+// with up to three sections: the Light / Dark / Auto choice, "Send feedback"
+// when this deployment collects it (REQ185), and the operator's legal texts. It is what puts the imprint, the privacy policy and the terms within
 // reach of every non-loading screen, so a screen that draws the trigger is a
 // screen that satisfies "reachable from any route" — and a screen that drops it
 // is one that no longer does.
@@ -37,6 +48,13 @@ import { THEME_OPTIONS, type ThemePreference, useTheme } from "./Theme";
 // a slide's own appearance over it, so it wears the same colours as its
 // trigger — at a fixed position computed from the trigger, clamped
 // to the viewport.
+//
+// "Send feedback" swaps the panel for a dialog holding the shared
+// `FeedbackForm`, drawn in the same place for the same reasons. It keeps the
+// panel's rules — Escape or a click outside closes it, focus goes back to the
+// trigger, and no key it receives reaches the page — except that Tab cycles
+// inside it rather than closing it, because tabbing past the send button must
+// not throw away what was typed.
 
 /** Space between trigger and panel, and the least room kept to a viewport edge. */
 const APP_MENU_MARGIN_PX = 8;
@@ -66,16 +84,39 @@ export function appMenuPlacement(
 const SECTION_HEADING =
 	"m-0 px-2 pb-1.5 pt-2 text-xs font-semibold uppercase tracking-wider text-text-muted";
 
+/** One actionable row in the panel — a legal link or the feedback item. */
+const MENU_ROW =
+	"flex min-h-9 w-full items-center justify-between gap-2.5 rounded-lg border-none bg-transparent px-2 py-2 text-left text-sm font-medium text-text no-underline transition-colors cursor-pointer hover:bg-surface-hover";
+
+const SECTION_DIVIDER = "mx-1.5 my-1 h-px bg-border";
+
+/** Marks the panel's rows that are tab stops, for the panel's own Tab rule. */
+const MENU_ITEM_ATTRIBUTE = "data-app-menu-item";
+
+/**
+ * What the trigger is called, naming what the panel holds. With the feedback
+ * channel off the menu is exactly what it was before REQ185, name included.
+ */
+function appMenuName(feedbackEnabled: boolean): string {
+	return feedbackEnabled
+		? "Appearance, feedback and legal"
+		: "Appearance and legal";
+}
+
 /**
  * The panel's contents for a given theme and set of addresses. The Legal
  * section lists exactly the configured texts, in descriptor order, and is
  * absent when none is configured — the menu then holds Appearance alone.
+ * "Send feedback" sits between the two, and only when `feedbackEnabled` —
+ * which the menu takes from `GET /api/feedback/config` and nothing else.
  */
 export function AppMenuPanel({
 	id,
 	links,
 	theme,
 	onThemeChange,
+	feedbackEnabled = false,
+	onSendFeedback,
 	onKeyDown,
 	ref,
 }: {
@@ -83,6 +124,8 @@ export function AppMenuPanel({
 	links: LegalLinks;
 	theme: ThemePreference;
 	onThemeChange: (theme: ThemePreference) => void;
+	feedbackEnabled?: boolean;
+	onSendFeedback?: () => void;
 	onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
 	ref?: Ref<HTMLDivElement>;
 }) {
@@ -150,9 +193,27 @@ export function AppMenuPanel({
 					);
 				})}
 			</div>
+			{feedbackEnabled && (
+				<>
+					<div aria-hidden className={SECTION_DIVIDER} />
+					<button
+						type="button"
+						{...{ [MENU_ITEM_ATTRIBUTE]: "" }}
+						onClick={onSendFeedback}
+						className={MENU_ROW}
+					>
+						<span>Send feedback</span>
+						<MessageSquareText
+							size={14}
+							aria-hidden
+							className="flex-shrink-0 text-text-dim"
+						/>
+					</button>
+				</>
+			)}
 			{legalLinks.length > 0 && (
 				<>
-					<div aria-hidden className="mx-1.5 my-1 h-px bg-border" />
+					<div aria-hidden className={SECTION_DIVIDER} />
 					<nav aria-labelledby={`${id}-legal`}>
 						<p id={`${id}-legal`} className={SECTION_HEADING}>
 							Legal
@@ -161,7 +222,7 @@ export function AppMenuPanel({
 							<LegalLink
 								key={link.label}
 								href={link.href}
-								className="flex min-h-9 items-center justify-between gap-2.5 rounded-lg px-2 py-2 text-sm font-medium text-text no-underline transition-colors hover:bg-surface-hover"
+								className={MENU_ROW}
 							>
 								<span>
 									{link.label}
@@ -181,19 +242,126 @@ export function AppMenuPanel({
 	);
 }
 
-/** The theme switch and the legal texts, behind one icon button. */
+/** What the menu is showing: nothing, its panel, or the feedback dialog. */
+type AppMenuView = "closed" | "panel" | "feedback";
+
+/**
+ * Where a feedback entry says it was sent from — the kind of screen and its
+ * language — read once, as the dialog opens over that screen.
+ */
+type FeedbackOrigin = { surface: FeedbackSurface; language: string };
+
+/** What the feedback dialog's Tab rule cycles through. */
+const DIALOG_FOCUSABLE =
+	"button:not([disabled]), textarea:not([disabled]), input:not([disabled]), a[href]";
+
+/**
+ * The menu's feedback dialog: the shared form, wired to this app — the
+ * signed-in account's address for the contact box, and `POST /api/feedback`
+ * for the answer. Nothing names the account in the body; the server takes it
+ * from the session.
+ */
+function AppMenuFeedbackDialog({
+	id,
+	origin,
+	onClose,
+}: {
+	id: string;
+	origin: FeedbackOrigin;
+	onClose: () => void;
+}) {
+	const { data: session } = useSession();
+	const contactEmail = session?.user.email ?? null;
+	const dialogRef = useRef<HTMLDivElement>(null);
+	const headingId = `${id}-heading`;
+
+	useEffect(() => {
+		dialogRef.current?.querySelector<HTMLElement>(DIALOG_FOCUSABLE)?.focus();
+	}, []);
+
+	const sendFeedback = async (draft: FeedbackDraft) => {
+		await api.sendFeedback(
+			buildUserFeedbackSubmission(draft, {
+				...origin,
+				contactOffered: contactEmail !== null,
+			}),
+		);
+	};
+
+	// Keys stay in the dialog, as they stay in the panel. Escape closes it; Tab
+	// wraps from either end to the other.
+	const handleDialogKey = (event: KeyboardEvent<HTMLDivElement>) => {
+		event.stopPropagation();
+		if (event.key === "Escape") {
+			onClose();
+			return;
+		}
+		if (event.key !== "Tab") return;
+		const stops = [
+			...event.currentTarget.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE),
+		];
+		const first = stops[0];
+		const last = stops[stops.length - 1];
+		if (!first || !last) return;
+		const leaving = event.shiftKey ? first : last;
+		if (document.activeElement !== leaving) return;
+		event.preventDefault();
+		(event.shiftKey ? last : first).focus();
+	};
+
+	return (
+		<div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4">
+			<div
+				ref={dialogRef}
+				id={id}
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby={headingId}
+				onKeyDown={handleDialogKey}
+				className="pointer-events-auto flex max-h-full w-full max-w-md items-start gap-2 overflow-y-auto rounded-2xl border border-border bg-surface p-5 text-left shadow-2xl popover-in"
+			>
+				<div className="min-w-0 flex-1">
+					<FeedbackForm
+						headingId={headingId}
+						contactEmail={contactEmail}
+						onSend={sendFeedback}
+						onDone={onClose}
+					/>
+				</div>
+				<button
+					type="button"
+					onClick={onClose}
+					aria-label="Close feedback"
+					title="Close feedback"
+					className={`-mr-1 -mt-1 flex size-8 flex-shrink-0 items-center justify-center rounded-lg border-none bg-transparent cursor-pointer ${ICON_BUTTON_HOVER}`}
+				>
+					<X size={16} aria-hidden />
+				</button>
+			</div>
+		</div>
+	);
+}
+
+/** The theme switch, feedback and the legal texts, behind one icon button. */
 export function AppMenu() {
 	const { theme, setTheme } = useTheme();
-	// Read on mount, not on open, so the links are there the first time.
+	// Read on mount, not on open, so the links and the feedback item are there
+	// the first time.
 	const links = useLegalLinks();
-	const [open, setOpen] = useState(false);
+	const feedbackEnabled = useFeedbackConfig().enabled;
+	const [view, setView] = useState<AppMenuView>("closed");
+	const [feedbackOrigin, setFeedbackOrigin] = useState<FeedbackOrigin | null>(
+		null,
+	);
 	const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const panelRef = useRef<HTMLDivElement>(null);
 	const panelId = useId();
+	const open = view === "panel";
+	const menuName = appMenuName(feedbackEnabled);
 
 	const close = useCallback((returnFocus: boolean) => {
-		setOpen(false);
+		setView("closed");
 		if (returnFocus) triggerRef.current?.focus();
 	}, []);
 
@@ -203,7 +371,22 @@ export function AppMenu() {
 				`[${DECK_THEME_SCOPE_ATTRIBUTE}]`,
 			) ?? document.body,
 		);
-		setOpen(true);
+		setView("panel");
+	};
+
+	// The screen the menu was opened on, not wherever the sender is by the
+	// time they press send.
+	const openFeedback = () => {
+		setFeedbackOrigin({
+			surface: feedbackSurfaceForRoute(
+				routeForLocation(
+					window.location.pathname,
+					window.location.hash.slice(1),
+				),
+			),
+			language: screenLanguage(triggerRef.current),
+		});
+		setView("feedback");
 	};
 
 	// Place the panel before it paints, and keep it beside the trigger while
@@ -236,13 +419,13 @@ export function AppMenu() {
 	}, [open]);
 
 	useEffect(() => {
-		if (!open) return;
+		if (view === "closed") return;
 		const closeOnEscape = (event: globalThis.KeyboardEvent) => {
 			if (event.key === "Escape") close(true);
 		};
 		document.addEventListener("keydown", closeOnEscape);
 		return () => document.removeEventListener("keydown", closeOnEscape);
-	}, [open, close]);
+	}, [view, close]);
 
 	// A key pressed in the panel is the panel's: the presenter pages slides on
 	// arrow keys and Space at the window, and choosing a theme must not move the
@@ -262,7 +445,7 @@ export function AppMenu() {
 		if (event.key !== "Tab") return;
 		const stops = [
 			...event.currentTarget.querySelectorAll<HTMLElement>(
-				'[role="radio"][tabindex="0"], a[href]',
+				`[role="radio"][tabindex="0"], [${MENU_ITEM_ATTRIBUTE}], a[href]`,
 			),
 		];
 		const edge = event.shiftKey ? stops[0] : stops[stops.length - 1];
@@ -276,40 +459,61 @@ export function AppMenu() {
 			<button
 				ref={triggerRef}
 				type="button"
-				onClick={() => (open ? close(false) : openPanel())}
-				aria-label="Appearance and legal"
-				title="Appearance and legal"
-				aria-expanded={open}
-				// Only while the panel exists: an id naming nothing is no reference.
-				aria-controls={open ? panelId : undefined}
+				onClick={() => (view === "closed" ? openPanel() : close(false))}
+				aria-label={menuName}
+				title={menuName}
+				aria-expanded={view !== "closed"}
+				// Only while the panel or the dialog exists: an id naming nothing is
+				// no reference.
+				aria-controls={view === "closed" ? undefined : panelId}
 				className={`flex size-8.5 flex-shrink-0 items-center justify-center rounded-lg border bg-surface-raised hover:border-accent/50 ${
-					open ? "border-accent/50" : "border-border"
+					view === "closed" ? "border-border" : "border-accent/50"
 				} ${ICON_BUTTON_HOVER}`}
 			>
 				<Ellipsis size={16} aria-hidden />
 			</button>
-			{open &&
+			{view !== "closed" &&
 				portalHost &&
 				createPortal(
 					<>
-						{/* Click-away backdrop closes the panel, handing focus back to
-						    the trigger rather than dropping it on the page body as the
-						    backdrop unmounts under it. */}
+						{/* Click-away backdrop closes the panel or the dialog, handing
+						    focus back to the trigger rather than dropping it on the page
+						    body as the backdrop unmounts under it. Dimmed behind the
+						    dialog, which is modal. */}
 						<button
 							type="button"
 							tabIndex={-1}
-							aria-label="Close appearance and legal menu"
-							className="fixed inset-0 z-40 cursor-default"
+							aria-label={
+								view === "feedback"
+									? "Close feedback"
+									: `Close ${menuName.toLowerCase()} menu`
+							}
+							className={`fixed inset-0 z-40 cursor-default border-none ${
+								view === "feedback"
+									? "bg-void/70 backdrop-blur-sm"
+									: "bg-transparent"
+							}`}
 							onClick={() => close(true)}
 						/>
-						<AppMenuPanel
-							ref={panelRef}
-							id={panelId}
-							links={links}
-							theme={theme}
-							onThemeChange={setTheme}
-							onKeyDown={handlePanelKey}
-						/>
+						{view === "panel" && (
+							<AppMenuPanel
+								ref={panelRef}
+								id={panelId}
+								links={links}
+								theme={theme}
+								onThemeChange={setTheme}
+								feedbackEnabled={feedbackEnabled}
+								onSendFeedback={openFeedback}
+								onKeyDown={handlePanelKey}
+							/>
+						)}
+						{view === "feedback" && feedbackOrigin && (
+							<AppMenuFeedbackDialog
+								id={panelId}
+								origin={feedbackOrigin}
+								onClose={() => close(true)}
+							/>
+						)}
 					</>,
 					portalHost,
 				)}

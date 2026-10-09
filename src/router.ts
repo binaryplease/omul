@@ -44,7 +44,17 @@ export type Route =
 	 */
 	| { page: "results"; id: string }
 	| { page: "join" }
-	| { page: "participate"; code: string };
+	| { page: "participate"; code: string }
+	/**
+	 * The administrators' read of the feedback sent about omul (REQ185) — the
+	 * first admin page. Under the base rather than at a root prefix of its own:
+	 * nobody is *sent* this link, so it has no claim on the root, and a root
+	 * prefix would have to be taught to every proxy in front of the app.
+	 */
+	| { page: "adminFeedback" };
+
+/** Where the administrators' feedback page lives (REQ185). */
+export const ADMIN_FEEDBACK_PATH = `${APP_BASE_PATH}/admin/feedback`;
 
 /**
  * The route a URL names — the path and the hash, without the `#`.
@@ -76,6 +86,7 @@ export function routeForLocation(path: string, hash: string): Route {
 	if (path === "/workspaces") return { page: "workspaces" };
 	if (path === "/templates") return { page: "templates" };
 	if (path === "/generate") return { page: "generate" };
+	if (path === ADMIN_FEEDBACK_PATH) return { page: "adminFeedback" };
 	if (hash === "create") return { page: "create" };
 	if (hash === "join") return { page: "join" };
 	return { page: "home" };
@@ -94,14 +105,17 @@ export function getInitialRoute(): Route {
  */
 export function pathForRoute(route: Route): string {
 	switch (route.page) {
-		// The app's own front door and the two dialogs that open on it. The only
-		// routes the split moved: `/` is the marketing site's now.
+		// The app's own front door and the two dialogs that open on it — the
+		// routes the split moved, since `/` is the marketing site's now — and the
+		// one page born under the base.
 		case "home":
 			return APP_BASE_PATH;
 		case "create":
 			return `${APP_BASE_PATH}#create`;
 		case "join":
 			return `${APP_BASE_PATH}#join`;
+		case "adminFeedback":
+			return ADMIN_FEEDBACK_PATH;
 		// Everything below is a link somebody may already hold, so it stays where
 		// it has always been.
 		case "templates":

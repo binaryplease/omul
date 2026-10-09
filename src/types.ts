@@ -14,6 +14,7 @@
 
 import type { z } from "zod";
 import type {
+	AdminFeedbackPage,
 	BuiltInDeckThemeId,
 	ChatMessageEntry,
 	DeckAccessLevel,
@@ -27,6 +28,10 @@ import type {
 	DeckThemeId,
 	DeckThemeSettings,
 	EmbedProvider,
+	FeedbackChannel,
+	FeedbackConfig,
+	FeedbackContact,
+	FeedbackSurface,
 	FormField,
 	FormFieldOption,
 	FormFieldType,
@@ -34,6 +39,7 @@ import type {
 	McValueDisplay,
 	LiveRoomState,
 	ParticipantChannelSettings,
+	ParticipantFeedbackSubmission,
 	QAListEntry,
 	QAVisibility,
 	QuizAnswerMode,
@@ -51,6 +57,7 @@ import type {
 	SlideType,
 	SlideVideo,
 	TallyRevealState,
+	UserFeedbackSubmission,
 	WithheldTally,
 	WorkspaceTemplate,
 } from "../server/schemas";
@@ -102,6 +109,8 @@ import {
 	encodePoints,
 	encodeRanking,
 	EMPTY_DECK_BRAND,
+	FEEDBACK_COMMENT_MAX_LENGTH,
+	FEEDBACK_PROMPT_COOLDOWN_DAYS_DEFAULT,
 	filterDeckTemplates,
 	FORM_ANSWER_MAX_LENGTH,
 	FORM_FIELD_LIMIT,
@@ -277,6 +286,7 @@ export {
 export type { SegmentRefusal, SegmentSource } from "../server/segmentation";
 
 export type {
+	AdminFeedbackPage,
 	BuiltInDeckThemeId,
 	ChatMessageEntry,
 	DeckAccessLevel,
@@ -290,6 +300,10 @@ export type {
 	DeckThemeId,
 	DeckThemeSettings,
 	EmbedProvider,
+	FeedbackChannel,
+	FeedbackConfig,
+	FeedbackContact,
+	FeedbackSurface,
 	FormField,
 	FormFieldOption,
 	FormFieldType,
@@ -302,6 +316,7 @@ export type {
 	McDisplayStyle,
 	McValueDisplay,
 	ParticipantChannelSettings,
+	ParticipantFeedbackSubmission,
 	ParticipantNameSettings,
 	ParticipantRosterEntry,
 	PinArea,
@@ -322,6 +337,7 @@ export type {
 	SlideType,
 	SlideVideo,
 	TallyRevealState,
+	UserFeedbackSubmission,
 	VoteRefusalCode,
 	WithheldTally,
 	Workspace,
@@ -377,6 +393,8 @@ export {
 	encodePoints,
 	encodeRanking,
 	EMPTY_DECK_BRAND,
+	FEEDBACK_COMMENT_MAX_LENGTH,
+	FEEDBACK_PROMPT_COOLDOWN_DAYS_DEFAULT,
 	filterDeckTemplates,
 	FORM_ANSWER_MAX_LENGTH,
 	FORM_FIELD_LIMIT,

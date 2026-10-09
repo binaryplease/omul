@@ -4969,6 +4969,225 @@ export const GenerateDeckSchema = z.object({
 
 export type GenerateDeckInput = z.infer<typeof GenerateDeckSchema>;
 
+// ── Feedback about omul (REQ185) ─────────────────────────────
+
+/** The longest comment a feedback entry keeps, counted after trimming. */
+export const FEEDBACK_COMMENT_MAX_LENGTH = 2000;
+
+/** The kind of screen the app menu was opened on when feedback was sent. */
+export const FeedbackSurfaceSchema = z.enum(["presenter", "participant", "other"]);
+
+export type FeedbackSurface = z.infer<typeof FeedbackSurfaceSchema>;
+
+/**
+ * What `POST /api/feedback` takes — feedback about omul itself, sent from the
+ * app menu to whoever runs this instance (REQ185).
+ *
+ * `rating` and `comment` are each optional, and either alone is a complete
+ * submission; one with neither is refused `400` by the route rather than here,
+ * so the refusal can say what is missing instead of failing a refinement.
+ * `surface` and `language` are required — they are the only context an entry
+ * carries, and guessing them would store a fact nobody stated.
+ *
+ * `contactMe` is a request, not an identity: the account it refers to is the
+ * caller's session, resolved on the server, and a body cannot name any other.
+ */
+export const UserFeedbackSubmissionSchema = z.object({
+	rating: z.number().int().min(1).max(5).nullable().default(null),
+	comment: z.string().trim().max(FEEDBACK_COMMENT_MAX_LENGTH).default(""),
+	surface: FeedbackSurfaceSchema,
+	language: z.string().trim().min(1).max(DECK_LANGUAGE_MAX_LENGTH),
+	contactMe: z.boolean().default(false),
+});
+
+export type UserFeedbackSubmission = z.infer<
+	typeof UserFeedbackSubmissionSchema
+>;
+
+// ── The prompt after a session (REQ186) ─────────────────────
+
+/**
+ * The languages the participant screens speak — `Lang` in `src/i18n.ts`,
+ * restated because the server does not import the client, and held to it by a
+ * test. A prompt answer records the deck's language, which is one of these.
+ */
+export const ParticipantLanguageSchema = z.enum([
+	"en",
+	"de",
+	"fr",
+	"es",
+	"it",
+	"pt",
+	"nl",
+]);
+
+export type ParticipantLanguage = z.infer<typeof ParticipantLanguageSchema>;
+
+/**
+ * What `POST /api/feedback/participant` takes — a participant's answer to the
+ * prompt after a session (REQ186). The same rating-or-comment rule as
+ * {@link UserFeedbackSubmissionSchema}, refused `400` by the route, and nothing
+ * else: no surface, no contact request, and no field that could name the
+ * participant, the deck or an account. Anything else a body carries is dropped
+ * here, before the route sees it.
+ */
+export const ParticipantFeedbackSubmissionSchema = z.object({
+	rating: z.number().int().min(1).max(5).nullable().default(null),
+	comment: z.string().trim().max(FEEDBACK_COMMENT_MAX_LENGTH).default(""),
+	language: ParticipantLanguageSchema,
+});
+
+export type ParticipantFeedbackSubmission = z.infer<
+	typeof ParticipantFeedbackSubmissionSchema
+>;
+
+/** How many days a device waits before it is asked again, unless configured. */
+export const FEEDBACK_PROMPT_COOLDOWN_DAYS_DEFAULT = 30;
+
+/** The longest cooldown accepted: ten years, past which "never again" is meant. */
+export const FEEDBACK_PROMPT_COOLDOWN_DAYS_MAX = 3650;
+
+/** A whole number written in an environment variable: digits only, in bounds. */
+function wholeNumberSetting(minimum: number, maximum: number) {
+	return z
+		.string()
+		.regex(/^\d+$/)
+		.transform(Number)
+		.pipe(z.number().int().min(minimum).max(maximum));
+}
+
+/** `OMUL_FEEDBACK_PROMPT_PERCENT`, once set: the share of participants asked. */
+export const FeedbackPromptPercentSettingSchema = wholeNumberSetting(1, 100);
+
+/** `OMUL_FEEDBACK_PROMPT_COOLDOWN_DAYS`, once set. */
+export const FeedbackPromptCooldownDaysSettingSchema = wholeNumberSetting(
+	1,
+	FEEDBACK_PROMPT_COOLDOWN_DAYS_MAX,
+);
+
+/**
+ * What `GET /api/feedback/config` answers — whether this deployment collects
+ * feedback from the app menu (`enabled`, REQ185), and the prompt after a
+ * session (REQ186): `promptPercent` is the share of eligible participants asked,
+ * `null` while the prompt is off, and `promptCooldownDays` how long a device
+ * waits before it is asked again — reported whether or not the prompt is on.
+ */
+export const FeedbackConfigSchema = z.object({
+	enabled: z.boolean().default(false),
+	promptPercent: z.number().int().min(1).max(100).nullable().default(null),
+	promptCooldownDays: z
+		.number()
+		.int()
+		.min(1)
+		.max(FEEDBACK_PROMPT_COOLDOWN_DAYS_MAX)
+		.default(FEEDBACK_PROMPT_COOLDOWN_DAYS_DEFAULT),
+});
+
+export type FeedbackConfig = z.infer<typeof FeedbackConfigSchema>;
+
+/**
+ * The two feedback channels an administrator reads (REQ185): `user`, sent from
+ * the app menu, and `participant`, the prompt after a session (REQ186).
+ */
+export const FeedbackChannelSchema = z.enum(["user", "participant"]);
+
+export type FeedbackChannel = z.infer<typeof FeedbackChannelSchema>;
+
+/** How many entries one page of `GET /api/admin/feedback` holds. */
+export const FEEDBACK_PAGE_SIZE = 50;
+
+/**
+ * What `GET /api/admin/feedback` takes — the channel, and the `nextCursor` of
+ * the page before when paging on. A cursor is an entry id, opaque to the caller.
+ */
+export const AdminFeedbackQuerySchema = z.object({
+	channel: FeedbackChannelSchema,
+	cursor: z.string().min(1).optional(),
+});
+
+export type AdminFeedbackQuery = z.infer<typeof AdminFeedbackQuerySchema>;
+
+/**
+ * Who an administrator can write back to about one app-menu entry, resolved
+ * from its account when it is read and never stored: `null` when the sender
+ * did not ask to be contacted, `email` with the account's current address, or
+ * `deleted` when that account no longer exists.
+ */
+export const FeedbackContactSchema = z
+	.discriminatedUnion("status", [
+		z.object({ status: z.literal("email"), email: z.string() }),
+		z.object({ status: z.literal("deleted") }),
+	])
+	.nullable()
+	.default(null);
+
+export type FeedbackContact = z.infer<typeof FeedbackContactSchema>;
+
+/** One app-menu entry as an administrator reads it — never its account id. */
+export const AdminUserFeedbackEntrySchema = z.object({
+	id: z.string(),
+	rating: z.number().int().min(1).max(5).nullable().default(null),
+	comment: z.string().nullable().default(null),
+	surface: FeedbackSurfaceSchema,
+	language: z.string(),
+	createdOn: z.string(),
+	contact: FeedbackContactSchema,
+});
+
+/** One participant-prompt entry as an administrator reads it (REQ186). */
+export const AdminParticipantFeedbackEntrySchema = z.object({
+	id: z.string(),
+	rating: z.number().int().min(1).max(5).nullable().default(null),
+	comment: z.string().nullable().default(null),
+	language: z.string(),
+	createdOn: z.string(),
+});
+
+/** How many entries of a channel carry each rating, 1 to 5. */
+export const FeedbackRatingCountsSchema = z.object({
+	"1": z.number().int().default(0),
+	"2": z.number().int().default(0),
+	"3": z.number().int().default(0),
+	"4": z.number().int().default(0),
+	"5": z.number().int().default(0),
+});
+
+export type FeedbackRatingCounts = z.infer<typeof FeedbackRatingCountsSchema>;
+
+/**
+ * What every channel's page carries: its totals — over every entry, whichever
+ * page is asked for, `unratedCount` being the entries that hold only a comment —
+ * and the cursor to the next page.
+ */
+const FeedbackPageShape = {
+	total: z.number().int().default(0),
+	ratingCounts: FeedbackRatingCountsSchema,
+	unratedCount: z.number().int().default(0),
+	nextCursor: z.string().nullable().default(null),
+};
+
+/**
+ * What `GET /api/admin/feedback` answers (REQ185): a channel's totals, and one
+ * page of its entries, newest first. `nextCursor` is `null` on the last page.
+ */
+export const AdminFeedbackPageSchema = z.discriminatedUnion("channel", [
+	z.object({
+		channel: z.literal("user"),
+		...FeedbackPageShape,
+		entries: z.array(AdminUserFeedbackEntrySchema).default([]),
+	}),
+	z.object({
+		channel: z.literal("participant"),
+		...FeedbackPageShape,
+		entries: z.array(AdminParticipantFeedbackEntrySchema).default([]),
+	}),
+]);
+
+export type AdminFeedbackPage = z.infer<typeof AdminFeedbackPageSchema>;
+
+/** What `GET /api/admin/feedback` answers when it has no page to give. */
+export const AdminFeedbackErrorSchema = z.object({ error: z.string() });
+
 // ── Presentation schema ──────────────────────────────────────
 
 export const CreatePresentationSchema = z

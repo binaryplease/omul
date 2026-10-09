@@ -109,7 +109,10 @@ which is the fail-closed default rather than a misconfiguration (see
 and no self-service grant. Actions are two-step, token-confirmed
 (`server/admin-events.ts`, a `bun:sqlite` store with a 10-minute one-time
 confirmation token whose hash is stored, plus an append-only audit log). The one
-action today is **reassign a presentation's owner**.
+action today is **reassign a presentation's owner**. Beside the actions there is
+one read, `GET /api/admin/feedback` — the feedback sent about omul, which the
+app's first admin page, `/app/admin/feedback`, draws (see **Feedback about
+omul** below).
 
 ## Endpoints
 
@@ -118,6 +121,9 @@ action today is **reassign a presentation's owner**.
 | GET | `/api` | — | Discovery index: absolute links to the OpenAPI spec, docs UI, health probe and WebSocket — see **The discovery index** below |
 | GET | `/api/health` | — | Health check |
 | GET | `/api/legal` | — | Where this deployment's imprint, privacy policy and terms live: `{ imprintUrl, privacyUrl, termsUrl }`, each an `http(s)://` URL, a path on this host, or an explicit `null` when the operator configured none (REQ183). The client lists a link in the app menu on every route and draws a sentence at each contract-conclusion point only for what is set — see `OMUL_IMPRINT_URL` in [deployment.md](deployment.md#environment-variables) |
+| GET | `/api/feedback/config` | — | Which feedback about omul this deployment collects: `{ enabled, promptPercent, promptCooldownDays }` — `enabled` true only when the operator set `OMUL_FEEDBACK_ENABLED=true` (REQ185), `promptPercent` `null` while `OMUL_FEEDBACK_PROMPT_PERCENT` is unset (REQ186) — see **Feedback about omul** below |
+| POST | `/api/feedback` | optional session | Send feedback about omul to this instance's operator: JSON `{ rating?, comment?, surface, language, contactMe? }` (REQ185). `404` for any request while the channel is off, `415` for any content type but `application/json` |
+| POST | `/api/feedback/participant` | — | Answer the prompt after a session: JSON `{ rating?, comment?, language }` (REQ186), stored with no account, participant or deck. `404` for any request while the prompt is off, `415` for any content type but `application/json` |
 | ANY | `/api/auth/*` | — | Better Auth (sign-up/in/out, session, reset, verify, change-email, delete-user, API keys) |
 | GET | `/api/templates` | — | The prebuilt-deck catalog, filtered by `?category=` and `?search=` (REQ005) — see **Deck templates** below |
 | GET | `/api/templates/:id` | — | One catalog entry by its id (REQ005) |
@@ -191,6 +197,7 @@ action today is **reassign a presentation's owner**.
 | POST | `/api/admin/actions` | ✅ admin | Prepare a two-step action; returns a one-time `confirmationToken` |
 | POST | `/api/admin/actions/:id/confirm` | ✅ admin | Execute a prepared action `{ confirmationToken }` |
 | GET | `/api/admin/events` | ✅ admin | Append-only admin audit log |
+| GET | `/api/admin/feedback` | ✅ admin | Feedback about omul, `?channel=user\|participant` and an optional `cursor`: the channel's totals and fifty entries newest first, a `user` entry's contact resolved at read time (REQ185). `404` while both channels are off — see **Feedback about omul** below |
 
 Ten of those routes are rate-limited and can answer `429` — see **Rate
 limits** directly below.
@@ -362,6 +369,8 @@ in the body:
 | `POST …/collaborators` (REQ075) | 60 per minute | the deck being shared |
 | `POST /api/workspaces/:id/members` (REQ129) | 600 per minute | client |
 | `POST /api/workspaces/:id/members` (REQ129) | 60 per minute | the workspace being added to |
+| `POST /api/feedback` (REQ185) | 20 per 10 minutes | client |
+| `POST /api/feedback/participant` (REQ186) | 300 per 10 minutes | client |
 
 Sharing a deck and adding somebody to a workspace are the two **authenticated**
 routes on that list, and they are there for a reason of their own (REQ075,
@@ -987,6 +996,141 @@ unknown id answers `400` to a member and nothing at all to anybody else.
 **Deleting a workspace takes its gallery with it** and no deck with either: the
 templates are swept the way its memberships are, while the decks still refuse the
 delete with `409` until they are moved out (**Workspaces** above).
+
+## Feedback about omul (REQ185, REQ186)
+
+Feedback about omul itself, sent to the people who run this instance — never to
+a presenter or an organizer, and never into a deck. It is
+stored in the operator's own feedback database (`server/feedback-store.ts`, a
+`feedback.sqlite` beside the docstore unless `OMUL_FEEDBACK_DB` says otherwise),
+outside the zodstore domain data, so no presentation, workspace or account path
+reads or deletes it.
+
+**All of it is built (REQ185).** The store, `GET /api/feedback/config` and
+`POST /api/feedback` (slice 1); the form that sends to them: "Send feedback" in
+the app menu, on every screen that mounts it, opening the shared `FeedbackForm`
+in a dialog (slice 2); the administrators' read endpoint, `GET
+/api/admin/feedback` (slice 3, below); and their page at `/app/admin/feedback`
+(slice 4), which draws that endpoint's answer with one tab per channel — the
+totals, the per-rating and unrated counts, the entries newest first with a
+button for the next page, and a `user` entry's contact as a `mailto:` link or
+"account deleted, no contact". It sits under the app's base path rather than at
+a root prefix of its own, and nothing links to it: an administrator opens it by
+URL. Its refusals are screens of their own — signed out (`401`), not an
+administrator (`403`), channel off (`404`). The menu offers the feedback item
+only once `GET /api/feedback/config` has answered `enabled: true`.
+
+**Two channels, each off unless the operator turns it on, independently of the
+other.** The app menu's form is on when `OMUL_FEEDBACK_ENABLED=true`; the prompt
+after a session (REQ186, below) is on when `OMUL_FEEDBACK_PROMPT_PERCENT` is
+set. Each write answers `404` while its own channel is off, and with both off
+no database file is created. `GET /api/feedback/config` says which is on, read
+once per page load:
+
+| Field | Meaning |
+|---|---|
+| `enabled` | `true` only when `OMUL_FEEDBACK_ENABLED=true` — the app menu offers its form |
+| `promptPercent` | the share of eligible participants the prompt asks, 1 to 100; `null` while the prompt is off |
+| `promptCooldownDays` | how many days a device waits before the prompt asks it again (`OMUL_FEEDBACK_PROMPT_COOLDOWN_DAYS`, default `30`); reported whether or not the prompt is on |
+
+`POST /api/feedback` takes:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `rating` | one of the two | an integer from 1 to 5 |
+| `comment` | one of the two | at most 2,000 characters after trimming |
+| `surface` | ✅ | `presenter`, `participant` or `other` — the kind of screen the menu was opened on. The app menu sends `presenter` from the editor, preview and presenter screens, `participant` from entering a code and the room, and `other` elsewhere |
+| `language` | ✅ | the UI language of that screen — the deck's on a participant screen, `en` elsewhere |
+| `contactMe` | — | `true` to let the operator write back (default `false`) |
+
+A rating alone and a comment alone are each complete; neither answers `400`. A
+malformed field answers `422`. It answers `201` with the entry's `id`.
+
+**JSON only.** Any content type but `application/json` (parameters such as
+`charset` aside) answers `415` before the body is validated or the budget is
+charged. Form-encoded, multipart and plain-text bodies are what a page on another
+site can make a visitor's browser post without asking; refusing them keeps such
+a page from filing feedback in visitors' names and spending their budgets. Off,
+the body is not read at all, so every request answers `404` whatever it carries.
+
+**No account is needed, and none can be named.** With `contactMe: true` the
+server records the account of the caller's **session** — never an id from the
+body — and without a session the entry is stored anonymously whatever the body
+says. The contact address is not stored: the operator view resolves the account
+to its current email when it is read (below), so a deleted account leaves no
+address behind. The stored row holds `id`, `rating`, `comment`, `surface`,
+`contactAccountId`, `language` and `createdOn` (the UTC day) — no email,
+participant id, name, presentation, workspace, IP address, user agent or time
+finer than the day — and the route does not log the request body.
+
+**Reading it is for administrators only.** `GET /api/admin/feedback` sits behind
+the admin gate (`401` signed-out, `403` signed-in non-admin — before the query is
+even validated), and it is the only route that reads the feedback database; no
+presenter, workspace role or deck owner reaches either channel. It takes:
+
+| Query | Required | Meaning |
+|---|---|---|
+| `channel` | ✅ | `user` — the app menu's form — or `participant`, the prompt after a session (REQ186). Anything else answers `422` |
+| `cursor` | — | the `nextCursor` of the page before; one that names no entry of the channel answers `400` |
+
+and answers the channel's totals and one page of its entries:
+
+| Field | Meaning |
+|---|---|
+| `channel` | the channel asked for |
+| `total` | every entry in the channel, whichever page this is |
+| `ratingCounts` | `{ "1": …, "5": … }` — how many entries carry each rating |
+| `unratedCount` | how many hold only a comment |
+| `entries` | up to fifty, newest first: by day, then in the order they were sent |
+| `nextCursor` | pass it back as `cursor` for the next page; `null` on the last |
+
+A `user` entry is `{ id, rating, comment, surface, language, createdOn, contact
+}` and a `participant` entry `{ id, rating, comment, language, createdOn }`;
+`rating` and `comment` are `null` when not given. Its account id is never
+returned. `contact` is resolved from that account **when it is read** and never
+stored: `null` when the sender did not ask to be contacted, `{ "status": "email",
+"email": … }` with the account's current address, or `{ "status": "deleted" }`
+once the account is gone. While both channels are off an administrator gets
+`404` and no database is opened; while either is on, both channels are read —
+so a deployment that runs only the prompt still reads its answers, and the
+menu's tab answers what it holds. The answer is `Cache-Control: no-store`.
+
+### The prompt after a session (REQ186)
+
+A sample of participants is asked once, after a session has ended and outside
+the deck, what they think of omul. The server holds the switch, the config
+fields above and the write route below; the browser decides who is asked. A
+participant's ended screen draws a card in omul's own default theme and under
+omul's mark (`src/components/ParticipantFeedbackPrompt.tsx`), in the deck's
+language, only when all four hold (`shouldAskForParticipantFeedback()` in
+`src/feedback-prompt.ts`): the prompt is on, the device saw the deck in `draft`
+or `live` before it ended, the participant falls in the sample — drawn on the
+device from the participant id, the deck and the run's `sessionStartedAt`, so
+the server never learns who was sampled — and the device was last asked at
+least `promptCooldownDays` ago. Answering and dismissing both count as being
+asked. The card sends here, and nothing else in the app does.
+
+`POST /api/feedback/participant` takes:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `rating` | one of the two | an integer from 1 to 5 |
+| `comment` | one of the two | at most 2,000 characters after trimming |
+| `language` | ✅ | the deck's language: `en`, `de`, `fr`, `es`, `it`, `pt` or `nl`. Anything else answers `422` |
+
+The same rules as `POST /api/feedback`: either half alone is complete and
+neither answers `400`; a malformed field answers `422`; `201` carries the
+entry's `id`; any content type but `application/json` answers `415` before the
+body is validated or the budget is charged; and while the prompt is off the body
+is not read at all, so every request answers `404`.
+
+**Anonymous by definition.** There is no contact box and no `contactMe`: the
+route never asks who the session is, and anything else a body carries — a
+participant id, a deck, an account — is dropped before it is stored. The stored
+row in `participant_feedback` holds `id`, `rating`, `comment`, `language` and
+`createdOn` (the UTC day), and nothing else, signed in or not; the route does
+not log the request body. Its budget is its own, sized for a room behind one
+address answering at once (**Abuse limits** above).
 
 ## Generating a deck from a prompt (REQ007)
 

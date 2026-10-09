@@ -23,6 +23,7 @@ let tempDir: string;
 let userId: string;
 let apiKey: string;
 let resolveUserId: (headers: Headers) => Promise<string | null>;
+let authDbPath: () => string;
 
 beforeAll(async () => {
 	tempDir = mkdtempSync(join(tmpdir(), "omul-accounts-"));
@@ -32,6 +33,7 @@ beforeAll(async () => {
 	const accounts = await import("./accounts");
 	await accounts.ensureAuthSchema();
 	resolveUserId = accounts.resolveUserId;
+	authDbPath = accounts.authDbPath;
 
 	const signUp = await accounts.auth.api.signUpEmail({
 		body: {
@@ -51,6 +53,21 @@ beforeAll(async () => {
 // mid-run could break a sibling test file that touched auth.
 process.on("exit", () => {
 	if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+});
+
+describe("authDbPath — where OMUL_AUTH_DB points (REQ187)", () => {
+	test("an explicit :memory: stays in memory instead of naming a file in the cwd", () => {
+		const configured = process.env.OMUL_AUTH_DB;
+		try {
+			process.env.OMUL_AUTH_DB = ":memory:";
+			expect(authDbPath()).toBe(":memory:");
+			process.env.OMUL_AUTH_DB = join(tempDir, "elsewhere", "auth.db");
+			expect(authDbPath()).toBe(join(tempDir, "elsewhere", "auth.db"));
+		} finally {
+			if (configured === undefined) delete process.env.OMUL_AUTH_DB;
+			else process.env.OMUL_AUTH_DB = configured;
+		}
+	});
 });
 
 describe("resolveUserId — credential-slot precedence", () => {
