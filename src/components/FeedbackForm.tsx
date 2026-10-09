@@ -11,12 +11,12 @@
  * **The contact box is drawn only when `contactEmail` names an address**, which
  * the menu does for a signed-in sender and nobody else. Signed out there is no
  * account to write back to, and the participant prompt never draws it at all.
- * It starts ticked; the sender sees it, and the address it would use, before
- * anything is sent. It is a choice about being written back to on this one
- * entry and is used for nothing else — and it is not consent, so nothing here
- * or anywhere else calls it that (see REQ185's Notes). Whether it should start
- * unticked is the operator's call; it is the `contactMe` default in
- * {@link EMPTY_FEEDBACK_DRAFT}.
+ * It starts unticked, so an account is attached only when the sender ticks it
+ * themselves, having seen the address it would use. It is a choice about being
+ * written back to on this one entry and is used for nothing else — and it is
+ * not consent, so nothing here or anywhere else calls it that (see REQ185's
+ * Notes). The unticked start is the `contactMe` default in
+ * {@link EMPTY_FEEDBACK_DRAFT}, and it is not configurable.
  *
  * **Its words are a prop.** The menu draws it in English, as the rest of the
  * app's chrome is; the prompt draws it in the deck's language, because it sits
@@ -46,11 +46,11 @@ import { type Dict, getDict } from "../i18n";
 import { FEEDBACK_COMMENT_MAX_LENGTH } from "../types";
 import { BRAND_NAME } from "./BrandMark";
 
-/** What a fresh form holds: no rating, no comment, the contact box ticked. */
+/** What a fresh form holds: no rating, no comment, the contact box unticked. */
 export const EMPTY_FEEDBACK_DRAFT: FeedbackDraft = {
 	rating: null,
 	comment: "",
-	contactMe: true,
+	contactMe: false,
 };
 
 /** Who reads this — said first, so nobody mistakes it for the presenter's form. */

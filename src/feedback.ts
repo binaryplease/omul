@@ -11,7 +11,7 @@
  *   - **What to send.** `buildUserFeedbackSubmission()` turns what the form
  *     holds into the body `POST /api/feedback` takes. It never carries an
  *     account: the server resolves that from the session, and only when the
- *     sender left the contact box ticked. `buildParticipantFeedbackSubmission()`
+ *     sender ticked the contact box. `buildParticipantFeedbackSubmission()`
  *     does the same for the prompt after a session (REQ186), whose body is a
  *     rating, a comment and the deck's language and nothing else.
  *

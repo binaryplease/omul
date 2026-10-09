@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The presenter screen shows how long the session has been running. The clock stops when the session ends, survives a page reload, and is cleared by a reset.
 - Anyone can send feedback about omul to the people who run the instance, from "Send feedback" in the app menu:
   - Set `OMUL_FEEDBACK_ENABLED=true` to turn it on. It is off by default; while it is off the menu has no such item and no feedback database is created.
-  - The form takes an optional 1–5 star rating and a comment. Signed-in senders also get a "You can contact me about this" box, ticked by default, that names their account email.
+  - The form takes an optional 1–5 star rating and a comment. Signed-in senders also get a "You can contact me about this" box, unticked by default, that names their account email. Their account is kept only if they tick it.
   - Answers are stored in a separate `feedback.sqlite` beside the other databases, or in the file `OMUL_FEEDBACK_DB` names. Only the rating, comment, screen kind, language, day and (when the box is ticked) the account are kept.
   - The routes are `GET /api/feedback/config` and `POST /api/feedback`, which accepts JSON only and allows 20 submissions per 10 minutes per client.
 - Administrators (`OMUL_ADMIN_EMAILS`) read the feedback at `/app/admin/feedback`, with one tab per channel, totals, a count per rating and paging. When the sender asked to be contacted, the page shows their current account email, or that the account has been deleted. The same data is served at `GET /api/admin/feedback`.
