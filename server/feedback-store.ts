@@ -196,7 +196,7 @@ export function feedbackStartupReport(
 		];
 	}
 	const lines = [
-		`[feedback] on — feedback sent to POST /api/feedback is stored in ${store.path}. The app-menu form and the administrators' view of the answers are not built yet (REQ185).`,
+		`[feedback] on — feedback sent to POST /api/feedback is stored in ${store.path}. The app menu offers a feedback form; the administrators' view of the answers is not built yet (REQ185).`,
 	];
 	if (administrators.length === 0) {
 		lines.push(

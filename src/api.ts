@@ -10,6 +10,7 @@ import {
 	type DeckTemplate,
 	type DeckTemplateCategory,
 	type DeckThemeId,
+	type FeedbackConfig,
 	isVoteRefusalCode,
 	isWithheldTally,
 	type LegalLinks,
@@ -19,6 +20,7 @@ import {
 	type ResultsLink,
 	type ResultsVisibility,
 	type SlideComment,
+	type UserFeedbackSubmission,
 	type VoteRefusalCode,
 	withFreshSlideIds,
 	type Workspace,
@@ -394,6 +396,25 @@ export const api = {
 	 * link for it.
 	 */
 	getLegalLinks: () => request<LegalLinks>("/legal"),
+
+	/**
+	 * Whether this deployment collects feedback about omul (REQ185). `enabled`
+	 * is false unless the operator switched the channel on, and the app menu
+	 * offers no feedback item while it is.
+	 */
+	getFeedbackConfig: () => request<FeedbackConfig>("/feedback/config"),
+
+	/**
+	 * Send one piece of feedback about omul to whoever runs this instance
+	 * (REQ185). JSON, as `request` always sends — the route refuses any other
+	 * content type. No account is named: the server takes it from the session,
+	 * and only when `contactMe` is true.
+	 */
+	sendFeedback: (submission: UserFeedbackSubmission) =>
+		request<{ id: string }>("/feedback", {
+			method: "POST",
+			body: JSON.stringify(submission),
+		}),
 
 	/**
 	 * Draft a deck from a prompt (REQ007). Answers with an ordinary presentation

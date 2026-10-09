@@ -383,9 +383,18 @@ export function ParticipantPage({
 	 * `pres` is null until the join lookup answers, and the scope takes that: the
 	 * loading and error screens wear the built-in default, because there is not
 	 * yet a deck whose theme they could be in.
+	 *
+	 * The screens are in the deck's language too (REQ084), and say so: `lang` is
+	 * what a screen reader pronounces them by, and what the app menu records as
+	 * the language a feedback entry was sent from (REQ185). A box-less wrapper,
+	 * so the layout is the scope's as before.
 	 */
 	const themed = (screen: React.ReactNode) => (
-		<DeckThemeScope deck={pres}>{screen}</DeckThemeScope>
+		<DeckThemeScope deck={pres}>
+			<div lang={pres?.language || undefined} className="contents">
+				{screen}
+			</div>
+		</DeckThemeScope>
 	);
 
 	if (loading)

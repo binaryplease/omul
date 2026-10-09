@@ -1000,12 +1000,14 @@ stored in the operator's own feedback database (`server/feedback-store.ts`, a
 outside the zodstore domain data, so no presentation, workspace or account path
 reads or deletes it.
 
-**Only the write side exists so far.** What is built is the store, `GET
-/api/feedback/config` and `POST /api/feedback` (REQ185 slice 1). The app-menu
-form that sends feedback (slice 2) and the administrators' read endpoint and page
-(slices 3 and 4) are still to come; until they land, an operator reads the
-answers from the SQLite file. Where this section describes the operator view, it
-describes that planned behaviour.
+**Sending is built; reading is not yet.** What is built is the store, `GET
+/api/feedback/config` and `POST /api/feedback` (REQ185 slice 1), and the form
+that sends to them: "Send feedback" in the app menu, on every screen that mounts
+it, opening the shared `FeedbackForm` in a dialog (slice 2). The menu offers the
+item only once `GET /api/feedback/config` has answered `enabled: true`. The
+administrators' read endpoint and page (slices 3 and 4) are still to come; until
+they land, an operator reads the answers from the SQLite file. Where this
+section describes the operator view, it describes that planned behaviour.
 
 **Off unless the operator sets `OMUL_FEEDBACK_ENABLED=true`.** Off, `POST
 /api/feedback` answers `404`, `GET /api/feedback/config` reports
@@ -1018,8 +1020,8 @@ an object so that later fields can join it; a client reads it once per page load
 |---|---|---|
 | `rating` | one of the two | an integer from 1 to 5 |
 | `comment` | one of the two | at most 2,000 characters after trimming |
-| `surface` | ✅ | `presenter`, `participant` or `other` — the kind of screen the menu was opened on |
-| `language` | ✅ | the UI language of that screen |
+| `surface` | ✅ | `presenter`, `participant` or `other` — the kind of screen the menu was opened on. The app menu sends `presenter` from the editor, preview and presenter screens, `participant` from entering a code and the room, and `other` elsewhere |
+| `language` | ✅ | the UI language of that screen — the deck's on a participant screen, `en` elsewhere |
 | `contactMe` | — | `true` to let the operator write back (default `false`) |
 
 A rating alone and a comment alone are each complete; neither answers `400`. A
