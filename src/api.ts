@@ -16,6 +16,7 @@ import {
 	isVoteRefusalCode,
 	isWithheldTally,
 	type LegalLinks,
+	type ParticipantFeedbackSubmission,
 	type ParticipantRosterEntry,
 	type ReactionKind,
 	RESULTS_TOKEN_HEADER,
@@ -423,6 +424,17 @@ export const api = {
 	 */
 	sendFeedback: (submission: UserFeedbackSubmission) =>
 		request<{ id: string }>("/feedback", {
+			method: "POST",
+			body: JSON.stringify(submission),
+		}),
+
+	/**
+	 * Answer the prompt after a session (REQ186): a rating and/or a comment and
+	 * the deck's language, and nothing else — no participant id, no deck, and no
+	 * session is read by the route. JSON, as `request` always sends.
+	 */
+	sendParticipantFeedback: (submission: ParticipantFeedbackSubmission) =>
+		request<{ id: string }>("/feedback/participant", {
 			method: "POST",
 			body: JSON.stringify(submission),
 		}),

@@ -13,6 +13,7 @@ import {
 } from "../components/ParticipantSlideView";
 import { DeckMark, DeckThemeScope } from "../components/DeckTheme";
 import { LegalNotice } from "../components/LegalLinks";
+import { ParticipantFeedbackPrompt } from "../components/ParticipantFeedbackPrompt";
 import {
 	ChatComposer,
 	ChatHeading,
@@ -241,7 +242,7 @@ export function ParticipantPage({
 	 * Record that this device is in the room (REQ186): a deck seen here in
 	 * `draft` or `live` is one the participant may be asked about once it ends,
 	 * and a deck first seen ended never is. Nothing is drawn from it here — the
-	 * ended screen reads it through `shouldAskForParticipantFeedback()`.
+	 * ended screen's prompt reads it through `shouldAskForParticipantFeedback()`.
 	 */
 	useEffect(() => {
 		if (!pres?.id) return;
@@ -464,6 +465,13 @@ export function ParticipantPage({
 					>
 						Back to home
 					</button>
+					{/* REQ186 — omul's own question, on a card of its own below the
+					    organizer's goodbye: in omul's default theme and under omul's
+					    mark, drawn only for a sampled device that was in the room. */}
+					<ParticipantFeedbackPrompt
+						deck={pres}
+						participantId={participantId.current}
+					/>
 				</div>
 			</div>,
 		);

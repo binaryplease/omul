@@ -234,6 +234,50 @@
 	--shadow-panel: 0 0 0 0 transparent;
 }
 
+/* ── The house theme inside a deck that has its own ─────────── */
+
+/* A house scope nested in a deck carrying the rule above — the prompt after a
+   session (REQ186), omul's own card on a deck's ended screen — would inherit
+   that deck's re-pointed families, since a custom property is resolved where
+   it is declared: its primary button and its accent-coloured words would come
+   out in the deck's accent, on a card whose whole point is to look like omul
+   and not like the deck. So it takes the house values back here, one block per
+   scheme in the same shape as `:root`'s. A slide's appearance painted over a
+   deck is not a house scope and keeps what the deck gave it. */
+.deck-theme [data-deck-theme-scope]:not(.deck-theme, .slide-appearance) {
+	--color-primary: var(--color-accent);
+	--color-primary-hover: var(--color-accent-hover);
+	--color-on-primary: #ffffff;
+	--color-accent-text: #7c9cff;
+	--color-accent-text-hover: #a5bcff;
+	--color-accent-glow-soft: rgba(46, 92, 255, 0.1);
+	--color-on-accent: #ffffff;
+	--shadow-panel: 0 0 0 0 transparent;
+}
+
+:root.light .deck-theme [data-deck-theme-scope]:not(.deck-theme, .slide-appearance),
+:root.auto .deck-theme [data-deck-theme-scope]:not(.deck-theme, .slide-appearance) {
+	--color-primary: var(--color-ink);
+	--color-primary-hover: #27272e;
+	--color-on-primary: var(--color-paper);
+	--color-accent-text: #1f3bff;
+	--color-accent-text-hover: #0a25d6;
+	--color-accent-glow-soft: transparent;
+	--shadow-panel: 0 1px 2px rgba(9, 9, 11, 0.05);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root.auto .deck-theme [data-deck-theme-scope]:not(.deck-theme, .slide-appearance) {
+		--color-primary: var(--color-accent);
+		--color-primary-hover: var(--color-accent-hover);
+		--color-on-primary: #ffffff;
+		--color-accent-text: #7c9cff;
+		--color-accent-text-hover: #a5bcff;
+		--color-accent-glow-soft: rgba(46, 92, 255, 0.1);
+		--shadow-panel: 0 0 0 0 transparent;
+	}
+}
+
 /* ── Base ──────────────────────────────────────────────────── */
 
 * {

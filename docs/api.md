@@ -1098,11 +1098,17 @@ menu's tab answers what it holds. The answer is `Cache-Control: no-store`.
 ### The prompt after a session (REQ186)
 
 A sample of participants is asked once, after a session has ended and outside
-the deck, what they think of omul. **Only the server half is built so far**: the
-switch, the config fields above and the write route below. The participant-side
-half — which device is in the sample, the per-device cooldown, and the card on
-the participant's ended screen that sends to this route — is still to come
-(REQ186 slices 2 and 3), so with the prompt on no participant is asked yet.
+the deck, what they think of omul. The server holds the switch, the config
+fields above and the write route below; the browser decides who is asked. A
+participant's ended screen draws a card in omul's own default theme and under
+omul's mark (`src/components/ParticipantFeedbackPrompt.tsx`), in the deck's
+language, only when all four hold (`shouldAskForParticipantFeedback()` in
+`src/feedback-prompt.ts`): the prompt is on, the device saw the deck in `draft`
+or `live` before it ended, the participant falls in the sample — drawn on the
+device from the participant id, the deck and the run's `sessionStartedAt`, so
+the server never learns who was sampled — and the device was last asked at
+least `promptCooldownDays` ago. Answering and dismissing both count as being
+asked. The card sends here, and nothing else in the app does.
 
 `POST /api/feedback/participant` takes:
 

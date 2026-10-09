@@ -232,6 +232,37 @@ export type Dict = {
 	nameJoinedAs: string;
 	nameChange: string;
 	nameCancel: string;
+	/**
+	 * The prompt after a session (REQ186): the card on the ended screen that asks
+	 * about omul itself, not about the deck. `feedbackPromptIntro` says who reads
+	 * the answer and that it is anonymous — the card's own look says it is not
+	 * the organizer's question, and this sentence says it in words.
+	 * `feedbackPromptDismiss` names the card's close control, which has no text
+	 * of its own.
+	 */
+	feedbackPromptHeading: string;
+	feedbackPromptIntro: string;
+	feedbackPromptDismiss: string;
+	/**
+	 * The shared feedback form's own words (REQ185), as the card shows them.
+	 * `feedbackStarOf` is a template: `{star}` and `{total}` are replaced, since
+	 * word order and case differ per language. Every `{brand}` in these keys is
+	 * the product's name, filled from `BRAND_NAME` where it is read. `feedbackNotSent` leads the
+	 * server's reason; `feedbackNotSentRetry` stands alone when there is none.
+	 */
+	feedbackRating: string;
+	feedbackOptional: string;
+	feedbackStarOf: string;
+	feedbackComment: string;
+	feedbackCommentPlaceholder: string;
+	feedbackSend: string;
+	feedbackSending: string;
+	feedbackSendWhy: string;
+	feedbackSent: string;
+	feedbackSentDetail: string;
+	feedbackClose: string;
+	feedbackNotSent: string;
+	feedbackNotSentRetry: string;
 };
 
 const en: Dict = {
@@ -347,6 +378,22 @@ const en: Dict = {
 	nameJoinedAs: "Joined as",
 	nameChange: "Change",
 	nameCancel: "Cancel",
+	feedbackPromptHeading: "How did you find {brand}, the tool behind this session?",
+	feedbackPromptIntro: "Your answer is anonymous and goes to the people who run {brand} here, not to the organizers of this event.",
+	feedbackPromptDismiss: "Close without answering",
+	feedbackRating: "Rating",
+	feedbackOptional: "(optional)",
+	feedbackStarOf: "{star} of {total} stars",
+	feedbackComment: "Comment",
+	feedbackCommentPlaceholder: "What works, what gets in the way, what's missing?",
+	feedbackSend: "Send feedback",
+	feedbackSending: "Sending…",
+	feedbackSendWhy: "Add a rating or a comment to send.",
+	feedbackSent: "Thank you — it's sent.",
+	feedbackSentDetail: "The people who run {brand} here will read it.",
+	feedbackClose: "Close",
+	feedbackNotSent: "Not sent",
+	feedbackNotSentRetry: "Not sent. Please try again.",
 };
 
 const de: Dict = {
@@ -464,6 +511,22 @@ const de: Dict = {
 	nameJoinedAs: "Beigetreten als",
 	nameChange: "Ändern",
 	nameCancel: "Abbrechen",
+	feedbackPromptHeading: "Wie fandest du {brand}, das Tool hinter dieser Session?",
+	feedbackPromptIntro: "Deine Antwort ist anonym und geht an die Betreiber von {brand} hier, nicht an die Veranstalter dieses Events.",
+	feedbackPromptDismiss: "Schließen, ohne zu antworten",
+	feedbackRating: "Bewertung",
+	feedbackOptional: "(optional)",
+	feedbackStarOf: "{star} von {total} Sternen",
+	feedbackComment: "Kommentar",
+	feedbackCommentPlaceholder: "Was funktioniert, was stört, was fehlt?",
+	feedbackSend: "Feedback senden",
+	feedbackSending: "Wird gesendet…",
+	feedbackSendWhy: "Gib eine Bewertung oder einen Kommentar ein, um zu senden.",
+	feedbackSent: "Danke — ist gesendet.",
+	feedbackSentDetail: "Die Betreiber von {brand} hier werden es lesen.",
+	feedbackClose: "Schließen",
+	feedbackNotSent: "Nicht gesendet",
+	feedbackNotSentRetry: "Nicht gesendet. Bitte versuch es noch einmal.",
 };
 
 const fr: Dict = {
@@ -582,6 +645,22 @@ const fr: Dict = {
 	nameJoinedAs: "Connecté en tant que",
 	nameChange: "Modifier",
 	nameCancel: "Annuler",
+	feedbackPromptHeading: "Qu'avez-vous pensé d'{brand}, l'outil derrière cette session ?",
+	feedbackPromptIntro: "Votre réponse est anonyme et va aux personnes qui gèrent {brand} ici, pas aux organisateurs de cet événement.",
+	feedbackPromptDismiss: "Fermer sans répondre",
+	feedbackRating: "Note",
+	feedbackOptional: "(facultatif)",
+	feedbackStarOf: "{star} sur {total} étoiles",
+	feedbackComment: "Commentaire",
+	feedbackCommentPlaceholder: "Qu'est-ce qui fonctionne, qu'est-ce qui gêne, qu'est-ce qui manque ?",
+	feedbackSend: "Envoyer l'avis",
+	feedbackSending: "Envoi…",
+	feedbackSendWhy: "Ajoutez une note ou un commentaire pour envoyer.",
+	feedbackSent: "Merci — c'est envoyé.",
+	feedbackSentDetail: "Les personnes qui gèrent {brand} ici le liront.",
+	feedbackClose: "Fermer",
+	feedbackNotSent: "Non envoyé",
+	feedbackNotSentRetry: "Non envoyé. Veuillez réessayer.",
 };
 
 const es: Dict = {
@@ -700,6 +779,22 @@ const es: Dict = {
 	nameJoinedAs: "Te uniste como",
 	nameChange: "Cambiar",
 	nameCancel: "Cancelar",
+	feedbackPromptHeading: "¿Qué te ha parecido {brand}, la herramienta detrás de esta sesión?",
+	feedbackPromptIntro: "Tu respuesta es anónima y llega a quienes gestionan {brand} aquí, no a los organizadores de este evento.",
+	feedbackPromptDismiss: "Cerrar sin responder",
+	feedbackRating: "Valoración",
+	feedbackOptional: "(opcional)",
+	feedbackStarOf: "{star} de {total} estrellas",
+	feedbackComment: "Comentario",
+	feedbackCommentPlaceholder: "¿Qué funciona, qué estorba, qué falta?",
+	feedbackSend: "Enviar opinión",
+	feedbackSending: "Enviando…",
+	feedbackSendWhy: "Añade una valoración o un comentario para enviar.",
+	feedbackSent: "Gracias — ya está enviado.",
+	feedbackSentDetail: "Quienes gestionan {brand} aquí lo leerán.",
+	feedbackClose: "Cerrar",
+	feedbackNotSent: "No enviado",
+	feedbackNotSentRetry: "No enviado. Inténtalo de nuevo.",
 };
 
 const it: Dict = {
@@ -817,6 +912,22 @@ const it: Dict = {
 	nameJoinedAs: "Sei entrato come",
 	nameChange: "Modifica",
 	nameCancel: "Annulla",
+	feedbackPromptHeading: "Cosa ne pensi di {brand}, lo strumento dietro questa sessione?",
+	feedbackPromptIntro: "La tua risposta è anonima e va a chi gestisce {brand} qui, non agli organizzatori di questo evento.",
+	feedbackPromptDismiss: "Chiudi senza rispondere",
+	feedbackRating: "Valutazione",
+	feedbackOptional: "(facoltativo)",
+	feedbackStarOf: "{star} su {total} stelle",
+	feedbackComment: "Commento",
+	feedbackCommentPlaceholder: "Cosa funziona, cosa ostacola, cosa manca?",
+	feedbackSend: "Invia feedback",
+	feedbackSending: "Invio…",
+	feedbackSendWhy: "Aggiungi una valutazione o un commento per inviare.",
+	feedbackSent: "Grazie — è stato inviato.",
+	feedbackSentDetail: "Chi gestisce {brand} qui lo leggerà.",
+	feedbackClose: "Chiudi",
+	feedbackNotSent: "Non inviato",
+	feedbackNotSentRetry: "Non inviato. Riprova.",
 };
 
 const pt: Dict = {
@@ -934,6 +1045,22 @@ const pt: Dict = {
 	nameJoinedAs: "Entrou como",
 	nameChange: "Alterar",
 	nameCancel: "Cancelar",
+	feedbackPromptHeading: "O que achaste do {brand}, a ferramenta por trás desta sessão?",
+	feedbackPromptIntro: "A tua resposta é anónima e vai para quem gere o {brand} aqui, não para os organizadores deste evento.",
+	feedbackPromptDismiss: "Fechar sem responder",
+	feedbackRating: "Avaliação",
+	feedbackOptional: "(opcional)",
+	feedbackStarOf: "{star} de {total} estrelas",
+	feedbackComment: "Comentário",
+	feedbackCommentPlaceholder: "O que funciona, o que atrapalha, o que falta?",
+	feedbackSend: "Enviar opinião",
+	feedbackSending: "A enviar…",
+	feedbackSendWhy: "Adiciona uma avaliação ou um comentário para enviar.",
+	feedbackSent: "Obrigado — foi enviado.",
+	feedbackSentDetail: "Quem gere o {brand} aqui vai lê-lo.",
+	feedbackClose: "Fechar",
+	feedbackNotSent: "Não enviado",
+	feedbackNotSentRetry: "Não enviado. Tenta novamente.",
 };
 
 const nl: Dict = {
@@ -1050,14 +1177,40 @@ const nl: Dict = {
 	nameJoinedAs: "Deelgenomen als",
 	nameChange: "Wijzigen",
 	nameCancel: "Annuleren",
+	feedbackPromptHeading: "Wat vond je van {brand}, de tool achter deze sessie?",
+	feedbackPromptIntro: "Je antwoord is anoniem en gaat naar de beheerders van {brand} hier, niet naar de organisatoren van dit evenement.",
+	feedbackPromptDismiss: "Sluiten zonder te antwoorden",
+	feedbackRating: "Beoordeling",
+	feedbackOptional: "(optioneel)",
+	feedbackStarOf: "{star} van {total} sterren",
+	feedbackComment: "Opmerking",
+	feedbackCommentPlaceholder: "Wat werkt er, wat zit in de weg, wat ontbreekt er?",
+	feedbackSend: "Feedback versturen",
+	feedbackSending: "Versturen…",
+	feedbackSendWhy: "Geef een beoordeling of een opmerking om te versturen.",
+	feedbackSent: "Bedankt — het is verstuurd.",
+	feedbackSentDetail: "De beheerders van {brand} hier lezen het.",
+	feedbackClose: "Sluiten",
+	feedbackNotSent: "Niet verstuurd",
+	feedbackNotSentRetry: "Niet verstuurd. Probeer het opnieuw.",
 };
 
-const dicts: Record<string, Dict> = { en, de, fr, es, it, pt, nl };
+const dicts: Record<Lang, Dict> = { en, de, fr, es, it, pt, nl };
+
+/**
+ * The supported language a BCP-47-ish tag is spoken in: its primary subtag when
+ * that is one of ours, English otherwise — the same reading `getDict` makes, so
+ * a value recorded as "the deck's language" names the dictionary its screen
+ * was actually drawn in.
+ */
+export function resolveLang(lang?: string): Lang {
+	if (!lang) return "en";
+	// Accept both "en" and "en-US" style tags.
+	const primary = lang.toLowerCase().split("-")[0];
+	return Object.hasOwn(dicts, primary) ? (primary as Lang) : "en";
+}
 
 /** Resolve a translation dictionary for a BCP-47-ish language tag. */
 export function getDict(lang?: string): Dict {
-	if (!lang) return en;
-	// Accept both "en" and "en-US" style tags.
-	const primary = lang.toLowerCase().split("-")[0];
-	return dicts[primary] ?? en;
+	return dicts[resolveLang(lang)];
 }

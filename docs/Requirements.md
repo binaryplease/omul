@@ -201,7 +201,7 @@ Prose outside the markers is preserved.
 | [REQ183.md](requirements/REQ183.md) | Legal texts must be reachable in the app and named where a contract is concluded | Platform & Operations | P0 | done | internal |
 | [REQ184.md](requirements/REQ184.md) | The two bare optional slide fields must declare what their absence means | Platform & Operations | P3 | pending | internal |
 | [REQ185.md](requirements/REQ185.md) | Anyone in the app can send feedback about omul to the instance operator from the app menu, stored in omul's own feedback database | Platform & Operations | P2 | done | BR148 |
-| [REQ186.md](requirements/REQ186.md) | A sampled participant is asked once, after the session ends and outside the deck, what they think of omul | Platform & Operations | P2 | in-progress | BR148 |
+| [REQ186.md](requirements/REQ186.md) | A sampled participant is asked once, after the session ends and outside the deck, what they think of omul | Platform & Operations | P2 | done | BR148 |
 | [REQ187.md](requirements/REQ187.md) | An explicit `:memory:` in OMUL_AUTH_DB or OMUL_ADMIN_DB opens an in-memory database, never a file named `:memory:` | Platform & Operations | P2 | done | internal |
 
 _185 entries — one row per file in `requirements/`._

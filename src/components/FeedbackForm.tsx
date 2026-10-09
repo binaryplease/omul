@@ -2,7 +2,7 @@
  * The form feedback about omul is written in (REQ185).
  *
  * One component for every place that asks: the app menu's "Send feedback"
- * dialog now, and the participant's prompt after a session (REQ186) next. It
+ * dialog, and the participant's prompt after a session (REQ186). It
  * owns what the sender sees and holds — five optional stars, a comment, the
  * contact box, the send button, the thanks — and nothing about where the
  * answer goes: the caller hands in `onSend`, which is where the surface, the
@@ -18,6 +18,17 @@
  * unticked is the operator's call; it is the `contactMe` default in
  * {@link EMPTY_FEEDBACK_DRAFT}.
  *
+ * **Its words are a prop.** The menu draws it in English, as the rest of the
+ * app's chrome is; the prompt draws it in the deck's language, because it sits
+ * on the participant's screen (REQ186). Both read one table, `Dict` in
+ * `src/i18n.ts`, through {@link feedbackFormLabelsFor}. The contact box's two
+ * lines are not in it: only the menu draws the box, and the menu is English.
+ *
+ * **Its heading is optional.** The menu's dialog is labelled by the form's own
+ * heading, which names who reads the answer. The prompt's card carries a
+ * heading and a sentence of its own above the form — they stay put after the
+ * answer is sent — so it passes no `headingId` and the form draws none.
+ *
  * The rules — when the button wakes, what a second tap on a star does — are
  * `src/feedback.ts`'s, so the view below is props in, markup out, and is
  * rendered in tests without a DOM.
@@ -31,6 +42,7 @@ import {
 	type FeedbackDraft,
 	nextFeedbackRating,
 } from "../feedback";
+import { type Dict, getDict } from "../i18n";
 import { FEEDBACK_COMMENT_MAX_LENGTH } from "../types";
 import { BRAND_NAME } from "./BrandMark";
 
@@ -45,6 +57,59 @@ export const EMPTY_FEEDBACK_DRAFT: FeedbackDraft = {
 const HEADING_LEAD = `Feedback about ${BRAND_NAME}`;
 const HEADING_RECIPIENT = `goes to the people who run ${BRAND_NAME} here, not to the presenter or organizer`;
 
+/** What the form says, in one language. */
+export type FeedbackFormLabels = {
+	rating: string;
+	optional: string;
+	/** The accessible name of star `star` out of `total`. */
+	starOf: (star: number, total: number) => string;
+	comment: string;
+	commentPlaceholder: string;
+	send: string;
+	sending: string;
+	/** Why the send button is disabled (ADR-0025). */
+	sendWhy: string;
+	sent: string;
+	sentDetail: string;
+	close: string;
+	/** Leads the server's reason for a failed send. */
+	notSent: string;
+	/** Says it alone when there is no reason to give. */
+	notSentRetry: string;
+};
+
+/** Fill the product's name into a `Dict` string that leaves it as `{brand}`. */
+export function withBrandName(text: string): string {
+	return text.replaceAll("{brand}", BRAND_NAME);
+}
+
+/** The form's words out of a language's dictionary, mapped in one place. */
+export function feedbackFormLabelsFor(dict: Dict): FeedbackFormLabels {
+	return {
+		rating: dict.feedbackRating,
+		optional: dict.feedbackOptional,
+		starOf: (star, total) =>
+			dict.feedbackStarOf
+				.replace("{star}", String(star))
+				.replace("{total}", String(total)),
+		comment: dict.feedbackComment,
+		commentPlaceholder: dict.feedbackCommentPlaceholder,
+		send: dict.feedbackSend,
+		sending: dict.feedbackSending,
+		sendWhy: dict.feedbackSendWhy,
+		sent: dict.feedbackSent,
+		sentDetail: withBrandName(dict.feedbackSentDetail),
+		close: dict.feedbackClose,
+		notSent: dict.feedbackNotSent,
+		notSentRetry: dict.feedbackNotSentRetry,
+	};
+}
+
+/** The form as the app menu draws it: in English, like the rest of the chrome. */
+export const FEEDBACK_FORM_LABELS: FeedbackFormLabels = feedbackFormLabelsFor(
+	getDict("en"),
+);
+
 export type FeedbackFormStatus =
 	| { phase: "editing" }
 	| { phase: "sending" }
@@ -56,6 +121,7 @@ const FIELD_LABEL = "mb-1.5 block text-sm font-medium text-text";
 /** The form for a given draft and status — no state of its own. */
 export function FeedbackFormView({
 	headingId,
+	labels = FEEDBACK_FORM_LABELS,
 	draft,
 	contactEmail,
 	status,
@@ -65,7 +131,9 @@ export function FeedbackFormView({
 	onSubmit,
 	onDone,
 }: {
-	headingId: string;
+	/** The id of the form's own heading, or none to draw no heading at all. */
+	headingId?: string;
+	labels?: FeedbackFormLabels;
 	draft: FeedbackDraft;
 	/** The address the contact box names, or `null` to draw no box at all. */
 	contactEmail: string | null;
@@ -81,7 +149,7 @@ export function FeedbackFormView({
 	const sendable = canSendFeedback(draft);
 	const sending = status.phase === "sending";
 
-	const heading = (
+	const heading = headingId !== undefined && (
 		<h2 id={headingId} className="m-0 text-base font-semibold text-text">
 			{HEADING_LEAD}{" "}
 			<span className="font-normal text-text-muted">— {HEADING_RECIPIENT}</span>
@@ -97,10 +165,8 @@ export function FeedbackFormView({
 					className="flex flex-col items-center gap-2 py-4 text-center"
 				>
 					<CircleCheck size={32} aria-hidden className="text-accent" />
-					<p className="m-0 font-semibold text-text">Thank you — it's sent.</p>
-					<p className="m-0 text-sm text-text-muted">
-						The people who run {BRAND_NAME} here will read it.
-					</p>
+					<p className="m-0 font-semibold text-text">{labels.sent}</p>
+					<p className="m-0 text-sm text-text-muted">{labels.sentDetail}</p>
 				</div>
 				{onDone && (
 					<button
@@ -110,7 +176,7 @@ export function FeedbackFormView({
 						// The send button that held focus is gone; keep it in the form.
 						autoFocus
 					>
-						Close
+						{labels.close}
 					</button>
 				)}
 			</div>
@@ -128,7 +194,8 @@ export function FeedbackFormView({
 
 			<div>
 				<p id={`${fieldId}-rating`} className={FIELD_LABEL}>
-					Rating <span className="font-normal text-text-dim">(optional)</span>
+					{labels.rating}{" "}
+					<span className="font-normal text-text-dim">{labels.optional}</span>
 				</p>
 				<div
 					role="group"
@@ -142,7 +209,7 @@ export function FeedbackFormView({
 							<button
 								key={star}
 								type="button"
-								aria-label={`${star} of ${FEEDBACK_RATING_STARS} stars`}
+								aria-label={labels.starOf(star, FEEDBACK_RATING_STARS)}
 								aria-pressed={draft.rating === star}
 								disabled={sending}
 								onClick={() => onRate(star)}
@@ -163,7 +230,8 @@ export function FeedbackFormView({
 
 			<div>
 				<label htmlFor={`${fieldId}-comment`} className={FIELD_LABEL}>
-					Comment <span className="font-normal text-text-dim">(optional)</span>
+					{labels.comment}{" "}
+					<span className="font-normal text-text-dim">{labels.optional}</span>
 				</label>
 				<textarea
 					id={`${fieldId}-comment`}
@@ -172,7 +240,7 @@ export function FeedbackFormView({
 					maxLength={FEEDBACK_COMMENT_MAX_LENGTH}
 					value={draft.comment}
 					disabled={sending}
-					placeholder="What works, what gets in the way, what's missing?"
+					placeholder={labels.commentPlaceholder}
 					onChange={(event) => onCommentChange(event.target.value)}
 				/>
 			</div>
@@ -211,11 +279,11 @@ export function FeedbackFormView({
 					disabled={!sendable || sending}
 					aria-describedby={sendable ? undefined : `${fieldId}-why`}
 				>
-					{sending ? "Sending…" : "Send feedback"}
+					{sending ? labels.sending : labels.send}
 				</button>
 				{!sendable && (
 					<p id={`${fieldId}-why`} className="m-0 text-xs text-text-dim">
-						Add a rating or a comment to send.
+						{labels.sendWhy}
 					</p>
 				)}
 			</div>
@@ -230,11 +298,13 @@ export function FeedbackFormView({
  */
 export function FeedbackForm({
 	headingId,
+	labels = FEEDBACK_FORM_LABELS,
 	contactEmail,
 	onSend,
 	onDone,
 }: {
-	headingId: string;
+	headingId?: string;
+	labels?: FeedbackFormLabels;
 	contactEmail: string | null;
 	onSend: (draft: FeedbackDraft) => Promise<void>;
 	onDone?: () => void;
@@ -254,8 +324,8 @@ export function FeedbackForm({
 				phase: "failed",
 				message:
 					sendError instanceof Error && sendError.message
-						? `Not sent: ${sendError.message}`
-						: "Not sent. Please try again.",
+						? `${labels.notSent}: ${sendError.message}`
+						: labels.notSentRetry,
 			});
 		}
 	};
@@ -263,6 +333,7 @@ export function FeedbackForm({
 	return (
 		<FeedbackFormView
 			headingId={headingId}
+			labels={labels}
 			draft={draft}
 			contactEmail={contactEmail}
 			status={status}

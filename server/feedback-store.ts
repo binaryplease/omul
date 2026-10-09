@@ -494,7 +494,7 @@ export function feedbackStartupReport(
 			? "[feedback] app menu: on — every screen's app menu offers a feedback form, sent to POST /api/feedback."
 			: `[feedback] app menu: off — ${FEEDBACK_ENABLED_ENV} is not "true", so the menu offers no form and POST /api/feedback answers 404.`,
 		settings.promptPercent !== null
-			? `[feedback] prompt after a session: on — ${settings.promptPercent}% of eligible participants, a device at most once every ${settings.promptCooldownDays} days, answering to POST /api/feedback/participant (REQ186). The card on the participant's ended screen is still to come, so no participant is asked yet.`
+			? `[feedback] prompt after a session: on — ${settings.promptPercent}% of eligible participants, a device at most once every ${settings.promptCooldownDays} days, asked by a card on the ended screen of a deck their device was in, answering to POST /api/feedback/participant (REQ186).`
 			: `[feedback] prompt after a session: off — ${FEEDBACK_PROMPT_PERCENT_ENV} is unset, so POST /api/feedback/participant answers 404.`,
 	];
 	if (administrators.length === 0) {

@@ -392,6 +392,8 @@ describe("the boot line (REQ185, REQ186)", () => {
 		expect(promptOnly[2]).toContain("25% of eligible participants");
 		expect(promptOnly[2]).toContain("once every 14 days");
 		expect(promptOnly[2]).toContain("POST /api/feedback/participant");
+		expect(promptOnly[2]).toContain("a card on the ended screen");
+		expect(promptOnly[2]).not.toContain("still to come");
 		store.close();
 	});
 });

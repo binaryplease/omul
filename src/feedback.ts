@@ -11,7 +11,9 @@
  *   - **What to send.** `buildUserFeedbackSubmission()` turns what the form
  *     holds into the body `POST /api/feedback` takes. It never carries an
  *     account: the server resolves that from the session, and only when the
- *     sender left the contact box ticked.
+ *     sender left the contact box ticked. `buildParticipantFeedbackSubmission()`
+ *     does the same for the prompt after a session (REQ186), whose body is a
+ *     rating, a comment and the deck's language and nothing else.
  *
  * The rules a form needs before anything is sent — when the send button wakes
  * up, what a second tap on the chosen star does — live here too, beside the
@@ -20,11 +22,13 @@
 
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import type { Lang } from "./i18n";
 import type { Route } from "./router";
 import {
 	FEEDBACK_PROMPT_COOLDOWN_DAYS_DEFAULT,
 	type FeedbackConfig,
 	type FeedbackSurface,
+	type ParticipantFeedbackSubmission,
 	type UserFeedbackSubmission,
 } from "./types";
 
@@ -81,6 +85,24 @@ export function buildUserFeedbackSubmission(
 		surface: context.surface,
 		language: context.language,
 		contactMe: context.contactOffered && draft.contactMe,
+	};
+}
+
+/**
+ * The body for `POST /api/feedback/participant` — the prompt after a session
+ * (REQ186). Three fields and no more: the draft's rating and trimmed comment,
+ * and the deck's language. The contact tick is not read, because the prompt
+ * never draws the box, and nothing naming the participant, the deck or an
+ * account is ever added: the channel is anonymous by definition.
+ */
+export function buildParticipantFeedbackSubmission(
+	draft: Pick<FeedbackDraft, "rating" | "comment">,
+	language: Lang,
+): ParticipantFeedbackSubmission {
+	return {
+		rating: draft.rating,
+		comment: draft.comment.trim(),
+		language,
 	};
 }
 
