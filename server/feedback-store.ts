@@ -14,8 +14,9 @@
  * the point: no email address, participant id, name, presentation, workspace,
  * IP address or user agent, and no time finer than the UTC day. An account id
  * is kept only as `contactAccountId`, and only when the sender asked to be
- * contacted; the operator view resolves it to an address at read time, so a
- * changed address is followed and a deleted account leaves nothing behind here.
+ * contacted; the operator view (REQ185 slice 3, not built yet) is to resolve it
+ * to an address at read time, so a changed address is followed and a deleted
+ * account leaves nothing behind here.
  *
  * **Off unless `OMUL_FEEDBACK_ENABLED` is exactly `"true"`**, and off means
  * nothing is opened: the process-wide store is `null` and no file is created.
@@ -25,9 +26,9 @@
 
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname } from "node:path";
 import type { FeedbackSurface } from "./schemas";
-import { docstorePath } from "./store-path";
+import { siblingDbPath } from "./sibling-db-path";
 
 /** The switch that turns the feedback channel on. */
 export const FEEDBACK_ENABLED_ENV = "OMUL_FEEDBACK_ENABLED";
@@ -161,12 +162,7 @@ export function feedbackEnabled(): boolean {
  * those is, so an in-memory test docstore never leaves a file behind.
  */
 export function feedbackDbPath(): string {
-	const configured = process.env[FEEDBACK_DB_ENV];
-	if (configured === ":memory:") return ":memory:";
-	if (configured) return resolve(configured);
-	const docstore = docstorePath();
-	if (docstore === ":memory:") return ":memory:";
-	return resolve(join(dirname(docstore), FEEDBACK_DB_FILENAME));
+	return siblingDbPath(process.env[FEEDBACK_DB_ENV], FEEDBACK_DB_FILENAME);
 }
 
 /**
@@ -200,11 +196,11 @@ export function feedbackStartupReport(
 		];
 	}
 	const lines = [
-		`[feedback] on — feedback sent from the app menu is stored in ${store.path}.`,
+		`[feedback] on — feedback sent to POST /api/feedback is stored in ${store.path}. The app-menu form and the administrators' view of the answers are not built yet (REQ185).`,
 	];
 	if (administrators.length === 0) {
 		lines.push(
-			"[feedback] WARNING — OMUL_ADMIN_EMAILS is empty, so nobody is an administrator and nobody can read the answers.",
+			"[feedback] WARNING — OMUL_ADMIN_EMAILS is empty, so nobody is an administrator and nobody will be able to read the answers once the administrators' view lands.",
 		);
 	}
 	return lines;

@@ -4,8 +4,14 @@
  * Two public routes. `GET /api/feedback/config` says whether this deployment
  * collects feedback at all — a fact about the deployment, not the caller, read
  * once per page load the way `GET /api/legal` is. `POST /api/feedback` stores
- * one entry from the app menu in the feedback database
- * (`server/feedback-store.ts`), and answers `404` while the channel is off.
+ * one entry in the feedback database (`server/feedback-store.ts`) — the app
+ * menu's form that sends it is REQ185 slice 2, not built yet — and answers `404`
+ * while the channel is off, whatever the request carries.
+ *
+ * **JSON only.** A form-encoded, multipart or plain-text post is refused `415`
+ * before it is validated or counted against the budget: those are the bodies a
+ * page on another site can make a visitor's browser send without asking, and
+ * the real client never sends one.
  *
  * It works without an account, because participants and anonymous deck
  * creators have none. **The account it may record comes from the session and
@@ -17,7 +23,7 @@
  * asked to be contacted, and a log line would be a second copy that is not.
  */
 
-import { Elysia } from "elysia";
+import { Elysia, status } from "elysia";
 import { resolveUserId } from "../accounts";
 import {
 	type FeedbackStore,
@@ -28,6 +34,14 @@ import { FeedbackConfigSchema, UserFeedbackSubmissionSchema } from "../schemas";
 
 const EMPTY_SUBMISSION_MESSAGE =
 	"Feedback needs a rating, a comment, or both";
+const OFF_MESSAGE = "Feedback is not collected on this server";
+const JSON_ONLY_MESSAGE = "Feedback is accepted as application/json only";
+
+/** Whether the request declares a JSON body, whatever its parameters. */
+function declaresJson(request: Request): boolean {
+	const mediaType = request.headers.get("content-type")?.split(";")[0];
+	return mediaType?.trim().toLowerCase() === "application/json";
+}
 
 /**
  * The feedback routes over a given store, or `null` for a deployment with the
@@ -47,21 +61,20 @@ export function createFeedbackRoutes(
 					tags: ["Feedback"],
 					summary: "Whether this server collects feedback about omul",
 					description:
-						"Reports whether this deployment collects feedback about omul from the app menu (REQ185): `enabled` is true only when the operator set `OMUL_FEEDBACK_ENABLED=true`. Public and read-only — a fact about the deployment, not the caller. An object rather than a bare boolean, because further fields join it.",
+						"Reports whether this deployment collects feedback about omul (REQ185) — what the app menu's feedback form, still to come, will read before offering itself: `enabled` is true only when the operator set `OMUL_FEEDBACK_ENABLED=true`. Public and read-only — a fact about the deployment, not the caller. An object rather than a bare boolean, because further fields join it.",
 				},
 			})
 
-			// ── Send feedback from the app menu ──────────────────────
+			// ── Send feedback ────────────────────────────────────────
+			// Off answers as though the route were not there: the body is never
+			// read, so no body — malformed, empty or form-encoded — can make it
+			// answer anything but 404, and before the rate limit, so a deployment
+			// that collects nothing spends no budget saying so.
 			.post(
 				"/feedback",
 				async ({ body, request, server, set }) => {
-					// Off answers as though the route were not there, and before the
-					// rate limit, so a deployment that collects nothing spends no budget
-					// saying so.
-					if (!store) {
-						set.status = 404;
-						return { error: "Feedback is not collected on this server" };
-					}
+					// The transform has already answered 404; this only narrows `store`.
+					if (!store) throw status(404, { error: OFF_MESSAGE });
 					const overLimit = guardFeedback({ request, server });
 					if (overLimit) return overLimit;
 					if (body.rating === null && body.comment === "") {
@@ -84,12 +97,20 @@ export function createFeedbackRoutes(
 					return { id: entry.id };
 				},
 				{
+					parse: store ? undefined : "none",
+					// Runs before validation and before the handler's rate limit.
+					transform: ({ request }) => {
+						if (!store) throw status(404, { error: OFF_MESSAGE });
+						if (!declaresJson(request)) {
+							throw status(415, { error: JSON_ONLY_MESSAGE });
+						}
+					},
 					body: UserFeedbackSubmissionSchema,
 					detail: {
 						tags: ["Feedback"],
 						summary: "Send feedback about omul to this instance's operator",
 						description:
-							"Stores one piece of feedback about omul itself in the operator's feedback database (REQ185) — not in any deck, and never shown to a presenter or organizer. Takes `{ rating?, comment?, surface, language, contactMe? }`: a `rating` from 1 to 5, a `comment` of at most 2,000 characters after trimming, or both — either alone is enough, neither answers `400`. `surface` is `presenter`, `participant` or `other`. No account is needed. With `contactMe: true` and a signed-in session, the session's account is recorded so the operator can write back; without a session `contactMe` is ignored, and the account can never be named in the body. Nothing else about the sender is stored, and the date is kept to the day. Answers `201` with the entry's `id`, `404` while `OMUL_FEEDBACK_ENABLED` is not `true`, `422` for a malformed body, and `429` over the feedback budget — twenty per ten minutes per client (REQ145).",
+							"Stores one piece of feedback about omul itself in the operator's feedback database (REQ185) — not in any deck, and never shown to a presenter or organizer. Takes a JSON body `{ rating?, comment?, surface, language, contactMe? }`: a `rating` from 1 to 5, a `comment` of at most 2,000 characters after trimming, or both — either alone is enough, neither answers `400`. `surface` is `presenter`, `participant` or `other`. No account is needed. With `contactMe: true` and a signed-in session, the session's account is recorded so the operator can write back; without a session `contactMe` is ignored, and the account can never be named in the body. Nothing else about the sender is stored, and the date is kept to the day. Answers `201` with the entry's `id`, `404` for any request while `OMUL_FEEDBACK_ENABLED` is not `true`, `415` for any content type but `application/json` (so another site cannot post a form through a visitor's browser), `422` for a malformed body, and `429` over the feedback budget — twenty per ten minutes per client (REQ145).",
 					},
 				},
 			)

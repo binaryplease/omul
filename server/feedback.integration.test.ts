@@ -1,8 +1,11 @@
 /**
  * Sending feedback about omul from the app menu, over HTTP (REQ185).
  *
- *   - **Off is absent.** `POST /api/feedback` answers `404` and the config route
- *     reports `enabled: false`.
+ *   - **Off is absent.** `POST /api/feedback` answers `404` whatever the body —
+ *     valid, malformed, empty or form-encoded — and the config route reports
+ *     `enabled: false`.
+ *   - **JSON only.** A form-encoded, multipart or plain-text post is refused
+ *     `415` and stores nothing, so another site cannot post through a browser.
  *   - **Either half is enough.** A comment alone, a rating alone and both
  *     together are each stored; neither is refused `400`.
  *   - **The contact account comes from the session.** `contactMe: true` with a
@@ -49,6 +52,29 @@ function send(
 			body: JSON.stringify(body),
 		}),
 	);
+}
+
+function postRaw(
+	routes: Any,
+	contentType: string,
+	body: BodyInit,
+): Promise<Response> {
+	return routes.handle(
+		new Request("http://localhost/api/feedback", {
+			method: "POST",
+			headers: { "Content-Type": contentType },
+			body,
+		}),
+	);
+}
+
+function storedCount(): number {
+	const db = new Database(FEEDBACK_DB, { readonly: true });
+	const { count } = db
+		.query("SELECT COUNT(*) AS count FROM user_feedback")
+		.get() as Any;
+	db.close();
+	return count;
 }
 
 function storedRow(id: string): Any {
@@ -105,6 +131,25 @@ describe("with the channel off (REQ185)", () => {
 			language: "en",
 		});
 		expect(response.status).toBe(404);
+	});
+
+	test("a malformed or empty body answers 404 too, echoing nothing", async () => {
+		for (const response of [
+			await send(disabledRoutes, { rating: 9, surface: "x", language: "" }),
+			await disabledRoutes.handle(
+				new Request("http://localhost/api/feedback", { method: "POST" }),
+			),
+			await postRaw(
+				disabledRoutes,
+				"application/x-www-form-urlencoded",
+				"comment=csrf&surface=other&language=en",
+			),
+		]) {
+			expect(response.status).toBe(404);
+			expect(await response.json()).toEqual({
+				error: "Feedback is not collected on this server",
+			});
+		}
 	});
 });
 
@@ -178,6 +223,45 @@ describe("with the channel on (REQ185)", () => {
 			const response = await send(enabledRoutes, body);
 			expect(response.status).toBe(422);
 		}
+	});
+
+	test("anything but application/json is refused 415 and nothing is stored", async () => {
+		const multipart = new FormData();
+		multipart.set("comment", "csrf");
+		multipart.set("surface", "other");
+		multipart.set("language", "en");
+		const before = storedCount();
+		for (const response of [
+			await postRaw(
+				enabledRoutes,
+				"application/x-www-form-urlencoded",
+				"comment=csrf&surface=other&language=en",
+			),
+			await enabledRoutes.handle(
+				new Request("http://localhost/api/feedback", {
+					method: "POST",
+					body: multipart,
+				}),
+			),
+			// A text/plain form can carry a body that is valid JSON.
+			await postRaw(
+				enabledRoutes,
+				"text/plain",
+				JSON.stringify({ comment: "csrf", surface: "other", language: "en" }),
+			),
+		]) {
+			expect(response.status).toBe(415);
+		}
+		expect(storedCount()).toBe(before);
+	});
+
+	test("application/json with a charset parameter is accepted", async () => {
+		const response = await postRaw(
+			enabledRoutes,
+			"application/json; charset=utf-8",
+			JSON.stringify({ rating: 2, surface: "other", language: "en" }),
+		);
+		expect(response.status).toBe(201);
 	});
 
 	test("contactMe with a session stores the session's account", async () => {

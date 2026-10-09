@@ -119,7 +119,7 @@ action today is **reassign a presentation's owner**.
 | GET | `/api/health` | — | Health check |
 | GET | `/api/legal` | — | Where this deployment's imprint, privacy policy and terms live: `{ imprintUrl, privacyUrl, termsUrl }`, each an `http(s)://` URL, a path on this host, or an explicit `null` when the operator configured none (REQ183). The client lists a link in the app menu on every route and draws a sentence at each contract-conclusion point only for what is set — see `OMUL_IMPRINT_URL` in [deployment.md](deployment.md#environment-variables) |
 | GET | `/api/feedback/config` | — | Whether this deployment collects feedback about omul: `{ enabled }`, true only when the operator set `OMUL_FEEDBACK_ENABLED=true` (REQ185) — see **Feedback about omul** below |
-| POST | `/api/feedback` | optional session | Send feedback about omul to this instance's operator: `{ rating?, comment?, surface, language, contactMe? }` (REQ185). `404` while the channel is off |
+| POST | `/api/feedback` | optional session | Send feedback about omul to this instance's operator: JSON `{ rating?, comment?, surface, language, contactMe? }` (REQ185). `404` for any request while the channel is off, `415` for any content type but `application/json` |
 | ANY | `/api/auth/*` | — | Better Auth (sign-up/in/out, session, reset, verify, change-email, delete-user, API keys) |
 | GET | `/api/templates` | — | The prebuilt-deck catalog, filtered by `?category=` and `?search=` (REQ005) — see **Deck templates** below |
 | GET | `/api/templates/:id` | — | One catalog entry by its id (REQ005) |
@@ -993,12 +993,19 @@ delete with `409` until they are moved out (**Workspaces** above).
 
 ## Feedback about omul (REQ185)
 
-Feedback about omul itself, sent from the app menu to the people who run this
-instance — never to a presenter or an organizer, and never into a deck. It is
+Feedback about omul itself, sent to the people who run this instance — never to
+a presenter or an organizer, and never into a deck. It is
 stored in the operator's own feedback database (`server/feedback-store.ts`, a
 `feedback.sqlite` beside the docstore unless `OMUL_FEEDBACK_DB` says otherwise),
 outside the zodstore domain data, so no presentation, workspace or account path
 reads or deletes it.
+
+**Only the write side exists so far.** What is built is the store, `GET
+/api/feedback/config` and `POST /api/feedback` (REQ185 slice 1). The app-menu
+form that sends feedback (slice 2) and the administrators' read endpoint and page
+(slices 3 and 4) are still to come; until they land, an operator reads the
+answers from the SQLite file. Where this section describes the operator view, it
+describes that planned behaviour.
 
 **Off unless the operator sets `OMUL_FEEDBACK_ENABLED=true`.** Off, `POST
 /api/feedback` answers `404`, `GET /api/feedback/config` reports
@@ -1018,12 +1025,19 @@ an object so that later fields can join it; a client reads it once per page load
 A rating alone and a comment alone are each complete; neither answers `400`. A
 malformed field answers `422`. It answers `201` with the entry's `id`.
 
+**JSON only.** Any content type but `application/json` (parameters such as
+`charset` aside) answers `415` before the body is validated or the budget is
+charged. Form-encoded, multipart and plain-text bodies are what a page on another
+site can make a visitor's browser post without asking; refusing them keeps such
+a page from filing feedback in visitors' names and spending their budgets. Off,
+the body is not read at all, so every request answers `404` whatever it carries.
+
 **No account is needed, and none can be named.** With `contactMe: true` the
 server records the account of the caller's **session** — never an id from the
 body — and without a session the entry is stored anonymously whatever the body
-says. The contact address is not stored: the operator view resolves the account
-to its current email when it is read, so a deleted account leaves no address
-behind. The stored row holds `id`, `rating`, `comment`, `surface`,
+says. The contact address is not stored: the operator view (slice 3, still to
+come) is to resolve the account to its current email when it is read, so a
+deleted account leaves no address behind. The stored row holds `id`, `rating`, `comment`, `surface`,
 `contactAccountId`, `language` and `createdOn` (the UTC day) — no email,
 participant id, name, presentation, workspace, IP address, user agent or time
 finer than the day — and the route does not log the request body.
