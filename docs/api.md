@@ -110,8 +110,9 @@ and no self-service grant. Actions are two-step, token-confirmed
 (`server/admin-events.ts`, a `bun:sqlite` store with a 10-minute one-time
 confirmation token whose hash is stored, plus an append-only audit log). The one
 action today is **reassign a presentation's owner**. Beside the actions there is
-one read, `GET /api/admin/feedback` — the feedback sent about omul (see
-**Feedback about omul** below).
+one read, `GET /api/admin/feedback` — the feedback sent about omul, which the
+app's first admin page, `/app/admin/feedback`, draws (see **Feedback about
+omul** below).
 
 ## Endpoints
 
@@ -1003,14 +1004,19 @@ stored in the operator's own feedback database (`server/feedback-store.ts`, a
 outside the zodstore domain data, so no presentation, workspace or account path
 reads or deletes it.
 
-**Sending and the read API are built; the page is not yet.** What is built is
-the store, `GET /api/feedback/config` and `POST /api/feedback` (REQ185 slice 1),
-the form that sends to them: "Send feedback" in the app menu, on every screen
-that mounts it, opening the shared `FeedbackForm` in a dialog (slice 2), and the
-administrators' read endpoint, `GET /api/admin/feedback` (slice 3, below). The
-menu offers the item only once `GET /api/feedback/config` has answered
-`enabled: true`. The administrators' page at `/admin/feedback` (slice 4) is still
-to come; until it lands, an administrator reads the answers through the API.
+**All of it is built (REQ185).** The store, `GET /api/feedback/config` and
+`POST /api/feedback` (slice 1); the form that sends to them: "Send feedback" in
+the app menu, on every screen that mounts it, opening the shared `FeedbackForm`
+in a dialog (slice 2); the administrators' read endpoint, `GET
+/api/admin/feedback` (slice 3, below); and their page at `/app/admin/feedback`
+(slice 4), which draws that endpoint's answer with one tab per channel — the
+totals, the per-rating and unrated counts, the entries newest first with a
+button for the next page, and a `user` entry's contact as a `mailto:` link or
+"account deleted, no contact". It sits under the app's base path rather than at
+a root prefix of its own, and nothing links to it: an administrator opens it by
+URL. Its refusals are screens of their own — signed out (`401`), not an
+administrator (`403`), channel off (`404`). The menu offers the feedback item
+only once `GET /api/feedback/config` has answered `enabled: true`.
 
 **Off unless the operator sets `OMUL_FEEDBACK_ENABLED=true`.** Off, `POST
 /api/feedback` answers `404`, `GET /api/feedback/config` reports

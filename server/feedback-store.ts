@@ -345,7 +345,7 @@ export function feedbackStartupReport(
 		];
 	}
 	const lines = [
-		`[feedback] on — feedback sent to POST /api/feedback is stored in ${store.path}. The app menu offers a feedback form; administrators read the answers from GET /api/admin/feedback, and their page is not built yet (REQ185).`,
+		`[feedback] on — feedback sent to POST /api/feedback is stored in ${store.path}. The app menu offers a feedback form; administrators read the answers on /app/admin/feedback or from GET /api/admin/feedback (REQ185).`,
 	];
 	if (administrators.length === 0) {
 		lines.push(

@@ -14,6 +14,7 @@
 
 import type { z } from "zod";
 import type {
+	AdminFeedbackPage,
 	BuiltInDeckThemeId,
 	ChatMessageEntry,
 	DeckAccessLevel,
@@ -27,7 +28,9 @@ import type {
 	DeckThemeId,
 	DeckThemeSettings,
 	EmbedProvider,
+	FeedbackChannel,
 	FeedbackConfig,
+	FeedbackContact,
 	FeedbackSurface,
 	FormField,
 	FormFieldOption,
@@ -281,6 +284,7 @@ export {
 export type { SegmentRefusal, SegmentSource } from "../server/segmentation";
 
 export type {
+	AdminFeedbackPage,
 	BuiltInDeckThemeId,
 	ChatMessageEntry,
 	DeckAccessLevel,
@@ -294,7 +298,9 @@ export type {
 	DeckThemeId,
 	DeckThemeSettings,
 	EmbedProvider,
+	FeedbackChannel,
 	FeedbackConfig,
+	FeedbackContact,
 	FeedbackSurface,
 	FormField,
 	FormFieldOption,

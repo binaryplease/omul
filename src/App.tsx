@@ -6,6 +6,7 @@ import {
 } from "./api";
 import { ThemeProvider } from "./components/ui/Theme";
 import { ToastProvider } from "./components/ui/Toast";
+import { AdminFeedbackPage } from "./pages/AdminFeedbackPage";
 import { CreatePage } from "./pages/CreatePage";
 import { GeneratePage } from "./pages/GeneratePage";
 import { HomePage } from "./pages/HomePage";
@@ -110,6 +111,8 @@ export default function App() {
 				return <JoinPage go={go} />;
 			case "participate":
 				return <ParticipantPage code={route.code} go={go} />;
+			case "adminFeedback":
+				return <AdminFeedbackPage go={go} />;
 		}
 	})();
 
