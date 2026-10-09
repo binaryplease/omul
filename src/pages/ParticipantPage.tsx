@@ -39,6 +39,7 @@ import { SlideBackground } from "../components/SlideBackground";
 import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { useToast } from "../components/ui/Toast";
+import { rememberDeckSeenInRoom } from "../feedback-prompt";
 import { getDict } from "../i18n";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
@@ -235,6 +236,19 @@ export function ParticipantPage({
 		setChangingName(false);
 		setNameError("");
 	}, [pres?.id, sessionResetRevision]);
+
+	/**
+	 * Record that this device is in the room (REQ186): a deck seen here in
+	 * `draft` or `live` is one the participant may be asked about once it ends,
+	 * and a deck first seen ended never is. Nothing is drawn from it here — the
+	 * ended screen reads it through `shouldAskForParticipantFeedback()`.
+	 */
+	useEffect(() => {
+		if (!pres?.id) return;
+		if (pres.status === "draft" || pres.status === "live") {
+			rememberDeckSeenInRoom(pres.id);
+		}
+	}, [pres?.id, pres?.status]);
 
 	/**
 	 * State a name, or correct the one already stated (REQ076).
