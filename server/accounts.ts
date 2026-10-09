@@ -22,12 +22,12 @@
 
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname } from "node:path";
 import { apiKey } from "@better-auth/api-key";
 import { betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
 import { resolveAuthSecret } from "./auth-secret";
-import { docstorePath } from "./store-path";
+import { siblingDbPath } from "./sibling-db-path";
 import {
 	buildChangeEmailConfirmationEmail,
 	buildChangeEmailVerifyEmail,
@@ -40,14 +40,12 @@ import {
 // separate so Better Auth's migrations only ever touch its own tables. Defaults
 // to an `auth.sqlite` sibling of the docstore file (same writable state dir),
 // or `:memory:` when the docstore is ephemeral (integration tests). Override
-// with OMUL_AUTH_DB.
-const DATABASE_PATH = docstorePath();
-const CONFIGURED_AUTH_DB = process.env.OMUL_AUTH_DB;
-const AUTH_DB_PATH = CONFIGURED_AUTH_DB
-	? resolve(CONFIGURED_AUTH_DB)
-	: DATABASE_PATH === ":memory:"
-		? ":memory:"
-		: resolve(join(dirname(DATABASE_PATH), "auth.sqlite"));
+// with OMUL_AUTH_DB, which may itself be `:memory:`.
+export function authDbPath(): string {
+	return siblingDbPath(process.env.OMUL_AUTH_DB, "auth.sqlite");
+}
+
+const AUTH_DB_PATH = authDbPath();
 
 // The canonical public origin. Explicit BETTER_AUTH_URL wins; otherwise derive
 // it from the public host (OMUL_BASE_HOST) in prod. Left undefined in plain

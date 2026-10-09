@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import {
 	ACTION_TTL_MS,
 	type AdminStore,
+	adminDbPath,
 	createAdminStore,
 } from "./admin-events";
 
@@ -39,6 +40,31 @@ function prepare(now = 1_000_000) {
 		now,
 	});
 }
+
+describe("adminDbPath — where OMUL_ADMIN_DB points (REQ187)", () => {
+	test("an explicit :memory: stays in memory; a path or the docstore sibling resolves", () => {
+		const configured = process.env.OMUL_ADMIN_DB;
+		const docstore = process.env.DATABASE_PATH;
+		const restore = (variable: string, value: string | undefined) => {
+			if (value === undefined) delete process.env[variable];
+			else process.env[variable] = value;
+		};
+		try {
+			process.env.DATABASE_PATH = "/srv/omul/omul.sqlite";
+			process.env.OMUL_ADMIN_DB = ":memory:";
+			expect(adminDbPath()).toBe(":memory:");
+			process.env.OMUL_ADMIN_DB = "/srv/elsewhere/admin.db";
+			expect(adminDbPath()).toBe("/srv/elsewhere/admin.db");
+			delete process.env.OMUL_ADMIN_DB;
+			expect(adminDbPath()).toBe("/srv/omul/admin.sqlite");
+			process.env.DATABASE_PATH = ":memory:";
+			expect(adminDbPath()).toBe(":memory:");
+		} finally {
+			restore("OMUL_ADMIN_DB", configured);
+			restore("DATABASE_PATH", docstore);
+		}
+	});
+});
 
 describe("admin action lifecycle", () => {
 	test("prepare records a pending action and a 'requested' event", () => {
