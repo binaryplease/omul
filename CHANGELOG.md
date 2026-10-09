@@ -29,8 +29,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Presenters can hide the join bar on the presenter screen and show it again. The choice is saved with the presentation and followed by every open presenter screen. Hiding the bar does not change who can join.
 - A workspace owner can choose a default theme for the workspace. A presentation created in the workspace starts with that theme unless another theme is chosen, and each presentation can still change its own.
 - The presenter screen shows how long the session has been running. The clock stops when the session ends, survives a page reload, and is cleared by a reset.
+- Anyone can send feedback about omul to the people who run the instance, from "Send feedback" in the app menu:
+  - Set `OMUL_FEEDBACK_ENABLED=true` to turn it on. It is off by default; while it is off the menu has no such item and no feedback database is created.
+  - The form takes an optional 1–5 star rating and a comment. Signed-in senders also get a "You can contact me about this" box, ticked by default, that names their account email.
+  - Answers are stored in a separate `feedback.sqlite` beside the other databases, or in the file `OMUL_FEEDBACK_DB` names. Only the rating, comment, screen kind, language, day and (when the box is ticked) the account are kept.
+  - The routes are `GET /api/feedback/config` and `POST /api/feedback`, which accepts JSON only and allows 20 submissions per 10 minutes per client.
+- Administrators (`OMUL_ADMIN_EMAILS`) read the feedback at `/app/admin/feedback`, with one tab per channel, totals, a count per rating and paging. When the sender asked to be contacted, the page shows their current account email, or that the account has been deleted. The same data is served at `GET /api/admin/feedback`.
+- A share of participants can be asked what they think of omul when a session ends:
+  - Set `OMUL_FEEDBACK_PROMPT_PERCENT` to a whole number from 1 to 100 to choose the share. It is off while unset. `OMUL_FEEDBACK_PROMPT_COOLDOWN_DAYS` (default 30) sets how long before a device is asked again. A malformed value of either stops the server at startup with an error naming the variable.
+  - Only a device that was in the room before the deck ended can be asked. It sees a card on the ended screen, in omul's own look and the deck's language, and can answer or dismiss it.
+  - Answers are anonymous: only the rating, comment, language and day are stored, never an account, participant or deck. They are sent to `POST /api/feedback/participant`, which allows 300 answers per 10 minutes per client so a whole room behind one network can answer.
 
 ### Changed
 
 - The Light / Dark / Auto theme switch is now a small app menu, opened from a three-dot button in the same place on every page. It holds the theme choice and, when they are configured, the links to the imprint, privacy policy and terms. The menu also appears on the shared results page, on error screens and on the presenter's blanked screen, where there was no theme switch before.
 - The storage library `@binaryplease/zodstore` is updated from 0.4.2 to 0.5.0, which brings its fixes to filtering on empty values and to how it checks a database file on open. The first start on an existing database renames the indexes that cover two fields to the library's new naming scheme. This needs no action and keeps every stored presentation, vote and question.
+
+### Fixed
+
+- Setting `OMUL_AUTH_DB=:memory:` or `OMUL_ADMIN_DB=:memory:` now gives an in-memory database, as it already did for `DATABASE_PATH`, instead of creating a file named `:memory:` in the working directory.
