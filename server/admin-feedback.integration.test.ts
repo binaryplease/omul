@@ -4,8 +4,9 @@
  *   - **Only administrators read it.** `GET /api/admin/feedback` answers `401`
  *     signed-out and `403` to a signed-in non-admin, before anything else —
  *     the channel being off or the query being malformed included.
- *   - **Off is absent.** With the channel off an administrator gets `404`, and
- *     no database is opened to say so.
+ *   - **Off is absent.** With both channels off an administrator gets `404`,
+ *     and no database is opened to say so. With only the prompt after a
+ *     session on (REQ186), its answers are read while the menu's route is 404.
  *   - **Totals, then a page.** Each channel answers its total, the count per
  *     rating and of comment-only entries, and its entries newest first, fifty at
  *     a time behind a cursor.
@@ -171,7 +172,8 @@ beforeAll(async () => {
 		now: day("2026-01-03"),
 	}).id;
 
-	// Nothing writes the participant channel yet (REQ186), so it is seeded here.
+	// The participant channel (REQ186), seeded straight into its table so the
+	// entries carry ids and days the assertions can name.
 	const direct = new Database(FEEDBACK_DB);
 	const insert = direct.query(
 		"INSERT INTO participant_feedback (id, rating, comment, language, createdOn) VALUES (?, ?, ?, ?, ?)",
@@ -418,5 +420,64 @@ describe("paging (REQ185)", () => {
 			`?channel=participant&cursor=${seeded.contact}`,
 		);
 		expect(otherChannel.status).toBe(400);
+	});
+});
+
+describe("a deployment that runs only the prompt after a session (REQ186)", () => {
+	test("participant answers are stored and readable while the menu channel stays 404", async () => {
+		const { createFeedbackStore, readFeedbackSettings } = await import(
+			"./feedback-store"
+		);
+		const { createFeedbackRoutes } = await import("./routes/feedback");
+		const { createAdminFeedbackRoutes } = await import("./routes/admin");
+		// The environment such a deployment sets: the prompt, and nothing else.
+		const settings = readFeedbackSettings({ OMUL_FEEDBACK_PROMPT_PERCENT: "100" });
+		expect(settings.menuEnabled).toBe(false);
+		const store = createFeedbackStore(join(directory, "prompt-only.sqlite"));
+		try {
+			const feedbackRoutes = createFeedbackRoutes(store, settings);
+			const post = (path: string, body: unknown) =>
+				feedbackRoutes.handle(
+					new Request(`http://localhost/api${path}`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify(body),
+					}),
+				);
+
+			const answered = await post("/feedback/participant", {
+				rating: 4,
+				comment: "Smooth",
+				language: "nl",
+			});
+			expect(answered.status).toBe(201);
+			const menu = await post("/feedback", {
+				rating: 4,
+				surface: "other",
+				language: "en",
+			});
+			expect(menu.status).toBe(404);
+
+			const adminRoutes = createAdminFeedbackRoutes(store);
+			const participant = (await (
+				await read(adminRoutes, "?channel=participant")
+			).json()) as Any;
+			expect(participant.total).toBe(1);
+			expect(participant.entries).toEqual([
+				{
+					id: ((await answered.json()) as Any).id,
+					rating: 4,
+					comment: "Smooth",
+					language: "nl",
+					createdOn: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+				},
+			]);
+			// The menu's tab still answers, empty, so the page can draw both.
+			const user = await read(adminRoutes, "?channel=user");
+			expect(user.status).toBe(200);
+			expect(((await user.json()) as Any).total).toBe(0);
+		} finally {
+			store.close();
+		}
 	});
 });

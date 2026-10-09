@@ -92,8 +92,16 @@ beforeAll(async () => {
 
 	const store = createFeedbackStore(FEEDBACK_DB);
 	closeStore = () => store.close();
-	enabledRoutes = createFeedbackRoutes(store);
-	disabledRoutes = createFeedbackRoutes(null);
+	enabledRoutes = createFeedbackRoutes(store, {
+		menuEnabled: true,
+		promptPercent: null,
+		promptCooldownDays: 30,
+	});
+	disabledRoutes = createFeedbackRoutes(null, {
+		menuEnabled: false,
+		promptPercent: null,
+		promptCooldownDays: 30,
+	});
 
 	const signedUp = await auth.api.signUpEmail({
 		body: {
@@ -121,7 +129,11 @@ describe("with the channel off (REQ185)", () => {
 			new Request("http://localhost/api/feedback/config"),
 		);
 		expect(response.status).toBe(200);
-		expect(await response.json()).toEqual({ enabled: false });
+		expect(await response.json()).toEqual({
+			enabled: false,
+			promptPercent: null,
+			promptCooldownDays: 30,
+		});
 	});
 
 	test("a valid submission answers 404", async () => {
@@ -158,7 +170,11 @@ describe("with the channel on (REQ185)", () => {
 		const response = await enabledRoutes.handle(
 			new Request("http://localhost/api/feedback/config"),
 		);
-		expect(await response.json()).toEqual({ enabled: true });
+		expect(await response.json()).toEqual({
+			enabled: true,
+			promptPercent: null,
+			promptCooldownDays: 30,
+		});
 	});
 
 	test("a comment alone is stored", async () => {

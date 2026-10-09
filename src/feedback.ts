@@ -21,10 +21,11 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { Route } from "./router";
-import type {
-	FeedbackConfig,
-	FeedbackSurface,
-	UserFeedbackSubmission,
+import {
+	FEEDBACK_PROMPT_COOLDOWN_DAYS_DEFAULT,
+	type FeedbackConfig,
+	type FeedbackSurface,
+	type UserFeedbackSubmission,
 } from "./types";
 
 /** The number of stars a rating is given out of. */
@@ -121,7 +122,11 @@ export function screenLanguage(element: Element | null): string {
 // ── Loading ───────────────────────────────────────────────────
 
 /** What a surface reads before — or without — an answer: off. */
-export const FEEDBACK_OFF: FeedbackConfig = { enabled: false };
+export const FEEDBACK_OFF: FeedbackConfig = {
+	enabled: false,
+	promptPercent: null,
+	promptCooldownDays: FEEDBACK_PROMPT_COOLDOWN_DAYS_DEFAULT,
+};
 
 /**
  * One request per page load, shared by every surface that asks. A failed read

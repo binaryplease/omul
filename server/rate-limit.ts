@@ -579,6 +579,24 @@ export const REACTION_PARTICIPANT_RULE: RateLimitRule = {
  */
 export const FEEDBACK_RULE: RateLimitRule = { limit: 20, windowMs: 10 * 60_000 };
 
+/**
+ * A participant's answer to the prompt after a session (REQ186) — the same
+ * write as {@link FEEDBACK_RULE}, on a budget of its own and sized the other
+ * way round: against a room rather than a person.
+ *
+ * The prompt asks the whole sample at once, when the deck ends, so a lecture
+ * hall behind one NATted address answers inside the same few minutes. Three
+ * hundred in ten minutes is such a room with every participant asked and
+ * answering. The request carries no participant id, so there is no tighter
+ * per-client ceiling behind this one; a script gets thirty a minute — noise in
+ * the operator's list, and a few megabytes an hour at the longest comment
+ * rather than a filled disk.
+ */
+export const PARTICIPANT_FEEDBACK_RULE: RateLimitRule = {
+	limit: 300,
+	windowMs: 10 * 60_000,
+};
+
 const createWindow = createSlidingWindow(CREATE_RULE);
 const generationWindow = createSlidingWindow(GENERATION_RULE);
 const joinWindow = createSlidingWindow(JOIN_RULE);
@@ -591,6 +609,9 @@ const reactionParticipantWindow = createSlidingWindow(
 	REACTION_PARTICIPANT_RULE,
 );
 const feedbackWindow = createSlidingWindow(FEEDBACK_RULE);
+const participantFeedbackWindow = createSlidingWindow(
+	PARTICIPANT_FEEDBACK_RULE,
+);
 
 /** Drop every counter. For tests that need a clean slate between cases. */
 export function resetRateLimits(): void {
@@ -602,6 +623,7 @@ export function resetRateLimits(): void {
 	reactionAddressWindow.reset();
 	reactionParticipantWindow.reset();
 	feedbackWindow.reset();
+	participantFeedbackWindow.reset();
 }
 
 // ── Route guards ────────────────────────────────────────────
@@ -680,6 +702,17 @@ export function guardFeedback({
 }: GuardContext): Response | null {
 	if (!rateLimitsEnabled()) return null;
 	const verdict = feedbackWindow.check(clientKey(request, server));
+	if (verdict.allowed) return null;
+	return tooManyRequests(verdict.retryAfterSeconds, FEEDBACK_MESSAGE);
+}
+
+/** Rate-limit `POST /api/feedback/participant` (REQ186). */
+export function guardParticipantFeedback({
+	request,
+	server,
+}: GuardContext): Response | null {
+	if (!rateLimitsEnabled()) return null;
+	const verdict = participantFeedbackWindow.check(clientKey(request, server));
 	if (verdict.allowed) return null;
 	return tooManyRequests(verdict.retryAfterSeconds, FEEDBACK_MESSAGE);
 }

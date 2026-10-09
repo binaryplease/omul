@@ -5004,13 +5004,83 @@ export type UserFeedbackSubmission = z.infer<
 	typeof UserFeedbackSubmissionSchema
 >;
 
+// ── The prompt after a session (REQ186) ─────────────────────
+
 /**
- * What `GET /api/feedback/config` answers (REQ185) — whether this deployment
- * collects feedback at all. An object rather than a bare boolean because the
- * participant prompt (REQ186) adds its own fields to the same payload.
+ * The languages the participant screens speak — `Lang` in `src/i18n.ts`,
+ * restated because the server does not import the client, and held to it by a
+ * test. A prompt answer records the deck's language, which is one of these.
+ */
+export const ParticipantLanguageSchema = z.enum([
+	"en",
+	"de",
+	"fr",
+	"es",
+	"it",
+	"pt",
+	"nl",
+]);
+
+export type ParticipantLanguage = z.infer<typeof ParticipantLanguageSchema>;
+
+/**
+ * What `POST /api/feedback/participant` takes — a participant's answer to the
+ * prompt after a session (REQ186). The same rating-or-comment rule as
+ * {@link UserFeedbackSubmissionSchema}, refused `400` by the route, and nothing
+ * else: no surface, no contact request, and no field that could name the
+ * participant, the deck or an account. Anything else a body carries is dropped
+ * here, before the route sees it.
+ */
+export const ParticipantFeedbackSubmissionSchema = z.object({
+	rating: z.number().int().min(1).max(5).nullable().default(null),
+	comment: z.string().trim().max(FEEDBACK_COMMENT_MAX_LENGTH).default(""),
+	language: ParticipantLanguageSchema,
+});
+
+export type ParticipantFeedbackSubmission = z.infer<
+	typeof ParticipantFeedbackSubmissionSchema
+>;
+
+/** How many days a device waits before it is asked again, unless configured. */
+export const FEEDBACK_PROMPT_COOLDOWN_DAYS_DEFAULT = 30;
+
+/** The longest cooldown accepted: ten years, past which "never again" is meant. */
+export const FEEDBACK_PROMPT_COOLDOWN_DAYS_MAX = 3650;
+
+/** A whole number written in an environment variable: digits only, in bounds. */
+function wholeNumberSetting(minimum: number, maximum: number) {
+	return z
+		.string()
+		.regex(/^\d+$/)
+		.transform(Number)
+		.pipe(z.number().int().min(minimum).max(maximum));
+}
+
+/** `OMUL_FEEDBACK_PROMPT_PERCENT`, once set: the share of participants asked. */
+export const FeedbackPromptPercentSettingSchema = wholeNumberSetting(1, 100);
+
+/** `OMUL_FEEDBACK_PROMPT_COOLDOWN_DAYS`, once set. */
+export const FeedbackPromptCooldownDaysSettingSchema = wholeNumberSetting(
+	1,
+	FEEDBACK_PROMPT_COOLDOWN_DAYS_MAX,
+);
+
+/**
+ * What `GET /api/feedback/config` answers — whether this deployment collects
+ * feedback from the app menu (`enabled`, REQ185), and the prompt after a
+ * session (REQ186): `promptPercent` is the share of eligible participants asked,
+ * `null` while the prompt is off, and `promptCooldownDays` how long a device
+ * waits before it is asked again — reported whether or not the prompt is on.
  */
 export const FeedbackConfigSchema = z.object({
 	enabled: z.boolean().default(false),
+	promptPercent: z.number().int().min(1).max(100).nullable().default(null),
+	promptCooldownDays: z
+		.number()
+		.int()
+		.min(1)
+		.max(FEEDBACK_PROMPT_COOLDOWN_DAYS_MAX)
+		.default(FEEDBACK_PROMPT_COOLDOWN_DAYS_DEFAULT),
 });
 
 export type FeedbackConfig = z.infer<typeof FeedbackConfigSchema>;

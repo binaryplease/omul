@@ -247,7 +247,10 @@ export const adminRoutes = new Elysia({ prefix: "/api/admin" })
 
 /**
  * The administrators' read of the feedback database (REQ185) over a given
- * store, or `null` for a deployment with the feedback channel off. A factory
+ * store, or `null` for a deployment with both feedback channels off. While
+ * either is on both channels are read, so answers sent while a channel was on
+ * stay readable, and the participant channel is readable on a deployment that
+ * runs only the prompt after a session (REQ186). A factory
  * for the reason the feedback routes are one: the tests read both postures
  * over their own store. It is the only route that reads the feedback database.
  */
@@ -259,8 +262,8 @@ export function createAdminFeedbackRoutes(
 			"/feedback",
 			({ query, set }) => {
 				set.headers["Cache-Control"] = "no-store";
-				// Off is the answer POST /api/feedback gives: nothing is collected, and
-				// no database is opened to say there is nothing in it.
+				// Both channels off is the answer each write gives: nothing is
+				// collected, and no database is opened to say there is nothing in it.
 				if (!feedback) {
 					return status(404, {
 						error: "Feedback is not collected on this server",
@@ -324,7 +327,7 @@ export function createAdminFeedbackRoutes(
 					tags: ["Admin"],
 					summary: "Read the feedback sent about omul",
 					description:
-						"Returns one channel of the feedback database (REQ185) — `channel=user` for the app menu's form, `channel=participant` for the prompt after a session (REQ186) — with the channel's `total`, its `ratingCounts` for 1 to 5, its `unratedCount` (comment only), and fifty `entries`, newest first. Pass the answer's `nextCursor` as `cursor` for the next page; it is `null` on the last. A `user` entry's `contact` is resolved when it is read and never stored: `null` when the sender did not ask to be contacted, `{ status: \"email\", email }` with the account's current address, or `{ status: \"deleted\" }` once the account is gone. Requires an admin cookie session (`401` without a session, `403` when not an admin); then `404` while `OMUL_FEEDBACK_ENABLED` is not `true`, `400` for a cursor that names no entry of the channel, and `422` for any other channel.",
+						"Returns one channel of the feedback database (REQ185) — `channel=user` for the app menu's form, `channel=participant` for the prompt after a session (REQ186) — with the channel's `total`, its `ratingCounts` for 1 to 5, its `unratedCount` (comment only), and fifty `entries`, newest first. Pass the answer's `nextCursor` as `cursor` for the next page; it is `null` on the last. A `user` entry's `contact` is resolved when it is read and never stored: `null` when the sender did not ask to be contacted, `{ status: \"email\", email }` with the account's current address, or `{ status: \"deleted\" }` once the account is gone. Requires an admin cookie session (`401` without a session, `403` when not an admin); then `404` while both channels are off — `OMUL_FEEDBACK_ENABLED` is not `true` and `OMUL_FEEDBACK_PROMPT_PERCENT` is unset — `400` for a cursor that names no entry of the channel, and `422` for any other channel.",
 				},
 			},
 		);
