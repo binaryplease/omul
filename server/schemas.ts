@@ -4969,6 +4969,52 @@ export const GenerateDeckSchema = z.object({
 
 export type GenerateDeckInput = z.infer<typeof GenerateDeckSchema>;
 
+// ── Feedback about omul (REQ185) ─────────────────────────────
+
+/** The longest comment a feedback entry keeps, counted after trimming. */
+export const FEEDBACK_COMMENT_MAX_LENGTH = 2000;
+
+/** The kind of screen the app menu was opened on when feedback was sent. */
+export const FeedbackSurfaceSchema = z.enum(["presenter", "participant", "other"]);
+
+export type FeedbackSurface = z.infer<typeof FeedbackSurfaceSchema>;
+
+/**
+ * What `POST /api/feedback` takes — feedback about omul itself, sent from the
+ * app menu to whoever runs this instance (REQ185).
+ *
+ * `rating` and `comment` are each optional, and either alone is a complete
+ * submission; one with neither is refused `400` by the route rather than here,
+ * so the refusal can say what is missing instead of failing a refinement.
+ * `surface` and `language` are required — they are the only context an entry
+ * carries, and guessing them would store a fact nobody stated.
+ *
+ * `contactMe` is a request, not an identity: the account it refers to is the
+ * caller's session, resolved on the server, and a body cannot name any other.
+ */
+export const UserFeedbackSubmissionSchema = z.object({
+	rating: z.number().int().min(1).max(5).nullable().default(null),
+	comment: z.string().trim().max(FEEDBACK_COMMENT_MAX_LENGTH).default(""),
+	surface: FeedbackSurfaceSchema,
+	language: z.string().trim().min(1).max(DECK_LANGUAGE_MAX_LENGTH),
+	contactMe: z.boolean().default(false),
+});
+
+export type UserFeedbackSubmission = z.infer<
+	typeof UserFeedbackSubmissionSchema
+>;
+
+/**
+ * What `GET /api/feedback/config` answers (REQ185) — whether this deployment
+ * collects feedback at all. An object rather than a bare boolean because the
+ * participant prompt (REQ186) adds its own fields to the same payload.
+ */
+export const FeedbackConfigSchema = z.object({
+	enabled: z.boolean().default(false),
+});
+
+export type FeedbackConfig = z.infer<typeof FeedbackConfigSchema>;
+
 // ── Presentation schema ──────────────────────────────────────
 
 export const CreatePresentationSchema = z

@@ -566,6 +566,19 @@ export const REACTION_PARTICIPANT_RULE: RateLimitRule = {
 	windowMs: 60_000,
 };
 
+/**
+ * Feedback about omul from the app menu (REQ185) — a write to the operator's
+ * feedback database, of up to 2,000 characters, by anyone, signed in or not.
+ *
+ * Sized against a person rather than a room: feedback is sent from a menu
+ * rather than prompted, so even a workshop where everybody on one wifi has
+ * something to say sends a handful in ten minutes, not hundreds. Twenty fits
+ * that with room to spare; a script gets two a minute, which is noise in the
+ * operator's list rather than a flood of it, and a few hundred kilobytes an hour
+ * rather than a filled disk.
+ */
+export const FEEDBACK_RULE: RateLimitRule = { limit: 20, windowMs: 10 * 60_000 };
+
 const createWindow = createSlidingWindow(CREATE_RULE);
 const generationWindow = createSlidingWindow(GENERATION_RULE);
 const joinWindow = createSlidingWindow(JOIN_RULE);
@@ -577,6 +590,7 @@ const reactionAddressWindow = createSlidingWindow(REACTION_ADDRESS_RULE);
 const reactionParticipantWindow = createSlidingWindow(
 	REACTION_PARTICIPANT_RULE,
 );
+const feedbackWindow = createSlidingWindow(FEEDBACK_RULE);
 
 /** Drop every counter. For tests that need a clean slate between cases. */
 export function resetRateLimits(): void {
@@ -587,6 +601,7 @@ export function resetRateLimits(): void {
 	submissionParticipantWindow.reset();
 	reactionAddressWindow.reset();
 	reactionParticipantWindow.reset();
+	feedbackWindow.reset();
 }
 
 // ── Route guards ────────────────────────────────────────────
@@ -619,6 +634,8 @@ const SUBMISSION_MESSAGE = "Too many submissions — please slow down";
  * refusal gets read as a broken feature.
  */
 const REACTION_MESSAGE = "Too many reactions — please slow down";
+const FEEDBACK_MESSAGE =
+	"Too much feedback sent from here — please wait a moment";
 
 /** Rate-limit `POST /api/presentations`. */
 export function guardCreate({ request, server }: GuardContext): Response | null {
@@ -654,6 +671,17 @@ export function guardGeneration({
 		return tooManyRequests(createVerdict.retryAfterSeconds, CREATE_MESSAGE);
 	}
 	return null;
+}
+
+/** Rate-limit `POST /api/feedback` (REQ185). */
+export function guardFeedback({
+	request,
+	server,
+}: GuardContext): Response | null {
+	if (!rateLimitsEnabled()) return null;
+	const verdict = feedbackWindow.check(clientKey(request, server));
+	if (verdict.allowed) return null;
+	return tooManyRequests(verdict.retryAfterSeconds, FEEDBACK_MESSAGE);
 }
 
 /** Rate-limit `GET /api/join/:code`. */

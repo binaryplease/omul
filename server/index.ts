@@ -2,13 +2,15 @@ import { openapi } from "@elysiajs/openapi";
 import { Elysia } from "elysia";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { auth, ensureAuthSchema } from "./accounts";
-import { adminAllowlistStartupReport } from "./admins";
+import { adminAllowlistStartupReport, adminEmails } from "./admins";
 import { connectDb } from "./db";
 import { deckGenerationStartupReport } from "./deck-generator";
+import { feedbackStartupReport, feedbackStore } from "./feedback-store";
 import { legalLinksStartupReport } from "./legal-links";
 import { adminRoutes } from "./routes/admin";
 import { deckGenerationRoutes } from "./routes/deck-generation";
 import { discoveryRoutes, publicOriginStartupReport } from "./routes/discovery";
+import { feedbackRoutes } from "./routes/feedback";
 import { legalRoutes } from "./routes/legal";
 import { rateLimitStartupReport } from "./rate-limit";
 import { presentationRoutes } from "./routes/presentations";
@@ -109,6 +111,11 @@ const app = new Elysia()
 						description: "Read aggregated voting results.",
 					},
 					{
+						name: "Feedback",
+						description:
+							"Feedback about omul itself, sent to whoever runs this instance (REQ185). Off unless the operator enabled it; ask the config route first.",
+					},
+					{
 						name: "Admin",
 						description:
 							"Operator-only surface: two-step confirmed actions (e.g. reassign presentation owner) and the admin audit log. Requires an admin cookie session.",
@@ -131,6 +138,11 @@ const app = new Elysia()
 	// Where the operator's imprint, privacy policy and terms live, read by the
 	// client's app menu and contract-conclusion notices. Unset means no link.
 	.use(legalRoutes)
+
+	// ── Feedback about omul (REQ185) ──────────────────────────
+	// Sent from the app menu to the operator's own feedback database. Off unless
+	// OMUL_FEEDBACK_ENABLED is "true" — see `server/feedback-store.ts`.
+	.use(feedbackRoutes)
 
 	// ── User accounts (Better Auth) ───────────────────────────
 	// Email + password sign-up/in/out, sessions, password reset, email
@@ -244,3 +256,9 @@ for (const line of adminAllowlistStartupReport()) console.log(line);
 // Which legal texts this deployment links (REQ183). An unset one is simply not
 // drawn, which from outside looks the same as a page that forgot it.
 for (const line of legalLinksReport) console.log(line);
+
+// Whether this deployment collects feedback (REQ185), and whether anybody can
+// read it: on with no administrator stores answers nobody will see.
+for (const line of feedbackStartupReport(feedbackStore, adminEmails)) {
+	console.log(line);
+}

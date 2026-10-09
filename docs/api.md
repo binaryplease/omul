@@ -118,6 +118,8 @@ action today is **reassign a presentation's owner**.
 | GET | `/api` | — | Discovery index: absolute links to the OpenAPI spec, docs UI, health probe and WebSocket — see **The discovery index** below |
 | GET | `/api/health` | — | Health check |
 | GET | `/api/legal` | — | Where this deployment's imprint, privacy policy and terms live: `{ imprintUrl, privacyUrl, termsUrl }`, each an `http(s)://` URL, a path on this host, or an explicit `null` when the operator configured none (REQ183). The client lists a link in the app menu on every route and draws a sentence at each contract-conclusion point only for what is set — see `OMUL_IMPRINT_URL` in [deployment.md](deployment.md#environment-variables) |
+| GET | `/api/feedback/config` | — | Whether this deployment collects feedback about omul: `{ enabled }`, true only when the operator set `OMUL_FEEDBACK_ENABLED=true` (REQ185) — see **Feedback about omul** below |
+| POST | `/api/feedback` | optional session | Send feedback about omul to this instance's operator: `{ rating?, comment?, surface, language, contactMe? }` (REQ185). `404` while the channel is off |
 | ANY | `/api/auth/*` | — | Better Auth (sign-up/in/out, session, reset, verify, change-email, delete-user, API keys) |
 | GET | `/api/templates` | — | The prebuilt-deck catalog, filtered by `?category=` and `?search=` (REQ005) — see **Deck templates** below |
 | GET | `/api/templates/:id` | — | One catalog entry by its id (REQ005) |
@@ -362,6 +364,7 @@ in the body:
 | `POST …/collaborators` (REQ075) | 60 per minute | the deck being shared |
 | `POST /api/workspaces/:id/members` (REQ129) | 600 per minute | client |
 | `POST /api/workspaces/:id/members` (REQ129) | 60 per minute | the workspace being added to |
+| `POST /api/feedback` (REQ185) | 20 per 10 minutes | client |
 
 Sharing a deck and adding somebody to a workspace are the two **authenticated**
 routes on that list, and they are there for a reason of their own (REQ075,
@@ -987,6 +990,43 @@ unknown id answers `400` to a member and nothing at all to anybody else.
 **Deleting a workspace takes its gallery with it** and no deck with either: the
 templates are swept the way its memberships are, while the decks still refuse the
 delete with `409` until they are moved out (**Workspaces** above).
+
+## Feedback about omul (REQ185)
+
+Feedback about omul itself, sent from the app menu to the people who run this
+instance — never to a presenter or an organizer, and never into a deck. It is
+stored in the operator's own feedback database (`server/feedback-store.ts`, a
+`feedback.sqlite` beside the docstore unless `OMUL_FEEDBACK_DB` says otherwise),
+outside the zodstore domain data, so no presentation, workspace or account path
+reads or deletes it.
+
+**Off unless the operator sets `OMUL_FEEDBACK_ENABLED=true`.** Off, `POST
+/api/feedback` answers `404`, `GET /api/feedback/config` reports
+`{ "enabled": false }`, and no database file is created. The config payload is
+an object so that later fields can join it; a client reads it once per page load.
+
+`POST /api/feedback` takes:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `rating` | one of the two | an integer from 1 to 5 |
+| `comment` | one of the two | at most 2,000 characters after trimming |
+| `surface` | ✅ | `presenter`, `participant` or `other` — the kind of screen the menu was opened on |
+| `language` | ✅ | the UI language of that screen |
+| `contactMe` | — | `true` to let the operator write back (default `false`) |
+
+A rating alone and a comment alone are each complete; neither answers `400`. A
+malformed field answers `422`. It answers `201` with the entry's `id`.
+
+**No account is needed, and none can be named.** With `contactMe: true` the
+server records the account of the caller's **session** — never an id from the
+body — and without a session the entry is stored anonymously whatever the body
+says. The contact address is not stored: the operator view resolves the account
+to its current email when it is read, so a deleted account leaves no address
+behind. The stored row holds `id`, `rating`, `comment`, `surface`,
+`contactAccountId`, `language` and `createdOn` (the UTC day) — no email,
+participant id, name, presentation, workspace, IP address, user agent or time
+finer than the day — and the route does not log the request body.
 
 ## Generating a deck from a prompt (REQ007)
 
