@@ -24,7 +24,9 @@ import {
 	CollaboratorsDialog,
 	deckAccessLevelLabel,
 } from "../components/CollaboratorsDialog";
+import { REMOVE_BUTTON_HOVER } from "../components/EditorControls";
 import { MoveToWorkspaceDialog } from "../components/MoveToWorkspaceDialog";
+import { ICON_BUTTON_HOVER } from "../components/ShareCluster";
 import { ConfirmModal } from "../components/ui/ConfirmModal";
 import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
@@ -314,113 +316,20 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 					) : (
 						<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
 							{presentations.map((pres, i) => (
-								// The whole card is the click target — it opens the presentation.
-								<div
+								<OwnDeckCard
 									key={pres.id}
-									className={`group flex items-center gap-4 p-4 rounded-xl bg-surface-raised border border-border hover:border-text-dim transition-all shadow-panel cursor-pointer slide-in slide-in-delay-${Math.min(i + 1, 5)}`}
-									onClick={() => go({ page: "present", id: pres.id })}
-								>
-									<div className="flex items-center justify-center w-10 h-10 rounded-lg bg-surface border border-border-subtle flex-shrink-0">
-										<span className="font-mono text-sm text-text-muted">
-											{pres.slides.length}
-										</span>
-									</div>
-									<div className="flex-1 min-w-0">
-										<div className="flex items-center gap-3 mb-1">
-											<h3 className="font-semibold truncate">{pres.title}</h3>
-											<StatusBadge status={pres.status} />
-										</div>
-										<div className="flex items-center gap-4 text-sm text-text-muted">
-											<span className="font-mono">{pres.code}</span>
-											<span>
-												{pres.slides.length} slide
-												{pres.slides.length !== 1 ? "s" : ""}
-											</span>
-											<span>
-												{new Date(pres.createdAt).toLocaleDateString()}
-											</span>
-										</div>
-									</div>
-									{/* Sharing lives on the deck it shares. Shown for
-									    every deck and disabled with the reason when this account
-									    is not its owner — a locally-held edit token
-									    runs the deck but never widens who is on it. */}
-									<button
-										type="button"
-										className="text-text-dim hover:text-accent transition-colors p-2 opacity-0 group-hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-text-dim"
-										onClick={(e) => {
-											e.stopPropagation();
-											setShareTarget(pres);
-										}}
-										disabled={!ownedIds.has(pres.id)}
-										title={
-											ownedIds.has(pres.id)
-												? "Share this deck with another account"
-												: userId
-													? "Share this deck — only its owner can, and this account does not own it"
-													: "Share this deck — sign in with the account that owns it first"
-										}
-									>
-										<Users size={18} />
-									</button>
-									{/* Handing the deck to a workspace changes who owns it, so
-									    it sits on the deck beside the sharing control
-									    it is the bigger version of. Owner-only for the same
-									    reason sharing is: a locally-held edit token runs a deck,
-									    it does not give it away. */}
-									<button
-										type="button"
-										className="text-text-dim hover:text-accent transition-colors p-2 opacity-0 group-hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-text-dim"
-										onClick={(e) => {
-											e.stopPropagation();
-											setMoveTarget(pres);
-										}}
-										disabled={!ownedIds.has(pres.id)}
-										title={
-											ownedIds.has(pres.id)
-												? "Move this deck into a workspace"
-												: userId
-													? "Move this deck into a workspace — only its owner can, and this account does not own it"
-													: "Move this deck into a workspace — sign in with the account that owns it first"
-										}
-									>
-										<Building2 size={18} />
-									</button>
-									<button
-										type="button"
-										className="text-text-dim hover:text-accent transition-colors p-2 opacity-0 group-hover:opacity-100"
-										onClick={(e) => {
-											e.stopPropagation();
-											handleExport(pres);
-										}}
-										title="Export presentation as JSON"
-									>
-										<Download size={18} />
-									</button>
-									<button
-										type="button"
-										className="text-text-dim hover:text-accent transition-colors p-2 opacity-0 group-hover:opacity-100 disabled:opacity-50 disabled:cursor-wait"
-										onClick={(e) => {
-											e.stopPropagation();
-											handleDuplicate(pres);
-										}}
-										disabled={duplicatingId === pres.id}
-										title="Duplicate presentation"
-									>
-										<Copy size={18} />
-									</button>
-									<button
-										type="button"
-										className="text-text-dim hover:text-error transition-colors p-2 opacity-0 group-hover:opacity-100"
-										onClick={(e) => {
-											e.stopPropagation();
-											setDeleteTarget(pres);
-										}}
-										title="Delete presentation"
-									>
-										<Trash2 size={18} />
-									</button>
-								</div>
+									pres={pres}
+									enterDelay={Math.min(i + 1, 5)}
+									owned={ownedIds.has(pres.id)}
+									signedIn={userId !== null}
+									duplicating={duplicatingId === pres.id}
+									onOpen={() => go({ page: "present", id: pres.id })}
+									onShare={() => setShareTarget(pres)}
+									onMove={() => setMoveTarget(pres)}
+									onExport={() => handleExport(pres)}
+									onDuplicate={() => handleDuplicate(pres)}
+									onDelete={() => setDeleteTarget(pres)}
+								/>
 							))}
 						</div>
 					)}
@@ -513,6 +422,160 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 				onConfirm={handleDelete}
 				onCancel={() => setDeleteTarget(null)}
 			/>
+		</div>
+	);
+}
+
+// ── One of your own decks ─────────────────────────────────────
+
+/**
+ * The quiet treatment every action on an own-deck card shares, beside the hover
+ * token it composes. Its own row, at rest and in reach (REQ184): five icon
+ * buttons that merely faded in on hover still took their width, which left the
+ * title one letter and an ellipsis at the two-column width — and a control a
+ * touch screen can tap but nobody can see is not a control anyone finds.
+ */
+const OWN_DECK_ACTION = "p-2 rounded-lg disabled:opacity-30";
+
+/**
+ * A card under "Your Presentations" (REQ184): the title on a line of its own
+ * with the status beside it, then code, slide count and date — each of which
+ * may move to a second line but never breaks inside itself — then the deck's
+ * five actions. The whole card is the click target that opens the
+ * presentation; every action stops the click from reaching it.
+ */
+export function OwnDeckCard({
+	pres,
+	enterDelay,
+	owned,
+	signedIn,
+	duplicating,
+	onOpen,
+	onShare,
+	onMove,
+	onExport,
+	onDuplicate,
+	onDelete,
+}: {
+	pres: Presentation;
+	/** Which of the staggered entrance steps the card wears (1–5). */
+	enterDelay: number;
+	/** Whether this account owns the deck — the server's answer, not the token map's. */
+	owned: boolean;
+	signedIn: boolean;
+	duplicating: boolean;
+	onOpen: () => void;
+	onShare: () => void;
+	onMove: () => void;
+	onExport: () => void;
+	onDuplicate: () => void;
+	onDelete: () => void;
+}) {
+	const slideCount = pres.slides.length;
+	return (
+		<div
+			className={`flex flex-col p-4 rounded-xl bg-surface-raised border border-border hover:border-text-dim transition-all shadow-panel cursor-pointer slide-in slide-in-delay-${enterDelay}`}
+			onClick={onOpen}
+		>
+			<div className="flex items-center gap-3 mb-1 min-w-0">
+				{/* The full title on hover too, since a long one still truncates. */}
+				<h3 className="font-semibold truncate min-w-0" title={pres.title}>
+					{pres.title}
+				</h3>
+				<span className="flex-shrink-0">
+					<StatusBadge status={pres.status} />
+				</span>
+			</div>
+			<div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-text-muted">
+				<span className="font-mono whitespace-nowrap">{pres.code}</span>
+				<span className="whitespace-nowrap">
+					{slideCount} slide{slideCount !== 1 ? "s" : ""}
+				</span>
+				<span className="whitespace-nowrap">
+					{new Date(pres.createdAt).toLocaleDateString()}
+				</span>
+			</div>
+			<div className="flex items-center justify-end gap-1 mt-3 pt-2 border-t border-border-subtle">
+				{/* Sharing lives on the deck it shares. Shown for
+				    every deck and disabled with the reason when this account
+				    is not its owner — a locally-held edit token
+				    runs the deck but never widens who is on it. */}
+				<button
+					type="button"
+					className={`${OWN_DECK_ACTION} ${ICON_BUTTON_HOVER} disabled:cursor-not-allowed disabled:hover:text-text-muted`}
+					onClick={(event) => {
+						event.stopPropagation();
+						onShare();
+					}}
+					disabled={!owned}
+					title={
+						owned
+							? "Share this deck with another account"
+							: signedIn
+								? "Share this deck — only its owner can, and this account does not own it"
+								: "Share this deck — sign in with the account that owns it first"
+					}
+				>
+					<Users size={18} />
+				</button>
+				{/* Handing the deck to a workspace changes who owns it, so
+				    it sits on the deck beside the sharing control
+				    it is the bigger version of. Owner-only for the same
+				    reason sharing is: a locally-held edit token runs a deck,
+				    it does not give it away. */}
+				<button
+					type="button"
+					className={`${OWN_DECK_ACTION} ${ICON_BUTTON_HOVER} disabled:cursor-not-allowed disabled:hover:text-text-muted`}
+					onClick={(event) => {
+						event.stopPropagation();
+						onMove();
+					}}
+					disabled={!owned}
+					title={
+						owned
+							? "Move this deck into a workspace"
+							: signedIn
+								? "Move this deck into a workspace — only its owner can, and this account does not own it"
+								: "Move this deck into a workspace — sign in with the account that owns it first"
+					}
+				>
+					<Building2 size={18} />
+				</button>
+				<button
+					type="button"
+					className={`${OWN_DECK_ACTION} ${ICON_BUTTON_HOVER}`}
+					onClick={(event) => {
+						event.stopPropagation();
+						onExport();
+					}}
+					title="Export presentation as JSON"
+				>
+					<Download size={18} />
+				</button>
+				<button
+					type="button"
+					className={`${OWN_DECK_ACTION} ${ICON_BUTTON_HOVER} disabled:cursor-wait`}
+					onClick={(event) => {
+						event.stopPropagation();
+						onDuplicate();
+					}}
+					disabled={duplicating}
+					title="Duplicate presentation"
+				>
+					<Copy size={18} />
+				</button>
+				<button
+					type="button"
+					className={`${OWN_DECK_ACTION} transition-colors ${REMOVE_BUTTON_HOVER}`}
+					onClick={(event) => {
+						event.stopPropagation();
+						onDelete();
+					}}
+					title="Delete presentation"
+				>
+					<Trash2 size={18} />
+				</button>
+			</div>
 		</div>
 	);
 }
