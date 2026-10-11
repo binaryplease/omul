@@ -129,10 +129,17 @@ export interface SessionSlice {
 	revealResults: (id: string, slideId: string, reveal: boolean) => void;
 	/** Reopen one slide's question, restarting its countdown (REQ057). */
 	restartSlideTimer: (id: string, slideId: string) => Promise<void>;
-	/** Switch the Q&A layer on/off (REQ036) and choose who reads it (REQ037). */
+	/**
+	 * Switch the Q&A layer on/off (REQ036), choose who reads it (REQ037) and
+	 * whether each question waits for approval (REQ038).
+	 */
 	setQASettings: (
 		id: string,
-		changes: { enabled?: boolean; visibility?: QAVisibility },
+		changes: {
+			enabled?: boolean;
+			visibility?: QAVisibility;
+			approvalRequired?: boolean;
+		},
 	) => Promise<void>;
 	/** Open or close the reaction and chat channels (REQ077/REQ078). */
 	setParticipantChannels: (
@@ -147,6 +154,8 @@ export interface SessionSlice {
 	) => Promise<void>;
 	/** Blank the shared screen, or bring it back (REQ109). */
 	setAudienceBlanked: (id: string, blanked: boolean) => Promise<void>;
+	/** Show or hide the presenter surface's join bar (REQ073). */
+	setJoinBarShown: (id: string, shown: boolean) => Promise<void>;
 	/** Take one submitted answer off a word cloud or open-ended slide (REQ027). */
 	deleteSubmittedAnswer: (
 		id: string,
@@ -161,8 +170,10 @@ export interface SessionSlice {
 		results: SlideResults;
 	}) => void;
 	applyParticipantCount: (payload: { count: number }) => void;
-	applyStarted: () => void;
-	applyEnded: () => void;
+	/** The deck went live; `startedAt` is when its session clock began (REQ108). */
+	applyStarted: (payload?: { startedAt?: string | null }) => void;
+	/** The deck ended; `endedAt` is where its session clock stopped (REQ108). */
+	applyEnded: (payload?: { endedAt?: string | null }) => void;
 	applyReset: () => void;
 	applyRevealed: (payload: { slideId: string; revealed: boolean }) => void;
 	/**
@@ -180,10 +191,13 @@ export interface SessionSlice {
 	applyParticipantNameSetting: (payload: {
 		requireParticipantName: boolean;
 	}) => void;
-	/** The Q&A layer was switched on/off or re-scoped (REQ036/REQ037). */
+	/** The presenter surface's join bar was shown or hidden (REQ073). */
+	applyJoinBarSetting: (payload: { showJoinBar: boolean }) => void;
+	/** The Q&A layer was switched on/off or re-scoped (REQ036/REQ037/REQ038). */
 	applyQASettings: (payload: {
 		qaEnabled: boolean;
 		qaVisibility: QAVisibility;
+		qaApprovalRequired: boolean;
 	}) => void;
 	/** The question list moved — see {@link SessionSlice.qaRevision}. */
 	applyQAChanged: () => void;
@@ -261,6 +275,29 @@ function startedStampsIn(
 	return stamps && typeof stamps === "object"
 		? { slideStartedAt: stamps as Presentation["slideStartedAt"] }
 		: {};
+}
+
+/**
+ * The session clock's two instants carried by a start or end response, or by
+ * the frame announcing one (REQ108), as a patch. A value that is not a string
+ * reads as "not recorded" — the server writes `null` for exactly that — so the
+ * clock never runs from an instant nobody stamped.
+ */
+export function sessionStampsIn(
+	source: unknown,
+): Pick<Presentation, "sessionStartedAt" | "sessionEndedAt"> {
+	const stamps = (source ?? {}) as {
+		sessionStartedAt?: unknown;
+		sessionEndedAt?: unknown;
+	};
+	return {
+		sessionStartedAt:
+			typeof stamps.sessionStartedAt === "string"
+				? stamps.sessionStartedAt
+				: null,
+		sessionEndedAt:
+			typeof stamps.sessionEndedAt === "string" ? stamps.sessionEndedAt : null,
+	};
 }
 
 /**
@@ -427,12 +464,15 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 				// presenter already has in hand means their own countdown never waits
 				// on a broadcast to start running.
 				...startedStampsIn(updated),
+				// The session clock starts off the same response (REQ108), for the
+				// same reason: the presenter's own clock must not wait on a frame.
+				...sessionStampsIn(updated),
 			});
 		},
 
 		endPresentation: async (id) => {
-			await api.endPresentation(id);
-			patchPresentation({ status: "ended" });
+			const updated = await api.endPresentation(id);
+			patchPresentation({ status: "ended", ...sessionStampsIn(updated) });
 		},
 
 		resetPresentation: async (id) => {
@@ -465,6 +505,7 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 			patchPresentation({
 				qaEnabled: !!updated?.qaEnabled,
 				qaVisibility: (updated?.qaVisibility as QAVisibility) ?? "presenter",
+				qaApprovalRequired: !!updated?.qaApprovalRequired,
 			});
 		},
 
@@ -500,6 +541,14 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		setAudienceBlanked: async (id, blanked) => {
 			const updated = await api.setAudienceBlanked(id, blanked);
 			patchPresentation({ audienceBlanked: updated?.audienceBlanked === true });
+		},
+
+		setJoinBarShown: async (id, shown) => {
+			// Through the deck PATCH, the one writer of the field, and read back off
+			// its response like the switches above — the broadcast is what moves
+			// every other presenter screen of the deck.
+			const updated = await api.updatePresentation(id, { showJoinBar: shown });
+			patchPresentation({ showJoinBar: updated?.showJoinBar !== false });
 		},
 
 		/**
@@ -545,9 +594,24 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 
 		applyParticipantCount: ({ count }) => set({ participantCount: count }),
 
-		applyStarted: () => patchPresentation({ status: "live" }),
+		// Each frame carries the session clock's instant (REQ108), so a second
+		// presenter screen of the deck runs the same clock as the one that clicked.
+		// A frame without one leaves the clock this screen already holds.
+		applyStarted: (payload) =>
+			patchPresentation({
+				status: "live",
+				...(typeof payload?.startedAt === "string"
+					? { sessionStartedAt: payload.startedAt, sessionEndedAt: null }
+					: {}),
+			}),
 
-		applyEnded: () => patchPresentation({ status: "ended" }),
+		applyEnded: (payload) =>
+			patchPresentation({
+				status: "ended",
+				...(payload && "endedAt" in payload
+					? { sessionEndedAt: payload.endedAt ?? null }
+					: {}),
+			}),
 
 		applyReset: () => {
 			const current = get().presentation;
@@ -567,6 +631,10 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 						// room can already see.
 						closedSlideIds: [],
 						audienceBlanked: false,
+						// The session clock with them (REQ108): the next run is
+						// timed from its own start.
+						sessionStartedAt: null,
+						sessionEndedAt: null,
 					},
 				});
 			}
@@ -607,8 +675,10 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		applyParticipantNameSetting: ({ requireParticipantName }) =>
 			patchPresentation({ requireParticipantName }),
 
-		applyQASettings: ({ qaEnabled, qaVisibility }) =>
-			patchPresentation({ qaEnabled, qaVisibility }),
+		applyJoinBarSetting: ({ showJoinBar }) => patchPresentation({ showJoinBar }),
+
+		applyQASettings: ({ qaEnabled, qaVisibility, qaApprovalRequired }) =>
+			patchPresentation({ qaEnabled, qaVisibility, qaApprovalRequired }),
 
 		applyQAChanged: () => set({ qaRevision: get().qaRevision + 1 }),
 

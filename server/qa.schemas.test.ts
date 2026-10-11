@@ -5,6 +5,8 @@
  *              and stored-presentation schemas, defaulting off
  *   - REQ037 — `qaVisibility`, its withholding default, and the two predicates
  *              that decide who reads which questions
+ *   - REQ038 — `qaApprovalRequired`, the per-question `approved` flag, and an
+ *              unapproved question reaching nobody but an editor
  *   - REQ060 — the stored question/upvote shapes and the order a queue is
  *              worked in
  */
@@ -44,6 +46,7 @@ describe("presentation schemas — the Q&A layer's two settings", () => {
 		const stored = StoredPresentationSchema.parse({ id: "p1" });
 		expect(stored.qaEnabled).toBe(false);
 		expect(stored.qaVisibility).toBe("presenter");
+		expect(stored.qaApprovalRequired).toBe(false);
 	});
 
 	test("both settings survive the response projection", () => {
@@ -55,9 +58,21 @@ describe("presentation schemas — the Q&A layer's two settings", () => {
 			createdAt: new Date().toISOString(),
 			qaEnabled: true,
 			qaVisibility: "everyone",
+			qaApprovalRequired: true,
 		});
 		expect(parsed.qaEnabled).toBe(true);
 		expect(parsed.qaVisibility).toBe("everyone");
+		expect(parsed.qaApprovalRequired).toBe(true);
+		// And off when the document never carried it (REQ038).
+		expect(
+			PresentationSchema.parse({
+				id: "p1",
+				code: "123456",
+				title: "Deck",
+				slides: [],
+				createdAt: new Date().toISOString(),
+			}).qaApprovalRequired,
+		).toBe(false);
 	});
 
 	test("an unknown visibility is rejected rather than coerced", () => {
@@ -70,14 +85,19 @@ describe("presentation schemas — the Q&A layer's two settings", () => {
 		).toThrow();
 	});
 
-	test("qaSettingsFor fills both values in from any shape", () => {
+	test("qaSettingsFor fills every value in from any shape", () => {
 		expect(qaSettingsFor({})).toEqual({
 			enabled: false,
 			visibility: "presenter",
+			approvalRequired: false,
 		});
-		expect(qaSettingsFor({ qaEnabled: true, qaVisibility: "everyone" })).toEqual(
-			{ enabled: true, visibility: "everyone" },
-		);
+		expect(
+			qaSettingsFor({
+				qaEnabled: true,
+				qaVisibility: "everyone",
+				qaApprovalRequired: true,
+			}),
+		).toEqual({ enabled: true, visibility: "everyone", approvalRequired: true });
 	});
 });
 
@@ -129,7 +149,7 @@ describe("qaQuestionsVisibleTo", () => {
 		const visible = qaQuestionsVisibleTo(
 			questions,
 			{ qaEnabled: true, qaVisibility: "everyone" },
-			{ canEdit: false, participantId: "alice" },
+			{ canEdit: false, canModerate: false, participantId: "alice" },
 		);
 		expect(visible.map((question) => question.id)).toEqual(["q1", "q2", "q3"]);
 	});
@@ -138,7 +158,7 @@ describe("qaQuestionsVisibleTo", () => {
 		const visible = qaQuestionsVisibleTo(
 			questions,
 			{ qaEnabled: true, qaVisibility: "presenter" },
-			{ canEdit: false, participantId: "alice" },
+			{ canEdit: false, canModerate: false, participantId: "alice" },
 		);
 		expect(visible.map((question) => question.id)).toEqual(["q1"]);
 	});
@@ -147,7 +167,7 @@ describe("qaQuestionsVisibleTo", () => {
 		const visible = qaQuestionsVisibleTo(
 			questions,
 			{ qaEnabled: true, qaVisibility: "presenter" },
-			{ canEdit: false, participantId: "" },
+			{ canEdit: false, canModerate: false, participantId: "" },
 		);
 		expect(visible).toEqual([]);
 	});
@@ -156,9 +176,66 @@ describe("qaQuestionsVisibleTo", () => {
 		const visible = qaQuestionsVisibleTo(
 			questions,
 			{ qaEnabled: true, qaVisibility: "presenter" },
-			{ canEdit: true, participantId: "" },
+			{ canEdit: true, canModerate: true, participantId: "" },
 		);
 		expect(visible).toHaveLength(3);
+	});
+
+	// ── REQ038 — an unapproved question is an editor's alone ──────────
+	const withPending = [
+		{ id: "q1", participantId: "alice", approved: true },
+		{ id: "q2", participantId: "bob", approved: false },
+		// A row stored before approval existed carries no flag: approved.
+		{ id: "q3", participantId: "carol" },
+	];
+
+	test("a published list leaves out a question awaiting approval", () => {
+		const visible = qaQuestionsVisibleTo(
+			withPending,
+			{ qaEnabled: true, qaVisibility: "everyone", qaApprovalRequired: true },
+			{ canEdit: false, canModerate: false, participantId: "alice" },
+		);
+		expect(visible.map((question) => question.id)).toEqual(["q1", "q3"]);
+	});
+
+	test("its asker does not get it back either, on either visibility", () => {
+		for (const qaVisibility of ["everyone", "presenter"] as const) {
+			const visible = qaQuestionsVisibleTo(
+				withPending,
+				{ qaEnabled: true, qaVisibility, qaApprovalRequired: true },
+				{ canEdit: false, canModerate: false, participantId: "bob" },
+			);
+			expect(visible.map((question) => question.id)).not.toContain("q2");
+		}
+	});
+
+	test("the flag decides, not the setting — switching approval off releases nothing", () => {
+		const visible = qaQuestionsVisibleTo(
+			withPending,
+			{ qaEnabled: true, qaVisibility: "everyone", qaApprovalRequired: false },
+			{ canEdit: false, canModerate: false, participantId: "alice" },
+		);
+		expect(visible.map((question) => question.id)).toEqual(["q1", "q3"]);
+	});
+
+	test("a reader with any grant but not edit does not read them (review finding 1)", () => {
+		// A `view`/`comment` collaborator: reads the moderated list, as REQ037 has
+		// it, but not what is still awaiting approval.
+		const visible = qaQuestionsVisibleTo(
+			withPending,
+			{ qaEnabled: true, qaVisibility: "presenter", qaApprovalRequired: true },
+			{ canEdit: true, canModerate: false, participantId: "" },
+		);
+		expect(visible.map((question) => question.id)).toEqual(["q1", "q3"]);
+	});
+
+	test("an editor reads the questions awaiting approval", () => {
+		const visible = qaQuestionsVisibleTo(
+			withPending,
+			{ qaEnabled: true, qaVisibility: "everyone", qaApprovalRequired: true },
+			{ canEdit: true, canModerate: true, participantId: "" },
+		);
+		expect(visible.map((question) => question.id)).toEqual(["q1", "q2", "q3"]);
 	});
 });
 
@@ -170,6 +247,7 @@ describe("rankQAQuestions", () => {
 		overrides: {
 			upvotes?: number;
 			answered?: boolean;
+			approved?: boolean;
 			createdAt?: string;
 		} = {},
 	) {
@@ -179,6 +257,7 @@ describe("rankQAQuestions", () => {
 			upvotes: overrides.upvotes ?? 0,
 			answered: overrides.answered ?? false,
 			answeredAt: null,
+			approved: overrides.approved ?? true,
 			createdAt: overrides.createdAt ?? "2026-01-01T00:00:00.000Z",
 			own: false,
 			upvoted: false,
@@ -229,6 +308,21 @@ describe("rankQAQuestions", () => {
 		// And it does not reorder the caller's array underneath them.
 		expect(entries.map((question) => question.id)).toEqual(["bbb", "aaa"]);
 	});
+
+	test("a question awaiting approval leads its group, however unvoted (REQ038)", () => {
+		const ordered = rankQAQuestions([
+			entry("popular", { upvotes: 9 }),
+			entry("pending", { approved: false }),
+			entry("answered-pending", { approved: false, answered: true }),
+			entry("answered", { answered: true, upvotes: 3 }),
+		]);
+		expect(ordered.map((question) => question.id)).toEqual([
+			"pending",
+			"popular",
+			"answered-pending",
+			"answered",
+		]);
+	});
 });
 
 describe("StoredQAQuestionSchema / StoredQAUpvoteSchema", () => {
@@ -242,6 +336,8 @@ describe("StoredQAQuestionSchema / StoredQAUpvoteSchema", () => {
 		expect(question.answered).toBe(false);
 		// An explicit null, not a missing key: "still open" is a value.
 		expect(question.answeredAt).toBeNull();
+		// Approved: a question stored before approval existed was published (REQ038).
+		expect(question.approved).toBe(true);
 	});
 
 	test("the identity fields fail loudly rather than being fabricated", () => {
@@ -279,6 +375,7 @@ describe("Q&A request schemas", () => {
 		const partial = QASettingsSchema.parse({ enabled: true });
 		expect(partial.enabled).toBe(true);
 		expect(partial.visibility).toBeUndefined();
+		expect(partial.approvalRequired).toBeUndefined();
 	});
 
 	test("the answered and upvote bodies are equally partial", () => {

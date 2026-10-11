@@ -3943,7 +3943,7 @@ export function withAudienceSlides<
 	return withoutPresenterNotes(withAudienceSolutions(slides, deck, now));
 }
 
-// ── Q&A layer (REQ036, REQ037, REQ060) ───────────────────────
+// ── Q&A layer (REQ036, REQ037, REQ038, REQ060) ───────────────
 //
 // Q&A is not a slide type here — it is an **overarching interactivity layer**
 // (REQ036) switched on for the whole deck, so a participant can ask a question
@@ -4002,16 +4002,19 @@ export function normalizeQuestionText(text: string): string {
 export type QASettings = {
 	qaEnabled?: boolean | undefined;
 	qaVisibility?: QAVisibility | undefined;
+	qaApprovalRequired?: boolean | undefined;
 };
 
-/** The Q&A layer's settings with both values filled in, from any of its shapes. */
+/** The Q&A layer's settings with every value filled in, from any of its shapes. */
 export function qaSettingsFor(deck: QASettings): {
 	enabled: boolean;
 	visibility: QAVisibility;
+	approvalRequired: boolean;
 } {
 	return {
 		enabled: deck.qaEnabled ?? false,
 		visibility: deck.qaVisibility ?? "presenter",
+		approvalRequired: deck.qaApprovalRequired ?? false,
 	};
 }
 
@@ -4043,6 +4046,8 @@ export function qaListVisibleToAudience(
 type QAQuestionRow = {
 	id: string;
 	participantId?: string | undefined;
+	/** Whether an editor has let it through (REQ038); absent reads as approved. */
+	approved?: boolean | undefined;
 };
 
 /**
@@ -4059,15 +4064,33 @@ type QAQuestionRow = {
  * presenter switching the layer off mid-session takes the room's list away
  * without also taking each participant's own words off their screen — which
  * would read as their question having been deleted.
+ *
+ * **An unapproved question is an editor's alone** (REQ038), and that comes
+ * first: it is dropped from every list but an editor's before either rule above
+ * runs, the asker's own view included. "Editor" here is `canModerate` — the
+ * level that may *change* the deck (owner, edit token, an `edit` grant) — and
+ * deliberately not `canEdit`, which any grant carries: a `view` or `comment`
+ * collaborator reads the moderated list as its owner does, but a question nobody
+ * has approved is waiting on somebody who can approve it, and a reader who
+ * cannot is part of the audience it is withheld from. "You always see what you asked" is about
+ * proof of receipt on a list the organizer withholds; a question still waiting
+ * for approval has not been published to anybody, and handing it back to the one
+ * phone that typed it would put it on screen beside the room's list as though it
+ * were part of it. It is the question's own flag that decides, not the deck's
+ * current setting, so switching approval off later releases nothing that was
+ * never approved.
  */
 export function qaQuestionsVisibleTo<QuestionShape extends QAQuestionRow>(
 	questions: QuestionShape[],
 	deck: QASettings,
-	caller: { canEdit: boolean; participantId: string },
+	caller: { canEdit: boolean; canModerate: boolean; participantId: string },
 ): QuestionShape[] {
-	if (qaListVisibleToAudience(deck, caller.canEdit)) return questions;
+	const published = caller.canModerate
+		? questions
+		: questions.filter((question) => question.approved !== false);
+	if (qaListVisibleToAudience(deck, caller.canEdit)) return published;
 	if (!caller.participantId) return [];
-	return questions.filter(
+	return published.filter(
 		(question) => question.participantId === caller.participantId,
 	);
 }
@@ -4088,6 +4111,11 @@ export type QAListEntry = {
 	answered: boolean;
 	/** When it was marked answered, ISO — an explicit `null` while open. */
 	answeredAt: string | null;
+	/**
+	 * Whether an editor has let it through (REQ038). Always `true` on a
+	 * non-editor's list, which never carries an unapproved question at all.
+	 */
+	approved: boolean;
 	createdAt: string;
 	/** Whether the caller asked it. */
 	own: boolean;
@@ -4107,12 +4135,19 @@ export type QAListEntry = {
  * requirement asks for; ties go to whoever asked first, so a question does not
  * lose its place merely by being early, and the last tie-break is the id so the
  * same list is drawn the same way every re-render.
+ *
+ * Within each of those two groups a question still **waiting for approval**
+ * (REQ038) comes first. Only an editor's list ever holds one, and to an editor
+ * it is the most urgent row there: nobody else can see it, and it has drawn no
+ * upvotes because nobody else can — so ranked by score it would sit at the
+ * bottom of the queue the presenter is meant to approve it from.
  */
 export function rankQAQuestions<EntryShape extends QAListEntry>(
 	entries: EntryShape[],
 ): EntryShape[] {
 	return [...entries].sort((left, right) => {
 		if (left.answered !== right.answered) return left.answered ? 1 : -1;
+		if (left.approved !== right.approved) return left.approved ? 1 : -1;
 		if (left.upvotes !== right.upvotes) return right.upvotes - left.upvotes;
 		const byAge =
 			Date.parse(left.createdAt || "") - Date.parse(right.createdAt || "");
@@ -4505,6 +4540,13 @@ export const DECK_THEME_IDS = [
 
 export const DeckThemeIdEnum = z.enum(DECK_THEME_IDS);
 export type DeckThemeId = z.infer<typeof DeckThemeIdEnum>;
+
+/**
+ * The built-in set alone, without `custom` — what a value may hold when it
+ * names a theme but carries no brand to paint `custom` with, as a
+ * workspace's default theme does (REQ086).
+ */
+export const BuiltInDeckThemeIdEnum = z.enum(BUILT_IN_DECK_THEME_IDS);
 
 /**
  * What an unstated theme means. The house theme, deliberately: the field is
@@ -4927,6 +4969,225 @@ export const GenerateDeckSchema = z.object({
 
 export type GenerateDeckInput = z.infer<typeof GenerateDeckSchema>;
 
+// ── Feedback about omul (REQ185) ─────────────────────────────
+
+/** The longest comment a feedback entry keeps, counted after trimming. */
+export const FEEDBACK_COMMENT_MAX_LENGTH = 2000;
+
+/** The kind of screen the app menu was opened on when feedback was sent. */
+export const FeedbackSurfaceSchema = z.enum(["presenter", "participant", "other"]);
+
+export type FeedbackSurface = z.infer<typeof FeedbackSurfaceSchema>;
+
+/**
+ * What `POST /api/feedback` takes — feedback about omul itself, sent from the
+ * app menu to whoever runs this instance (REQ185).
+ *
+ * `rating` and `comment` are each optional, and either alone is a complete
+ * submission; one with neither is refused `400` by the route rather than here,
+ * so the refusal can say what is missing instead of failing a refinement.
+ * `surface` and `language` are required — they are the only context an entry
+ * carries, and guessing them would store a fact nobody stated.
+ *
+ * `contactMe` is a request, not an identity: the account it refers to is the
+ * caller's session, resolved on the server, and a body cannot name any other.
+ */
+export const UserFeedbackSubmissionSchema = z.object({
+	rating: z.number().int().min(1).max(5).nullable().default(null),
+	comment: z.string().trim().max(FEEDBACK_COMMENT_MAX_LENGTH).default(""),
+	surface: FeedbackSurfaceSchema,
+	language: z.string().trim().min(1).max(DECK_LANGUAGE_MAX_LENGTH),
+	contactMe: z.boolean().default(false),
+});
+
+export type UserFeedbackSubmission = z.infer<
+	typeof UserFeedbackSubmissionSchema
+>;
+
+// ── The prompt after a session (REQ186) ─────────────────────
+
+/**
+ * The languages the participant screens speak — `Lang` in `src/i18n.ts`,
+ * restated because the server does not import the client, and held to it by a
+ * test. A prompt answer records the deck's language, which is one of these.
+ */
+export const ParticipantLanguageSchema = z.enum([
+	"en",
+	"de",
+	"fr",
+	"es",
+	"it",
+	"pt",
+	"nl",
+]);
+
+export type ParticipantLanguage = z.infer<typeof ParticipantLanguageSchema>;
+
+/**
+ * What `POST /api/feedback/participant` takes — a participant's answer to the
+ * prompt after a session (REQ186). The same rating-or-comment rule as
+ * {@link UserFeedbackSubmissionSchema}, refused `400` by the route, and nothing
+ * else: no surface, no contact request, and no field that could name the
+ * participant, the deck or an account. Anything else a body carries is dropped
+ * here, before the route sees it.
+ */
+export const ParticipantFeedbackSubmissionSchema = z.object({
+	rating: z.number().int().min(1).max(5).nullable().default(null),
+	comment: z.string().trim().max(FEEDBACK_COMMENT_MAX_LENGTH).default(""),
+	language: ParticipantLanguageSchema,
+});
+
+export type ParticipantFeedbackSubmission = z.infer<
+	typeof ParticipantFeedbackSubmissionSchema
+>;
+
+/** How many days a device waits before it is asked again, unless configured. */
+export const FEEDBACK_PROMPT_COOLDOWN_DAYS_DEFAULT = 30;
+
+/** The longest cooldown accepted: ten years, past which "never again" is meant. */
+export const FEEDBACK_PROMPT_COOLDOWN_DAYS_MAX = 3650;
+
+/** A whole number written in an environment variable: digits only, in bounds. */
+function wholeNumberSetting(minimum: number, maximum: number) {
+	return z
+		.string()
+		.regex(/^\d+$/)
+		.transform(Number)
+		.pipe(z.number().int().min(minimum).max(maximum));
+}
+
+/** `OMUL_FEEDBACK_PROMPT_PERCENT`, once set: the share of participants asked. */
+export const FeedbackPromptPercentSettingSchema = wholeNumberSetting(1, 100);
+
+/** `OMUL_FEEDBACK_PROMPT_COOLDOWN_DAYS`, once set. */
+export const FeedbackPromptCooldownDaysSettingSchema = wholeNumberSetting(
+	1,
+	FEEDBACK_PROMPT_COOLDOWN_DAYS_MAX,
+);
+
+/**
+ * What `GET /api/feedback/config` answers — whether this deployment collects
+ * feedback from the app menu (`enabled`, REQ185), and the prompt after a
+ * session (REQ186): `promptPercent` is the share of eligible participants asked,
+ * `null` while the prompt is off, and `promptCooldownDays` how long a device
+ * waits before it is asked again — reported whether or not the prompt is on.
+ */
+export const FeedbackConfigSchema = z.object({
+	enabled: z.boolean().default(false),
+	promptPercent: z.number().int().min(1).max(100).nullable().default(null),
+	promptCooldownDays: z
+		.number()
+		.int()
+		.min(1)
+		.max(FEEDBACK_PROMPT_COOLDOWN_DAYS_MAX)
+		.default(FEEDBACK_PROMPT_COOLDOWN_DAYS_DEFAULT),
+});
+
+export type FeedbackConfig = z.infer<typeof FeedbackConfigSchema>;
+
+/**
+ * The two feedback channels an administrator reads (REQ185): `user`, sent from
+ * the app menu, and `participant`, the prompt after a session (REQ186).
+ */
+export const FeedbackChannelSchema = z.enum(["user", "participant"]);
+
+export type FeedbackChannel = z.infer<typeof FeedbackChannelSchema>;
+
+/** How many entries one page of `GET /api/admin/feedback` holds. */
+export const FEEDBACK_PAGE_SIZE = 50;
+
+/**
+ * What `GET /api/admin/feedback` takes — the channel, and the `nextCursor` of
+ * the page before when paging on. A cursor is an entry id, opaque to the caller.
+ */
+export const AdminFeedbackQuerySchema = z.object({
+	channel: FeedbackChannelSchema,
+	cursor: z.string().min(1).optional(),
+});
+
+export type AdminFeedbackQuery = z.infer<typeof AdminFeedbackQuerySchema>;
+
+/**
+ * Who an administrator can write back to about one app-menu entry, resolved
+ * from its account when it is read and never stored: `null` when the sender
+ * did not ask to be contacted, `email` with the account's current address, or
+ * `deleted` when that account no longer exists.
+ */
+export const FeedbackContactSchema = z
+	.discriminatedUnion("status", [
+		z.object({ status: z.literal("email"), email: z.string() }),
+		z.object({ status: z.literal("deleted") }),
+	])
+	.nullable()
+	.default(null);
+
+export type FeedbackContact = z.infer<typeof FeedbackContactSchema>;
+
+/** One app-menu entry as an administrator reads it — never its account id. */
+export const AdminUserFeedbackEntrySchema = z.object({
+	id: z.string(),
+	rating: z.number().int().min(1).max(5).nullable().default(null),
+	comment: z.string().nullable().default(null),
+	surface: FeedbackSurfaceSchema,
+	language: z.string(),
+	createdOn: z.string(),
+	contact: FeedbackContactSchema,
+});
+
+/** One participant-prompt entry as an administrator reads it (REQ186). */
+export const AdminParticipantFeedbackEntrySchema = z.object({
+	id: z.string(),
+	rating: z.number().int().min(1).max(5).nullable().default(null),
+	comment: z.string().nullable().default(null),
+	language: z.string(),
+	createdOn: z.string(),
+});
+
+/** How many entries of a channel carry each rating, 1 to 5. */
+export const FeedbackRatingCountsSchema = z.object({
+	"1": z.number().int().default(0),
+	"2": z.number().int().default(0),
+	"3": z.number().int().default(0),
+	"4": z.number().int().default(0),
+	"5": z.number().int().default(0),
+});
+
+export type FeedbackRatingCounts = z.infer<typeof FeedbackRatingCountsSchema>;
+
+/**
+ * What every channel's page carries: its totals — over every entry, whichever
+ * page is asked for, `unratedCount` being the entries that hold only a comment —
+ * and the cursor to the next page.
+ */
+const FeedbackPageShape = {
+	total: z.number().int().default(0),
+	ratingCounts: FeedbackRatingCountsSchema,
+	unratedCount: z.number().int().default(0),
+	nextCursor: z.string().nullable().default(null),
+};
+
+/**
+ * What `GET /api/admin/feedback` answers (REQ185): a channel's totals, and one
+ * page of its entries, newest first. `nextCursor` is `null` on the last page.
+ */
+export const AdminFeedbackPageSchema = z.discriminatedUnion("channel", [
+	z.object({
+		channel: z.literal("user"),
+		...FeedbackPageShape,
+		entries: z.array(AdminUserFeedbackEntrySchema).default([]),
+	}),
+	z.object({
+		channel: z.literal("participant"),
+		...FeedbackPageShape,
+		entries: z.array(AdminParticipantFeedbackEntrySchema).default([]),
+	}),
+]);
+
+export type AdminFeedbackPage = z.infer<typeof AdminFeedbackPageSchema>;
+
+/** What `GET /api/admin/feedback` answers when it has no page to give. */
+export const AdminFeedbackErrorSchema = z.object({ error: z.string() });
+
 // ── Presentation schema ──────────────────────────────────────
 
 export const CreatePresentationSchema = z
@@ -5025,8 +5286,14 @@ export const CreatePresentationSchema = z
 		 * The deck's appearance (REQ079, REQ080) and the organizer's own mark
 		 * (REQ136). Authored with the deck, like its language and its pace —
 		 * `themeBrand` only reaches a screen when `theme` is `custom`.
+		 *
+		 * `null` — the default — means the request named no theme, and that is
+		 * not the same request as one naming the house theme (REQ086): a deck
+		 * created in a workspace without a theme takes the workspace's default,
+		 * while one that asked for `signal` keeps it. A personal deck that named
+		 * none still gets the house theme, decided in `createPresentation`.
 		 */
-		theme: DeckThemeIdEnum.optional().default(DEFAULT_DECK_THEME),
+		theme: DeckThemeIdEnum.nullable().default(null),
 		themeBrand: DeckBrandSchema.optional().default({}),
 		themeLogoUrl: z.string().optional().default(""),
 		themeLogoAlt: z.string().optional().default(""),
@@ -5104,7 +5371,8 @@ export const CreatePresentationSchema = z
  *
  * Server-managed state is absent by design and is moved by its own routes:
  * `status` (start/end), `activeSlideIndex` (slide), `revealedSlideIds` (reveal),
- * `slideStartedAt` (timer), `closedSlideIds` (participation, REQ111),
+ * `slideStartedAt` (timer), `sessionStartedAt` / `sessionEndedAt` (start/end,
+ * REQ108), `closedSlideIds` (participation, REQ111),
  * `audienceBlanked` (blank, REQ109), the results link (results-link), the join
  * `code` and `createdAt` (neither is authored at all).
  */
@@ -5125,6 +5393,12 @@ export const UpdatePresentationSchema = z.object({
 	reactionsEnabled: z.boolean().optional(),
 	chatEnabled: z.boolean().optional(),
 	requireParticipantName: z.boolean().optional(),
+	/**
+	 * Whether the presenter surface draws its join bar (REQ073). Written here and
+	 * nowhere else: it is a decision about the projected screen, and only a caller
+	 * who may change the deck reaches this route.
+	 */
+	showJoinBar: z.boolean().optional(),
 	theme: DeckThemeIdEnum.optional(),
 	themeBrand: DeckBrandSchema.optional(),
 	themeLogoUrl: z.string().optional(),
@@ -5229,6 +5503,20 @@ export const PresentationSchema = z.object({
 	 */
 	slideStartedAt: z.record(z.string(), z.string()).default({}),
 	/**
+	 * When the current session went live and, once it has, when it ended — ISO
+	 * instants, `null` until each happens (REQ108). The presenter surface's
+	 * session clock is derived from the pair; see `sessionElapsedMs` in
+	 * `src/components/SessionClock.tsx`.
+	 *
+	 * Written by the server alone, on start and end, and cleared by a reset with
+	 * the rest of the run's state. Public like `slideStartedAt` above: two
+	 * instants say nothing a participant could not already see, and every
+	 * presenter screen of the deck — a second browser included — has to agree on
+	 * when the session began.
+	 */
+	sessionStartedAt: z.string().nullable().default(null),
+	sessionEndedAt: z.string().nullable().default(null),
+	/**
 	 * The Q&A layer (REQ036/REQ037): whether questions can be asked from any
 	 * slide, and who may read the list.
 	 *
@@ -5239,6 +5527,14 @@ export const PresentationSchema = z.object({
 	 */
 	qaEnabled: z.boolean().default(false),
 	qaVisibility: QAVisibilityEnum.default("presenter"),
+	/**
+	 * Whether a question asked through the layer waits for an editor's approval
+	 * before the room can see or upvote it (REQ038). Public for the same reason
+	 * as the two above — a phone has to know its question will not appear at once
+	 * — and off by default, which is also what every deck stored before it
+	 * existed reads as.
+	 */
+	qaApprovalRequired: z.boolean().default(false),
 	/**
 	 * The two participant channels (REQ077, REQ078): whether reactions may be
 	 * sent from any slide, and whether the deck carries a live chat.
@@ -5261,6 +5557,17 @@ export const PresentationSchema = z.object({
 	 * {@link deckRequiresParticipantName}.
 	 */
 	requireParticipantName: z.boolean().default(false),
+	/**
+	 * Whether the presenter surface draws the join bar — the join code and the
+	 * share controls beside it (REQ073).
+	 *
+	 * A statement about one screen and nothing more: hiding the bar leaves the
+	 * code, the join route, the deck's status and every participant's way in
+	 * exactly as they were, so nothing that admits a room ever reads it. Public
+	 * because every presenter screen of the deck has to draw the same header,
+	 * and the screen being projected may be a second browser.
+	 */
+	showJoinBar: z.boolean().default(true),
 	/**
 	 * The deck's theme (REQ079), the one it authored for itself (REQ080/REQ135)
 	 * and the logo it carries (REQ136).
@@ -5649,12 +5956,14 @@ export type PostSlideCommentInput = z.infer<typeof PostSlideCommentSchema>;
 //    at the front of {@link WORKSPACE_ROLES} and one line in each predicate — not
 //    a sweep for `!== "member"` spelled five different ways.
 //
-// What this slice deliberately does not model: a workspace's own settings, theme,
+// What this slice deliberately does not model: a workspace's own settings,
 // usage or seats. Each is its own pending requirement, and a field here that
-// nothing enforces would be a promise the server does not keep. The templates a
-// workspace publishes for itself *are* modelled, further down this block
-// (REQ004) — and as a collection of their own rather than a field here, because
-// a workspace holds many and each is a document.
+// nothing enforces would be a promise the server does not keep. The one setting
+// that is modelled is the default theme (REQ086), because the deck create keeps
+// it: a deck made in the workspace without naming a theme starts in it. The
+// templates a workspace publishes for itself *are* modelled, further down this
+// block (REQ004) — and as a collection of their own rather than a field here,
+// because a workspace holds many and each is a document.
 
 /**
  * The longest a workspace's name may be, in characters. The deck title's cap
@@ -5793,6 +6102,8 @@ export function canAdministerWorkspace(role: WorkspaceRole | null): boolean {
 export const WorkspaceSchema = z.object({
 	id: z.string(),
 	name: z.string().default(""),
+	/** The theme a deck created here starts in when it names none (REQ086). */
+	defaultTheme: BuiltInDeckThemeIdEnum.default(DEFAULT_DECK_THEME),
 	role: WorkspaceRoleEnum.nullable().default(null),
 	createdAt: z.string().default(""),
 	updatedAt: z.string().default(""),
@@ -5841,6 +6152,19 @@ export type CreateWorkspaceInput = z.infer<typeof CreateWorkspaceSchema>;
  */
 export const RenameWorkspaceSchema = z.object({
 	name: z.string().trim().min(1).max(WORKSPACE_NAME_MAX_LENGTH),
+});
+
+/**
+ * Setting a workspace's default theme (REQ086). No default, like
+ * {@link WorkspaceRoleBodySchema}: this request exists only to name a theme, so
+ * an absent one is malformed rather than a silent reset to the house theme.
+ *
+ * Built-in themes only. `custom` names a palette authored *on a deck*, and a
+ * workspace has no brand of its own to lend one (that is REQ130's), so a deck
+ * created into it would be "custom" with nothing to be custom with.
+ */
+export const WorkspaceDefaultThemeSchema = z.object({
+	defaultTheme: BuiltInDeckThemeIdEnum,
 });
 
 /**
@@ -6121,9 +6445,18 @@ export const StoredPresentationSchema = z.object({
 	audienceBlanked: z.boolean().default(false),
 	/** When each slide's question was opened, ISO by slide id (REQ057). */
 	slideStartedAt: z.record(z.string(), z.string()).default({}),
+	/**
+	 * When the current session went live and when it ended, ISO (REQ108).
+	 * Defaulted `null` — no session recorded — which is what every deck written
+	 * before these fields existed re-parses forward onto.
+	 */
+	sessionStartedAt: z.string().nullable().default(null),
+	sessionEndedAt: z.string().nullable().default(null),
 	/** The Q&A layer: on/off across every slide (REQ036) and who reads it (REQ037). */
 	qaEnabled: z.boolean().default(false),
 	qaVisibility: QAVisibilityEnum.default("presenter"),
+	/** Whether each new question waits for an editor's approval (REQ038). */
+	qaApprovalRequired: z.boolean().default(false),
 	/**
 	 * The participant channels: reactions on any slide (REQ077) and the deck's
 	 * live chat (REQ078). Both defaulted off, so every deck written
@@ -6139,6 +6472,12 @@ export const StoredPresentationSchema = z.object({
 	 * question at its door that its organizer never asked.
 	 */
 	requireParticipantName: z.boolean().default(false),
+	/**
+	 * Whether the presenter surface draws its join bar (REQ073). Defaulted
+	 * **shown**, so every deck written before this field existed re-parses
+	 * forward onto the header it already had.
+	 */
+	showJoinBar: z.boolean().default(true),
 	/**
 	 * The theme this deck is drawn in (REQ079, REQ080) and the organizer's own
 	 * mark (REQ136), stored as an authored URL and its accessible name.
@@ -6241,10 +6580,16 @@ export function canGrandfatherLegacyDeck({
  * same moment (see `services/workspaces.ts`). It is nullable because the account
  * may since have been deleted, and because every non-identity
  * field wants a value a row written before it existed re-parses onto.
+ *
+ * `defaultTheme` (REQ086) is the theme a deck created in the workspace starts
+ * in when its create names none. It defaults to the house theme, so every
+ * workspace written before it existed creates decks exactly as it did — and
+ * it is read only at create time, so changing it re-themes no existing deck.
  */
 export const StoredWorkspaceSchema = z.object({
 	id: z.string(),
 	name: z.string().default(""),
+	defaultTheme: BuiltInDeckThemeIdEnum.default(DEFAULT_DECK_THEME),
 	createdBy: z.string().nullable().default(null),
 	createdAt: z.string().default(""),
 	updatedAt: z.string().default(""),
@@ -6432,6 +6777,13 @@ export const StoredQAQuestionSchema = z.object({
 	answered: z.boolean().default(false),
 	/** When they did, ISO; null while the question is still open. */
 	answeredAt: z.string().nullable().default(null),
+	/**
+	 * Whether the room may see and upvote it (REQ038). Defaults `true`: every
+	 * question stored before approval existed was already published, and reading
+	 * one as withheld would take it off screens it is on. A question asked while
+	 * its deck requires approval is written `false` explicitly.
+	 */
+	approved: z.boolean().default(true),
 	createdAt: z.string().default(""),
 });
 
@@ -6527,13 +6879,15 @@ export const QAAnsweredSchema = z.object({
 });
 
 /**
- * Turning the layer on or off (REQ036) and choosing who reads it (REQ037).
- * Both keys are independently optional — the presenter's two switches move
- * separately, and sending one must not quietly re-assert the other.
+ * Turning the layer on or off (REQ036), choosing who reads it (REQ037) and
+ * whether each question waits for approval (REQ038). Every key is independently
+ * optional — the presenter's switches move separately, and sending one must not
+ * quietly re-assert another.
  */
 export const QASettingsSchema = z.object({
 	enabled: z.boolean().optional(),
 	visibility: QAVisibilityEnum.optional(),
+	approvalRequired: z.boolean().optional(),
 });
 
 // ── Participant-channel request schemas (REQ077, REQ078) ─────

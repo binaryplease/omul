@@ -440,7 +440,14 @@ describe("WebSocket integration", () => {
 		expect(res.status).toBe(200);
 
 		const env = await client.waitFor("presentation.started");
-		expect(env.data).toEqual({ presentationId: pres.id });
+		// The frame carries the session clock's start (REQ108), so a second
+		// presenter screen runs the same clock as the one that clicked.
+		const started = await res.json();
+		expect(env.data).toEqual({
+			presentationId: pres.id,
+			startedAt: started.sessionStartedAt,
+		});
+		expect(typeof env.data.startedAt).toBe("string");
 
 		await client.close();
 	});
@@ -877,11 +884,19 @@ describe("WebSocket integration", () => {
 		});
 		await client.waitFor("presentation.started");
 
-		await authed(`/api/presentations/${pres.id}/end`, pres.creatorToken, {
-			method: "POST",
-		});
+		const endRes = await authed(
+			`/api/presentations/${pres.id}/end`,
+			pres.creatorToken,
+			{ method: "POST" },
+		);
 		const ended = await client.waitFor("presentation.ended");
-		expect(ended.data).toEqual({ presentationId: pres.id });
+		// And where the clock stopped (REQ108).
+		const endedDeck = await endRes.json();
+		expect(ended.data).toEqual({
+			presentationId: pres.id,
+			endedAt: endedDeck.sessionEndedAt,
+		});
+		expect(typeof ended.data.endedAt).toBe("string");
 
 		await authed(`/api/presentations/${pres.id}/reset`, pres.creatorToken, {
 			method: "POST",
@@ -900,7 +915,7 @@ describe("WebSocket integration", () => {
 	// room, since nothing about the deck a client holds would have changed to
 	// make it refetch — and REQ037 is the control that exists to withdraw it.
 
-	test("the settings endpoint broadcasts qa.settings (REQ036/REQ037)", async () => {
+	test("the settings endpoint broadcasts qa.settings (REQ036/REQ037/REQ038)", async () => {
 		const pres = await createPresentation();
 		const client = openWs();
 		await client.ready;
@@ -911,7 +926,11 @@ describe("WebSocket integration", () => {
 			pres.creatorToken,
 			{
 				method: "POST",
-				body: JSON.stringify({ enabled: true, visibility: "everyone" }),
+				body: JSON.stringify({
+					enabled: true,
+					visibility: "everyone",
+					approvalRequired: true,
+				}),
 			},
 		);
 		expect(res.status).toBe(200);
@@ -921,6 +940,7 @@ describe("WebSocket integration", () => {
 			presentationId: pres.id,
 			qaEnabled: true,
 			qaVisibility: "everyone",
+			qaApprovalRequired: true,
 		});
 
 		await client.close();
@@ -956,6 +976,7 @@ describe("WebSocket integration", () => {
 			// keys that happened to be sent.
 			qaEnabled: true,
 			qaVisibility: "presenter",
+			qaApprovalRequired: false,
 		});
 
 		await client.close();

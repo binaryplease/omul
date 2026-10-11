@@ -516,10 +516,28 @@ describe("the CLA check decides on things GitHub authenticates", () => {
 		expect(workflow).not.toMatch(/^\s*actions: write$/m);
 	});
 
+	test("the copyright holder's exemption keys on an account id and a signature", () => {
+		// The holder cannot sign an agreement with himself, so his own pull
+		// requests are exempt — but only on facts GitHub authenticates. An author
+		// resolves to an account by email alone, which anyone can write into a
+		// commit; the verified signature is what a stranger cannot forge. Drop
+		// any of the three conditions and the exemption becomes a bypass.
+		const exemption = workflow.match(/--jq '(\.\[\] \| if .+ then "holder" else "other" end)'/);
+		expect(exemption).not.toBeNull();
+		expect(exemption?.[1]).toContain(".author.id == 24828012");
+		expect(exemption?.[1]).toContain(".committer.id == 24828012");
+		expect(exemption?.[1]).toContain(".commit.verification.verified == true");
+		// One commit that is not the holder's sends the pull request to the
+		// action; an empty commit list exempts nothing.
+		expect(workflow).toContain(`if [ -n "$verdicts" ] && ! grep -qx other <<<"$verdicts"; then`);
+		expect(workflow).toMatch(/- name: CLA assistant\n\s+if: steps\.holder\.outputs\.exempt != 'true'\n/);
+	});
+
 	test("nothing checks out or runs the pull request's own code", () => {
 		// The one property that keeps `pull_request_target` safe at all. The
-		// only `run:` in the file is the commit-count bound, whose script
-		// interpolates nothing.
+		// two `run:` scripts in the file are the commit-count bound, which
+		// interpolates nothing, and the holder exemption, which takes the pull
+		// request number through the environment and reads commits through `jq`.
 		expect(workflow).not.toMatch(/uses: actions\/checkout/);
 		expect(workflow).not.toMatch(/\$\{\{\s*github\.event\.(comment|pull_request)\.[a-z_.]*(body|title|ref|label)/);
 	});

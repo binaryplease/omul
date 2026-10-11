@@ -12,6 +12,8 @@ import {
 	ParticipantSlideView,
 } from "../components/ParticipantSlideView";
 import { DeckMark, DeckThemeScope } from "../components/DeckTheme";
+import { LegalNotice } from "../components/LegalLinks";
+import { ParticipantFeedbackPrompt } from "../components/ParticipantFeedbackPrompt";
 import {
 	ChatComposer,
 	ChatHeading,
@@ -35,9 +37,10 @@ import {
 } from "../components/ReactionBar";
 import { SlideAppearanceScope } from "../components/SlideAppearance";
 import { SlideBackground } from "../components/SlideBackground";
+import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
-import { ThemeToggle } from "../components/ui/Theme";
 import { useToast } from "../components/ui/Toast";
+import { rememberDeckSeenInRoom } from "../feedback-prompt";
 import { getDict } from "../i18n";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
@@ -236,6 +239,19 @@ export function ParticipantPage({
 	}, [pres?.id, sessionResetRevision]);
 
 	/**
+	 * Record that this device is in the room (REQ186): a deck seen here in
+	 * `draft` or `live` is one the participant may be asked about once it ends,
+	 * and a deck first seen ended never is. Nothing is drawn from it here — the
+	 * ended screen's prompt reads it through `shouldAskForParticipantFeedback()`.
+	 */
+	useEffect(() => {
+		if (!pres?.id) return;
+		if (pres.status === "draft" || pres.status === "live") {
+			rememberDeckSeenInRoom(pres.id);
+		}
+	}, [pres?.id, pres?.status]);
+
+	/**
 	 * State a name, or correct the one already stated (REQ076).
 	 *
 	 * What is kept is the server's answer, not what was typed: the endpoint trims
@@ -382,9 +398,18 @@ export function ParticipantPage({
 	 * `pres` is null until the join lookup answers, and the scope takes that: the
 	 * loading and error screens wear the built-in default, because there is not
 	 * yet a deck whose theme they could be in.
+	 *
+	 * The screens are in the deck's language too (REQ084), and say so: `lang` is
+	 * what a screen reader pronounces them by, and what the app menu records as
+	 * the language a feedback entry was sent from (REQ185). A box-less wrapper,
+	 * so the layout is the scope's as before.
 	 */
 	const themed = (screen: React.ReactNode) => (
-		<DeckThemeScope deck={pres}>{screen}</DeckThemeScope>
+		<DeckThemeScope deck={pres}>
+			<div lang={pres?.language || undefined} className="contents">
+				{screen}
+			</div>
+		</DeckThemeScope>
 	);
 
 	if (loading)
@@ -396,6 +421,9 @@ export function ParticipantPage({
 	if (error)
 		return themed(
 			<div className="participant-view bg-void bg-noise">
+				<div className="absolute top-4 right-4 z-20">
+					<AppMenu />
+				</div>
 				<div className="relative z-10 text-center">
 					<p className="text-error mb-4">{error}</p>
 					<button
@@ -422,7 +450,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<ThemeToggle />
+					<AppMenu />
 				</div>
 				<div className="relative z-10 flex flex-col items-center text-center">
 					{/* REQ136 — the organizer's mark on the last screen the room sees,
@@ -437,6 +465,13 @@ export function ParticipantPage({
 					>
 						Back to home
 					</button>
+					{/* REQ186 — omul's own question, on a card of its own below the
+					    organizer's goodbye: in omul's default theme and under omul's
+					    mark, drawn only for a sampled device that was in the room. */}
+					<ParticipantFeedbackPrompt
+						deck={pres}
+						participantId={participantId.current}
+					/>
 				</div>
 			</div>,
 		);
@@ -444,6 +479,19 @@ export function ParticipantPage({
 
 	// The deck's own wording for the question at its door (REQ076/REQ084).
 	const nameLabels = participantNameLabelsFor(t);
+
+	/**
+	 * REQ183 — the terms and the privacy policy, named on every screen from which
+	 * a participant can submit something. A `/join/<code>` link or the room's QR
+	 * code lands here directly, past `JoinPage` and its notice, so this page has
+	 * to carry the sentence itself: under the name form, on the waiting screen,
+	 * and under the answer controls of the live slide. Draws nothing on an
+	 * instance that configured neither text. English, like `JoinPage`'s: it is
+	 * the operator's sentence, not the deck's.
+	 */
+	const legalNotice = (
+		<LegalNotice action="taking part" className="mt-6 max-w-xs text-center" />
+	);
 
 	/**
 	 * REQ076 — the name gate, and it is an **early return** rather than an
@@ -465,7 +513,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<ThemeToggle />
+					<AppMenu />
 				</div>
 				<div className="relative z-10 flex flex-col items-center px-4">
 					<DeckMark deck={pres} className="mb-6" />
@@ -489,6 +537,7 @@ export function ParticipantPage({
 									}
 						}
 					/>
+					{legalNotice}
 				</div>
 			</div>,
 		);
@@ -513,7 +562,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<ThemeToggle />
+					<AppMenu />
 				</div>
 				<div className="relative z-10 flex flex-col items-center text-center">
 					{/* REQ136 — the join screen's mark: the organizer's logo when the
@@ -526,6 +575,7 @@ export function ParticipantPage({
 					    is told it landed, and can correct it here rather than having to
 					    wait for a slide to appear before the control does. */}
 					{nameBadge && <div className="mt-4">{nameBadge}</div>}
+					{legalNotice}
 				</div>
 			</div>,
 		);
@@ -554,7 +604,7 @@ export function ParticipantPage({
 				    cannot swallow a tap meant for the answer below it. */}
 				<ReactionStream reactions={liveReactions} />
 				<div className="absolute top-4 right-4 z-20">
-					<ThemeToggle />
+					<AppMenu />
 				</div>
 				<div
 					className={`relative z-10 w-full ${
@@ -599,6 +649,8 @@ export function ParticipantPage({
 						transport={transport}
 						onError={setError}
 					/>
+
+					{legalNotice}
 
 					{/* Survey-mode navigation (REQ003/REQ082) */}
 					{isSurvey && (

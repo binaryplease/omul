@@ -8,6 +8,8 @@ import {
 	MessageCircleQuestion,
 	MessageSquare,
 	MessagesSquare,
+	PanelTop,
+	PanelTopDashed,
 	Pencil,
 	RefreshCw,
 	StickyNote,
@@ -59,6 +61,7 @@ import {
 } from "../components/ParticipantName";
 import { PreviewLink } from "../components/PreviewLink";
 import { ResultsLinkDialog } from "../components/ResultsLinkDialog";
+import { SessionClock } from "../components/SessionClock";
 import {
 	buildShareControls,
 	ICON_BUTTON_HOVER,
@@ -72,11 +75,11 @@ import {
 } from "../components/SlideComments";
 import { SlideBackground } from "../components/SlideBackground";
 import { SlideRailItem } from "../components/SlideRail";
+import { AppMenu } from "../components/ui/AppMenu";
 import { ConfirmModal } from "../components/ui/ConfirmModal";
 import { LoadingState } from "../components/ui/Loading";
 import { QRCodeDisplay } from "../components/ui/QRCode";
 import { StatusBadge } from "../components/ui/StatusBadge";
-import { ThemeToggle } from "../components/ui/Theme";
 import { useToast } from "../components/ui/Toast";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
@@ -124,6 +127,7 @@ export function PresenterPage({
 		(state) => state.setSlideParticipation,
 	);
 	const setAudienceBlanked = useStore((state) => state.setAudienceBlanked);
+	const setJoinBarShown = useStore((state) => state.setJoinBarShown);
 	const deleteSubmittedAnswer = useStore(
 		(state) => state.deleteSubmittedAnswer,
 	);
@@ -409,6 +413,22 @@ export function PresenterPage({
 	};
 
 	/**
+	 * Show or hide the join bar on this screen (REQ073). No toast, for the
+	 * reason the blank has none: the presenter is looking at what it did. And no
+	 * confirmation, because nothing about the room moves — the code, the join
+	 * route and the deck's status stay exactly as they were.
+	 */
+	const handleSetJoinBarShown = async (shown: boolean) => {
+		try {
+			await setJoinBarShown(id, shown);
+		} catch (joinBarError: unknown) {
+			setError(
+				joinBarError instanceof Error ? joinBarError.message : "Unknown error",
+			);
+		}
+	};
+
+	/**
 	 * Switch the Q&A layer on/off (REQ036) or change who reads it (REQ037). Both
 	 * land on the same endpoint and the same broadcast, so a room learns the
 	 * floor is open — or has just been closed — without reloading anything.
@@ -416,6 +436,7 @@ export function PresenterPage({
 	const handleQASettings = async (changes: {
 		enabled?: boolean;
 		visibility?: "presenter" | "everyone";
+		approvalRequired?: boolean;
 	}) => {
 		try {
 			await setQASettings(id, changes);
@@ -436,6 +457,17 @@ export function PresenterPage({
 				answeredError instanceof Error
 					? answeredError.message
 					: "Unknown error",
+			);
+		}
+	};
+
+	/** Let a question awaiting approval through to the room (REQ038). */
+	const handleQuestionApproved = async (questionId: string) => {
+		try {
+			await api.approveQuestion(id, questionId);
+		} catch (approveError: unknown) {
+			setError(
+				approveError instanceof Error ? approveError.message : "Unknown error",
 			);
 		}
 	};
@@ -577,6 +609,9 @@ export function PresenterPage({
 	if (error)
 		return themed(
 			<div className="min-h-screen bg-void flex items-center justify-center text-error">
+				<div className="absolute top-4 right-4 z-20">
+					<AppMenu />
+				</div>
 				{error}
 			</div>,
 		);
@@ -614,6 +649,19 @@ export function PresenterPage({
 	const resultsLinkButtonLabel = isOwner
 		? "Share the results — create, copy or revoke a read-only link to this deck's results"
 		: "Share the results — you cannot edit this presentation, so its results are not yours to share";
+
+	// REQ073 — the join bar is the deck's setting, not this browser's, so every
+	// presenter screen of the deck draws the same header. The label says what
+	// hiding leaves alone, because the one wrong reading of this control is that
+	// it closes the door.
+	const joinBarShown = pres.showJoinBar;
+	const joinBarButtonLabel = !isOwner
+		? joinBarShown
+			? "Hide the join bar — you cannot edit this presentation, so its join bar is not yours to hide"
+			: "Show the join bar — you cannot edit this presentation, so its join bar is not yours to show"
+		: joinBarShown
+			? "Hide the join bar — the join code stays valid and the room can still join"
+			: "Show the join bar — put the join code and share controls back on this screen";
 
 	const resetButtonLabel = isOwner
 		? "Reset results — clear every response and return the deck to draft, so it can be run again"
@@ -751,6 +799,11 @@ export function PresenterPage({
 	if (sharedScreenView(pres) === "blank") {
 		return themed(
 			<div className="min-h-screen w-full bg-void bg-grid bg-noise flex flex-col">
+				{/* The theme switch and the legal texts (REQ183): a control, and
+				    one that shows nothing of the deck, so it stays. */}
+				<div className="absolute top-4 right-4 z-20">
+					<AppMenu />
+				</div>
 				<main className="relative z-10 flex flex-1 items-center justify-center p-4 sm:p-8">
 					<div className="w-full max-w-3xl">
 						<AudienceBlankCurtain
@@ -819,17 +872,48 @@ export function PresenterPage({
 								{pres.title}
 							</h1>
 							<StatusBadge status={pres.status} />
+							{/* REQ108 — how long this session has been running, beside
+							    the status it measures. Stops at the end, gone after a
+							    reset; nothing at all on a deck that has not gone live. */}
+							<SessionClock deck={pres} clockOffsetMs={serverClockOffsetMs} />
 						</div>
 
 						<div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+							{/* REQ073 — show or hide the join bar, on the spot where the
+							    bar sits on xl viewports and directly above the row it
+							    occupies below that. Pressed means hidden, like the blank
+							    beside it: both take something off the projected screen.
+							    Offered to a viewer who does not hold the deck too, disabled
+							    with its reason. */}
+							<button
+								type="button"
+								onClick={() => handleSetJoinBarShown(!joinBarShown)}
+								disabled={!isOwner}
+								aria-pressed={!joinBarShown}
+								aria-label={joinBarButtonLabel}
+								title={joinBarButtonLabel}
+								className={`flex items-center px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-surface-raised border text-sm ${
+									joinBarShown ? "border-border" : "border-accent"
+								} ${ICON_BUTTON_HOVER} disabled:opacity-50 disabled:cursor-not-allowed`}
+							>
+								{joinBarShown ? (
+									<PanelTop size={16} />
+								) : (
+									<PanelTopDashed size={16} />
+								)}
+							</button>
+
 							{/* Join code cluster — only inline on very wide viewports.
 							    On md..lg the controls take priority and the join code is
-							    shown on its own row below (see below). */}
-							<ShareCluster
-								variant="bar"
-								className="hidden xl:flex"
-								controls={shareControls}
-							/>
+							    shown on its own row below (see below). Neither is drawn
+							    while the deck hides its join bar (REQ073). */}
+							{joinBarShown && (
+								<ShareCluster
+									variant="bar"
+									className="hidden xl:flex"
+									controls={shareControls}
+								/>
+							)}
 
 							{/* Participant count */}
 							<div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-surface-raised border border-border text-sm text-text-muted">
@@ -1001,8 +1085,8 @@ export function PresenterPage({
 								{screenBlanked ? <EyeOff size={16} /> : <Eye size={16} />}
 							</button>
 
-							{/* Theme toggle */}
-							<ThemeToggle />
+							{/* Theme switch and legal texts (REQ183) */}
+							<AppMenu />
 
 							{/* The dry run (REQ103). Offered whatever the deck's status —
 							    a preview writes nothing and starts nothing, so there is no
@@ -1139,12 +1223,15 @@ export function PresenterPage({
 						</div>
 					</div>
 
-					{/* Join code row — visible below xl (where the cluster above is hidden). */}
-					<ShareCluster
-						variant="compact"
-						className="xl:hidden px-4 pb-2 flex"
-						controls={shareControls}
-					/>
+					{/* Join code row — visible below xl (where the cluster above is
+					    hidden), unless the deck hides its join bar (REQ073). */}
+					{joinBarShown && (
+						<ShareCluster
+							variant="compact"
+							className="xl:hidden px-4 pb-2 flex"
+							controls={shareControls}
+						/>
+					)}
 				</header>
 
 				{/* QR Code overlay */}
@@ -1306,17 +1393,22 @@ export function PresenterPage({
 					    screen, and a panel that covered it would make reading one cost
 					    the other.
 
-					    The layer's two controls sit inside this panel, on the list they
-					    govern — turning Q&A on and deciding who reads it are
-					    changes to *this*, not to the deck's chrome. Both are offered
-					    whether or not the layer is on, so the question of where the
-					    questions will go is settled before the first one arrives. */}
+					    The layer's controls sit inside this panel, on the list they
+					    govern — turning Q&A on, deciding who reads it and whether each
+					    question waits for approval (REQ038) are changes to *this*, not
+					    to the deck's chrome. All are offered whether or not the layer is
+					    on, so the question of where the questions will go is settled
+					    before the first one arrives. The approve control rides the rows
+					    only while approval is in play — the setting on, or a question
+					    still waiting from when it was — the way the upvote is offered
+					    only where the room may vote. */}
 					{isOwner && qaOpen && (
 						<aside className="md:w-80 flex-shrink-0 border-t md:border-t-0 md:border-l border-border bg-surface/50 overflow-y-auto p-4 flex flex-col gap-4">
 							<QAHeading labels={QA_LABELS_EN} list={qaList} />
 							<QALayerControls
 								enabled={pres.qaEnabled}
 								visibility={pres.qaVisibility}
+								approvalRequired={pres.qaApprovalRequired}
 								onChange={handleQASettings}
 							/>
 							<div className="border-t border-border pt-4">
@@ -1324,6 +1416,11 @@ export function PresenterPage({
 									list={qaList}
 									labels={QA_LABELS_EN}
 									onToggleAnswered={handleQuestionAnswered}
+									onApprove={
+										pres.qaApprovalRequired || (qaList?.pendingCount ?? 0) > 0
+											? handleQuestionApproved
+											: undefined
+									}
 								/>
 							</div>
 						</aside>

@@ -29,6 +29,7 @@ const ROUTES: ReadonlyArray<[Route, string]> = [
 	[{ page: "preview", id: "deck-1" }, "/preview/deck-1"],
 	[{ page: "results", id: "deck-1" }, "/results/deck-1"],
 	[{ page: "participate", code: "1234" }, "/join/1234"],
+	[{ page: "adminFeedback" }, `${APP_BASE_PATH}/admin/feedback`],
 ];
 
 describe("the join link stays at the host root", () => {
@@ -61,6 +62,19 @@ describe("the app's own front door moved under the base", () => {
 			expect(pathForRoute(route)).not.toBe("/");
 			expect(pathForRoute(route).startsWith("/#")).toBe(false);
 		}
+	});
+});
+
+describe("the administrators' feedback page lives under the base (REQ185)", () => {
+	test("it is /app/admin/feedback, and nothing at the root claims /admin", () => {
+		expect(pathForRoute({ page: "adminFeedback" })).toBe("/app/admin/feedback");
+		expect(routeForLocation("/app/admin/feedback", "")).toEqual({
+			page: "adminFeedback",
+		});
+		// A root-level /admin is the marketing site's: no proxy in front of the
+		// app was taught it, so the page must not be reachable there.
+		expect(isAppPagePath("/admin/feedback")).toBe(false);
+		expect(routeForLocation("/admin/feedback", "")).toEqual({ page: "home" });
 	});
 });
 

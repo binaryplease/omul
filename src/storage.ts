@@ -22,6 +22,15 @@ export const PARTICIPANT_ID_KEY = "omul-participant-id";
 /** The name this browser stated, per deck (REQ076). */
 export const PARTICIPANT_NAME_KEY = "omul-participant-names";
 
+/**
+ * Every deck this browser saw in `draft` or `live`, as a map of presentation id
+ * → when it last did (REQ186, `src/feedback-prompt.ts`).
+ */
+export const FEEDBACK_PROMPT_IN_ROOM_KEY = "omul-feedback-prompt-in-room";
+
+/** When this browser was last asked the post-session question (REQ186). */
+export const FEEDBACK_PROMPT_ASKED_AT_KEY = "omul-feedback-prompt-asked-at";
+
 /** The light/dark/auto preference (`src/components/ui/Theme.tsx`). */
 export const THEME_KEY = "omul-theme";
 

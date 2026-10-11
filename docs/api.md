@@ -109,7 +109,10 @@ which is the fail-closed default rather than a misconfiguration (see
 and no self-service grant. Actions are two-step, token-confirmed
 (`server/admin-events.ts`, a `bun:sqlite` store with a 10-minute one-time
 confirmation token whose hash is stored, plus an append-only audit log). The one
-action today is **reassign a presentation's owner**.
+action today is **reassign a presentation's owner**. Beside the actions there is
+one read, `GET /api/admin/feedback` — the feedback sent about omul, which the
+app's first admin page, `/app/admin/feedback`, draws (see **Feedback about
+omul** below).
 
 ## Endpoints
 
@@ -117,6 +120,10 @@ action today is **reassign a presentation's owner**.
 |---|---|---|---|
 | GET | `/api` | — | Discovery index: absolute links to the OpenAPI spec, docs UI, health probe and WebSocket — see **The discovery index** below |
 | GET | `/api/health` | — | Health check |
+| GET | `/api/legal` | — | Where this deployment's imprint, privacy policy and terms live: `{ imprintUrl, privacyUrl, termsUrl }`, each an `http(s)://` URL, a path on this host, or an explicit `null` when the operator configured none (REQ183). The client lists a link in the app menu on every route and draws a sentence at each contract-conclusion point only for what is set — see `OMUL_IMPRINT_URL` in [deployment.md](deployment.md#environment-variables) |
+| GET | `/api/feedback/config` | — | Which feedback about omul this deployment collects: `{ enabled, promptPercent, promptCooldownDays }` — `enabled` true only when the operator set `OMUL_FEEDBACK_ENABLED=true` (REQ185), `promptPercent` `null` while `OMUL_FEEDBACK_PROMPT_PERCENT` is unset (REQ186) — see **Feedback about omul** below |
+| POST | `/api/feedback` | optional session | Send feedback about omul to this instance's operator: JSON `{ rating?, comment?, surface, language, contactMe? }` (REQ185). `404` for any request while the channel is off, `415` for any content type but `application/json` |
+| POST | `/api/feedback/participant` | — | Answer the prompt after a session: JSON `{ rating?, comment?, language }` (REQ186), stored with no account, participant or deck. `404` for any request while the prompt is off, `415` for any content type but `application/json` |
 | ANY | `/api/auth/*` | — | Better Auth (sign-up/in/out, session, reset, verify, change-email, delete-user, API keys) |
 | GET | `/api/templates` | — | The prebuilt-deck catalog, filtered by `?category=` and `?search=` (REQ005) — see **Deck templates** below |
 | GET | `/api/templates/:id` | — | One catalog entry by its id (REQ005) |
@@ -127,7 +134,7 @@ action today is **reassign a presentation's owner**.
 | GET | `/api/presentations/shared` | ✅ session/key | List the decks other accounts have shared with the caller, each with its `accessLevel` (REQ075) — see **Sharing a deck with other accounts** below |
 | POST | `/api/presentations` | optional session/key | Create; returns `creatorToken` once (null for API-key create; records owner when signed in). `templateId` starts the deck from a catalog entry, copying its slides (REQ006) — see **Deck templates** below. `workspaceId` makes the deck the **workspace's** instead: no account owner, no edit token, and a role check on the caller (REQ128) — see **Workspaces** below. `workspaceTemplateId`, alongside it, starts that deck from one of the workspace's own published templates (REQ004) |
 | GET | `/api/presentations/:id` | — | Get presentation by ID. Reports the caller's own `accessLevel` (REQ075) and account-standing `commentAccess` (REQ074) on it |
-| PATCH | `/api/presentations/:id` | ✅ owner, token or `edit` grant | Update the deck's **authored** fields. The owner, the edit-token hash and the results-link pair are not among them and are dropped, not merged |
+| PATCH | `/api/presentations/:id` | ✅ owner, token or `edit` grant | Update the deck's **authored** fields — including `showJoinBar`, whether the presenter surface draws its join bar (REQ073). The owner, the edit-token hash and the results-link pair are not among them and are dropped, not merged |
 | DELETE | `/api/presentations/:id` | ✅ owner or token | Delete presentation — and every collaborator grant on it. The one mutation an `edit` collaborator is **not** allowed (REQ075) |
 | POST | `/api/presentations/:id/start` | ✅ owner, token or `edit` grant | Go live |
 | POST | `/api/presentations/:id/end` | ✅ owner, token or `edit` grant | End presentation |
@@ -152,9 +159,10 @@ action today is **reassign a presentation's owner**.
 | DELETE | `/api/presentations/:id/answers/:answerId` | ✅ owner, token or `edit` grant | Delete one submitted answer from a word-cloud or open-ended slide (REQ027) — see **Removing a submitted answer** below |
 | GET | `/api/presentations/:id/qa?participantId=` | — | The deck-wide Q&A list, as this caller may read it (REQ036/REQ037) — see **The Q&A layer** below |
 | POST | `/api/presentations/:id/qa` | — | Ask a question `{ text, participantId }` (REQ036) |
-| POST | `/api/presentations/:id/qa/settings` | ✅ owner, token or `edit` grant | Switch the Q&A layer on/off and choose who reads it `{ enabled?, visibility? }` (REQ036/REQ037) |
+| POST | `/api/presentations/:id/qa/settings` | ✅ owner, token or `edit` grant | Switch the Q&A layer on/off, choose who reads it and whether each question waits for approval `{ enabled?, visibility?, approvalRequired? }` (REQ036/REQ037/REQ038) |
 | POST | `/api/presentations/:id/qa/:questionId/upvote` | — | Toggle this participant's upvote on a question `{ participantId }` (REQ060) |
 | POST | `/api/presentations/:id/qa/:questionId/answered` | ✅ owner, token or `edit` grant | Mark a question answered, or reopen it `{ answered? }` (REQ060) |
+| POST | `/api/presentations/:id/qa/:questionId/approve` | ✅ owner, token or `edit` grant | Publish a question awaiting approval to the room; one-way (REQ038) — see **Approval before publication** below |
 | POST | `/api/presentations/:id/channels` | ✅ owner, token or `edit` grant | Open or close the room's reactions and live chat `{ reactionsEnabled?, chatEnabled? }` (REQ077/REQ078) — see **Participant channels** below |
 | POST | `/api/presentations/:id/reactions` | — | Send a reaction from any slide `{ kind, slideId?, participantId }` (REQ077). Broadcast and **not stored** |
 | GET | `/api/presentations/:id/chat?participantId=` | — | The deck's live chat, newest 200 messages, oldest-first (REQ078) |
@@ -176,6 +184,7 @@ action today is **reassign a presentation's owner**.
 | POST | `/api/workspaces` | ✅ session/key | Create one `{ name }`; the caller becomes its `owner` in the same act |
 | GET | `/api/workspaces/:id` | ✅ member | One workspace, with the caller's own role on it |
 | PATCH | `/api/workspaces/:id` | ✅ `owner` | Rename it `{ name }` |
+| PUT | `/api/workspaces/:id/default-theme` | ✅ `owner` | Set the theme a deck created in it starts in `{ defaultTheme }` — a built-in theme id (REQ086). Not retroactive — see **A workspace's default theme** below |
 | DELETE | `/api/workspaces/:id` | ✅ `owner` | Delete it and every membership — `409` while it still owns decks |
 | GET | `/api/workspaces/:id/members` | ✅ member | The roster; `email` only for a reader who may manage it |
 | POST | `/api/workspaces/:id/members` | ✅ `admin` / `owner` | Add a registered account `{ email, role? }` — idempotent per account; granting `owner` needs `owner` |
@@ -188,6 +197,7 @@ action today is **reassign a presentation's owner**.
 | POST | `/api/admin/actions` | ✅ admin | Prepare a two-step action; returns a one-time `confirmationToken` |
 | POST | `/api/admin/actions/:id/confirm` | ✅ admin | Execute a prepared action `{ confirmationToken }` |
 | GET | `/api/admin/events` | ✅ admin | Append-only admin audit log |
+| GET | `/api/admin/feedback` | ✅ admin | Feedback about omul, `?channel=user\|participant` and an optional `cursor`: the channel's totals and fifty entries newest first, a `user` entry's contact resolved at read time (REQ185). `404` while both channels are off — see **Feedback about omul** below |
 
 Ten of those routes are rate-limited and can answer `429` — see **Rate
 limits** directly below.
@@ -239,6 +249,102 @@ sources is in force is stated in the startup log, because a proxied deployment
 that sets neither variable looks, from inside the process, exactly like a direct
 one that is right to report what it sees.
 
+## Driving the API from a terminal (REQ180)
+
+Everything above is reachable with `curl`, and `cli/` is the client that means
+you do not have to. One installed command — `omul` — creates a presentation and
+reads its state and results back over exactly the routes documented here. It
+adds **no server surface**: every call it makes is a route in the table above,
+and `GET /api` is what it follows to find them.
+
+```sh
+nix run github:binaryplease/omul#omul -- --server https://omul.example.com health
+# or, in a checkout:
+bun link && omul help          # the `bin` entry of package.json
+mise run cli -- help           # without installing anything
+```
+
+| Command | What it does |
+|---|---|
+| `omul health` | `GET /api/health` and `GET /api` — is it there, and what does it advertise |
+| `omul auth login` | Read a personal API key from a prompt (or a pipe) and store it |
+| `omul auth status` | What this client would use, and from where — printing neither secret |
+| `omul auth logout` | Forget the stored key; the edit tokens are kept |
+| `omul templates` | `GET /api/templates` — the catalog `--template` takes an id from |
+| `omul create` | `POST /api/presentations`, from `--deck <file>` or `--template <id>` |
+| `omul list` | `GET /api/presentations/mine` — needs a key |
+| `omul show <id>` | `GET /api/presentations/:id` |
+| `omul results <id>` | `GET /api/presentations/:id/results` |
+
+`--json` prints the server's payload as it arrived, for a caller that is a
+program; without it each command prints a summary, with `(none)` for anything
+the server reported as absent. `--server` (or `OMUL_SERVER_URL`) says which
+server; the default is `http://localhost:3000`. Exit codes are `0` success, `1`
+the attempt failed, `2` the invocation was wrong. Every other verb group — the
+lifecycle routes, the Q&A layer, the exports — is its own requirement; a client
+that cannot yet do everything the browser can still does this.
+
+### The two credentials, and where they live
+
+The client holds both long-lived secrets this API has, and neither can be typed
+onto a command line:
+
+- **The personal API key** is read from `OMUL_API_KEY`, or from
+  `$XDG_CONFIG_HOME/omul/config.json` (`~/.config/omul/config.json`), which
+  `omul auth login` writes with mode `0600` inside a `0700` directory. There is
+  deliberately **no `--api-key` flag**: argv is readable by every other process
+  of the same user and is written to shell history verbatim. `auth login` reads
+  the key from a prompt that does not echo it, or from standard input
+  (`omul auth login < key.txt`), and spends it once against
+  `GET /api/presentations/mine` before storing it, so a typo is refused at the
+  prompt rather than resurfacing later as an unexplained `401`.
+- **A deck's edit token** is what a create authorizes when there is no account
+  behind it. The server returns it exactly once, so the client writes it to
+  `$XDG_DATA_HOME/omul/edit-tokens.json` (`~/.local/share/omul/edit-tokens.json`,
+  mode `0600`) and **never prints it** — not in a summary, not in `--json`, not
+  in an error. That file is the only copy, and `auth logout` does not touch it:
+  signing out of an account is not disowning the decks created without one. A
+  create authenticated by an API key is minted no token at all (see
+  **Per-presentation edit token** above), and nothing is written.
+
+A request carries the key when one is configured, and the edit token when this
+client holds one for the deck the call names — the two are independent standings
+on the server, and sending whichever applies is what lets one command work on
+both kinds of deck.
+
+Two refusals protect **both** credentials in transit, and both are the safe
+default with an explicit way out:
+
+- **Neither credential is sent to an `http://` host that is not loopback.** In
+  the clear each is readable by every hop on the path, and neither expires. The
+  question is asked of what is about to ride the request rather than of the key
+  alone, which matters because an API-key create is minted no edit token: the
+  caller holding a token is by construction the caller with no key, and an
+  intercepted edit token is the less recoverable of the two — no account owns
+  it, so there is nothing to revoke and the only remedy is deleting the deck.
+  Set `OMUL_CLI_ALLOW_PLAINTEXT_CREDENTIALS=true` for a host reached over a
+  network you trust — the same shape of deliberate opt-out as
+  `OMUL_RATE_LIMITS_DISABLED`. A request that carries no credential at all (a
+  health probe, an anonymous create) is not refused; there is nothing on it to
+  protect.
+- **A redirect is reported rather than followed.** `fetch` carries custom headers
+  across a redirect, to another origin included, so anything able to answer
+  `302` could collect either credential. The `Location` is printed and
+  `--server` is pointed at it by a person.
+
+### The same client, driven by an agent (REQ181)
+
+[`skills/omul/SKILL.md`](../skills/omul/SKILL.md) is this repository's agent
+skill: the standard installer (`npx skills add binaryplease/omul`) puts it in
+front of a coding agent, which then creates a deck and reads its results through
+the verbs above without reading this codebase. It restates what an agent needs
+rather than pointing at this file, because the agent that installs it does not
+have this repository — so a change to the client's verbs, its credential rules
+or its refusals belongs in both places. Two of its paragraphs are the ones to
+keep exact: an agent is never told to put a personal API key on a command line,
+and a deck's edit token is described as returned once, with no way to fetch it
+again.
+
 ## Rate limits (REQ145)
 
 The account-free routes are throttled per client, because without a login there
@@ -263,6 +369,8 @@ in the body:
 | `POST …/collaborators` (REQ075) | 60 per minute | the deck being shared |
 | `POST /api/workspaces/:id/members` (REQ129) | 600 per minute | client |
 | `POST /api/workspaces/:id/members` (REQ129) | 60 per minute | the workspace being added to |
+| `POST /api/feedback` (REQ185) | 20 per 10 minutes | client |
+| `POST /api/feedback/participant` (REQ186) | 300 per 10 minutes | client |
 
 Sharing a deck and adding somebody to a workspace are the two **authenticated**
 routes on that list, and they are there for a reason of their own (REQ075,
@@ -469,6 +577,7 @@ separates the roles is what they may do to the *workspace*:
 | Add, remove and re-role members | — | ✅ | ✅ |
 | Grant or take back the `owner` role | — | — | ✅ |
 | Rename or delete the workspace; move a deck back out of it | — | — | ✅ |
+| Set the theme its new decks start in (REQ086) | — | — | ✅ |
 
 Each row is a **predicate** in `server/schemas.ts`
 (`canCreateWorkspaceDecks`, `canAdministerWorkspaceDecks`,
@@ -521,6 +630,27 @@ carried only for a reader whose role may manage the roster and is an explicit
 `null` otherwise: a member sees who they are working with by name,
 while the address somebody was invited at is management data, and the narrower
 default is the one that ships.
+
+### A workspace's default theme (REQ086)
+
+A workspace carries a `defaultTheme`: the theme a deck created in it starts in
+when its create names none. Every member reads it on `GET /api/workspaces` and
+`GET /api/workspaces/:id`; `PUT …/default-theme` with `{ defaultTheme }` sets
+it, and it is renaming's role — `owner` only, `403` for an admin and a member
+alike.
+
+- **A built-in theme id, defaulting to `signal`.** `custom` is refused (`422`):
+  it names a palette authored *on a deck*, and a workspace has no brand of its
+  own to lend one. A workspace written before the field existed reads as
+  `signal`, so it creates decks exactly as it always did.
+- **A named theme wins.** `POST /api/presentations` with `workspaceId` and no
+  `theme` gets the workspace's default; one that names a `theme` — `signal`
+  included — keeps it. A personal deck (no `workspaceId`) gets `signal`
+  whatever the creating account's workspaces say. A template holds no theme, so
+  a deck made from one takes the default like any other.
+- **Read at create time and nowhere else.** Changing the default re-themes no
+  existing deck, and a deck moved in later keeps its own. Each deck can still
+  change its theme with `PATCH /api/presentations/:id`.
 
 ### Moving a deck in and out
 
@@ -867,6 +997,141 @@ unknown id answers `400` to a member and nothing at all to anybody else.
 templates are swept the way its memberships are, while the decks still refuse the
 delete with `409` until they are moved out (**Workspaces** above).
 
+## Feedback about omul (REQ185, REQ186)
+
+Feedback about omul itself, sent to the people who run this instance — never to
+a presenter or an organizer, and never into a deck. It is
+stored in the operator's own feedback database (`server/feedback-store.ts`, a
+`feedback.sqlite` beside the docstore unless `OMUL_FEEDBACK_DB` says otherwise),
+outside the zodstore domain data, so no presentation, workspace or account path
+reads or deletes it.
+
+**All of it is built (REQ185).** The store, `GET /api/feedback/config` and
+`POST /api/feedback` (slice 1); the form that sends to them: "Send feedback" in
+the app menu, on every screen that mounts it, opening the shared `FeedbackForm`
+in a dialog (slice 2); the administrators' read endpoint, `GET
+/api/admin/feedback` (slice 3, below); and their page at `/app/admin/feedback`
+(slice 4), which draws that endpoint's answer with one tab per channel — the
+totals, the per-rating and unrated counts, the entries newest first with a
+button for the next page, and a `user` entry's contact as a `mailto:` link or
+"account deleted, no contact". It sits under the app's base path rather than at
+a root prefix of its own, and nothing links to it: an administrator opens it by
+URL. Its refusals are screens of their own — signed out (`401`), not an
+administrator (`403`), channel off (`404`). The menu offers the feedback item
+only once `GET /api/feedback/config` has answered `enabled: true`.
+
+**Two channels, each off unless the operator turns it on, independently of the
+other.** The app menu's form is on when `OMUL_FEEDBACK_ENABLED=true`; the prompt
+after a session (REQ186, below) is on when `OMUL_FEEDBACK_PROMPT_PERCENT` is
+set. Each write answers `404` while its own channel is off, and with both off
+no database file is created. `GET /api/feedback/config` says which is on, read
+once per page load:
+
+| Field | Meaning |
+|---|---|
+| `enabled` | `true` only when `OMUL_FEEDBACK_ENABLED=true` — the app menu offers its form |
+| `promptPercent` | the share of eligible participants the prompt asks, 1 to 100; `null` while the prompt is off |
+| `promptCooldownDays` | how many days a device waits before the prompt asks it again (`OMUL_FEEDBACK_PROMPT_COOLDOWN_DAYS`, default `30`); reported whether or not the prompt is on |
+
+`POST /api/feedback` takes:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `rating` | one of the two | an integer from 1 to 5 |
+| `comment` | one of the two | at most 2,000 characters after trimming |
+| `surface` | ✅ | `presenter`, `participant` or `other` — the kind of screen the menu was opened on. The app menu sends `presenter` from the editor, preview and presenter screens, `participant` from entering a code and the room, and `other` elsewhere |
+| `language` | ✅ | the UI language of that screen — the deck's on a participant screen, `en` elsewhere |
+| `contactMe` | — | `true` to let the operator write back (default `false`) |
+
+A rating alone and a comment alone are each complete; neither answers `400`. A
+malformed field answers `422`. It answers `201` with the entry's `id`.
+
+**JSON only.** Any content type but `application/json` (parameters such as
+`charset` aside) answers `415` before the body is validated or the budget is
+charged. Form-encoded, multipart and plain-text bodies are what a page on another
+site can make a visitor's browser post without asking; refusing them keeps such
+a page from filing feedback in visitors' names and spending their budgets. Off,
+the body is not read at all, so every request answers `404` whatever it carries.
+
+**No account is needed, and none can be named.** With `contactMe: true` the
+server records the account of the caller's **session** — never an id from the
+body — and without a session the entry is stored anonymously whatever the body
+says. The contact address is not stored: the operator view resolves the account
+to its current email when it is read (below), so a deleted account leaves no
+address behind. The stored row holds `id`, `rating`, `comment`, `surface`,
+`contactAccountId`, `language` and `createdOn` (the UTC day) — no email,
+participant id, name, presentation, workspace, IP address, user agent or time
+finer than the day — and the route does not log the request body.
+
+**Reading it is for administrators only.** `GET /api/admin/feedback` sits behind
+the admin gate (`401` signed-out, `403` signed-in non-admin — before the query is
+even validated), and it is the only route that reads the feedback database; no
+presenter, workspace role or deck owner reaches either channel. It takes:
+
+| Query | Required | Meaning |
+|---|---|---|
+| `channel` | ✅ | `user` — the app menu's form — or `participant`, the prompt after a session (REQ186). Anything else answers `422` |
+| `cursor` | — | the `nextCursor` of the page before; one that names no entry of the channel answers `400` |
+
+and answers the channel's totals and one page of its entries:
+
+| Field | Meaning |
+|---|---|
+| `channel` | the channel asked for |
+| `total` | every entry in the channel, whichever page this is |
+| `ratingCounts` | `{ "1": …, "5": … }` — how many entries carry each rating |
+| `unratedCount` | how many hold only a comment |
+| `entries` | up to fifty, newest first: by day, then in the order they were sent |
+| `nextCursor` | pass it back as `cursor` for the next page; `null` on the last |
+
+A `user` entry is `{ id, rating, comment, surface, language, createdOn, contact
+}` and a `participant` entry `{ id, rating, comment, language, createdOn }`;
+`rating` and `comment` are `null` when not given. Its account id is never
+returned. `contact` is resolved from that account **when it is read** and never
+stored: `null` when the sender did not ask to be contacted, `{ "status": "email",
+"email": … }` with the account's current address, or `{ "status": "deleted" }`
+once the account is gone. While both channels are off an administrator gets
+`404` and no database is opened; while either is on, both channels are read —
+so a deployment that runs only the prompt still reads its answers, and the
+menu's tab answers what it holds. The answer is `Cache-Control: no-store`.
+
+### The prompt after a session (REQ186)
+
+A sample of participants is asked once, after a session has ended and outside
+the deck, what they think of omul. The server holds the switch, the config
+fields above and the write route below; the browser decides who is asked. A
+participant's ended screen draws a card in omul's own default theme and under
+omul's mark (`src/components/ParticipantFeedbackPrompt.tsx`), in the deck's
+language, only when all four hold (`shouldAskForParticipantFeedback()` in
+`src/feedback-prompt.ts`): the prompt is on, the device saw the deck in `draft`
+or `live` before it ended, the participant falls in the sample — drawn on the
+device from the participant id, the deck and the run's `sessionStartedAt`, so
+the server never learns who was sampled — and the device was last asked at
+least `promptCooldownDays` ago. Answering and dismissing both count as being
+asked. The card sends here, and nothing else in the app does.
+
+`POST /api/feedback/participant` takes:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `rating` | one of the two | an integer from 1 to 5 |
+| `comment` | one of the two | at most 2,000 characters after trimming |
+| `language` | ✅ | the deck's language: `en`, `de`, `fr`, `es`, `it`, `pt` or `nl`. Anything else answers `422` |
+
+The same rules as `POST /api/feedback`: either half alone is complete and
+neither answers `400`; a malformed field answers `422`; `201` carries the
+entry's `id`; any content type but `application/json` answers `415` before the
+body is validated or the budget is charged; and while the prompt is off the body
+is not read at all, so every request answers `404`.
+
+**Anonymous by definition.** There is no contact box and no `contactMe`: the
+route never asks who the session is, and anything else a body carries — a
+participant id, a deck, an account — is dropped before it is stored. The stored
+row in `participant_feedback` holds `id`, `rating`, `comment`, `language` and
+`createdOn` (the UTC day), and nothing else, signed in or not; the route does
+not log the request body. Its budget is its own, sized for a room behind one
+address answering at once (**Abuse limits** above).
+
 ## Generating a deck from a prompt (REQ007)
 
 The second way a deck starts from *something* rather than from nothing, beside
@@ -1006,7 +1271,7 @@ participants' door.
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `theme` | one of `signal`, `pulse`, `ember`, `editorial`, `broadcast`, `custom` | `signal` | Which theme the deck is drawn in (REQ079/REQ080) |
+| `theme` | one of `signal`, `pulse`, `ember`, `editorial`, `broadcast`, `custom` | `signal`, or the workspace's `defaultTheme` for a deck created in one (REQ086) | Which theme the deck is drawn in (REQ079/REQ080) |
 | `themeBrand` | object, below | every field at its default | The theme the deck defines for *itself*, applied when `theme` is `custom` (REQ080/REQ135) |
 | `themeLogoUrl` | string | `""` | The organizer's mark, as an image URL (REQ136) |
 | `themeLogoAlt` | string | `""` | Its accessible name; falls back to the deck's title |
@@ -2145,7 +2410,7 @@ rate, and the answers are read where they belong: in the credentialed
 (REQ095), whose Responses sheet carries one row per submission with every
 answered field named by what it asked.
 
-## The Q&A layer (REQ036, REQ037, REQ060)
+## The Q&A layer (REQ036, REQ037, REQ038, REQ060)
 
 Q&A is **not a slide type** — it is an overarching interactivity layer switched
 on for the whole deck (REQ036), so a participant asks from whatever slide is on
@@ -2155,14 +2420,15 @@ The `open-text` slide type is untouched: a deck that wants a dedicated
 upvotes on the votes it collects. What changed is that a deck no longer *has* to
 have one for questions to be askable.
 
-Two settings live on the presentation, beside `resultsVisibility` and its
-neighbours, and are authored in the editor's deck settings or flipped live from
-the presenter's Q&A panel:
+Three settings live on the presentation, beside `resultsVisibility` and its
+neighbours. The first two are authored in the editor's deck settings or flipped
+live from the presenter's Q&A panel; the third lives on that panel alone:
 
 | Setting | Meaning |
 |---|---|
 | `qaEnabled` | Whether questions can be asked at all. `false` on a fresh deck |
 | `qaVisibility` | `presenter` (the default) keeps the list to the moderation view; `everyone` publishes it to the room, upvotes included |
+| `qaApprovalRequired` | Whether each new question waits for an editor's approval before anyone else can see or upvote it (REQ038). `false` on a fresh deck and on every deck stored before it existed. Flipped from the presenter's Q&A panel or `POST /qa/settings` only — the deck PATCH, the create body and an import do not carry it — see **Approval before publication** below |
 
 **The restrictive value is the default, deliberately.** Publishing unfiltered
 audience questions to a projector is the failure an organizer cannot take back,
@@ -2196,10 +2462,10 @@ rather than matching every row that also has no id.
 
 | Field on the payload | Meaning |
 |---|---|
-| `enabled` / `visibility` | The layer's two settings, so a client renders from one payload |
+| `enabled` / `visibility` / `approvalRequired` | The layer's settings, so a client renders from one payload |
 | `canSeeAll` | Whether this caller has the room's list or only their own questions |
-| `questions[]` | Ordered — see below. Each `{ id, text, upvotes, answered, answeredAt, createdAt, own, upvoted }` |
-| `totalCount` / `openCount` / `answeredCount` | Counts over **the list that came back**, never the volume behind it — a total over rows the caller cannot see would report the size of a list the organizer decided to keep back |
+| `questions[]` | Ordered — see below. Each `{ id, text, upvotes, answered, answeredAt, approved, createdAt, own, upvoted }`; `approved` is `false` only on an editor's list (REQ038) |
+| `totalCount` / `openCount` / `answeredCount` / `pendingCount` | Counts over **the list that came back**, never the volume behind it — a total over rows the caller cannot see would report the size of a list the organizer decided to keep back. `pendingCount` (questions awaiting approval) is therefore only ever non-zero for an editor |
 
 **The asking participant's id is never emitted.** It is that participant's only
 credential — the ask and upvote endpoints are public and accept whatever id they
@@ -2247,6 +2513,44 @@ queue the presenter is working from.
   that could set it would be able to retire a question nobody answered. It is
   **reversible** on purpose — a mis-click during a live session should cost one
   more click, not a question the presenter can no longer find.
+
+### Approval before publication (REQ038)
+
+With `qaApprovalRequired` on, every question asked afterwards is stored with
+`approved: false`, and `POST /qa` says so with `pending: true` (it is `false` on
+every other outcome). Until an editor approves it, such a question is:
+
+- **an editor's alone** — read only by a caller who may *change* the deck (the
+  owner, the edit token, an `edit` grant), and absent from every other caller's
+  `GET /qa`: a `view` or `comment` collaborator's, who otherwise reads the
+  moderated list as the owner does, and **its own asker's**, on either
+  visibility. "You always see what you asked" is
+  proof of receipt on a withheld list; a question nobody has approved has not
+  been published to anybody, so it is not handed back even to the phone that
+  typed it.
+- **not upvotable** — `POST /qa/:questionId/upvote` answers it with the same
+  `400` and body a question from another deck gets, so the route cannot be used
+  to learn that a withheld id exists.
+- **not a fold target** — a re-asked question on a published deck folds only into
+  an approved one. Folding onto a pending question would upvote something the
+  room was never shown and tell the asker, through `merged`, that it exists.
+
+`POST /qa/:questionId/approve` (owner, edit token or `edit` grant — authorized
+exactly as "mark as answered" is) sets `approved: true` and broadcasts
+`qa.updated`, so every surface refetches and the question joins whatever list
+the deck's visibility allows. It answers `{ ok: true, approved: true }`, also
+for a question already approved; an id that is unknown or belongs to another
+deck answers `404`. Approval is **one-way**: there is no un-approve and no
+reject, and a question nobody approves simply stays an editor's.
+
+It is the question's own flag that decides, not the deck's current setting.
+Switching approval off changes what the *next* question is written as and
+nothing else — a backlog still waiting stays editor-only until it is approved,
+because releasing questions nobody looked at is what the setting was switched on
+to prevent. Questions stored before approval existed read as approved. On an
+editor's list a pending question leads its group (open or answered): nobody else
+can see or upvote it, so ranked by score it would sink below the queue it has to
+be approved from.
 
 Asking, upvoting and marking answered all meet the same submission rule a vote
 does: a `live` deck must have been started, a survey deck must not have ended.
@@ -2476,6 +2780,28 @@ Two things the roster is explicitly **not**: it does not re-point the leaderboar
 (REQ059 names its rows by a one-way derived handle on purpose, and that stays),
 and it does not name the author of a Q&A question or a chat message — both of
 those channels stay anonymous to the room.
+
+## The join bar (REQ073)
+
+The presenter surface draws a **join bar** — the join code and the share
+controls beside it, inline on wide screens and on its own row below the header
+otherwise. `showJoinBar` decides whether it is drawn, and that is all it decides.
+
+**It is the deck's, and it is shown.** The field is written by the ordinary
+`PATCH /api/presentations/:id` and by nothing else, so the caller is whoever may
+change the deck — the owner, the edit-token holder or an `edit` collaborator —
+and every other caller is refused by that route's own authorization. It defaults
+to `true` on every schema that stores or returns it, which is what a deck stored
+before the field existed reads as. It is not a create field: a new deck shows
+its bar. It is public on the deck document because every presenter screen of the
+deck has to draw the same header, and the one being projected may be a second
+browser; a change reaches those screens on the `presentation.join-bar` frame.
+
+**It changes nothing about the door.** Hiding the bar leaves the join code, `GET
+/api/join/:code`, the deck's `status` and every submission route exactly as they
+were — none of them reads the field. A room that already has the code, or the
+link, or the QR printed on a handout, joins as before; what is gone is the code
+drawn on this screen.
 
 ## Preview and test votes (REQ103, REQ104)
 
@@ -2941,7 +3267,9 @@ slide, drops `revealedSlideIds` and the `slideStartedAt` stamps (a re-run is a
 fresh quiz — a deck that kept its old stamps would open every question already
 expired, REQ057), clears the live-room switches `closedSlideIds` and
 `audienceBlanked` (REQ111/REQ109 — a re-run that inherited the last session's
-closed questions would refuse a room that had done nothing), and deletes every
+closed questions would refuse a room that had done nothing), clears the session
+clock's `sessionStartedAt` / `sessionEndedAt` (REQ108 — the next run is timed
+from its own start), and deletes every
 vote, response upvote, Q&A question, Q&A
 upvote, chat message (REQ078) and stated participant name (REQ076) the
 presentation holds. Reactions (REQ077) are
@@ -2964,8 +3292,8 @@ Server broadcasts to all subscribers of a presentationId.
 |---|---|---|
 | `slide.changed` | server → clients | `{ presentationId, slideIndex, slide }` — the slide as the audience may see it: answer key withheld while the question runs (REQ056), presenter notes empty (REQ090) |
 | `results.updated` | server → clients | `{ presentationId, slideId, results }` — the tally as the **audience** may read it, so a slide whose mode withholds it broadcasts `{ type, withheld: true }` and no numbers (REQ016/REQ017), and an editor-only block on it (a word cloud's `answers`, a form's `submissions`) is `null`. Sent when an answer *lands* and when one is *taken down* (REQ027) — a tally moves both ways. **Frames may merge, values never do** (REQ150): a slide broadcasts at most once per 100 ms, so a room answering faster than that is folded into one frame carrying the settled tally rather than one frame per answer. A client that reads each frame as the current state is right; one that counted frames to count answers never was |
-| `presentation.started` | server → clients | `{ presentationId }` |
-| `presentation.ended` | server → clients | `{ presentationId }` |
+| `presentation.started` | server → clients | `{ presentationId, startedAt }` — `startedAt` is when the session clock began (REQ108), the deck's `sessionStartedAt`. A start on a deck already live keeps its clock, so the frame repeats the instant it already had |
+| `presentation.ended` | server → clients | `{ presentationId, endedAt }` — `endedAt` is where the session clock stopped (REQ108), the deck's `sessionEndedAt`; `null` for a deck that ended without ever going live |
 | `presentation.reset` | server → clients | `{ presentationId }` |
 | `slide.revealed` | server → clients | `{ presentationId, slideId, revealed }` (REQ016/REQ102) |
 | `presentation.results-visibility` | server → clients | `{ presentationId, resultsVisibility }` — the deck's reveal mode moved (REQ015–REQ018). Sent by both its writers: the deck-wide endpoint, and a deck PATCH that names the field. Carries the deck-level setting only; clients re-read the deck for the per-slide overrides — see **The deck's reveal mode** above |
@@ -2973,8 +3301,9 @@ Server broadcasts to all subscribers of a presentationId.
 | `slide.participation` | server → clients | `{ presentationId, slideId, open }` — one slide was opened or closed to submissions (REQ111). Carries its value, like the settings frames below: a phone that learned about a closed question only by having an answer bounce is the failure the switch exists to prevent |
 | `presentation.blanked` | server → clients | `{ presentationId, blanked }` — the shared screen was blanked, or brought back (REQ109). Broadcast because the screen being projected may be a second browser rather than the presenter's own |
 | `presentation.participant-name` | server → clients | `{ presentationId, requireParticipantName }` — the deck started or stopped asking joiners for a name (REQ076). Sent by its one writer, the deck PATCH. Carries the **switch and nothing else**: a frame naming somebody would put a name on every phone in the room, and the roster is fetched by a credentialed caller instead |
-| `qa.settings` | server → clients | `{ presentationId, qaEnabled, qaVisibility }` — the Q&A layer was switched on/off or re-scoped (REQ036/REQ037) |
-| `qa.updated` | server → clients | `{ presentationId }` — the question list moved: asked, upvoted or marked answered (REQ036/REQ060) |
+| `presentation.join-bar` | server → clients | `{ presentationId, showJoinBar }` — the presenter surface's join bar was shown or hidden (REQ073). Sent by its one writer, the deck PATCH, so every presenter screen of the deck draws the same header; a participant's screen has nothing to do with it, since hiding the bar changes nothing about who may join |
+| `qa.settings` | server → clients | `{ presentationId, qaEnabled, qaVisibility, qaApprovalRequired }` — the Q&A layer was switched on/off, re-scoped, or approval was required or relaxed (REQ036/REQ037/REQ038) |
+| `qa.updated` | server → clients | `{ presentationId }` — the question list moved: asked, upvoted, marked answered or approved (REQ036/REQ038/REQ060) |
 | `channels.settings` | server → clients | `{ presentationId, reactionsEnabled, chatEnabled }` — a participant channel was opened or closed (REQ077/REQ078). Sent by both its writers: the channels endpoint, and a deck PATCH that names either field |
 | `reaction.sent` | server → clients | `{ presentationId, id, kind, slideId, at }` — somebody reacted to what is on screen (REQ077). The one frame here that carries its content; nothing is stored behind it |
 | `chat.updated` | server → clients | `{ presentationId }` — the live chat has a new message (REQ078). Surfaces re-fetch `GET /api/presentations/:id/chat` |

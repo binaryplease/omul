@@ -11,7 +11,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { Presentation } from "../types";
 import { slideAcceptsSubmissions } from "../types";
-import { clockOffsetFrom } from "./session";
+import { clockOffsetFrom, sessionStampsIn } from "./session";
 import { createAppStore } from "./store";
 
 /** Two instants a deck's questions could have been opened at (REQ057). */
@@ -77,6 +77,65 @@ describe("session slice — WebSocket reducers", () => {
 		const store = seededStore();
 		store.getState().applyEnded();
 		expect(store.getState().presentation?.status).toBe("ended");
+	});
+
+	test("the start and end frames carry the session clock (REQ108)", () => {
+		const store = seededStore({
+			status: "ended",
+			sessionStartedAt: FIRST_OPENED,
+			sessionEndedAt: SECOND_OPENED,
+		});
+		store.getState().applyStarted({ startedAt: SECOND_OPENED });
+		expect(store.getState().presentation?.sessionStartedAt).toBe(
+			SECOND_OPENED,
+		);
+		expect(store.getState().presentation?.sessionEndedAt).toBeNull();
+
+		const ENDED_AT = "2026-01-01T13:00:00.000Z";
+		store.getState().applyEnded({ endedAt: ENDED_AT });
+		expect(store.getState().presentation?.status).toBe("ended");
+		expect(store.getState().presentation?.sessionStartedAt).toBe(
+			SECOND_OPENED,
+		);
+		expect(store.getState().presentation?.sessionEndedAt).toBe(ENDED_AT);
+	});
+
+	test("a start frame without an instant leaves the clock it holds", () => {
+		const store = seededStore({
+			status: "live",
+			sessionStartedAt: FIRST_OPENED,
+			sessionEndedAt: null,
+		});
+		store.getState().applyStarted();
+		expect(store.getState().presentation?.sessionStartedAt).toBe(FIRST_OPENED);
+	});
+
+	test("applyReset clears the session clock (REQ108)", () => {
+		const store = seededStore({
+			status: "ended",
+			sessionStartedAt: FIRST_OPENED,
+			sessionEndedAt: SECOND_OPENED,
+		});
+		store.getState().applyReset();
+		expect(store.getState().presentation?.sessionStartedAt).toBeNull();
+		expect(store.getState().presentation?.sessionEndedAt).toBeNull();
+	});
+
+	test("sessionStampsIn reads both instants, and nothing else as one", () => {
+		expect(
+			sessionStampsIn({
+				sessionStartedAt: FIRST_OPENED,
+				sessionEndedAt: SECOND_OPENED,
+			}),
+		).toEqual({ sessionStartedAt: FIRST_OPENED, sessionEndedAt: SECOND_OPENED });
+		expect(sessionStampsIn({ sessionStartedAt: 42 })).toEqual({
+			sessionStartedAt: null,
+			sessionEndedAt: null,
+		});
+		expect(sessionStampsIn(null)).toEqual({
+			sessionStartedAt: null,
+			sessionEndedAt: null,
+		});
 	});
 
 	test("applyReset returns to draft, clears index, reveals, and results", () => {

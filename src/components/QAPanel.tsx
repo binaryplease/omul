@@ -3,9 +3,11 @@ import {
 	Check,
 	Eye,
 	EyeOff,
+	Hourglass,
 	MessageCircleQuestion,
 	RotateCcw,
 	Send,
+	ShieldCheck,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
@@ -15,7 +17,7 @@ import type { QAListEntry, QAVisibility } from "../types";
 import { QA_TEXT_MAX_LENGTH } from "../types";
 import { Segmented, Toggle } from "./EditorControls";
 
-// ── Q&A layer (REQ036, REQ037, REQ060) ────────────────────────────────
+// ── Q&A layer (REQ036, REQ037, REQ038, REQ060) ────────────────────────
 //
 // Q&A here is not a slide — it is a layer switched on for the whole deck, so a
 // question can be asked from whatever is on screen (REQ036). That makes it a
@@ -44,12 +46,16 @@ export type QAList = {
 	enabled: boolean;
 	/** Who may read the list (REQ037). */
 	visibility: QAVisibility;
+	/** Whether each new question waits for an editor's approval (REQ038). */
+	approvalRequired: boolean;
 	/** Whether this reader has the room's list, or only their own questions. */
 	canSeeAll: boolean;
 	questions: QAQuestion[];
 	totalCount: number;
 	openCount: number;
 	answeredCount: number;
+	/** Questions awaiting approval — only ever non-zero on an editor's list. */
+	pendingCount: number;
 };
 
 /**
@@ -138,6 +144,8 @@ export function readQAList(payload: unknown): QAList | null {
 		upvotes: question.upvotes ?? 0,
 		answered: !!question.answered,
 		answeredAt: question.answeredAt ?? null,
+		// Absent reads as approved, as it does in the stored schema (REQ038).
+		approved: question.approved !== false,
 		createdAt: question.createdAt ?? "",
 		own: !!question.own,
 		upvoted: !!question.upvoted,
@@ -145,6 +153,7 @@ export function readQAList(payload: unknown): QAList | null {
 	return {
 		enabled: !!raw.enabled,
 		visibility: raw.visibility === "everyone" ? "everyone" : "presenter",
+		approvalRequired: !!raw.approvalRequired,
 		canSeeAll: !!raw.canSeeAll,
 		questions,
 		totalCount: raw.totalCount ?? questions.length,
@@ -153,6 +162,9 @@ export function readQAList(payload: unknown): QAList | null {
 		answeredCount:
 			raw.answeredCount ??
 			questions.filter((question) => question.answered).length,
+		pendingCount:
+			raw.pendingCount ??
+			questions.filter((question) => !question.approved).length,
 	};
 }
 
@@ -202,14 +214,19 @@ export function useQAList(
  * One question in the list, worn by both surfaces.
  *
  * What differs between them is which affordances they are handed — a participant
- * gets the upvote, the presenter gets "mark answered" — not what a question
- * looks like or what its numbers mean.
+ * gets the upvote, the presenter gets "mark answered" and "approve" — not what a
+ * question looks like or what its numbers mean.
+ *
+ * Only an editor's list ever carries a question awaiting approval (REQ038), so
+ * the pending badge and its approve control are presenter-facing and wear the
+ * presenter's English like the answered toggle's titles do.
  */
 function QAQuestionRow({
 	question,
 	labels,
 	onUpvote,
 	onToggleAnswered,
+	onApprove,
 }: {
 	question: QAQuestion;
 	labels: QALabels;
@@ -217,13 +234,17 @@ function QAQuestionRow({
 	onUpvote?: (questionId: string) => void;
 	/** Offered only to whoever can edit the deck (REQ060). */
 	onToggleAnswered?: (questionId: string, answered: boolean) => void;
+	/** Offered only to whoever can edit the deck (REQ038). */
+	onApprove?: (questionId: string) => void;
 }) {
 	return (
 		<li
 			className={`rounded-lg border p-3 flex items-start gap-3 transition-colors ${
 				question.answered
 					? "border-border bg-surface/40 opacity-70"
-					: "border-border bg-surface-raised"
+					: question.approved
+						? "border-border bg-surface-raised"
+						: "border-dashed border-warning/60 bg-surface-raised"
 			}`}
 		>
 			<div className="min-w-0 flex-1">
@@ -238,6 +259,12 @@ function QAQuestionRow({
 					<span className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-success/10 px-1.5 py-0.5 text-[0.65rem] font-medium uppercase tracking-wider text-success">
 						<Check size={10} />
 						{labels.answered}
+					</span>
+				)}
+				{!question.approved && (
+					<span className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-warning/10 px-1.5 py-0.5 text-[0.65rem] font-medium uppercase tracking-wider text-warning">
+						<Hourglass size={10} />
+						Awaiting approval
 					</span>
 				)}
 			</div>
@@ -292,6 +319,33 @@ function QAQuestionRow({
 						{question.answered ? <RotateCcw size={13} /> : <Check size={13} />}
 					</button>
 				)}
+				{/* Approve (REQ038). Disabled rather than removed once the question is
+				    through — approval is one-way, and a control that vanished would
+				    leave the presenter wondering whether the click landed. */}
+				{onApprove && (
+					<button
+						type="button"
+						onClick={() => !question.approved && onApprove(question.id)}
+						disabled={question.approved}
+						title={
+							question.approved
+								? "Already visible to the room"
+								: "Approve — show this question to the room"
+						}
+						aria-label={
+							question.approved
+								? "Already visible to the room"
+								: "Approve — show this question to the room"
+						}
+						className={`inline-flex items-center rounded-md border p-1.5 transition ${
+							question.approved
+								? "cursor-default border-border bg-surface text-text-dim opacity-60"
+								: "border-warning/60 bg-surface text-warning hover:border-success hover:text-success"
+						}`}
+					>
+						<ShieldCheck size={13} />
+					</button>
+				)}
 			</div>
 		</li>
 	);
@@ -311,11 +365,13 @@ export function QAQuestionList({
 	labels,
 	onUpvote,
 	onToggleAnswered,
+	onApprove,
 }: {
 	list: QAList | null;
 	labels: QALabels;
 	onUpvote?: (questionId: string) => void;
 	onToggleAnswered?: (questionId: string, answered: boolean) => void;
+	onApprove?: (questionId: string) => void;
 }) {
 	if (!list) return null;
 	if (list.questions.length === 0) {
@@ -334,6 +390,7 @@ export function QAQuestionList({
 					labels={labels}
 					onUpvote={onUpvote}
 					onToggleAnswered={onToggleAnswered}
+					onApprove={onApprove}
 				/>
 			))}
 		</ul>
@@ -394,23 +451,27 @@ export function QAComposer({
 }
 
 /**
- * The two switches that govern the layer (REQ036/REQ037), placed on the panel
+ * The switches that govern the layer (REQ036/REQ037/REQ038), placed on the panel
  * they govern rather than in the page's chrome.
  *
- * Visibility is offered whether or not the layer is on, because a presenter
- * about to open the floor wants to decide where the questions will go *before*
- * they start arriving — not after the first one is already on the projector.
+ * Visibility and approval are offered whether or not the layer is on, because a
+ * presenter about to open the floor wants to decide where the questions will go
+ * *before* they start arriving — not after the first one is already on the
+ * projector.
  */
 export function QALayerControls({
 	enabled,
 	visibility,
+	approvalRequired,
 	onChange,
 }: {
 	enabled: boolean;
 	visibility: QAVisibility;
+	approvalRequired: boolean;
 	onChange: (changes: {
 		enabled?: boolean;
 		visibility?: QAVisibility;
+		approvalRequired?: boolean;
 	}) => void;
 }) {
 	return (
@@ -448,6 +509,16 @@ export function QALayerControls({
 						: "Participants see only the questions they asked themselves. Nobody can upvote."}
 				</p>
 			</div>
+			<Toggle
+				label="Approve questions first"
+				description={
+					approvalRequired
+						? "New questions wait here until you approve them — nobody else sees or upvotes them before that, not even whoever asked."
+						: "When on, each new question waits for your approval before anyone else can see or upvote it."
+				}
+				checked={approvalRequired}
+				onChange={(next) => onChange({ approvalRequired: next })}
+			/>
 		</div>
 	);
 }
@@ -487,6 +558,15 @@ export function QAHeading({
 						>
 							<Check size={11} />
 							{list.answeredCount}
+						</span>
+					)}
+					{list.pendingCount > 0 && (
+						<span
+							className="inline-flex items-center gap-0.5 text-warning"
+							title="Awaiting approval"
+						>
+							<Hourglass size={11} />
+							{list.pendingCount}
 						</span>
 					)}
 				</span>

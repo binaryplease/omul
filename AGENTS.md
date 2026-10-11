@@ -28,7 +28,8 @@ All via mise (`.mise.toml`):
 | `mise run dev:server` / `dev:client` | Start one side only |
 | `mise run build` | Build frontend (Vite → `dist/client/`) + server (Bun → `dist/server/`) |
 | `mise run start` | Start production server |
-| `mise run check` | **The gate.** Frontend convention guards + the publication-residue guard (REQ163) + requirement checks — read-only, never writes |
+| `mise run cli -- <cmd>` | Drive a running server from a terminal with the command-line client (REQ180, `cli/`) — `mise run cli -- help` |
+| `mise run check` | **The gate.** Frontend convention guards + the CLI standalone guard (REQ180) + the publication-residue guard (REQ163) + requirement checks — read-only, never writes |
 | `mise run test` | Run tests |
 | `mise run triage -- <cmd>` | Filter and triage requirements in `docs/requirements/` |
 | `mise run requirements:index` | Regenerate `docs/Requirements.md` with the shared `index` CLI |
@@ -246,6 +247,21 @@ decision, and only for naming (REQ176):
 - **Frontend**: compose the shared primitives (lucide-react icons,
   `ShareCluster`, `ICON_BUTTON_HOVER`) — never re-hand-roll; `mise run check`
   guards this. Details in [docs/frontend.md](docs/frontend.md).
+- **`cli/` imports nothing outside itself** (REQ180). The command-line client is
+  built into an executable by this repository's flake, in a sandbox with no
+  network and no `node_modules`, so it may import only its own modules and
+  Bun/Node builtins — no npm package, and not `server/` or `src/` either, both of
+  which reach for Zod, Elysia or React within a file or two. Two consequences,
+  and both are deliberate: the wire vocabulary it shares with the server is
+  **restated** in `cli/protocol.ts` and held to the server's copy by a test, and
+  the boundary shapes it reads are hand-written in `cli/payload.ts` rather than
+  being Zod schemas — the one place in this tree where a boundary is not a Zod
+  schema, bought for an installable client and nothing else. Neither is a
+  precedent for the server. `bun cli/index.ts` and `bun test` both resolve
+  whatever is in `node_modules`, so nothing but
+  `scripts/guard-cli-standalone.ts` (in `mise run check`) notices a stray
+  import; without it the failure surfaces in `nix build`, at release, to
+  somebody who did not write it.
 - **One external runtime dependency exists, it is optional, and it is the only
   one.** The standing rule is that production depends on no third-party runtime
   host for first-party functionality — assets are vendored and bundled, never

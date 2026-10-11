@@ -16,11 +16,12 @@
  * module-level collections, not a service instance somebody constructs.
  *
  * What this module deliberately does not do: email an invitation, create an
- * account for an address that has none, or hold a workspace's settings, theme,
- * usage or seats. The first two are the same refusal
+ * account for an address that has none, or hold a workspace's settings, usage
+ * or seats. The first two are the same refusal
  * `services/collaborators.ts` makes — a membership names a registered account,
  * resolved by the route from the email its owner typed — and the rest are their
- * own pending requirements. The templates a workspace publishes (REQ004) are
+ * own pending requirements. The default theme (REQ086) is the one setting held
+ * here, as a field of the workspace document. The templates a workspace publishes (REQ004) are
  * `services/workspace-templates.ts`'s, a collection with its own module for the
  * reason this one has its own: the only thing it needs of a workspace is the id.
  * The single line of it that reaches in here is the sweep {@link deleteWorkspace}
@@ -30,7 +31,9 @@
 
 import { createStore } from "../db";
 import {
+	type BuiltInDeckThemeId,
 	canAdministerWorkspace,
+	DEFAULT_DECK_THEME,
 	DEFAULT_WORKSPACE_ROLE,
 	StoredWorkspaceMemberSchema,
 	StoredWorkspaceSchema,
@@ -66,6 +69,7 @@ const members = createStore("workspaceMembers", StoredWorkspaceMemberSchema, {
 export type WorkspaceRecord = {
 	id: string;
 	name: string;
+	defaultTheme: BuiltInDeckThemeId;
 	createdBy: string | null;
 	createdAt: string;
 	updatedAt: string;
@@ -87,6 +91,8 @@ function readWorkspace(row: Record<string, unknown>): WorkspaceRecord {
 	return {
 		id: row.id as string,
 		name: (row.name as string | undefined) ?? "",
+		defaultTheme:
+			(row.defaultTheme as BuiltInDeckThemeId | undefined) ?? DEFAULT_DECK_THEME,
 		createdBy: (row.createdBy as string | null) ?? null,
 		createdAt: (row.createdAt as string | undefined) ?? "",
 		updatedAt: (row.updatedAt as string | undefined) ?? "",
@@ -149,6 +155,7 @@ export async function createWorkspace(
 	const now = new Date().toISOString();
 	const workspace = await workspaces.insert({
 		name,
+		defaultTheme: DEFAULT_DECK_THEME,
 		createdBy: ownerUserId,
 		createdAt: now,
 		updatedAt: now,
@@ -245,6 +252,38 @@ export async function renameWorkspace(
 		updatedAt: new Date().toISOString(),
 	});
 	return updated ? readWorkspace(updated) : null;
+}
+
+/**
+ * Set the theme a deck created in this workspace starts in when its create
+ * names none (REQ086). `null` when it is gone.
+ *
+ * Touches the workspace document and nothing else: the default is read at
+ * create time only, so no existing deck changes its theme because of this.
+ */
+export async function setWorkspaceDefaultTheme(
+	workspaceId: string,
+	defaultTheme: BuiltInDeckThemeId,
+): Promise<WorkspaceRecord | null> {
+	const updated = await workspaces.update(workspaceId, {
+		defaultTheme,
+		updatedAt: new Date().toISOString(),
+	});
+	return updated ? readWorkspace(updated) : null;
+}
+
+/**
+ * The theme a deck created with this ownership starts in when its create names
+ * none (REQ086): the workspace's default, or the house theme for a personal
+ * deck — and for a workspace that has since gone, which the create route has
+ * already refused by then.
+ */
+export async function defaultDeckThemeFor(
+	workspaceId: string | null,
+): Promise<BuiltInDeckThemeId> {
+	if (!workspaceId) return DEFAULT_DECK_THEME;
+	const workspace = await getWorkspace(workspaceId);
+	return workspace?.defaultTheme ?? DEFAULT_DECK_THEME;
 }
 
 /**

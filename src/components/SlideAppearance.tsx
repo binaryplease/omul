@@ -14,6 +14,7 @@ import {
 	WHITE,
 } from "./color";
 import {
+	DECK_THEME_SCOPE_ATTRIBUTE,
 	deckThemeAppearance,
 	derivedTextOn,
 	surfaceRampTokens,
@@ -383,6 +384,9 @@ export function slideAppearanceStyle(
  * Wraps the slide *and what is drawn behind it*, so `SlideBackground`'s scrim and
  * the words above it are inside the same scope and cannot be given two different
  * answers about which colours this slide is in.
+ *
+ * Marked as a theme scope, like the deck's, so a layer portaled out of a
+ * trigger inside it — `AppMenu`'s panel — lands in the slide's colours too.
  */
 export function SlideAppearanceScope({
 	deck,
@@ -398,6 +402,7 @@ export function SlideAppearanceScope({
 		<div
 			className="slide-appearance"
 			style={slideAppearanceStyle(deck, slide, resolvedTheme)}
+			{...{ [DECK_THEME_SCOPE_ATTRIBUTE]: "" }}
 		>
 			{children}
 		</div>

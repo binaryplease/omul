@@ -1,5 +1,5 @@
 /**
- * Unit tests for a card under "Your Presentations" (REQ184).
+ * Unit tests for a card under "Your Presentations" (REQ188).
  *
  * The defect was a width one — five hover-faded action buttons kept their
  * width beside the title, so a two-column card truncated the title to one
@@ -65,7 +65,7 @@ function buttonTags(markup: string): string[] {
 	return markup.match(/<button[^>]*>/g) ?? [];
 }
 
-describe("OwnDeckCard — the title keeps its width (REQ184)", () => {
+describe("OwnDeckCard — the title keeps its width (REQ188)", () => {
 	test("the title is rendered whole, truncating only at the card's edge", () => {
 		const markup = renderCard();
 		expect(markup).toMatch(
@@ -87,7 +87,7 @@ describe("OwnDeckCard — the title keeps its width (REQ184)", () => {
 	});
 });
 
-describe("OwnDeckCard — the metadata row (REQ184)", () => {
+describe("OwnDeckCard — the metadata row (REQ188)", () => {
 	test("code, slide count and date each stay on one line", () => {
 		const markup = renderCard();
 		for (const item of [
@@ -112,7 +112,7 @@ describe("OwnDeckCard — the metadata row (REQ184)", () => {
 	});
 });
 
-describe("OwnDeckCard — all five actions stay reachable (REQ184)", () => {
+describe("OwnDeckCard — all five actions stay reachable (REQ188)", () => {
 	test("drawn in order, each with its name", () => {
 		const titles = buttonTags(renderCard()).map(
 			(tag) => tag.match(/title="([^"]*)"/)?.[1],

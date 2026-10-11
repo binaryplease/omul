@@ -1,5 +1,5 @@
 {
-  description = "omul – live interactive presentations (dev shell only; runtime is built as a Docker image via .github/workflows/build.yaml)";
+  description = "omul – live interactive presentations: the dev shell, and the command-line client as a runnable output (the server runtime is built as a Docker image via .github/workflows/build.yaml)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -16,8 +16,77 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+
+        # ── The command-line client (REQ180) ────────────────────────────────
+        #
+        # `nix run github:…/omul` creates a presentation and reads its results
+        # back with nothing installed but Nix. What makes that buildable here is
+        # that `cli/` imports nothing outside itself — no npm package, not even
+        # this repository's own `server/schemas.ts` — so the bundle is produced
+        # from the source tree alone, in a sandbox with no network and no
+        # `node_modules` to vendor and no lockfile hash to keep in step. The
+        # reasoning, and the test that holds the one duplicated constant to the
+        # server's copy, are in `cli/protocol.ts`.
+        #
+        # The source is narrowed to the two paths the build reads, so a rebuild
+        # is not triggered by every edit elsewhere in the tree.
+        omulCli = pkgs.stdenv.mkDerivation {
+          pname = "omul-cli";
+          version = "1.0.0";
+
+          src = pkgs.lib.fileset.toSource {
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              ./cli
+              ./package.json
+            ];
+          };
+
+          nativeBuildInputs = [
+            pkgs.bun
+            pkgs.makeWrapper
+          ];
+
+          buildPhase = ''
+            runHook preBuild
+            # Bun writes its install/build cache under $HOME; the sandbox's is
+            # not writable.
+            export HOME="$TMPDIR"
+            bun build cli/index.ts --target bun --outfile omul.js
+            runHook postBuild
+          '';
+
+          installPhase = ''
+            runHook preInstall
+            mkdir -p "$out/share/omul" "$out/bin"
+            cp omul.js "$out/share/omul/omul.js"
+            # Wrapped rather than shebanged: the bundle is run by the Bun this
+            # package depends on, not by whatever happens to be on the caller's
+            # PATH.
+            makeWrapper ${pkgs.bun}/bin/bun "$out/bin/omul" \
+              --add-flags "$out/share/omul/omul.js"
+            runHook postInstall
+          '';
+
+          meta = {
+            description = "Command-line client for an omul server";
+            mainProgram = "omul";
+          };
+        };
       in
       {
+        packages.default = omulCli;
+        packages.omul = omulCli;
+
+        apps.default = {
+          type = "app";
+          program = "${omulCli}/bin/omul";
+        };
+        apps.omul = {
+          type = "app";
+          program = "${omulCli}/bin/omul";
+        };
+
         devShells.default = pkgs.mkShell {
           buildInputs = [
             pkgs.bun

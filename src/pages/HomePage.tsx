@@ -27,10 +27,10 @@ import {
 import { REMOVE_BUTTON_HOVER } from "../components/EditorControls";
 import { MoveToWorkspaceDialog } from "../components/MoveToWorkspaceDialog";
 import { ICON_BUTTON_HOVER } from "../components/ShareCluster";
+import { AppMenu } from "../components/ui/AppMenu";
 import { ConfirmModal } from "../components/ui/ConfirmModal";
 import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
-import { ThemeToggle } from "../components/ui/Theme";
 import { useToast } from "../components/ui/Toast";
 import { saveBlobAs } from "../download";
 import type { Route } from "../router";
@@ -169,7 +169,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 			{/* Account controls + theme toggle - top right */}
 			<div className="absolute top-4 right-4 sm:top-6 sm:right-6 lg:right-12 z-20 flex items-center gap-2">
 				<AuthControls />
-				<ThemeToggle />
+				<AppMenu />
 			</div>
 			{/* Hero section - full width */}
 			<div className="relative z-10 w-full px-6 sm:px-12 lg:px-24 py-16 sm:py-24">
@@ -430,7 +430,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 
 /**
  * The quiet treatment every action on an own-deck card shares, beside the hover
- * token it composes. Its own row, at rest and in reach (REQ184): five icon
+ * token it composes. Its own row, at rest and in reach (REQ188): five icon
  * buttons that merely faded in on hover still took their width, which left the
  * title one letter and an ellipsis at the two-column width — and a control a
  * touch screen can tap but nobody can see is not a control anyone finds.
@@ -438,7 +438,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 const OWN_DECK_ACTION = "p-2 rounded-lg disabled:opacity-30";
 
 /**
- * A card under "Your Presentations" (REQ184): the title on a line of its own
+ * A card under "Your Presentations" (REQ188): the title on a line of its own
  * with the status beside it, then code, slide count and date — each of which
  * may move to a second line but never breaks inside itself — then the deck's
  * five actions. The whole card is the click target that opens the

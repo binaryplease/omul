@@ -20,8 +20,8 @@
 
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { docstorePath } from "./store-path";
+import { dirname } from "node:path";
+import { siblingDbPath } from "./sibling-db-path";
 
 /** How long a prepared action stays confirmable before it expires (10 minutes). */
 export const ACTION_TTL_MS = 10 * 60 * 1000;
@@ -351,12 +351,8 @@ export function createAdminStore(path: string): AdminStore {
 
 // Process-wide default admin store. Kept beside the docstore file unless
 // OMUL_ADMIN_DB overrides it; `:memory:` for an ephemeral store in tests.
-const DATABASE_PATH = docstorePath();
-const CONFIGURED_ADMIN_DB = process.env.OMUL_ADMIN_DB;
-const ADMIN_DB_PATH = CONFIGURED_ADMIN_DB
-	? resolve(CONFIGURED_ADMIN_DB)
-	: DATABASE_PATH === ":memory:"
-		? ":memory:"
-		: resolve(join(dirname(DATABASE_PATH), "admin.sqlite"));
+export function adminDbPath(): string {
+	return siblingDbPath(process.env.OMUL_ADMIN_DB, "admin.sqlite");
+}
 
-export const adminStore = createAdminStore(ADMIN_DB_PATH);
+export const adminStore = createAdminStore(adminDbPath());

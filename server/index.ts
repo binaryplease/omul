@@ -2,12 +2,20 @@ import { openapi } from "@elysiajs/openapi";
 import { Elysia } from "elysia";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { auth, ensureAuthSchema } from "./accounts";
-import { adminAllowlistStartupReport } from "./admins";
+import { adminAllowlistStartupReport, adminEmails } from "./admins";
 import { connectDb } from "./db";
 import { deckGenerationStartupReport } from "./deck-generator";
-import { adminRoutes } from "./routes/admin";
+import {
+	feedbackSettings,
+	feedbackStartupReport,
+	feedbackStore,
+} from "./feedback-store";
+import { legalLinksStartupReport } from "./legal-links";
+import { adminFeedbackRoutes, adminRoutes } from "./routes/admin";
 import { deckGenerationRoutes } from "./routes/deck-generation";
 import { discoveryRoutes, publicOriginStartupReport } from "./routes/discovery";
+import { feedbackRoutes } from "./routes/feedback";
+import { legalRoutes } from "./routes/legal";
 import { rateLimitStartupReport } from "./rate-limit";
 import { presentationRoutes } from "./routes/presentations";
 import { staticRoutes } from "./routes/static";
@@ -17,6 +25,11 @@ import { joinRoom, registerClient, removeClient } from "./ws";
 
 const PORT = process.env.PORT || 3000;
 const isDev = process.env.NODE_ENV !== "production";
+
+// Read the legal-text addresses (REQ183) before anything else is opened, so a
+// malformed one stops the boot instead of answering the first page load with a
+// 500. Printed with the other reports once the server is listening.
+const legalLinksReport = legalLinksStartupReport();
 
 // Open the document store before starting the server.
 await connectDb();
@@ -102,6 +115,11 @@ const app = new Elysia()
 						description: "Read aggregated voting results.",
 					},
 					{
+						name: "Feedback",
+						description:
+							"Feedback about omul itself, sent to whoever runs this instance — from the app menu (REQ185) or in answer to the prompt after a session (REQ186). Each channel is off unless the operator enabled it; ask the config route first.",
+					},
+					{
 						name: "Admin",
 						description:
 							"Operator-only surface: two-step confirmed actions (e.g. reassign presentation owner) and the admin audit log. Requires an admin cookie session.",
@@ -119,6 +137,18 @@ const app = new Elysia()
 	// The health probe (`/api/health`) travels with it — it is a link the index
 	// hands out, and it is followed to check this service before anything else.
 	.use(discoveryRoutes)
+
+	// ── Legal texts (REQ183) ──────────────────────────────────
+	// Where the operator's imprint, privacy policy and terms live, read by the
+	// client's app menu and contract-conclusion notices. Unset means no link.
+	.use(legalRoutes)
+
+	// ── Feedback about omul (REQ185, REQ186) ──────────────────
+	// Sent from the app menu, or in answer to the prompt after a session, to the
+	// operator's own feedback database. Each channel is off unless its switch is
+	// set — OMUL_FEEDBACK_ENABLED, OMUL_FEEDBACK_PROMPT_PERCENT — see
+	// `server/feedback-store.ts`.
+	.use(feedbackRoutes)
 
 	// ── User accounts (Better Auth) ───────────────────────────
 	// Email + password sign-up/in/out, sessions, password reset, email
@@ -151,6 +181,8 @@ const app = new Elysia()
 
 	// ── Admin surface (operator-only, /api/admin/*) ───────────
 	.use(adminRoutes)
+	// The administrators' read of the feedback database (REQ185).
+	.use(adminFeedbackRoutes)
 
 	// ── WebSocket ─────────────────────────────────────────────
 	.ws("/ws", {
@@ -228,3 +260,18 @@ for (const line of deckGenerationStartupReport()) console.log(line);
 // from outside — every /api/admin/* call answers 403 either way — so the process
 // says which one it is rather than leaving an operator at a 403 they cannot read.
 for (const line of adminAllowlistStartupReport()) console.log(line);
+
+// Which legal texts this deployment links (REQ183). An unset one is simply not
+// drawn, which from outside looks the same as a page that forgot it.
+for (const line of legalLinksReport) console.log(line);
+
+// Whether this deployment collects feedback (REQ185, REQ186), on which channel,
+// and whether anybody can read it: on with no administrator stores answers
+// nobody will see.
+for (const line of feedbackStartupReport(
+	feedbackStore,
+	feedbackSettings,
+	adminEmails,
+)) {
+	console.log(line);
+}

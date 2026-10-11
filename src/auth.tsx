@@ -29,6 +29,7 @@ import {
 	useSession,
 } from "./auth-client";
 import { BRAND_NAME } from "./components/BrandMark";
+import { LegalNotice } from "./components/LegalLinks";
 import { Modal } from "./components/ui/Modal";
 import { appHomeUrl } from "./router";
 import { PENDING_EMAIL_CHANGE_KEY } from "./storage";
@@ -408,6 +409,10 @@ function AuthForm({ onDone }: { onDone: () => void }) {
 						<span>{error}</span>
 					</div>
 				)}
+
+				{/* Signing up concludes a contract, so the terms and the privacy
+				    policy are named here, above the button that submits it (REQ183). */}
+				{mode === "signup" && <LegalNotice action="creating an account" />}
 
 				<button type="submit" disabled={busy} className={BTN_PRIMARY}>
 					{busy
