@@ -203,6 +203,8 @@ Prose outside the markers is preserved.
 | [REQ185.md](requirements/REQ185.md) | Anyone in the app can send feedback about omul to the instance operator from the app menu, stored in omul's own feedback database | Platform & Operations | P2 | done | BR148 |
 | [REQ186.md](requirements/REQ186.md) | A sampled participant is asked once, after the session ends and outside the deck, what they think of omul | Platform & Operations | P2 | done | BR148 |
 | [REQ187.md](requirements/REQ187.md) | An explicit `:memory:` in OMUL_AUTH_DB or OMUL_ADMIN_DB opens an in-memory database, never a file named `:memory:` | Platform & Operations | P2 | done | internal |
+| [REQ188.md](requirements/REQ188.md) | An operator can enforce email verification, so an unverified account gets no session | Accounts & Workspaces | P1 | pending | internal |
+| [REQ189.md](requirements/REQ189.md) | The admin surface refuses an account whose email address is unverified | Platform & Operations | P1 | pending | internal |
 
-_185 entries — one row per file in `requirements/`._
+_187 entries — one row per file in `requirements/`._
 <!-- index:end -->
