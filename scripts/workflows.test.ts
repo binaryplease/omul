@@ -55,8 +55,10 @@ function runBlocks(file: string): RunBlock[] {
 		const keyColumn = key[1].length;
 		const rest = key[2].trim();
 
-		// Inline scalar: `run: bun test`. Nothing follows it.
-		if (rest !== "" && !/^[|>][-+]?\d*$/.test(rest)) {
+		// Inline scalar: `run: bun test`. Nothing follows it. A block scalar may
+		// carry an anchor first (`run: &name |`), and its body is the one an
+		// alias (`run: *name`) reuses, so that body is scanned here once.
+		if (rest !== "" && !/^(?:&\S+\s+)?[|>][-+]?\d*$/.test(rest)) {
 			blocks.push({ file, line: index + 1, script: rest });
 			continue;
 		}
