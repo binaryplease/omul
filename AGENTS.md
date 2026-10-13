@@ -136,10 +136,13 @@ requests against this repository as before.
   picked for staging, rebuilt whenever needed, built into an image by
   `build.yaml`. It is never merged anywhere and never promoted, because it would
   carry merge commits and unrelated work across.
-- **Promotion moves one workbatch at a time.** In a fresh clone of this
-  repository: fetch the branch from the private copy, rebase it onto `main`,
-  run `mise run publish:gate -- main <branch> --terms <file>`, push it here as
-  `publish/<id>` and open a pull request. The CLA check and the test suite run
+- **Promotion moves one workbatch at a time.** In a clone of this repository
+  whose `origin` push URL is also `NO_PUSH`: fetch the branch from the private
+  copy, rebase it onto `main`, run
+  `mise run publish:gate -- origin/main <branch> --terms <file>`, push it here
+  as `publish/<id>` with this repository's URL written out in the push command
+  (that deliberate step is the only way a push reaches this repository), and
+  open a pull request. The CLA check and the test suite run
   on that pull request. If the gate fails on any commit, squash the branch into
   one commit that passes and run the gate again: pushing a branch publishes
   every commit on it, including ones a later commit undid.
