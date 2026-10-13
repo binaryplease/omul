@@ -33,6 +33,8 @@ All via mise (`.mise.toml`):
 | `mise run test` | Run tests |
 | `mise run triage -- <cmd>` | Filter and triage requirements in `docs/requirements/` |
 | `mise run requirements:index` | Regenerate `docs/Requirements.md` with the shared `index` CLI |
+| `mise run publish:gate -- <base> <head> --terms <file>` | Check a range before it is promoted to the public repository (see "Where work happens") |
+| `mise run sync:public-main` | Fast-forward the private copy's `main` to the public `main` |
 
 Running locally:
 
@@ -115,6 +117,34 @@ owned by a post-session hook rather than by the agent:
 If you are not running under such a hook — a human, or an agent invoked
 directly — there is nothing to own this for you, so the general discipline
 applies unchanged: branch, commit and push yourself.
+
+### Where work happens: a private copy, then promotion
+
+Maintainers develop in a **private copy of this repository** that shares its
+history. A maintainer's checkout has two remotes: `origin` is the private copy,
+and `public` is this repository with its push URL set to `NO_PUSH`, so nothing
+pushes here by accident. External contributors keep using forks and pull
+requests against this repository as before.
+
+- **Workbatch branches live in the private copy.** They are pushed there, never
+  here.
+- **The private `main` is never merged into.** It only fast-forwards to this
+  repository's `main` (`mise run sync:public-main`); a branch ruleset there
+  refuses every other update except a repository admin's. Cut new workbatches
+  from it, so they apply cleanly here.
+- **`rc` is the private copy's staging branch**: `main` plus the workbatches
+  picked for staging, rebuilt whenever needed, built into an image by
+  `build.yaml`. It is never merged anywhere and never promoted, because it would
+  carry merge commits and unrelated work across.
+- **Promotion moves one workbatch at a time.** In a fresh clone of this
+  repository: fetch the branch from the private copy, rebase it onto `main`,
+  run `mise run publish:gate -- main <branch> --terms <file>`, push it here as
+  `publish/<id>` and open a pull request. The CLA check and the test suite run
+  on that pull request. If the gate fails on any commit, squash the branch into
+  one commit that passes and run the gate again: pushing a branch publishes
+  every commit on it, including ones a later commit undid.
+- **The terms file stays outside the tree.** It lists what must not cross, and
+  a list of those terms committed here would be an occurrence of each one.
 
 ## How work is tracked here — this is not optional
 
@@ -281,8 +311,10 @@ decision, and only for naming (REQ176):
   [docs/deployment.md](docs/deployment.md#generating-a-deck-from-a-prompt-req007).
 - **This repository is published.** It went public on 2026-09-07 with release
   `v1.0.0`, under `AGPL-3.0-only OR LicenseRef-omul-Commercial`. So the rule
-  below is no longer a preparation — a paragraph that lands here is readable by
-  anyone the moment it is pushed, and cannot be recalled. Nothing that belongs
+  below is no longer a preparation. Work is pushed to the private copy first
+  (see "Where work happens"), but every line written there is written for this
+  repository: once promoted it is readable by anyone and cannot be recalled,
+  and the gate checks only what it is told to look for. Nothing that belongs
   to the business side may land here: pricing and plan tiers, product strategy,
   competitive research, or a link into another product's documentation. The
   requirement parser refuses the last of those outright; the rest is on you.

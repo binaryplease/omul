@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+      # The staging integration branch of the private development copy: main
+      # plus the workbatches picked for staging. Never merged anywhere.
+      - rc
       - workbatch/**
       - task/**
     tags:

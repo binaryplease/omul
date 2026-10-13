@@ -201,10 +201,17 @@ jobs:
     # contributor would get no comment, no check update and no error — the
     # silent dead end CLA.md's signing instructions promise cannot happen. The
     # gate must never be stricter than the matcher it guards.
+    #
+    # Public repositories only. Maintainers develop in a private copy of this
+    # tree and promote finished work here as a pull request, which is where the
+    # agreement is checked. In the private copy this job would only open a
+    # second signature branch nobody reads. The test is on visibility rather
+    # than on a repository name, so a public fork keeps the check.
     if: >-
+      !github.event.repository.private && (
       github.event_name == 'pull_request_target' ||
       contains(github.event.comment.body, 'recheck') ||
-      contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA')
+      contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA'))
     steps:
       # The action enumerates a pull request's authors with a single
       # `commits(first: 100)` GraphQL page and never follows `pageInfo`, so on a
