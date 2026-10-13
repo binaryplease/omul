@@ -451,6 +451,33 @@ describe("the CLA check decides on things GitHub authenticates", () => {
 	// of that review's failure scenarios, held so the fix cannot be undone by
 	// someone restoring a convenience.
 	const workflow = readRepoFile(".github/workflows/cla.yaml");
+	// Parsed as well as read: which step runs when, and that two steps share one
+	// script through a YAML anchor, are facts about the structure, not the text.
+	type Step = {
+		name: string;
+		id?: string;
+		if?: string;
+		"continue-on-error"?: boolean | string;
+		env?: Record<string, string>;
+		run?: string;
+		with: Record<string, string>;
+	};
+	const parsed = Bun.YAML.parse(workflow) as {
+		jobs: { cla: { name: string; steps: Step[] } };
+	};
+	const steps = parsed.jobs.cla.steps;
+	const stepNamed = (name: string): Step => {
+		const step = steps.find((candidate) => candidate.name === name);
+		if (step === undefined) throw new Error(`cla.yaml has no step "${name}"`);
+		return step;
+	};
+	const holder = stepNamed("Find the copyright holder's own signed commits");
+	const judge = stepNamed("Leave the action out when every other author has signed");
+	const action = stepNamed("CLA assistant");
+	const verdict = stepNamed("Decide a mixed pull request on its other authors");
+	/** The three authenticated facts that make a commit the holder's own. */
+	const HOLDER_COMMIT =
+		".author.id == 24828012 and .committer.id == 24828012 and .commit.verification.verified == true";
 
 	test("no allowlist, because every allowlist entry is self-declarable", () => {
 		// The bypass: when a commit author's email is linked to no GitHub
@@ -524,20 +551,68 @@ describe("the CLA check decides on things GitHub authenticates", () => {
 		// any of the three conditions and the exemption becomes a bypass.
 		const exemption = workflow.match(/--jq '(\.\[\] \| if .+ then "holder" else "other" end)'/);
 		expect(exemption).not.toBeNull();
-		expect(exemption?.[1]).toContain(".author.id == 24828012");
-		expect(exemption?.[1]).toContain(".committer.id == 24828012");
-		expect(exemption?.[1]).toContain(".commit.verification.verified == true");
-		// One commit that is not the holder's sends the pull request to the
-		// action; an empty commit list exempts nothing.
-		expect(workflow).toContain(`if [ -n "$verdicts" ] && ! grep -qx other <<<"$verdicts"; then`);
-		expect(workflow).toMatch(/- name: CLA assistant\n\s+if: steps\.holder\.outputs\.exempt != 'true'\n/);
+		expect(exemption?.[1]).toContain(HOLDER_COMMIT);
+		// Only a pull request made wholly of such commits skips the check; an
+		// empty commit list exempts nothing, and any one holder commit beside
+		// another's makes the pull request mixed rather than exempt.
+		expect(holder.run).toContain(`if [ -n "$verdicts" ] && ! grep -qx other <<<"$verdicts"; then`);
+		expect(holder.run).toMatch(/elif grep -qx holder <<<"\$verdicts"; then\n.*\n\s*echo "mixed=true" >> "\$GITHUB_OUTPUT"/);
+		expect(action.if).toContain("steps.holder.outputs.exempt != 'true'");
+	});
+
+	test("in a mixed pull request every other commit's author has to have signed", () => {
+		// PR 12: a contributor who had signed, plus one verified commit of the
+		// holder's, turned the check red, because the action counts every
+		// author and the holder never signs. A commit is another's on exactly
+		// the negation of the holder's three facts, never on fewer — a spoofed
+		// holder email without a verified signature is somebody else's commit.
+		const others = workflow.match(/--jq '(\.\[\] \| select\(\((.+)\) \| not\) \| .+)'/);
+		expect(others).not.toBeNull();
+		expect(others?.[2]).toBe(HOLDER_COMMIT);
+		// Its author has to resolve to an account id in the store; an unlinked
+		// author has none, and the literal it gets instead matches no signature.
+		expect(others?.[1]).toContain('.author.id // "unlinked"');
+		expect(judge.run).toContain(`! grep -qxF "$author" <<<"$signed"`);
+		expect(judge.run).toContain(`exit "$unsigned"`);
+		// It reads the store the action writes, not a copy of its own.
+		expect(judge.run).toContain(
+			`contents/${action.with["path-to-signatures"]}?ref=${action.with.branch}`,
+		);
+	});
+
+	test("a mixed pull request's verdict is reached after the action, by the same script", () => {
+		// Before the action the script only decides whether the action has to
+		// run, so its failure is not the job's. The action always reports the
+		// holder unsigned in a mixed pull request, so its failure is not the
+		// verdict there — and only there. The verdict is the same script again,
+		// after the action, against a store it may just have written: a
+		// contributor's signing reply turns the check green with no second step.
+		expect(judge.id).toBe("others");
+		expect(judge.if).toBe("steps.holder.outputs.mixed == 'true'");
+		expect(judge["continue-on-error"]).toBe(true);
+		expect(action.if).toContain("steps.others.outcome != 'success'");
+		expect(action["continue-on-error"]).toBe("${{ steps.holder.outputs.mixed == 'true' }}");
+		expect(steps.indexOf(holder)).toBeLessThan(steps.indexOf(judge));
+		expect(steps.indexOf(judge)).toBeLessThan(steps.indexOf(action));
+		expect(steps.indexOf(verdict)).toBe(steps.indexOf(action) + 1);
+		expect(verdict.if).toBe("steps.holder.outputs.mixed == 'true' && steps.others.outcome != 'success'");
+		expect(verdict["continue-on-error"]).toBeUndefined();
+		expect(verdict.run).toBe(judge.run);
+		expect(verdict.env).toEqual(judge.env);
+	});
+
+	test("the job keeps the name the ruleset requires", () => {
+		// `main: CLA required` names this context; renaming the job leaves the
+		// rule waiting on a check that never reports, and every merge blocked.
+		expect(parsed.jobs.cla.name).toBe("Check the contributor license agreement");
 	});
 
 	test("nothing checks out or runs the pull request's own code", () => {
 		// The one property that keeps `pull_request_target` safe at all. The
-		// two `run:` scripts in the file are the commit-count bound, which
-		// interpolates nothing, and the holder exemption, which takes the pull
-		// request number through the environment and reads commits through `jq`.
+		// `run:` scripts in the file are the commit-count bound, which
+		// interpolates nothing, the holder exemption, and the other-authors
+		// check run twice; the last two take the pull request number through the
+		// environment and read commits and the signature store through `jq`.
 		expect(workflow).not.toMatch(/uses: actions\/checkout/);
 		expect(workflow).not.toMatch(/\$\{\{\s*github\.event\.(comment|pull_request)\.[a-z_.]*(body|title|ref|label)/);
 	});
