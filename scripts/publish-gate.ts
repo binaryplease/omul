@@ -10,9 +10,10 @@
 //
 //   mise run publish:gate -- <base> <head> --terms <file>
 //
-// Run it in a fresh clone of this repository, after fetching the candidate
-// branch from the private copy. `<base>` is this repository's `main`, `<head>`
-// the candidate. `--terms` names a file held outside the tree, one regular
+// Run it in the maintainer's checkout of the private copy, after
+// `git fetch public`. `<base>` is this repository's `main` (`public/main`),
+// `<head>` the candidate. It reads only the commits in the range, never the
+// working tree, so it needs no separate clone. `--terms` names a file held outside the tree, one regular
 // expression per line (`#` starts a comment): the owner's list of what must
 // not cross. The file is required. A gate that quietly skipped the disclosure
 // check when the list was missing would report a pass it never measured.

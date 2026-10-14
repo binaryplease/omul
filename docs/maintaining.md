@@ -24,14 +24,16 @@ pushes here by accident.
   picked for staging, rebuilt whenever needed, built into an image by
   `build.yaml`. It is never merged anywhere and never promoted, because it would
   carry merge commits and unrelated work across.
-- **Promotion moves one workbatch at a time.** In a clone of this repository
-  whose `origin` push URL is also `NO_PUSH`: fetch the branch from the private
-  copy, rebase it onto `main`, run
-  `mise run publish:gate -- origin/main <branch> --terms <file>`, push it here
+- **Promotion moves one workbatch at a time, from the maintainer's checkout.**
+  No second clone is needed: `public` already cannot be pushed to. Fetch
+  `public`, rebase the branch onto `public/main`, run
+  `mise run publish:gate -- public/main <branch> --terms <file>`, push it here
   as `publish/<id>` with this repository's URL written out in the push command
   (that deliberate step is the only way a push reaches this repository), and
-  open a pull request. The CLA check and the test suite run
-  on that pull request. If the gate fails on any commit, squash the branch into
+  open a pull request. If sessions are working in the checkout, rebase in a
+  `git worktree` of it instead of switching their branch. If the rebase moved
+  the branch, force-push it to the private copy too, so both name the same
+  commits. The CLA check and the test suite run on that pull request. If the gate fails on any commit, squash the branch into
   one commit that passes and run the gate again: pushing a branch publishes
   every commit on it, including ones a later commit undid.
 - **The terms file stays outside the tree.** It lists what must not cross, and
