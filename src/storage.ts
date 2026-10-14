@@ -40,7 +40,7 @@ export const EMAIL_RECOVERY_PROMPT_DISMISSED_KEY =
 
 /**
  * Whether this client has observed a session in this browser, so the offer
- * above is not made to it again (REQ194).
+ * above asks it to sign in rather than to create an account (REQ194).
  */
 export const EMAIL_RECOVERY_ACCOUNT_SEEN_KEY =
 	"omul-email-recovery-account-seen";

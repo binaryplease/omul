@@ -1,12 +1,13 @@
 /**
- * Unit tests for the home page's offer to add an email (REQ194) — when it is
- * shown, how its close is remembered, and what it draws.
+ * Unit tests for the home page's offer to keep this browser's decks (REQ194) —
+ * when it is shown, which of its two offers it makes, how its close is
+ * remembered, and what it draws.
  *
- * What they are protecting: the notice appears for a browser that holds decks
- * and no account, disappears once that browser signs in — and stays gone after
- * a sign-out, when the claimed decks are still listed but its words would be
- * false — and stays closed once closed: an offer, never a gate. `localStorage` is a stub, as in
- * `src/feedback-prompt.test.ts`.
+ * What they are protecting: the notice appears for a signed-out browser that
+ * holds decks — offering to create an account, or to sign in when this browser
+ * has had one, including for a deck made after signing out — disappears while
+ * signed in, and stays closed once closed: an offer, never a gate.
+ * `localStorage` is a stub, as in `src/feedback-prompt.test.ts`.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -24,8 +25,8 @@ import {
 	accountSeenInThisBrowser,
 	dismissEmailRecoveryPrompt,
 	emailRecoveryPromptDismissed,
+	emailRecoveryOfferFor,
 	rememberAccountInThisBrowser,
-	shouldOfferEmailRecovery,
 } from "./email-recovery-prompt";
 import { getDict } from "./i18n";
 import {
@@ -76,55 +77,60 @@ const OFFERED = {
 	dismissed: false,
 };
 
-describe("shouldOfferEmailRecovery", () => {
-	test("offers it to a signed-out browser holding a deck", () => {
-		expect(shouldOfferEmailRecovery(OFFERED)).toBe(true);
-		expect(shouldOfferEmailRecovery({ ...OFFERED, localDeckCount: 7 })).toBe(
-			true,
+describe("emailRecoveryOfferFor", () => {
+	test("offers a browser that never had an account to create one", () => {
+		expect(emailRecoveryOfferFor(OFFERED)).toBe("signup");
+		expect(emailRecoveryOfferFor({ ...OFFERED, localDeckCount: 7 })).toBe(
+			"signup",
 		);
 	});
 
-	test("does not offer it once signed in", () => {
-		expect(shouldOfferEmailRecovery({ ...OFFERED, signedIn: true })).toBe(
-			false,
-		);
+	test("asks a browser that had an account to sign in instead", () => {
+		// The owner's case: an account made earlier, signed out, a new deck held
+		// only here. Adopted decks are no longer listed, so this one is the only
+		// thing the count can be — and "Create account" would refuse the address.
+		expect(
+			emailRecoveryOfferFor({
+				...OFFERED,
+				accountSeen: true,
+				localDeckCount: 1,
+			}),
+		).toBe("signin");
 	});
 
-	test("does not offer it to a browser holding no deck", () => {
-		expect(shouldOfferEmailRecovery({ ...OFFERED, localDeckCount: 0 })).toBe(
-			false,
-		);
+	test("offers nothing while signed in, whatever this browser had", () => {
+		expect(emailRecoveryOfferFor({ ...OFFERED, signedIn: true })).toBeNull();
+		expect(
+			emailRecoveryOfferFor({ ...OFFERED, signedIn: true, accountSeen: true }),
+		).toBeNull();
 	});
 
-	test("does not offer it once closed", () => {
-		expect(shouldOfferEmailRecovery({ ...OFFERED, dismissed: true })).toBe(
-			false,
-		);
+	test("offers nothing to a browser holding no deck", () => {
+		expect(emailRecoveryOfferFor({ ...OFFERED, localDeckCount: 0 })).toBeNull();
+		expect(
+			emailRecoveryOfferFor({
+				...OFFERED,
+				accountSeen: true,
+				localDeckCount: 0,
+			}),
+		).toBeNull();
+	});
+
+	test("offers nothing once closed, in either variant", () => {
+		expect(emailRecoveryOfferFor({ ...OFFERED, dismissed: true })).toBeNull();
+		expect(
+			emailRecoveryOfferFor({ ...OFFERED, dismissed: true, accountSeen: true }),
+		).toBeNull();
 	});
 
 	test("waits for the session, so a signed-in visitor never sees it flash", () => {
-		expect(shouldOfferEmailRecovery({ ...OFFERED, sessionPending: true })).toBe(
-			false,
-		);
+		expect(
+			emailRecoveryOfferFor({ ...OFFERED, sessionPending: true }),
+		).toBeNull();
 	});
 
 	test("waits for the list, so a count still loading offers nothing", () => {
-		expect(shouldOfferEmailRecovery({ ...OFFERED, listLoading: true })).toBe(
-			false,
-		);
-	});
-
-	test("stays gone after signing out of an account this browser held", () => {
-		// Sign-out keeps the edit tokens, so the claimed decks are still listed —
-		// but "saved only in this browser" and "Create account" would both be false.
-		expect(
-			shouldOfferEmailRecovery({
-				...OFFERED,
-				signedIn: false,
-				accountSeen: true,
-				localDeckCount: 2,
-			}),
-		).toBe(false);
+		expect(emailRecoveryOfferFor({ ...OFFERED, listLoading: true })).toBeNull();
 	});
 });
 
@@ -136,20 +142,21 @@ describe("the remembered account", () => {
 	test("outlives the session it was seen in", () => {
 		rememberAccountInThisBrowser();
 		expect(storage.get(EMAIL_RECOVERY_ACCOUNT_SEEN_KEY)).toBe("true");
-		// A later visit, signed out, reads it back and is not offered the notice.
+		// A later visit, signed out with a deck, reads it back and is asked to
+		// sign in rather than to create an account.
 		expect(
-			shouldOfferEmailRecovery({
+			emailRecoveryOfferFor({
 				...OFFERED,
 				accountSeen: accountSeenInThisBrowser(),
 			}),
-		).toBe(false);
+		).toBe("signin");
 	});
 
 	test("is recorded wherever a page with a header sees the session", () => {
 		// No DOM in these tests, so the hook's effect cannot run here; what is held
 		// is that the header every such page mounts, and the home page itself, are
 		// the hook's call sites — a session that starts and ends on /workspaces
-		// still retires the offer.
+		// still turns the offer into "sign in".
 		const read = (path: string) =>
 			readFileSync(join(import.meta.dir, path), "utf8");
 		const authControls = read("auth.tsx").split(
@@ -222,7 +229,8 @@ describe("NoticeFrame", () => {
 	test("differs from it only in the border in the neutral tone", () => {
 		const markup = renderToStaticMarkup(
 			createElement(EmailRecoveryPrompt, {
-				onAddEmail: () => {},
+				offer: "signup",
+				onTakeOffer: () => {},
 				onDismiss: () => {},
 			}),
 		);
@@ -235,20 +243,51 @@ describe("NoticeFrame", () => {
 describe("EmailRecoveryPrompt", () => {
 	const noop = () => {};
 
-	test("draws the text, the action and a named close control", () => {
+	test("draws the create-account offer, its action and a named close", () => {
 		const markup = renderToStaticMarkup(
 			createElement(EmailRecoveryPrompt, {
-				onAddEmail: noop,
+				offer: "signup",
+				onTakeOffer: noop,
 				onDismiss: noop,
 			}),
 		);
-		expect(markup).toContain(EMAIL_RECOVERY_PROMPT_LABELS.text);
-		expect(markup).toContain(EMAIL_RECOVERY_PROMPT_LABELS.action);
+		expect(markup).toContain(EMAIL_RECOVERY_PROMPT_LABELS.text.signup);
+		expect(markup).toContain(EMAIL_RECOVERY_PROMPT_LABELS.action.signup);
+		expect(markup).not.toContain(EMAIL_RECOVERY_PROMPT_LABELS.text.signin);
 		expect(markup).toContain(
 			`aria-label="${EMAIL_RECOVERY_PROMPT_LABELS.dismiss}"`,
 		);
 		// Both controls are real buttons, so both are reachable by keyboard.
 		expect(markup.match(/<button type="button"/g)?.length).toBe(2);
+	});
+
+	test("draws the sign-in offer for a browser that had an account", () => {
+		const markup = renderToStaticMarkup(
+			createElement(EmailRecoveryPrompt, {
+				offer: "signin",
+				onTakeOffer: noop,
+				onDismiss: noop,
+			}),
+		);
+		expect(markup).toContain(EMAIL_RECOVERY_PROMPT_LABELS.text.signin);
+		expect(markup).toContain(EMAIL_RECOVERY_PROMPT_LABELS.action.signin);
+		expect(markup).not.toContain(EMAIL_RECOVERY_PROMPT_LABELS.text.signup);
+		expect(markup).toContain(
+			`aria-label="${EMAIL_RECOVERY_PROMPT_LABELS.dismiss}"`,
+		);
+	});
+
+	test("opens the dialog on the tab its offer names", () => {
+		// No DOM to click through; the home page hands the offer it drew to the
+		// dialog as its starting tab.
+		const home = readFileSync(
+			join(import.meta.dir, "pages/HomePage.tsx"),
+			"utf8",
+		);
+		expect(home).toContain(
+			"onTakeOffer={() => setRecoveryDialogTab(emailRecoveryOffer)}",
+		);
+		expect(home).toContain("initialMode={recoveryDialogTab}");
 	});
 
 	test("draws in English on the home page", () => {
@@ -260,8 +299,17 @@ describe("EmailRecoveryPrompt", () => {
 	test("carries its words in every language the dictionary has", () => {
 		for (const language of ["de", "fr", "es", "it", "pt", "nl"]) {
 			const labels = emailRecoveryPromptLabelsFor(getDict(language));
-			expect(labels.text).not.toBe(EMAIL_RECOVERY_PROMPT_LABELS.text);
-			expect(labels.action).not.toBe(EMAIL_RECOVERY_PROMPT_LABELS.action);
+			for (const offer of ["signup", "signin"] as const) {
+				expect(labels.text[offer]).toBeTruthy();
+				expect(labels.text[offer]).not.toBe(
+					EMAIL_RECOVERY_PROMPT_LABELS.text[offer],
+				);
+				expect(labels.action[offer]).toBeTruthy();
+				expect(labels.action[offer]).not.toBe(
+					EMAIL_RECOVERY_PROMPT_LABELS.action[offer],
+				);
+			}
+			expect(labels.text.signin).not.toBe(labels.text.signup);
 			expect(labels.dismiss).not.toBe(EMAIL_RECOVERY_PROMPT_LABELS.dismiss);
 		}
 	});

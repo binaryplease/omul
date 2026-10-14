@@ -103,8 +103,9 @@ function changeEmailCallbackUrl(): string {
 export function AuthControls() {
 	const { data, isPending } = useSession();
 	// Every page with a header sees the session here, so this is where a
-	// sign-in is recorded for the home page's offer to add an email (REQ194) —
-	// a session that starts and ends on another page still retires it.
+	// sign-in is recorded for the home page's offer to keep this browser's decks
+	// (REQ194) — a session that starts and ends on another page still turns it
+	// from "create an account" into "sign in".
 	useAccountSeenInThisBrowser(data?.user?.id ?? null);
 	const [dialog, setDialog] = useState<"auth" | "keys" | "account" | null>(
 		null,

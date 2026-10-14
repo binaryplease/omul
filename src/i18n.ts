@@ -271,6 +271,12 @@ export type Dict = {
 	 */
 	emailRecoveryText: string;
 	emailRecoveryAction: string;
+	/**
+	 * The same offer to a browser that has had an account: it asks to sign in,
+	 * since creating an account would refuse the address already registered.
+	 */
+	emailRecoverySignInText: string;
+	emailRecoverySignInAction: string;
 	emailRecoveryDismiss: string;
 };
 
@@ -406,6 +412,9 @@ const en: Dict = {
 	emailRecoveryText:
 		"Your presentations are saved only in this browser. If its data is cleared, they are gone for good. Add your email to keep them in an account.",
 	emailRecoveryAction: "Add email",
+	emailRecoverySignInText:
+		"These presentations are saved only in this browser. If its data is cleared, they are gone for good. Sign in to keep them in your account.",
+	emailRecoverySignInAction: "Sign in",
 	emailRecoveryDismiss: "Hide this notice",
 };
 
@@ -543,6 +552,9 @@ const de: Dict = {
 	emailRecoveryText:
 		"Deine Präsentationen sind nur in diesem Browser gespeichert. Werden seine Daten gelöscht, sind sie unwiederbringlich verloren. Hinterlege deine E-Mail-Adresse, um sie in einem Konto zu behalten.",
 	emailRecoveryAction: "E-Mail hinterlegen",
+	emailRecoverySignInText:
+		"Diese Präsentationen sind nur in diesem Browser gespeichert. Werden seine Daten gelöscht, sind sie unwiederbringlich verloren. Melde dich an, um sie in deinem Konto zu behalten.",
+	emailRecoverySignInAction: "Anmelden",
 	emailRecoveryDismiss: "Hinweis ausblenden",
 };
 
@@ -681,6 +693,9 @@ const fr: Dict = {
 	emailRecoveryText:
 		"Vos présentations sont enregistrées uniquement dans ce navigateur. Si ses données sont effacées, elles sont perdues définitivement. Ajoutez votre adresse e-mail pour les conserver dans un compte.",
 	emailRecoveryAction: "Ajouter un e-mail",
+	emailRecoverySignInText:
+		"Ces présentations sont enregistrées uniquement dans ce navigateur. Si ses données sont effacées, elles sont perdues définitivement. Connectez-vous pour les conserver dans votre compte.",
+	emailRecoverySignInAction: "Se connecter",
 	emailRecoveryDismiss: "Masquer ce message",
 };
 
@@ -819,6 +834,9 @@ const es: Dict = {
 	emailRecoveryText:
 		"Tus presentaciones solo se guardan en este navegador. Si se borran sus datos, se pierden para siempre. Añade tu correo electrónico para conservarlas en una cuenta.",
 	emailRecoveryAction: "Añadir correo",
+	emailRecoverySignInText:
+		"Estas presentaciones solo se guardan en este navegador. Si se borran sus datos, se pierden para siempre. Inicia sesión para conservarlas en tu cuenta.",
+	emailRecoverySignInAction: "Iniciar sesión",
 	emailRecoveryDismiss: "Ocultar este aviso",
 };
 
@@ -956,6 +974,9 @@ const it: Dict = {
 	emailRecoveryText:
 		"Le tue presentazioni sono salvate solo in questo browser. Se i suoi dati vengono cancellati, sono perse per sempre. Aggiungi la tua email per conservarle in un account.",
 	emailRecoveryAction: "Aggiungi email",
+	emailRecoverySignInText:
+		"Queste presentazioni sono salvate solo in questo browser. Se i suoi dati vengono cancellati, sono perse per sempre. Accedi per conservarle nel tuo account.",
+	emailRecoverySignInAction: "Accedi",
 	emailRecoveryDismiss: "Nascondi questo avviso",
 };
 
@@ -1093,6 +1114,9 @@ const pt: Dict = {
 	emailRecoveryText:
 		"As tuas apresentações estão guardadas apenas neste navegador. Se os dados dele forem apagados, perdem-se para sempre. Adiciona o teu email para as guardar numa conta.",
 	emailRecoveryAction: "Adicionar email",
+	emailRecoverySignInText:
+		"Estas apresentações estão guardadas apenas neste navegador. Se os dados dele forem apagados, perdem-se para sempre. Inicia sessão para as guardar na tua conta.",
+	emailRecoverySignInAction: "Iniciar sessão",
 	emailRecoveryDismiss: "Ocultar este aviso",
 };
 
@@ -1229,6 +1253,9 @@ const nl: Dict = {
 	emailRecoveryText:
 		"Je presentaties zijn alleen in deze browser opgeslagen. Als de gegevens ervan worden gewist, ben je ze voorgoed kwijt. Voeg je e-mailadres toe om ze in een account te bewaren.",
 	emailRecoveryAction: "E-mail toevoegen",
+	emailRecoverySignInText:
+		"Deze presentaties zijn alleen in deze browser opgeslagen. Als de gegevens ervan worden gewist, ben je ze voorgoed kwijt. Log in om ze in je account te bewaren.",
+	emailRecoverySignInAction: "Inloggen",
 	emailRecoveryDismiss: "Melding verbergen",
 };
 

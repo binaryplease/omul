@@ -1,20 +1,23 @@
 // ── The offer to add an email (REQ194) ─────────────────────────
 //
 // The notice the home page shows above "Your Presentations" while this browser
-// holds decks and has never been signed in: they live only in its storage, and
-// an account keeps them. Whether it is shown is `shouldOfferEmailRecovery()` in
-// `src/email-recovery-prompt.ts`; this module only draws it. It sits at the top
+// holds decks and nobody is signed in: they live only in its storage, and an
+// account keeps them. Whether it is shown, and which of its two offers it makes
+// (create an account, or sign in for a browser that has had one), is
+// `emailRecoveryOfferFor()` in `src/email-recovery-prompt.ts`; this module only
+// draws it. It sits at the top
 // of the list it is about, not in the page's chrome, and it never stands between
 // the visitor and anything — the close control is always there.
 
-import { MailPlus, X } from "lucide-react";
+import { LogIn, MailPlus, X } from "lucide-react";
+import type { EmailRecoveryOffer } from "../email-recovery-prompt";
 import { type Dict, getDict } from "../i18n";
 import { ICON_BUTTON_HOVER } from "./ShareCluster";
 import { NoticeFrame } from "./ui/NoticeFrame";
 
 export type EmailRecoveryPromptLabels = {
-	text: string;
-	action: string;
+	text: Record<EmailRecoveryOffer, string>;
+	action: Record<EmailRecoveryOffer, string>;
 	dismiss: string;
 };
 
@@ -23,8 +26,14 @@ export function emailRecoveryPromptLabelsFor(
 	dict: Dict,
 ): EmailRecoveryPromptLabels {
 	return {
-		text: dict.emailRecoveryText,
-		action: dict.emailRecoveryAction,
+		text: {
+			signup: dict.emailRecoveryText,
+			signin: dict.emailRecoverySignInText,
+		},
+		action: {
+			signup: dict.emailRecoveryAction,
+			signin: dict.emailRecoverySignInAction,
+		},
 		dismiss: dict.emailRecoveryDismiss,
 	};
 }
@@ -33,29 +42,35 @@ export function emailRecoveryPromptLabelsFor(
 export const EMAIL_RECOVERY_PROMPT_LABELS: EmailRecoveryPromptLabels =
 	emailRecoveryPromptLabelsFor(getDict("en"));
 
+/** The action's icon per offer, beside the dialog tab it opens. */
+const OFFER_ICON = { signup: MailPlus, signin: LogIn } as const;
+
 export function EmailRecoveryPrompt({
+	offer,
 	labels = EMAIL_RECOVERY_PROMPT_LABELS,
-	onAddEmail,
+	onTakeOffer,
 	onDismiss,
 }: {
+	offer: EmailRecoveryOffer;
 	labels?: EmailRecoveryPromptLabels;
-	onAddEmail: () => void;
+	onTakeOffer: () => void;
 	onDismiss: () => void;
 }) {
+	const OfferIcon = OFFER_ICON[offer];
 	return (
 		<NoticeFrame tone="neutral" role="note">
-			<MailPlus size={18} className="shrink-0 text-accent-text" />
+			<OfferIcon size={18} className="shrink-0 text-accent-text" />
 			<p className="flex-1 font-mono text-xs leading-relaxed text-text-muted">
-				{labels.text}
+				{labels.text[offer]}
 			</p>
 			<div className="flex shrink-0 items-center gap-1">
 				<button
 					type="button"
-					onClick={onAddEmail}
+					onClick={onTakeOffer}
 					className="btn-secondary text-sm px-3 py-1.5 inline-flex items-center justify-center gap-1.5"
 				>
-					<MailPlus size={15} />
-					{labels.action}
+					<OfferIcon size={15} />
+					{labels.action[offer]}
 				</button>
 				<button
 					type="button"

@@ -36,8 +36,9 @@ import { useToast } from "../components/ui/Toast";
 import { saveBlobAs } from "../download";
 import {
 	dismissEmailRecoveryPrompt,
+	type EmailRecoveryOffer,
+	emailRecoveryOfferFor,
 	emailRecoveryPromptDismissed,
-	shouldOfferEmailRecovery,
 	useAccountSeenInThisBrowser,
 } from "../email-recovery-prompt";
 import type { Route } from "../router";
@@ -78,18 +79,19 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 	const { data: session, isPending: sessionPending } = useSession();
 	const userId = session?.user?.id ?? null;
 	/**
-	 * Whether this browser closed the offer to add an email (REQ194), whether it
-	 * has ever been signed in (which retires the offer for good), and whether the
-	 * sign-in dialog that offer opens is up.
+	 * Whether this browser closed the offer to keep its decks (REQ194), whether
+	 * it has had an account (which turns the offer from "create an account" into
+	 * "sign in"), and the tab of the sign-in dialog that offer opened, if any.
 	 */
 	const [recoveryPromptDismissed, setRecoveryPromptDismissed] = useState(
 		emailRecoveryPromptDismissed,
 	);
 	const accountSeen = useAccountSeenInThisBrowser(userId);
-	const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false);
+	const [recoveryDialogTab, setRecoveryDialogTab] =
+		useState<EmailRecoveryOffer | null>(null);
 	// Signed out, every listed deck is one this browser holds a token for, so
 	// the list's length is what an emptied browser would lose.
-	const offerEmailRecovery = shouldOfferEmailRecovery({
+	const emailRecoveryOffer = emailRecoveryOfferFor({
 		sessionPending,
 		listLoading: loading,
 		signedIn: userId !== null,
@@ -307,10 +309,11 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 					</h2>
 					{/* The offer to keep these decks with an account (REQ194), on the
 					    list it is about. Signing in claims them (the effect above). */}
-					{offerEmailRecovery && (
+					{emailRecoveryOffer !== null && (
 						<div className="mb-6 max-w-3xl">
 							<EmailRecoveryPrompt
-								onAddEmail={() => setRecoveryDialogOpen(true)}
+								offer={emailRecoveryOffer}
+								onTakeOffer={() => setRecoveryDialogTab(emailRecoveryOffer)}
 								onDismiss={() => {
 									dismissEmailRecoveryPrompt();
 									setRecoveryPromptDismissed(true);
@@ -444,10 +447,10 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 				/>
 			)}
 
-			{recoveryDialogOpen && (
+			{recoveryDialogTab !== null && (
 				<AuthDialog
-					initialMode="signup"
-					onClose={() => setRecoveryDialogOpen(false)}
+					initialMode={recoveryDialogTab}
+					onClose={() => setRecoveryDialogTab(null)}
 				/>
 			)}
 
