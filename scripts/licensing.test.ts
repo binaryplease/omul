@@ -253,7 +253,9 @@ describe("the contact route is real, singular and identical in every file", () =
 			.toString()
 			.split("\0")
 			.filter((path) => path.length > 0)
-			.filter((path) => !path.includes("/") || path.startsWith(".github/"));
+			.filter((path) => !path.includes("/") || path.startsWith(".github/"))
+			// The index still lists a file deleted in the working tree.
+			.filter((path) => existsSync(join(REPO_ROOT, path)));
 	}
 
 	for (const file of CONTACT_FILES) {
@@ -499,12 +501,6 @@ describe("the CLA check decides on things GitHub authenticates", () => {
 			/uses: contributor-assistant\/github-action@[0-9a-f]{40} # v\d+\.\d+\.\d+/,
 		);
 		expect(workflow).not.toMatch(/uses:.*@v\d/);
-	});
-
-	test("the pin is maintained rather than frozen", () => {
-		// A SHA nobody bumps is not hardening, it is an unmonitored dependency.
-		const dependabot = readRepoFile(".github/dependabot.yml");
-		expect(dependabot).toMatch(/package-ecosystem:\s*github-actions/);
 	});
 
 	test("the comment gate is no stricter than the matcher it guards", () => {

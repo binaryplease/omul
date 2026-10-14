@@ -46,7 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The storage library `@binaryplease/zodstore` is updated from 0.4.2 to 0.5.0, which brings its fixes to filtering on empty values and to how it checks a database file on open. The first start on an existing database renames the indexes that cover two fields to the library's new naming scheme. This needs no action and keeps every stored presentation, vote and question.
 - In a fork with GitHub Actions enabled, the CLA check no longer runs, and the image build no longer pushes to the fork owner's container registry. The image is still built, so a broken Dockerfile still shows up. Pull requests from a fork to this repository are still checked for the CLA.
 
+### Removed
+
+- Dependabot version updates for the repository's GitHub Actions. The actions stay pinned to the same commits and versions, but nothing proposes updates for them any more; they are now updated by hand.
+
 ### Fixed
 
 - Setting `OMUL_AUTH_DB=:memory:` or `OMUL_ADMIN_DB=:memory:` now gives an in-memory database, as it already did for `DATABASE_PATH`, instead of creating a file named `:memory:` in the working directory.
 - A pull request from a fork no longer fails its build check. The check used to try to push the image with the pull request's read-only token, and the registry refused it.
+- `mise run check` and `mise run test` no longer fail when a tracked file has been deleted in a checkout but the deletion is not yet committed.

@@ -58,8 +58,9 @@ name: CLA
 #      still push, and can still merge a pull request whose CLA check is red.
 #      What the rule buys is that doing so is now a deliberate, logged bypass
 #      instead of the default — which is exactly the posture the allowlist note
-#      below describes for Dependabot. THE STANDING RULE FOR A MAINTAINER: never
-#      bypass a red CLA check except for a bot's own pull request.
+#      below describes for a bot's pull request. THE STANDING RULE FOR A
+#      MAINTAINER: never bypass a red CLA check except for a bot's own pull
+#      request.
 #
 # CLA VERSION 2.0 IS LIVE AND SIGNABLE. On 2026-09-07 the bespoke agreement was
 # replaced by the Harmony Individual CLA 1.0 standard form, and all three halves
@@ -108,8 +109,8 @@ name: CLA
 # Either way a stranger turns this check green with no signature. With no
 # allowlist, an unlinked author carries `id: ''`, matches no signed record and
 # stays in `notSigned` — the check fails closed, which is the whole point.
-# The cost is real and accepted: Dependabot's own pull requests will show this
-# check red, and a maintainer merges them on their own authority.
+# The cost is real and accepted: a bot's own pull requests will show this check
+# red, and a maintainer merges them on their own authority.
 #
 # THE COPYRIGHT HOLDER IS EXEMPT, AND THE EXEMPTION IS NOT AN ALLOWLIST. CLA.md
 # is an agreement between a contributor and "Us", Enrico Scherlies; the holder
@@ -286,7 +287,7 @@ jobs:
 
       # Pinned to the commit `v2.6.1` resolved to on 2026-09-02, not to the tag:
       # a tag is mutable, and this job holds a token that can push anywhere in
-      # this repository. Dependabot maintains the pin (.github/dependabot.yml).
+      # this repository. Nothing bumps the pin automatically; re-pin it by hand.
       # In a mixed pull request it always reports the holder unsigned, so its
       # failure there is not the verdict; the step after it is.
       - name: CLA assistant

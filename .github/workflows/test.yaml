@@ -60,7 +60,7 @@ jobs:
       # Actions are pinned to commits rather than tags. A tag is mutable, and
       # this job runs a fork's code — the token is read-only, so the blast
       # radius is an ephemeral runner rather than this repository, but a pin
-      # costs nothing and `.github/dependabot.yml` maintains it.
+      # costs nothing. Nothing bumps it automatically; re-pin it by hand.
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
