@@ -35,11 +35,10 @@ import { StatusBadge } from "../components/ui/StatusBadge";
 import { useToast } from "../components/ui/Toast";
 import { saveBlobAs } from "../download";
 import {
-	accountSeenInThisBrowser,
 	dismissEmailRecoveryPrompt,
 	emailRecoveryPromptDismissed,
-	rememberAccountInThisBrowser,
 	shouldOfferEmailRecovery,
+	useAccountSeenInThisBrowser,
 } from "../email-recovery-prompt";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
@@ -86,13 +85,8 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 	const [recoveryPromptDismissed, setRecoveryPromptDismissed] = useState(
 		emailRecoveryPromptDismissed,
 	);
-	const [accountSeen, setAccountSeen] = useState(accountSeenInThisBrowser);
+	const accountSeen = useAccountSeenInThisBrowser(userId);
 	const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false);
-	useEffect(() => {
-		if (!userId) return;
-		rememberAccountInThisBrowser();
-		setAccountSeen(true);
-	}, [userId]);
 	// Signed out, every listed deck is one this browser holds a token for, so
 	// the list's length is what an emptied browser would lose.
 	const offerEmailRecovery = shouldOfferEmailRecovery({

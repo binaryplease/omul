@@ -18,9 +18,14 @@
  *      tokens, so after a sign-out (or an expired session) the claimed decks are
  *      still listed here; telling that browser they are "saved only in this
  *      browser" and opening "Create account" for an address that already has
- *      one would be false twice over. So the first session this browser sees is
- *      remembered (`rememberAccountInThisBrowser()`), and from then on the
- *      header's Sign in button is the way back, not this notice.
+ *      one would be false twice over. So every session this client observes is
+ *      remembered (`useAccountSeenInThisBrowser()`, worn by `AuthControls` on
+ *      every page with a header and by the home page), and from then on the
+ *      header's Sign in button is the way back, not this notice. The promise is
+ *      exactly that wide: a browser signed in *before* this record existed, and
+ *      signed out before a page with a header saw that session, carries no
+ *      record, and cannot be told apart from one that never had an account — a
+ *      signed-out client is never told who owns a deck, by design.
  *   3. **This browser holds at least one deck.** With nothing to lose, there is
  *      nothing to offer.
  *   4. **This browser has not closed it.** It is an offer, never a gate, so the
@@ -30,6 +35,7 @@
  *      offer.
  */
 
+import { useEffect, useState } from "react";
 import {
 	EMAIL_RECOVERY_ACCOUNT_SEEN_KEY,
 	EMAIL_RECOVERY_PROMPT_DISMISSED_KEY,
@@ -73,6 +79,21 @@ export function rememberAccountInThisBrowser(): void {
 		// Storage denied. The notice stays away while the session lasts, which is
 		// all a browser that keeps nothing allows.
 	}
+}
+
+/**
+ * Record a session wherever one is observed, and say whether this browser has
+ * ever been signed in. `userId` is the signed-in account's id, `null` while
+ * signed out; the record is written the first render that sees one.
+ */
+export function useAccountSeenInThisBrowser(userId: string | null): boolean {
+	const [accountSeen, setAccountSeen] = useState(accountSeenInThisBrowser);
+	useEffect(() => {
+		if (!userId) return;
+		rememberAccountInThisBrowser();
+		setAccountSeen(true);
+	}, [userId]);
+	return accountSeen;
 }
 
 /** Whether this browser closed the offer — `false` where storage is denied. */

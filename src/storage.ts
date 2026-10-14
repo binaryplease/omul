@@ -39,8 +39,8 @@ export const EMAIL_RECOVERY_PROMPT_DISMISSED_KEY =
 	"omul-email-recovery-prompt-dismissed";
 
 /**
- * Whether this browser has been signed in to an account, so the offer above is
- * never made to it again (REQ194).
+ * Whether this client has observed a session in this browser, so the offer
+ * above is not made to it again (REQ194).
  */
 export const EMAIL_RECOVERY_ACCOUNT_SEEN_KEY =
 	"omul-email-recovery-account-seen";

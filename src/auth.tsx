@@ -32,6 +32,7 @@ import { BRAND_NAME } from "./components/BrandMark";
 import { LegalNotice } from "./components/LegalLinks";
 import { Modal } from "./components/ui/Modal";
 import { NoticeFrame } from "./components/ui/NoticeFrame";
+import { useAccountSeenInThisBrowser } from "./email-recovery-prompt";
 import { appHomeUrl } from "./router";
 import { PENDING_EMAIL_CHANGE_KEY } from "./storage";
 
@@ -101,6 +102,10 @@ function changeEmailCallbackUrl(): string {
 // Controls are always visible; availability is conveyed by state, not by hiding.
 export function AuthControls() {
 	const { data, isPending } = useSession();
+	// Every page with a header sees the session here, so this is where a
+	// sign-in is recorded for the home page's offer to add an email (REQ194) —
+	// a session that starts and ends on another page still retires it.
+	useAccountSeenInThisBrowser(data?.user?.id ?? null);
 	const [dialog, setDialog] = useState<"auth" | "keys" | "account" | null>(
 		null,
 	);

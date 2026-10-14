@@ -10,6 +10,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -141,6 +143,31 @@ describe("the remembered account", () => {
 				accountSeen: accountSeenInThisBrowser(),
 			}),
 		).toBe(false);
+	});
+
+	test("is recorded wherever a page with a header sees the session", () => {
+		// No DOM in these tests, so the hook's effect cannot run here; what is held
+		// is that the header every such page mounts, and the home page itself, are
+		// the hook's call sites — a session that starts and ends on /workspaces
+		// still retires the offer.
+		const read = (path: string) =>
+			readFileSync(join(import.meta.dir, path), "utf8");
+		const authControls = read("auth.tsx").split(
+			"export function AuthControls()",
+		)[1];
+		expect(authControls?.split("\nfunction ")[0]).toContain(
+			"useAccountSeenInThisBrowser(data?.user?.id ?? null);",
+		);
+		expect(read("pages/HomePage.tsx")).toContain(
+			"useAccountSeenInThisBrowser(userId)",
+		);
+		for (const page of [
+			"pages/WorkspacesPage.tsx",
+			"pages/WorkspacePage.tsx",
+			"pages/AdminFeedbackPage.tsx",
+		]) {
+			expect(read(page)).toContain("<AuthControls");
+		}
 	});
 
 	test("reads a value this browser did not write as never signed in", () => {
