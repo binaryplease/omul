@@ -16,6 +16,7 @@ quizzes, and Q&A. Bun + Elysia server with React SPA frontend, backed by
 | [docs/deployment.md](docs/deployment.md) | Docker/GHCR packaging, deploy topology, environment-variable reference |
 | [docs/frontend.md](docs/frontend.md) | Binding UI conventions, shared primitives |
 | [docs/README.md](docs/README.md) | Source-code requirement catalog: file format, the BR→SCR split, triage CLI |
+| [docs/maintaining.md](docs/maintaining.md) | Maintainers only: the private development copy, `rc`, promotion, the publish gate |
 | [docs/Requirements.md](docs/Requirements.md) | Generated index of `docs/requirements/` — one row per REQ (never hand-edit) |
 
 ## Dev commands
@@ -90,7 +91,8 @@ What follows from that, and bites if you forget it:
 ## Branches, commits and pushes — not yours to make
 
 Isolated work happens on a **`workbatch/<random-id>`** branch. The
-`task/<slug>` namespace is **retired** — never cut a new `task/*` branch.
+`task/<slug>` namespace is **retired** — never cut a new `task/*` branch. In a
+fork the `workbatch/*` convention is optional: name branches as you like.
 
 - **Reuse before inventing.** If the repo is already on an isolation branch — a
   `workbatch/*` one, or a legacy `task/*` one — stay on it and append there. A
@@ -115,6 +117,15 @@ owned by a post-session hook rather than by the agent:
 If you are not running under such a hook — a human, or an agent invoked
 directly — there is nothing to own this for you, so the general discipline
 applies unchanged: branch, commit and push yourself.
+
+### Where work happens
+
+**Maintainers** develop in a private copy of this repository and promote
+finished work here, one workbatch at a time; read
+[docs/maintaining.md](docs/maintaining.md) before pushing anything. **In a fork
+none of it applies**: name branches as you like and open a pull request against
+`main`. The test suite and the CLA check run on that pull request, and nothing
+of the maintainers' setup runs in your fork (REQ193).
 
 ## How work is tracked here — this is not optional
 
@@ -281,8 +292,10 @@ decision, and only for naming (REQ176):
   [docs/deployment.md](docs/deployment.md#generating-a-deck-from-a-prompt-req007).
 - **This repository is published.** It went public on 2026-09-07 with release
   `v1.0.0`, under `AGPL-3.0-only OR LicenseRef-omul-Commercial`. So the rule
-  below is no longer a preparation — a paragraph that lands here is readable by
-  anyone the moment it is pushed, and cannot be recalled. Nothing that belongs
+  below is no longer a preparation. Maintainers push to a private copy first
+  ([docs/maintaining.md](docs/maintaining.md)), but every line written there is written for this
+  repository: once promoted it is readable by anyone and cannot be recalled,
+  and the gate checks only what it is told to look for. Nothing that belongs
   to the business side may land here: pricing and plan tiers, product strategy,
   competitive research, or a link into another product's documentation. The
   requirement parser refuses the last of those outright; the rest is on you.

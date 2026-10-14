@@ -145,8 +145,13 @@ function residueClassOf(token: string): ResidueClass | null {
 	return null;
 }
 
-/** Every forbidden token on the line, with its offset. */
-function forbiddenTokensOn(
+/**
+ * Every forbidden token on the line, with its offset. Exported for
+ * `scripts/publish-gate.ts`, which runs the same match over the lines a
+ * promoted range adds and over its commit messages, where this file's own
+ * scan of the working tree cannot see.
+ */
+export function forbiddenTokensOn(
 	lineText: string,
 ): { offset: number; token: string; residueClass: ResidueClass }[] {
 	const found = [];
@@ -224,30 +229,34 @@ const REMEDIES: Record<ResidueClass, string> = {
 		"Names a private sibling repository (REQ163 class 2). State the constraint by role — \"a separate private infrastructure repository\" — rather than by slug.",
 };
 
-const violations = candidateFiles()
-	.filter((file) => !EXEMPT_PATHS.has(file))
-	.flatMap((file) => {
-		const contents = readFileSync(join(REPOSITORY_ROOT, file));
-		return isBinary(contents) ? [] : scanFile(file, contents.toString("utf8"));
-	});
+// Only when run as the guard. Imported by the publish gate, this file
+// contributes its matcher and must not scan or exit on its own.
+if (import.meta.main) {
+	const violations = candidateFiles()
+		.filter((file) => !EXEMPT_PATHS.has(file))
+		.flatMap((file) => {
+			const contents = readFileSync(join(REPOSITORY_ROOT, file));
+			return isBinary(contents) ? [] : scanFile(file, contents.toString("utf8"));
+		});
 
-if (violations.length > 0) {
-	console.error(
-		`✗ ${violations.length} publication-residue violation(s) — REQ163:\n`,
-	);
-	for (const violation of violations) {
-		console.error(`  ${violation.file}:${violation.line}:${violation.column}`);
+	if (violations.length > 0) {
 		console.error(
-			`    [${violation.residueClass}] ${REMEDIES[violation.residueClass]}`,
+			`✗ ${violations.length} publication-residue violation(s) — REQ163:\n`,
 		);
-		console.error(`    > ${violation.maskedText.trim()}\n`);
+		for (const violation of violations) {
+			console.error(`  ${violation.file}:${violation.line}:${violation.column}`);
+			console.error(
+				`    [${violation.residueClass}] ${REMEDIES[violation.residueClass]}`,
+			);
+			console.error(`    > ${violation.maskedText.trim()}\n`);
+		}
+		console.error(
+			"The identifier is redacted above on purpose: a report that quotes it puts it back in front of the reader this guard exists to keep it from.",
+		);
+		process.exit(1);
 	}
-	console.error(
-		"The identifier is redacted above on purpose: a report that quotes it puts it back in front of the reader this guard exists to keep it from.",
-	);
-	process.exit(1);
-}
 
-console.log(
-	"✓ publication residue OK — no private sibling repository's name in the tracked or not-yet-committed tree",
-);
+	console.log(
+		"✓ publication residue OK — no private sibling repository's name in the tracked or not-yet-committed tree",
+	);
+}

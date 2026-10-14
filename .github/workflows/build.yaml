@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+      # The staging integration branch of the private development copy: main
+      # plus the workbatches picked for staging. Never merged anywhere.
+      - rc
       - workbatch/**
       - task/**
     tags:
@@ -17,6 +20,13 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # Every run builds the image, so a broken Dockerfile shows up anywhere; only
+  # binaryplease's own repositories — this one and the maintainers' private
+  # development copy — push it (REQ193). A fork with Actions enabled would
+  # otherwise fill its owner's registry with an image per push, and a pull
+  # request from a fork would go red: its token is read-only, so the push is
+  # refused. Drafts never push, as before.
+  PUBLISH: ${{ github.repository_owner == 'binaryplease' && (github.event_name != 'pull_request' || (!github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository)) }}
 
 jobs:
   build-and-push:
@@ -74,7 +84,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Container Registry
-        if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+        if: env.PUBLISH == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -121,7 +131,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+          push: ${{ env.PUBLISH == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
