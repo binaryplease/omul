@@ -44,7 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The Light / Dark / Auto theme switch is now a small app menu, opened from a three-dot button in the same place on every page. It holds the theme choice and, when they are configured, the links to the imprint, privacy policy and terms. The menu also appears on the shared results page, on error screens and on the presenter's blanked screen, where there was no theme switch before.
 - The storage library `@binaryplease/zodstore` is updated from 0.4.2 to 0.5.0, which brings its fixes to filtering on empty values and to how it checks a database file on open. The first start on an existing database renames the indexes that cover two fields to the library's new naming scheme. This needs no action and keeps every stored presentation, vote and question.
+- In a fork with GitHub Actions enabled, the CLA check no longer runs, and the image build no longer pushes to the fork owner's container registry. The image is still built, so a broken Dockerfile still shows up. Pull requests from a fork to this repository are still checked for the CLA.
 
 ### Fixed
 
 - Setting `OMUL_AUTH_DB=:memory:` or `OMUL_ADMIN_DB=:memory:` now gives an in-memory database, as it already did for `DATABASE_PATH`, instead of creating a file named `:memory:` in the working directory.
+- A pull request from a fork no longer fails its build check. The check used to try to push the image with the pull request's read-only token, and the registry refused it.
