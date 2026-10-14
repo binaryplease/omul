@@ -56,7 +56,7 @@
 // later change may not edit is worse than one in ordinary prose, not better.
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const REPOSITORY_ROOT = join(import.meta.dir, "..");
@@ -216,7 +216,9 @@ function candidateFiles(): string[] {
 	return listing.stdout
 		.toString()
 		.split("\0")
-		.filter((path) => path.length > 0);
+		.filter((path) => path.length > 0)
+		// The index still lists a file deleted in the working tree.
+		.filter((path) => existsSync(join(REPOSITORY_ROOT, path)));
 }
 
 /** True for a file that is not text — a NUL byte in the first block settles it. */
