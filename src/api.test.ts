@@ -1,7 +1,9 @@
 /**
- * Unit tests for the two pieces of `src/api.ts` that are more than a `fetch`:
- * the one translation of the withheld-tally marker (REQ016/REQ017), and the
- * name this browser remembers having stated on a deck (REQ076).
+ * Unit tests for the pieces of `src/api.ts` that are more than a `fetch`: the
+ * one translation of the withheld-tally marker (REQ016/REQ017), the name this
+ * browser remembers having stated on a deck (REQ076), and which edit tokens this
+ * browser forgets once the signed-in account adopts their decks (REQ194, at the
+ * end of the file).
  *
  * Deliberately narrow on both counts. The rest of the module is `fetch` against
  * endpoints the server suites already drive end to end, and re-asserting a
@@ -41,6 +43,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
 	api,
 	buildExportPayload,
+	claimLocalPresentations,
 	forgetStatedParticipantName,
 	getStatedParticipantName,
 	rememberStatedParticipantName,
@@ -251,5 +254,177 @@ describe("the exported deck file (REQ175)", () => {
 			id: "new-2",
 		});
 		expect(asked).toHaveLength(1);
+	});
+});
+
+// ── Adopting this browser's decks into the account (REQ194) ──
+
+describe("claiming this browser's decks after sign-in (REQ194)", () => {
+	const TOKEN_KEY = "omul-tokens";
+
+	/** Answer each deck's claim with the status `statusFor` names, or throw. */
+	function stubClaims(statusFor: Record<string, number | "network-error">) {
+		globalThis.fetch = (async (input: RequestInfo | URL) => {
+			const id = String(input).split("/presentations/")[1]?.split("/")[0];
+			const status = statusFor[id ?? ""];
+			if (status === undefined || status === "network-error") {
+				throw new TypeError("Failed to fetch");
+			}
+			return new Response("{}", {
+				status,
+				headers: { "Content-Type": "application/json" },
+			});
+		}) as typeof fetch;
+	}
+
+	function heldTokens(): Record<string, string> {
+		return JSON.parse(storage.get(TOKEN_KEY) ?? "{}");
+	}
+
+	beforeEach(() => {
+		storage.set(
+			TOKEN_KEY,
+			JSON.stringify({
+				adopted: "token-adopted",
+				"someone-elses": "token-someone-elses",
+				refused: "token-refused",
+				unreachable: "token-unreachable",
+			}),
+		);
+	});
+
+	test("a deck the account now owns leaves this browser's token map", async () => {
+		stubClaims({
+			adopted: 200,
+			"someone-elses": 409,
+			refused: 403,
+			unreachable: "network-error",
+		});
+		expect(await claimLocalPresentations()).toBe(1);
+		expect(heldTokens()).not.toHaveProperty("adopted");
+	});
+
+	test("a deck another account or a workspace owns keeps its token", async () => {
+		stubClaims({
+			adopted: 200,
+			"someone-elses": 409,
+			refused: 403,
+			unreachable: "network-error",
+		});
+		await claimLocalPresentations();
+		expect(heldTokens()["someone-elses"]).toBe("token-someone-elses");
+	});
+
+	test("a refused or failed claim keeps its token", async () => {
+		stubClaims({
+			adopted: 200,
+			"someone-elses": 409,
+			refused: 403,
+			unreachable: "network-error",
+		});
+		await claimLocalPresentations();
+		expect(heldTokens()).toEqual({
+			"someone-elses": "token-someone-elses",
+			refused: "token-refused",
+			unreachable: "token-unreachable",
+		});
+	});
+
+	test("a signed-out claim (401) keeps every token", async () => {
+		stubClaims({
+			adopted: 401,
+			"someone-elses": 401,
+			refused: 401,
+			unreachable: 401,
+		});
+		expect(await claimLocalPresentations()).toBe(0);
+		expect(Object.keys(heldTokens())).toHaveLength(4);
+	});
+});
+
+// ── A deck created under a session is the account's (REQ194) ─
+
+describe("keeping the edit token a create returns (REQ194)", () => {
+	const TOKEN_KEY = "omul-tokens";
+
+	/**
+	 * Answer the create (or the generation) with a fresh deck and its token, and
+	 * the claim that follows with `claimStatus` — 200 when a session owns the
+	 * deck, 401 for an anonymous create — or a network error.
+	 */
+	function stubCreate(claimStatus: number | "network-error"): string[] {
+		const asked: string[] = [];
+		globalThis.fetch = (async (input: RequestInfo | URL) => {
+			const url = String(input);
+			asked.push(url);
+			if (url.endsWith("/claim")) {
+				if (claimStatus === "network-error") {
+					throw new TypeError("Failed to fetch");
+				}
+				return new Response("{}", { status: claimStatus });
+			}
+			return new Response(
+				JSON.stringify({ id: "fresh", creatorToken: "token-fresh" }),
+				{ status: 201, headers: { "Content-Type": "application/json" } },
+			);
+		}) as typeof fetch;
+		return asked;
+	}
+
+	function heldTokens(): Record<string, string> {
+		return JSON.parse(storage.get(TOKEN_KEY) ?? "{}");
+	}
+
+	test("a signed-in create keeps no token in this browser", async () => {
+		const asked = stubCreate(200);
+		await api.createPresentation({ title: "Mine", slides: [] });
+		const claimed = asked.some((url) =>
+			url.endsWith("/presentations/fresh/claim"),
+		);
+		expect(claimed).toBe(true);
+		expect(heldTokens()).toEqual({});
+	});
+
+	test("a signed-in generation keeps no token either", async () => {
+		stubCreate(200);
+		await api.generatePresentation({ prompt: "A retro for the team" });
+		expect(heldTokens()).toEqual({});
+	});
+
+	test("an anonymous create keeps its token, its only credential", async () => {
+		stubCreate(401);
+		await api.createPresentation({ title: "Only here", slides: [] });
+		expect(heldTokens()).toEqual({ fresh: "token-fresh" });
+	});
+
+	test("an anonymous generation keeps its token", async () => {
+		stubCreate(401);
+		await api.generatePresentation({ prompt: "A retro for the team" });
+		expect(heldTokens()).toEqual({ fresh: "token-fresh" });
+	});
+
+	test("a claim that cannot be asked keeps the token", async () => {
+		stubCreate("network-error");
+		await api.createPresentation({ title: "Offline", slides: [] });
+		expect(heldTokens()).toEqual({ fresh: "token-fresh" });
+	});
+
+	test("a create that mints no token stores nothing", async () => {
+		// An API-key create and a workspace create both answer creatorToken null.
+		const asked: string[] = [];
+		globalThis.fetch = (async (input: RequestInfo | URL) => {
+			asked.push(String(input));
+			return new Response(
+				JSON.stringify({ id: "team", creatorToken: null }),
+				{ status: 201, headers: { "Content-Type": "application/json" } },
+			);
+		}) as typeof fetch;
+		await api.createPresentation({
+			title: "Team",
+			slides: [],
+			workspaceId: "w",
+		});
+		expect(asked.some((url) => url.endsWith("/claim"))).toBe(false);
+		expect(heldTokens()).toEqual({});
 	});
 });

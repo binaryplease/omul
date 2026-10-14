@@ -31,6 +31,8 @@ import {
 import { BRAND_NAME } from "./components/BrandMark";
 import { LegalNotice } from "./components/LegalLinks";
 import { Modal } from "./components/ui/Modal";
+import { NoticeFrame } from "./components/ui/NoticeFrame";
+import { useAccountSeenInThisBrowser } from "./email-recovery-prompt";
 import { appHomeUrl } from "./router";
 import { PENDING_EMAIL_CHANGE_KEY } from "./storage";
 
@@ -100,6 +102,11 @@ function changeEmailCallbackUrl(): string {
 // Controls are always visible; availability is conveyed by state, not by hiding.
 export function AuthControls() {
 	const { data, isPending } = useSession();
+	// Every page with a header sees the session here, so this is where a
+	// sign-in is recorded for the home page's offer to keep this browser's decks
+	// (REQ194) — a session that starts and ends on another page still turns it
+	// from "create an account" into "sign in".
+	useAccountSeenInThisBrowser(data?.user?.id ?? null);
 	const [dialog, setDialog] = useState<"auth" | "keys" | "account" | null>(
 		null,
 	);
@@ -169,15 +176,7 @@ export function AuthControls() {
 				>
 					<LogIn size={16} /> Sign in
 				</button>
-				{dialog === "auth" && (
-					<Modal
-						title={`Sign in to ${BRAND_NAME}`}
-						icon={UserCircle}
-						onClose={() => setDialog(null)}
-					>
-						<AuthForm onDone={() => setDialog(null)} />
-					</Modal>
-				)}
+				{dialog === "auth" && <AuthDialog onClose={() => setDialog(null)} />}
 				{landings}
 			</>
 		);
@@ -239,8 +238,38 @@ export function AuthControls() {
 
 /* ── Sign in / sign up form ───────────────────────────── */
 
-function AuthForm({ onDone }: { onDone: () => void }) {
-	const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
+type AuthFormMode = "signin" | "signup" | "forgot";
+
+// The one sign-in dialog. The header's Sign in button opens it on the sign-in
+// tab; the home page's offer to keep this browser's decks (REQ194) opens it on
+// "Create account", since that is what the offer is asking for. Either tab is
+// one click from the other.
+export function AuthDialog({
+	initialMode = "signin",
+	onClose,
+}: {
+	initialMode?: Exclude<AuthFormMode, "forgot">;
+	onClose: () => void;
+}) {
+	return (
+		<Modal
+			title={`Sign in to ${BRAND_NAME}`}
+			icon={UserCircle}
+			onClose={onClose}
+		>
+			<AuthForm initialMode={initialMode} onDone={onClose} />
+		</Modal>
+	);
+}
+
+function AuthForm({
+	initialMode,
+	onDone,
+}: {
+	initialMode: Exclude<AuthFormMode, "forgot">;
+	onDone: () => void;
+}) {
+	const [mode, setMode] = useState<AuthFormMode>(initialMode);
 	const [name, setName] = useState("");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
@@ -714,7 +743,7 @@ export function VerifyEmailBanner() {
 	};
 
 	return (
-		<div className="flex flex-col gap-3 rounded-xl border border-warning bg-surface px-4 py-3 text-left sm:flex-row sm:items-center">
+		<NoticeFrame tone="warning">
 			<Mail size={18} className="shrink-0 text-warning" />
 			<div className="flex-1 font-mono text-xs leading-relaxed text-text-muted">
 				{sent ? (
@@ -748,7 +777,7 @@ export function VerifyEmailBanner() {
 				<Send size={15} />
 				{busy ? "Sending…" : sent ? "Sent" : "Resend email"}
 			</button>
-		</div>
+		</NoticeFrame>
 	);
 }
 

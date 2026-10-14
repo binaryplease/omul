@@ -207,6 +207,7 @@ Prose outside the markers is preserved.
 | [REQ189.md](requirements/REQ189.md) | The presenter top bar shows every control and the Back link without horizontal scrolling, at every viewport width | Live Session | P1 | pending | internal |
 | [REQ192.md](requirements/REQ192.md) | Every control in the presenter top bar renders at one shared height | Live Session | P2 | pending | internal |
 | [REQ193.md](requirements/REQ193.md) | A fork runs none of the maintainers' private-copy setup | Platform & Operations | P2 | done | internal |
+| [REQ194.md](requirements/REQ194.md) | The home page offers a signed-out browser that holds presentations to add an email, so they survive cleared browser data | Accounts & Workspaces | P2 | done | internal |
 
-_189 entries — one row per file in `requirements/`._
+_190 entries — one row per file in `requirements/`._
 <!-- index:end -->
