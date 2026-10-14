@@ -107,8 +107,12 @@ run = [
   "index check docs/requirements",
 ]
 
+# The two maintainer tasks below are hidden from `mise tasks`: they serve the
+# private development copy (docs/maintaining.md), and somebody working in a
+# fork has no use for either (REQ193). `mise tasks --hidden` lists them.
 [tasks."publish:gate"]
 description = "Check a range before it is promoted to the public repository — `mise run publish:gate -- <base> <head> --terms <file>`"
+hide = true
 run = "bun scripts/publish-gate.ts"
 
 # For a maintainer's checkout of the private development copy, where `origin`
@@ -118,6 +122,7 @@ run = "bun scripts/publish-gate.ts"
 # never be.
 [tasks."sync:public-main"]
 description = "Fast-forward the private copy's main to the public main"
+hide = true
 run = [
   "git fetch public main",
   "git push origin refs/remotes/public/main:refs/heads/main",

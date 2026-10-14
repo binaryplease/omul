@@ -206,6 +206,7 @@ Prose outside the markers is preserved.
 | [REQ188.md](requirements/REQ188.md) | Presentation cards on the home page show a readable title and a legible metadata row | Rendering & Theming | P1 | done | internal |
 | [REQ189.md](requirements/REQ189.md) | The presenter top bar shows every control and the Back link without horizontal scrolling, at every viewport width | Live Session | P1 | pending | internal |
 | [REQ192.md](requirements/REQ192.md) | Every control in the presenter top bar renders at one shared height | Live Session | P2 | pending | internal |
+| [REQ193.md](requirements/REQ193.md) | A fork runs none of the maintainers' private-copy setup | Platform & Operations | P2 | done | internal |
 
-_188 entries — one row per file in `requirements/`._
+_189 entries — one row per file in `requirements/`._
 <!-- index:end -->

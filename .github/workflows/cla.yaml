@@ -202,13 +202,19 @@ jobs:
     # silent dead end CLA.md's signing instructions promise cannot happen. The
     # gate must never be stricter than the matcher it guards.
     #
-    # Public repositories only. Maintainers develop in a private copy of this
-    # tree and promote finished work here as a pull request, which is where the
-    # agreement is checked. In the private copy this job would only open a
-    # second signature branch nobody reads. The test is on visibility rather
-    # than on a repository name, so a public fork keeps the check.
+    # The canonical repository only. The agreement is a grant to the copyright
+    # holder, and it matters where code is merged into the licensed `main`, so
+    # it is checked here and nowhere else. A fork has no `cla-signatures`
+    # branch, so in a fork with Actions enabled the action would fail with a
+    # 404 on every pull request its owner opens against their own `main` —
+    # somebody developing in their fork is not to be bothered by our setup
+    # (REQ193). The maintainers' private development copy promotes its work
+    # here as a pull request, so it needs no check of its own either. A pull
+    # request from a fork *to* this repository is still checked:
+    # `pull_request_target` runs in the base repository's context, so
+    # `github.repository` names this one.
     if: >-
-      !github.event.repository.private && (
+      github.repository == 'binaryplease/omul' && (
       github.event_name == 'pull_request_target' ||
       contains(github.event.comment.body, 'recheck') ||
       contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA'))
