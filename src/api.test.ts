@@ -1,7 +1,9 @@
 /**
- * Unit tests for the two pieces of `src/api.ts` that are more than a `fetch`:
- * the one translation of the withheld-tally marker (REQ016/REQ017), and the
- * name this browser remembers having stated on a deck (REQ076).
+ * Unit tests for the pieces of `src/api.ts` that are more than a `fetch`: the
+ * one translation of the withheld-tally marker (REQ016/REQ017), the name this
+ * browser remembers having stated on a deck (REQ076), and which edit tokens this
+ * browser forgets once the signed-in account adopts their decks (REQ194, at the
+ * end of the file).
  *
  * Deliberately narrow on both counts. The rest of the module is `fetch` against
  * endpoints the server suites already drive end to end, and re-asserting a
@@ -41,6 +43,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
 	api,
 	buildExportPayload,
+	claimLocalPresentations,
 	forgetStatedParticipantName,
 	getStatedParticipantName,
 	rememberStatedParticipantName,
@@ -251,5 +254,90 @@ describe("the exported deck file (REQ175)", () => {
 			id: "new-2",
 		});
 		expect(asked).toHaveLength(1);
+	});
+});
+
+// ── Adopting this browser's decks into the account (REQ194) ──
+
+describe("claiming this browser's decks after sign-in (REQ194)", () => {
+	const TOKEN_KEY = "omul-tokens";
+
+	/** Answer each deck's claim with the status `statusFor` names, or throw. */
+	function stubClaims(statusFor: Record<string, number | "network-error">) {
+		globalThis.fetch = (async (input: RequestInfo | URL) => {
+			const id = String(input).split("/presentations/")[1]?.split("/")[0];
+			const status = statusFor[id ?? ""];
+			if (status === undefined || status === "network-error") {
+				throw new TypeError("Failed to fetch");
+			}
+			return new Response("{}", {
+				status,
+				headers: { "Content-Type": "application/json" },
+			});
+		}) as typeof fetch;
+	}
+
+	function heldTokens(): Record<string, string> {
+		return JSON.parse(storage.get(TOKEN_KEY) ?? "{}");
+	}
+
+	beforeEach(() => {
+		storage.set(
+			TOKEN_KEY,
+			JSON.stringify({
+				adopted: "token-adopted",
+				"someone-elses": "token-someone-elses",
+				refused: "token-refused",
+				unreachable: "token-unreachable",
+			}),
+		);
+	});
+
+	test("a deck the account now owns leaves this browser's token map", async () => {
+		stubClaims({
+			adopted: 200,
+			"someone-elses": 409,
+			refused: 403,
+			unreachable: "network-error",
+		});
+		expect(await claimLocalPresentations()).toBe(1);
+		expect(heldTokens()).not.toHaveProperty("adopted");
+	});
+
+	test("a deck another account or a workspace owns keeps its token", async () => {
+		stubClaims({
+			adopted: 200,
+			"someone-elses": 409,
+			refused: 403,
+			unreachable: "network-error",
+		});
+		await claimLocalPresentations();
+		expect(heldTokens()["someone-elses"]).toBe("token-someone-elses");
+	});
+
+	test("a refused or failed claim keeps its token", async () => {
+		stubClaims({
+			adopted: 200,
+			"someone-elses": 409,
+			refused: 403,
+			unreachable: "network-error",
+		});
+		await claimLocalPresentations();
+		expect(heldTokens()).toEqual({
+			"someone-elses": "token-someone-elses",
+			refused: "token-refused",
+			unreachable: "token-unreachable",
+		});
+	});
+
+	test("a signed-out claim (401) keeps every token", async () => {
+		stubClaims({
+			adopted: 401,
+			"someone-elses": 401,
+			refused: 401,
+			unreachable: 401,
+		});
+		expect(await claimLocalPresentations()).toBe(0);
+		expect(Object.keys(heldTokens())).toHaveLength(4);
 	});
 });

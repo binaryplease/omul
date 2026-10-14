@@ -127,11 +127,14 @@ export function acceptShareToken(presentationId: string, token: string): void {
 /**
  * Forget this browser's copy of a deck's edit token.
  *
- * One caller today, and it is the reason this exists rather than the map being
- * left to grow: moving a deck into a workspace (REQ128) retires the token
+ * Two callers, and they are the reason this exists rather than the map being
+ * left to grow. Moving a deck into a workspace (REQ128) retires the token
  * server-side, so a copy kept here would be a credential that authorizes nothing
  * — and, worse, one that `authHeaders` would keep attaching to every mutation on
- * a deck the caller now reaches by their membership instead.
+ * a deck the caller now reaches by their membership instead. And a deck the
+ * signed-in account adopts (`claimLocalPresentations`, REQ194) is reached through
+ * the account from then on, so a copy kept here would keep it listed, editable
+ * and deletable in this browser after a sign-out.
  */
 function forgetCreatorToken(presentationId: string): void {
 	const map = getTokenMap();
@@ -1318,9 +1321,18 @@ export async function listSharedPresentations(): Promise<any[]> {
 /**
  * Claim every locally-known presentation for the signed-in account. Best-effort
  * and idempotent: each deck is claimed with its stored edit token (proving
- * control) plus the cookie session (proving the account); decks already owned,
- * owned by someone else, or gone are silently skipped. Returns how many claim
- * calls succeeded (including no-op re-claims of decks you already own).
+ * control) plus the cookie session (proving the account); decks owned by
+ * someone else or by a workspace (409), or gone, are silently skipped. Returns
+ * how many claim calls succeeded (including no-op re-claims of decks you already
+ * own).
+ *
+ * A deck the account now owns is **adopted**: this browser forgets its edit
+ * token (REQ194), so after a sign-out the deck is neither listed here nor
+ * editable from here — it is the account's, and it comes back with the account.
+ * Only a success drops the token. A 409 deck is somebody else's that this browser
+ * reaches through an edit link — collaboration, not adoption — and a refused or
+ * failed request proves nothing, so both keep their token. The token itself stays
+ * valid server-side, so an edit link already handed out keeps working.
  */
 export async function claimLocalPresentations(): Promise<number> {
 	const ids = Object.keys(getTokenMap());
@@ -1328,11 +1340,18 @@ export async function claimLocalPresentations(): Promise<number> {
 	const outcomes = await Promise.all(
 		ids.map(async (id) => {
 			try {
-				const res = await fetch(`${BASE}/api/presentations/${id}/claim`, {
-					method: "POST",
-					headers: { "Content-Type": "application/json", ...authHeaders(id) },
-				});
-				return res.ok;
+				const response = await fetch(
+					`${BASE}/api/presentations/${id}/claim`,
+					{
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							...authHeaders(id),
+						},
+					},
+				);
+				if (response.ok) forgetCreatorToken(id);
+				return response.ok;
 			} catch {
 				return false;
 			}
