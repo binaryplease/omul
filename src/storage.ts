@@ -38,6 +38,13 @@ export const FEEDBACK_PROMPT_ASKED_AT_KEY = "omul-feedback-prompt-asked-at";
 export const EMAIL_RECOVERY_PROMPT_DISMISSED_KEY =
 	"omul-email-recovery-prompt-dismissed";
 
+/**
+ * Whether this browser has been signed in to an account, so the offer above is
+ * never made to it again (REQ194).
+ */
+export const EMAIL_RECOVERY_ACCOUNT_SEEN_KEY =
+	"omul-email-recovery-account-seen";
+
 /** The light/dark/auto preference (`src/components/ui/Theme.tsx`). */
 export const THEME_KEY = "omul-theme";
 

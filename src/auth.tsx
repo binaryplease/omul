@@ -31,6 +31,7 @@ import {
 import { BRAND_NAME } from "./components/BrandMark";
 import { LegalNotice } from "./components/LegalLinks";
 import { Modal } from "./components/ui/Modal";
+import { NoticeFrame } from "./components/ui/NoticeFrame";
 import { appHomeUrl } from "./router";
 import { PENDING_EMAIL_CHANGE_KEY } from "./storage";
 
@@ -736,7 +737,7 @@ export function VerifyEmailBanner() {
 	};
 
 	return (
-		<div className="flex flex-col gap-3 rounded-xl border border-warning bg-surface px-4 py-3 text-left sm:flex-row sm:items-center">
+		<NoticeFrame tone="warning">
 			<Mail size={18} className="shrink-0 text-warning" />
 			<div className="flex-1 font-mono text-xs leading-relaxed text-text-muted">
 				{sent ? (
@@ -770,7 +771,7 @@ export function VerifyEmailBanner() {
 				<Send size={15} />
 				{busy ? "Sending…" : sent ? "Sent" : "Resend email"}
 			</button>
-		</div>
+		</NoticeFrame>
 	);
 }
 

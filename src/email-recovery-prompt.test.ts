@@ -3,8 +3,9 @@
  * shown, how its close is remembered, and what it draws.
  *
  * What they are protecting: the notice appears for a browser that holds decks
- * and no account, disappears once that browser signs in, and stays closed once
- * closed — an offer, never a gate. `localStorage` is a stub, as in
+ * and no account, disappears once that browser signs in — and stays gone after
+ * a sign-out, when the claimed decks are still listed but its words would be
+ * false — and stays closed once closed: an offer, never a gate. `localStorage` is a stub, as in
  * `src/feedback-prompt.test.ts`.
  */
 
@@ -16,13 +17,19 @@ import {
 	EmailRecoveryPrompt,
 	emailRecoveryPromptLabelsFor,
 } from "./components/EmailRecoveryPrompt";
+import { NoticeFrame } from "./components/ui/NoticeFrame";
 import {
+	accountSeenInThisBrowser,
 	dismissEmailRecoveryPrompt,
 	emailRecoveryPromptDismissed,
+	rememberAccountInThisBrowser,
 	shouldOfferEmailRecovery,
 } from "./email-recovery-prompt";
 import { getDict } from "./i18n";
-import { EMAIL_RECOVERY_PROMPT_DISMISSED_KEY } from "./storage";
+import {
+	EMAIL_RECOVERY_ACCOUNT_SEEN_KEY,
+	EMAIL_RECOVERY_PROMPT_DISMISSED_KEY,
+} from "./storage";
 
 /** The smallest thing that behaves like `localStorage` for these reads. */
 function installStorageStub(): Map<string, string> {
@@ -54,10 +61,15 @@ afterEach(() => {
 	(globalThis as { localStorage?: unknown }).localStorage = previousStorage;
 });
 
-/** A signed-out browser holding one deck that never closed the notice. */
+/**
+ * A browser that was never signed in, holding one deck, that never closed the
+ * notice, with the session and the list both loaded.
+ */
 const OFFERED = {
 	sessionPending: false,
+	listLoading: false,
 	signedIn: false,
+	accountSeen: false,
 	localDeckCount: 1,
 	dismissed: false,
 };
@@ -93,6 +105,48 @@ describe("shouldOfferEmailRecovery", () => {
 			false,
 		);
 	});
+
+	test("waits for the list, so a count still loading offers nothing", () => {
+		expect(shouldOfferEmailRecovery({ ...OFFERED, listLoading: true })).toBe(
+			false,
+		);
+	});
+
+	test("stays gone after signing out of an account this browser held", () => {
+		// Sign-out keeps the edit tokens, so the claimed decks are still listed —
+		// but "saved only in this browser" and "Create account" would both be false.
+		expect(
+			shouldOfferEmailRecovery({
+				...OFFERED,
+				signedIn: false,
+				accountSeen: true,
+				localDeckCount: 2,
+			}),
+		).toBe(false);
+	});
+});
+
+describe("the remembered account", () => {
+	test("is not remembered in a fresh browser", () => {
+		expect(accountSeenInThisBrowser()).toBe(false);
+	});
+
+	test("outlives the session it was seen in", () => {
+		rememberAccountInThisBrowser();
+		expect(storage.get(EMAIL_RECOVERY_ACCOUNT_SEEN_KEY)).toBe("true");
+		// A later visit, signed out, reads it back and is not offered the notice.
+		expect(
+			shouldOfferEmailRecovery({
+				...OFFERED,
+				accountSeen: accountSeenInThisBrowser(),
+			}),
+		).toBe(false);
+	});
+
+	test("reads a value this browser did not write as never signed in", () => {
+		storage.set(EMAIL_RECOVERY_ACCOUNT_SEEN_KEY, "1");
+		expect(accountSeenInThisBrowser()).toBe(false);
+	});
 });
 
 describe("the remembered close", () => {
@@ -122,6 +176,32 @@ describe("the remembered close", () => {
 		};
 		expect(emailRecoveryPromptDismissed()).toBe(false);
 		expect(() => dismissEmailRecoveryPrompt()).not.toThrow();
+		expect(accountSeenInThisBrowser()).toBe(false);
+		expect(() => rememberAccountInThisBrowser()).not.toThrow();
+	});
+});
+
+describe("NoticeFrame", () => {
+	test("draws the verify-email banner's frame unchanged in the warning tone", () => {
+		expect(
+			renderToStaticMarkup(
+				createElement(NoticeFrame, { tone: "warning", children: "x" }),
+			),
+		).toBe(
+			'<div class="flex flex-col gap-3 rounded-xl border border-warning bg-surface px-4 py-3 text-left sm:flex-row sm:items-center">x</div>',
+		);
+	});
+
+	test("differs from it only in the border in the neutral tone", () => {
+		const markup = renderToStaticMarkup(
+			createElement(EmailRecoveryPrompt, {
+				onAddEmail: () => {},
+				onDismiss: () => {},
+			}),
+		);
+		expect(markup).toStartWith(
+			'<div role="note" class="flex flex-col gap-3 rounded-xl border border-border bg-surface px-4 py-3 text-left sm:flex-row sm:items-center">',
+		);
 	});
 });
 

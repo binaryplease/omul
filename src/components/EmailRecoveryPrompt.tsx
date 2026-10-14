@@ -1,8 +1,8 @@
 // ── The offer to add an email (REQ194) ─────────────────────────
 //
 // The notice the home page shows above "Your Presentations" while this browser
-// holds decks without an account: they live only in its storage, and an account
-// keeps them. Whether it is shown is `shouldOfferEmailRecovery()` in
+// holds decks and has never been signed in: they live only in its storage, and
+// an account keeps them. Whether it is shown is `shouldOfferEmailRecovery()` in
 // `src/email-recovery-prompt.ts`; this module only draws it. It sits at the top
 // of the list it is about, not in the page's chrome, and it never stands between
 // the visitor and anything — the close control is always there.
@@ -10,6 +10,7 @@
 import { MailPlus, X } from "lucide-react";
 import { type Dict, getDict } from "../i18n";
 import { ICON_BUTTON_HOVER } from "./ShareCluster";
+import { NoticeFrame } from "./ui/NoticeFrame";
 
 export type EmailRecoveryPromptLabels = {
 	text: string;
@@ -42,10 +43,7 @@ export function EmailRecoveryPrompt({
 	onDismiss: () => void;
 }) {
 	return (
-		<div
-			role="note"
-			className="flex flex-col gap-3 rounded-xl border border-border bg-surface px-4 py-3 text-left sm:flex-row sm:items-center"
-		>
+		<NoticeFrame tone="neutral" role="note">
 			<MailPlus size={18} className="shrink-0 text-accent-text" />
 			<p className="flex-1 font-mono text-xs leading-relaxed text-text-muted">
 				{labels.text}
@@ -69,6 +67,6 @@ export function EmailRecoveryPrompt({
 					<X size={16} />
 				</button>
 			</div>
-		</div>
+		</NoticeFrame>
 	);
 }

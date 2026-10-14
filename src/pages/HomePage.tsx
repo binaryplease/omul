@@ -35,8 +35,10 @@ import { StatusBadge } from "../components/ui/StatusBadge";
 import { useToast } from "../components/ui/Toast";
 import { saveBlobAs } from "../download";
 import {
+	accountSeenInThisBrowser,
 	dismissEmailRecoveryPrompt,
 	emailRecoveryPromptDismissed,
+	rememberAccountInThisBrowser,
 	shouldOfferEmailRecovery,
 } from "../email-recovery-prompt";
 import type { Route } from "../router";
@@ -77,23 +79,30 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 	const { data: session, isPending: sessionPending } = useSession();
 	const userId = session?.user?.id ?? null;
 	/**
-	 * Whether this browser closed the offer to add an email (REQ194), and
-	 * whether the sign-in dialog that offer opens is up.
+	 * Whether this browser closed the offer to add an email (REQ194), whether it
+	 * has ever been signed in (which retires the offer for good), and whether the
+	 * sign-in dialog that offer opens is up.
 	 */
 	const [recoveryPromptDismissed, setRecoveryPromptDismissed] = useState(
 		emailRecoveryPromptDismissed,
 	);
+	const [accountSeen, setAccountSeen] = useState(accountSeenInThisBrowser);
 	const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false);
+	useEffect(() => {
+		if (!userId) return;
+		rememberAccountInThisBrowser();
+		setAccountSeen(true);
+	}, [userId]);
 	// Signed out, every listed deck is one this browser holds a token for, so
 	// the list's length is what an emptied browser would lose.
-	const offerEmailRecovery =
-		!loading &&
-		shouldOfferEmailRecovery({
-			sessionPending,
-			signedIn: userId !== null,
-			localDeckCount: presentations.length,
-			dismissed: recoveryPromptDismissed,
-		});
+	const offerEmailRecovery = shouldOfferEmailRecovery({
+		sessionPending,
+		listLoading: loading,
+		signedIn: userId !== null,
+		accountSeen,
+		localDeckCount: presentations.length,
+		dismissed: recoveryPromptDismissed,
+	});
 
 	usePageTitle("");
 
