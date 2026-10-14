@@ -169,15 +169,7 @@ export function AuthControls() {
 				>
 					<LogIn size={16} /> Sign in
 				</button>
-				{dialog === "auth" && (
-					<Modal
-						title={`Sign in to ${BRAND_NAME}`}
-						icon={UserCircle}
-						onClose={() => setDialog(null)}
-					>
-						<AuthForm onDone={() => setDialog(null)} />
-					</Modal>
-				)}
+				{dialog === "auth" && <AuthDialog onClose={() => setDialog(null)} />}
 				{landings}
 			</>
 		);
@@ -239,8 +231,38 @@ export function AuthControls() {
 
 /* ── Sign in / sign up form ───────────────────────────── */
 
-function AuthForm({ onDone }: { onDone: () => void }) {
-	const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
+type AuthFormMode = "signin" | "signup" | "forgot";
+
+// The one sign-in dialog. The header's Sign in button opens it on the sign-in
+// tab; the home page's offer to keep this browser's decks (REQ194) opens it on
+// "Create account", since that is what the offer is asking for. Either tab is
+// one click from the other.
+export function AuthDialog({
+	initialMode = "signin",
+	onClose,
+}: {
+	initialMode?: Exclude<AuthFormMode, "forgot">;
+	onClose: () => void;
+}) {
+	return (
+		<Modal
+			title={`Sign in to ${BRAND_NAME}`}
+			icon={UserCircle}
+			onClose={onClose}
+		>
+			<AuthForm initialMode={initialMode} onDone={onClose} />
+		</Modal>
+	);
+}
+
+function AuthForm({
+	initialMode,
+	onDone,
+}: {
+	initialMode: Exclude<AuthFormMode, "forgot">;
+	onDone: () => void;
+}) {
+	const [mode, setMode] = useState<AuthFormMode>(initialMode);
 	const [name, setName] = useState("");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");

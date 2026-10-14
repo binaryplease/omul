@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Only a device that was in the room before the deck ended can be asked. It sees a card on the ended screen, in omul's own look and the deck's language, and can answer or dismiss it.
   - Answers are anonymous: only the rating, comment, language and day are stored, never an account, participant or deck. They are sent to `POST /api/feedback/participant`, which allows 300 answers per 10 minutes per client so a whole room behind one network can answer.
 
+- The home page tells a presenter who is not signed in that their presentations are stored only in this browser and are lost if its data is cleared. "Add email" opens the sign-in dialog on "Create account"; signing up or signing in attaches the presentations to the account and removes the notice. The notice can be closed, and the browser remembers that. It is not shown to a signed-in user or to a browser that holds no presentation.
+
 ### Changed
 
 - The Light / Dark / Auto theme switch is now a small app menu, opened from a three-dot button in the same place on every page. It holds the theme choice and, when they are configured, the links to the imprint, privacy policy and terms. The menu also appears on the shared results page, on error screens and on the presenter's blanked screen, where there was no theme switch before.

@@ -263,6 +263,15 @@ export type Dict = {
 	feedbackClose: string;
 	feedbackNotSent: string;
 	feedbackNotSentRetry: string;
+	/**
+	 * The home page's offer to add an email address (REQ194), shown to a
+	 * browser that holds decks without an account. `emailRecoveryDismiss` names
+	 * the notice's close control, which has no text of its own — and the close is
+	 * remembered, so it says "hide", never "not now".
+	 */
+	emailRecoveryText: string;
+	emailRecoveryAction: string;
+	emailRecoveryDismiss: string;
 };
 
 const en: Dict = {
@@ -394,6 +403,10 @@ const en: Dict = {
 	feedbackClose: "Close",
 	feedbackNotSent: "Not sent",
 	feedbackNotSentRetry: "Not sent. Please try again.",
+	emailRecoveryText:
+		"Your presentations are saved only in this browser. If its data is cleared, they are gone for good. Add your email to keep them in an account.",
+	emailRecoveryAction: "Add email",
+	emailRecoveryDismiss: "Hide this notice",
 };
 
 const de: Dict = {
@@ -527,6 +540,10 @@ const de: Dict = {
 	feedbackClose: "Schließen",
 	feedbackNotSent: "Nicht gesendet",
 	feedbackNotSentRetry: "Nicht gesendet. Bitte versuch es noch einmal.",
+	emailRecoveryText:
+		"Deine Präsentationen sind nur in diesem Browser gespeichert. Werden seine Daten gelöscht, sind sie unwiederbringlich verloren. Hinterlege deine E-Mail-Adresse, um sie in einem Konto zu behalten.",
+	emailRecoveryAction: "E-Mail hinterlegen",
+	emailRecoveryDismiss: "Hinweis ausblenden",
 };
 
 const fr: Dict = {
@@ -661,6 +678,10 @@ const fr: Dict = {
 	feedbackClose: "Fermer",
 	feedbackNotSent: "Non envoyé",
 	feedbackNotSentRetry: "Non envoyé. Veuillez réessayer.",
+	emailRecoveryText:
+		"Vos présentations sont enregistrées uniquement dans ce navigateur. Si ses données sont effacées, elles sont perdues définitivement. Ajoutez votre adresse e-mail pour les conserver dans un compte.",
+	emailRecoveryAction: "Ajouter un e-mail",
+	emailRecoveryDismiss: "Masquer ce message",
 };
 
 const es: Dict = {
@@ -795,6 +816,10 @@ const es: Dict = {
 	feedbackClose: "Cerrar",
 	feedbackNotSent: "No enviado",
 	feedbackNotSentRetry: "No enviado. Inténtalo de nuevo.",
+	emailRecoveryText:
+		"Tus presentaciones solo se guardan en este navegador. Si se borran sus datos, se pierden para siempre. Añade tu correo electrónico para conservarlas en una cuenta.",
+	emailRecoveryAction: "Añadir correo",
+	emailRecoveryDismiss: "Ocultar este aviso",
 };
 
 const it: Dict = {
@@ -928,6 +953,10 @@ const it: Dict = {
 	feedbackClose: "Chiudi",
 	feedbackNotSent: "Non inviato",
 	feedbackNotSentRetry: "Non inviato. Riprova.",
+	emailRecoveryText:
+		"Le tue presentazioni sono salvate solo in questo browser. Se i suoi dati vengono cancellati, sono perse per sempre. Aggiungi la tua email per conservarle in un account.",
+	emailRecoveryAction: "Aggiungi email",
+	emailRecoveryDismiss: "Nascondi questo avviso",
 };
 
 const pt: Dict = {
@@ -1061,6 +1090,10 @@ const pt: Dict = {
 	feedbackClose: "Fechar",
 	feedbackNotSent: "Não enviado",
 	feedbackNotSentRetry: "Não enviado. Tenta novamente.",
+	emailRecoveryText:
+		"As tuas apresentações estão guardadas apenas neste navegador. Se os dados dele forem apagados, perdem-se para sempre. Adiciona o teu email para as guardar numa conta.",
+	emailRecoveryAction: "Adicionar email",
+	emailRecoveryDismiss: "Ocultar este aviso",
 };
 
 const nl: Dict = {
@@ -1193,6 +1226,10 @@ const nl: Dict = {
 	feedbackClose: "Sluiten",
 	feedbackNotSent: "Niet verstuurd",
 	feedbackNotSentRetry: "Niet verstuurd. Probeer het opnieuw.",
+	emailRecoveryText:
+		"Je presentaties zijn alleen in deze browser opgeslagen. Als de gegevens ervan worden gewist, ben je ze voorgoed kwijt. Voeg je e-mailadres toe om ze in een account te bewaren.",
+	emailRecoveryAction: "E-mail toevoegen",
+	emailRecoveryDismiss: "Melding verbergen",
 };
 
 const dicts: Record<Lang, Dict> = { en, de, fr, es, it, pt, nl };

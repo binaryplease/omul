@@ -31,6 +31,13 @@ export const FEEDBACK_PROMPT_IN_ROOM_KEY = "omul-feedback-prompt-in-room";
 /** When this browser was last asked the post-session question (REQ186). */
 export const FEEDBACK_PROMPT_ASKED_AT_KEY = "omul-feedback-prompt-asked-at";
 
+/**
+ * Whether this browser closed the home page's offer to add an email (REQ194,
+ * `src/email-recovery-prompt.ts`).
+ */
+export const EMAIL_RECOVERY_PROMPT_DISMISSED_KEY =
+	"omul-email-recovery-prompt-dismissed";
+
 /** The light/dark/auto preference (`src/components/ui/Theme.tsx`). */
 export const THEME_KEY = "omul-theme";
 

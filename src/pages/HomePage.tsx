@@ -17,7 +17,7 @@ import {
 	listMyPresentations,
 	listSharedPresentations,
 } from "../api";
-import { AuthControls, VerifyEmailBanner } from "../auth";
+import { AuthControls, AuthDialog, VerifyEmailBanner } from "../auth";
 import { useSession } from "../auth-client";
 import { BrandMark } from "../components/BrandMark";
 import {
@@ -25,6 +25,7 @@ import {
 	deckAccessLevelLabel,
 } from "../components/CollaboratorsDialog";
 import { REMOVE_BUTTON_HOVER } from "../components/EditorControls";
+import { EmailRecoveryPrompt } from "../components/EmailRecoveryPrompt";
 import { MoveToWorkspaceDialog } from "../components/MoveToWorkspaceDialog";
 import { ICON_BUTTON_HOVER } from "../components/ShareCluster";
 import { AppMenu } from "../components/ui/AppMenu";
@@ -33,6 +34,11 @@ import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { useToast } from "../components/ui/Toast";
 import { saveBlobAs } from "../download";
+import {
+	dismissEmailRecoveryPrompt,
+	emailRecoveryPromptDismissed,
+	shouldOfferEmailRecovery,
+} from "../email-recovery-prompt";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 import { deckFilenameSlug, type Presentation } from "../types";
@@ -68,8 +74,26 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 	const { addToast } = useToast();
 	// The signed-in account (if any). Its id drives the load below, so signing in
 	// or out re-resolves the visible presentations.
-	const { data: session } = useSession();
+	const { data: session, isPending: sessionPending } = useSession();
 	const userId = session?.user?.id ?? null;
+	/**
+	 * Whether this browser closed the offer to add an email (REQ194), and
+	 * whether the sign-in dialog that offer opens is up.
+	 */
+	const [recoveryPromptDismissed, setRecoveryPromptDismissed] = useState(
+		emailRecoveryPromptDismissed,
+	);
+	const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false);
+	// Signed out, every listed deck is one this browser holds a token for, so
+	// the list's length is what an emptied browser would lose.
+	const offerEmailRecovery =
+		!loading &&
+		shouldOfferEmailRecovery({
+			sessionPending,
+			signedIn: userId !== null,
+			localDeckCount: presentations.length,
+			dismissed: recoveryPromptDismissed,
+		});
 
 	usePageTitle("");
 
@@ -278,6 +302,19 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 					<h2 className="text-xl font-semibold mb-6 text-text-muted">
 						Your Presentations
 					</h2>
+					{/* The offer to keep these decks with an account (REQ194), on the
+					    list it is about. Signing in claims them (the effect above). */}
+					{offerEmailRecovery && (
+						<div className="mb-6 max-w-3xl">
+							<EmailRecoveryPrompt
+								onAddEmail={() => setRecoveryDialogOpen(true)}
+								onDismiss={() => {
+									dismissEmailRecoveryPrompt();
+									setRecoveryPromptDismissed(true);
+								}}
+							/>
+						</div>
+					)}
 					{loading ? (
 						<LoadingState />
 					) : presentations.length === 0 ? (
@@ -401,6 +438,13 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 						go({ page: "workspace", id: workspace.id });
 					}}
 					onNotify={addToast}
+				/>
+			)}
+
+			{recoveryDialogOpen && (
+				<AuthDialog
+					initialMode="signup"
+					onClose={() => setRecoveryDialogOpen(false)}
 				/>
 			)}
 
