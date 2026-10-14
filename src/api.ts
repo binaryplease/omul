@@ -347,7 +347,9 @@ export const api = {
 
 	/**
 	 * Create a new presentation. The server returns a one-time `creatorToken` in
-	 * the response which is stored in localStorage for future mutations.
+	 * the response, which is stored in localStorage for future mutations — unless
+	 * the signed-in account owns the deck, which it then reaches through the
+	 * session instead (`holdCreatorTokenUnlessOwned`, REQ194).
 	 *
 	 * `templateId` starts the deck from a catalog entry (REQ005/REQ006), in which
 	 * case `title` and `slides` may both be left out — the copies come from the
@@ -368,9 +370,10 @@ export const api = {
 		/**
 		 * The workspace that will own the deck (REQ128). The server records no
 		 * account owner for one of these and mints no edit token, so there is
-		 * nothing for `setCreatorToken` below to store — which is exactly right: a
-		 * workspace deck's standing is its roster, and this browser holding a
-		 * forwardable capability on it would be a standing the roster cannot reach.
+		 * nothing for `holdCreatorTokenUnlessOwned` below to store — which is
+		 * exactly right: a workspace deck's standing is its roster, and this
+		 * browser holding a forwardable capability on it would be a standing the
+		 * roster cannot reach.
 		 */
 		workspaceId?: string;
 		language?: string;
@@ -391,7 +394,7 @@ export const api = {
 			body: JSON.stringify(data),
 		});
 		if (pres.creatorToken) {
-			setCreatorToken(pres.id, pres.creatorToken);
+			await holdCreatorTokenUnlessOwned(pres.id, pres.creatorToken);
 		}
 		return pres;
 	},
@@ -458,7 +461,7 @@ export const api = {
 	/**
 	 * Draft a deck from a prompt (REQ007). Answers with an ordinary presentation
 	 * — the same shape, and the same one-time `creatorToken`, that
-	 * `createPresentation` returns — so it is stored here the same way and the
+	 * `createPresentation` returns — so it is kept here on the same terms and the
 	 * deck is editable from the moment it lands.
 	 *
 	 * The slides come back **unmarked**: nothing generated asserts a correct
@@ -474,7 +477,7 @@ export const api = {
 			body: JSON.stringify(data),
 		});
 		if (pres.creatorToken) {
-			setCreatorToken(pres.id, pres.creatorToken);
+			await holdCreatorTokenUnlessOwned(pres.id, pres.creatorToken);
 		}
 		return pres;
 	},
@@ -1335,29 +1338,64 @@ export async function listSharedPresentations(): Promise<any[]> {
  * valid server-side, so an edit link already handed out keeps working.
  */
 export async function claimLocalPresentations(): Promise<number> {
-	const ids = Object.keys(getTokenMap());
+	const tokens = getTokenMap();
+	const ids = Object.keys(tokens);
 	if (ids.length === 0) return 0;
 	const outcomes = await Promise.all(
 		ids.map(async (id) => {
-			try {
-				const response = await fetch(
-					`${BASE}/api/presentations/${id}/claim`,
-					{
-						method: "POST",
-						headers: {
-							"Content-Type": "application/json",
-							...authHeaders(id),
-						},
-					},
-				);
-				if (response.ok) forgetCreatorToken(id);
-				return response.ok;
-			} catch {
-				return false;
-			}
+			const owned = await claimForAccount(id, tokens[id] as string);
+			if (owned) forgetCreatorToken(id);
+			return owned;
 		}),
 	);
 	return outcomes.filter(Boolean).length;
+}
+
+/**
+ * Whether the signed-in account owns `presentationId` once this returns — the
+ * claim (`POST /presentations/:id/claim`) proven by `token`, answered 200 both
+ * for a deck it just adopted and for one that was already its own. A 401 (nobody
+ * signed in), a 409 (another account's or a workspace's deck), any other refusal
+ * and a failed request all answer `false`. It is the client's only way to learn
+ * that the account owns a deck: the server never sends `creatorId`, and a deck
+ * read reports `edit` for the owner and the token holder alike.
+ */
+async function claimForAccount(
+	presentationId: string,
+	token: string,
+): Promise<boolean> {
+	try {
+		const response = await fetch(
+			`${BASE}/api/presentations/${presentationId}/claim`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+			},
+		);
+		return response.ok;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Keep a freshly minted edit token (REQ194) — unless the signed-in account
+ * already owns the deck, as it does every deck created under a session. Such a
+ * deck is reached through the account, exactly like one adopted after the fact
+ * (`claimLocalPresentations()` above), so this browser keeps no copy: a token
+ * here would list the deck on a signed-out home page as "saved only in this
+ * browser" once the session is gone. An anonymous create is answered 401 and
+ * keeps its token, which is then the deck's only credential.
+ */
+async function holdCreatorTokenUnlessOwned(
+	presentationId: string,
+	token: string,
+): Promise<void> {
+	if (await claimForAccount(presentationId, token)) return;
+	setCreatorToken(presentationId, token);
 }
 
 /**

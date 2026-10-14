@@ -6,9 +6,13 @@
  * every such deck is gone for good — the server keeps only the token's hash.
  * An account is the way out, and it already exists: signing in adopts every
  * deck this browser holds (`claimLocalPresentations()` in `src/api.ts`), which
- * also drops the local token, so a deck the account owns is not listed here
- * once signed out. What a signed-out home page lists is therefore exactly what
- * is held only by this browser. `emailRecoveryOfferFor()` is the one place the
+ * also drops the local token, and a deck created while signed in never gets
+ * one (`holdCreatorTokenUnlessOwned()`, same module) — so a deck the account
+ * owns is not listed here once signed out. What a signed-out home page lists is
+ * therefore what is held by this browser alone; the edges are REQ194's Known
+ * limits (an edit link to a deck the account owns, opened while signed in and
+ * left before the home page re-claims it, and tokens stored before this rule
+ * existed). `emailRecoveryOfferFor()` is the one place the
  * conditions are combined, and it answers with the offer to make — `"signup"`
  * or `"signin"`, the tab the sign-in dialog opens on — or `null` for none:
  *

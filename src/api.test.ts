@@ -341,3 +341,90 @@ describe("claiming this browser's decks after sign-in (REQ194)", () => {
 		expect(Object.keys(heldTokens())).toHaveLength(4);
 	});
 });
+
+// ── A deck created under a session is the account's (REQ194) ─
+
+describe("keeping the edit token a create returns (REQ194)", () => {
+	const TOKEN_KEY = "omul-tokens";
+
+	/**
+	 * Answer the create (or the generation) with a fresh deck and its token, and
+	 * the claim that follows with `claimStatus` — 200 when a session owns the
+	 * deck, 401 for an anonymous create — or a network error.
+	 */
+	function stubCreate(claimStatus: number | "network-error"): string[] {
+		const asked: string[] = [];
+		globalThis.fetch = (async (input: RequestInfo | URL) => {
+			const url = String(input);
+			asked.push(url);
+			if (url.endsWith("/claim")) {
+				if (claimStatus === "network-error") {
+					throw new TypeError("Failed to fetch");
+				}
+				return new Response("{}", { status: claimStatus });
+			}
+			return new Response(
+				JSON.stringify({ id: "fresh", creatorToken: "token-fresh" }),
+				{ status: 201, headers: { "Content-Type": "application/json" } },
+			);
+		}) as typeof fetch;
+		return asked;
+	}
+
+	function heldTokens(): Record<string, string> {
+		return JSON.parse(storage.get(TOKEN_KEY) ?? "{}");
+	}
+
+	test("a signed-in create keeps no token in this browser", async () => {
+		const asked = stubCreate(200);
+		await api.createPresentation({ title: "Mine", slides: [] });
+		const claimed = asked.some((url) =>
+			url.endsWith("/presentations/fresh/claim"),
+		);
+		expect(claimed).toBe(true);
+		expect(heldTokens()).toEqual({});
+	});
+
+	test("a signed-in generation keeps no token either", async () => {
+		stubCreate(200);
+		await api.generatePresentation({ prompt: "A retro for the team" });
+		expect(heldTokens()).toEqual({});
+	});
+
+	test("an anonymous create keeps its token, its only credential", async () => {
+		stubCreate(401);
+		await api.createPresentation({ title: "Only here", slides: [] });
+		expect(heldTokens()).toEqual({ fresh: "token-fresh" });
+	});
+
+	test("an anonymous generation keeps its token", async () => {
+		stubCreate(401);
+		await api.generatePresentation({ prompt: "A retro for the team" });
+		expect(heldTokens()).toEqual({ fresh: "token-fresh" });
+	});
+
+	test("a claim that cannot be asked keeps the token", async () => {
+		stubCreate("network-error");
+		await api.createPresentation({ title: "Offline", slides: [] });
+		expect(heldTokens()).toEqual({ fresh: "token-fresh" });
+	});
+
+	test("a create that mints no token stores nothing", async () => {
+		// An API-key create and a workspace create both answer creatorToken null.
+		const asked: string[] = [];
+		globalThis.fetch = (async (input: RequestInfo | URL) => {
+			asked.push(String(input));
+			return new Response(
+				JSON.stringify({ id: "team", creatorToken: null }),
+				{ status: 201, headers: { "Content-Type": "application/json" } },
+			);
+		}) as typeof fetch;
+		await api.createPresentation({
+			title: "Team",
+			slides: [],
+			workspaceId: "w",
+		});
+		expect(asked.some((url) => url.endsWith("/claim"))).toBe(false);
+		expect(heldTokens()).toEqual({});
+	});
+});
