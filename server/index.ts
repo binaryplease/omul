@@ -10,6 +10,7 @@ import {
 	feedbackStartupReport,
 	feedbackStore,
 } from "./feedback-store";
+import { keptQueryParamsStartupReport } from "./kept-query-params";
 import { legalLinksStartupReport } from "./legal-links";
 import { adminFeedbackRoutes, adminRoutes } from "./routes/admin";
 import { deckGenerationRoutes } from "./routes/deck-generation";
@@ -30,6 +31,9 @@ const isDev = process.env.NODE_ENV !== "production";
 // malformed one stops the boot instead of answering the first page load with a
 // 500. Printed with the other reports once the server is listening.
 const legalLinksReport = legalLinksStartupReport();
+// The kept query parameters (REQ203) for the same reason: every page load
+// writes them into index.html, so a malformed list stops the boot here.
+const keptQueryParamsReport = keptQueryParamsStartupReport();
 
 // Open the document store before starting the server.
 await connectDb();
@@ -264,6 +268,10 @@ for (const line of adminAllowlistStartupReport()) console.log(line);
 // Which legal texts this deployment links (REQ183). An unset one is simply not
 // drawn, which from outside looks the same as a page that forgot it.
 for (const line of legalLinksReport) console.log(line);
+
+// Which query parameters the address bar keeps (REQ203). An empty list drops
+// every one on the first navigation, which from outside looks like a defect.
+for (const line of keptQueryParamsReport) console.log(line);
 
 // Whether this deployment collects feedback (REQ185, REQ186), on which channel,
 // and whether anybody can read it: on with no administrator stores answers

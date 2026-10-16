@@ -26,6 +26,10 @@
 import { Elysia } from "elysia";
 import { extname, join, resolve, sep } from "path";
 import { APP_ASSET_BASE, assetSubpath, isAppPagePath } from "../app-paths";
+import {
+	injectKeptQueryParams,
+	resolveKeptQueryParams,
+} from "../kept-query-params";
 
 // In the bundled server (dist/server/index.js), import.meta.dir points to
 // dist/server/. We need dist/client/ which is a sibling directory.
@@ -57,12 +61,35 @@ const MIME_TYPES: Record<string, string> = {
 	".txt": "text/plain; charset=utf-8",
 };
 
-/** The two things {@link serveStatic} takes beyond the path itself. */
+/** The three things {@link serveStatic} takes beyond the path itself. */
 interface ServeStaticOptions {
 	/** The request's query string, leading `?` included. */
 	search?: string;
 	/** The built client directory; the tests point it at a fixture. */
 	staticDir?: string;
+	/**
+	 * The query parameters the page keeps across navigation (REQ203); read from
+	 * the environment when absent, and given by the tests.
+	 */
+	keptQueryParams?: readonly string[];
+}
+
+/**
+ * The app's page: the built `index.html`, with this deployment's kept query
+ * parameters written into it (REQ203, `server/kept-query-params.ts`).
+ *
+ * Read as text and rewritten on every request rather than once at boot — it is
+ * one small file, and it keeps the page and the environment from disagreeing.
+ */
+async function indexResponse(
+	indexPath: string,
+	keptQueryParams: readonly string[] | undefined,
+): Promise<Response> {
+	const html = injectKeptQueryParams(
+		await Bun.file(indexPath).text(),
+		keptQueryParams ?? resolveKeptQueryParams(),
+	);
+	return new Response(html, { headers: { "Content-Type": "text/html" } });
 }
 
 /**
@@ -100,7 +127,7 @@ function resolveStaticFile(pathname: string, staticDir: string): string | null {
  */
 export async function serveStatic(
 	requestPath: string,
-	{ search = "", staticDir = STATIC_DIR }: ServeStaticOptions = {},
+	{ search = "", staticDir = STATIC_DIR, keptQueryParams }: ServeStaticOptions = {},
 ): Promise<Response> {
 	// Decode first, and decide everything on the decoded path. Percent-escapes
 	// are the reason: `%2f` is a `/` the router never split on, so a path that
@@ -143,7 +170,13 @@ export async function serveStatic(
 		return new Response("Not Found", { status: 404 });
 	}
 
+	// The page itself, asked for by its file name, is still the page: it gets the
+	// same rewrite the fallback below gives it, not the bare file.
+	const indexPath = join(staticDir, "index.html");
 	const filePath = resolveStaticFile(pathname, staticDir);
+	if (filePath === indexPath && (await Bun.file(indexPath).exists())) {
+		return indexResponse(indexPath, keptQueryParams);
+	}
 	if (filePath) {
 		const file = Bun.file(filePath);
 		if (await file.exists()) {
@@ -156,13 +189,8 @@ export async function serveStatic(
 	// SPA fallback, for the app's own pages only: the client router turns the
 	// URL into a page, so the same index.html answers `/app`, `/join/1234` and
 	// `/results/:id` alike.
-	if (isAppPagePath(pathname)) {
-		const indexFile = Bun.file(join(staticDir, "index.html"));
-		if (await indexFile.exists()) {
-			return new Response(indexFile, {
-				headers: { "Content-Type": "text/html" },
-			});
-		}
+	if (isAppPagePath(pathname) && (await Bun.file(indexPath).exists())) {
+		return indexResponse(indexPath, keptQueryParams);
 	}
 
 	return new Response("Not Found", { status: 404 });

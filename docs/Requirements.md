@@ -208,6 +208,7 @@ Prose outside the markers is preserved.
 | [REQ192.md](requirements/REQ192.md) | Every control in the presenter top bar renders at one shared height | Live Session | P2 | pending | internal |
 | [REQ193.md](requirements/REQ193.md) | A fork runs none of the maintainers' private-copy setup | Platform & Operations | P2 | done | internal |
 | [REQ194.md](requirements/REQ194.md) | The home page offers a signed-out browser that holds presentations to add an email, so they survive cleared browser data | Accounts & Workspaces | P2 | done | internal |
+| [REQ203.md](requirements/REQ203.md) | The query parameters the operator lists stay in the address bar across in-app navigation | Platform & Operations | P2 | done | BR150 |
 
-_190 entries — one row per file in `requirements/`._
+_191 entries — one row per file in `requirements/`._
 <!-- index:end -->

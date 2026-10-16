@@ -120,6 +120,8 @@ describe("which requests name a file of this app's", () => {
 });
 
 describe("what the server answers, against a built client directory", () => {
+	const INDEX_HTML =
+		"<!doctype html><html><head><title>omul</title></head><body></body></html>";
 	let fixtureRoot = "";
 	let staticDir = "";
 
@@ -128,7 +130,7 @@ describe("what the server answers, against a built client directory", () => {
 		staticDir = join(fixtureRoot, "client");
 		mkdirSync(join(staticDir, "assets"), { recursive: true });
 		mkdirSync(join(staticDir, "brand"), { recursive: true });
-		writeFileSync(join(staticDir, "index.html"), "<!doctype html><html></html>");
+		writeFileSync(join(staticDir, "index.html"), INDEX_HTML);
 		writeFileSync(join(staticDir, "assets", "index.js"), "export {};");
 		writeFileSync(join(staticDir, "brand", "ring.svg"), "<svg></svg>");
 		// The escape target: a file beside the static root, which a traversal would
@@ -186,7 +188,7 @@ describe("what the server answers, against a built client directory", () => {
 			"?mode=reset-password&token=abc",
 			"?mode=verify-email",
 			"?mode=change-email&error=TOKEN_EXPIRED",
-			"?utm_source=slide",
+			"?source=slide",
 		]) {
 			const response = await serveStatic("/", { search, staticDir });
 			expect(response.status).toBe(302);
@@ -227,5 +229,38 @@ describe("what the server answers, against a built client directory", () => {
 	test("a malformed percent-escape is refused rather than guessed at", async () => {
 		const response = await serveStatic("/app/assets/%E0%A4%A.js", { staticDir });
 		expect(response.status).toBe(404);
+	});
+
+	test("an instance that keeps no query parameter serves the page as built (REQ203)", async () => {
+		for (const pathname of [APP_BASE_PATH, "/join/1234", "/app/index.html"]) {
+			const response = await serveStatic(pathname, {
+				staticDir,
+				keptQueryParams: [],
+			});
+			expect(response.status).toBe(200);
+			expect(await response.text()).toBe(INDEX_HTML);
+		}
+	});
+
+	test("a configured list is written into every copy of the page it serves", async () => {
+		for (const pathname of [APP_BASE_PATH, "/join/1234", "/app/index.html"]) {
+			const response = await serveStatic(pathname, {
+				staticDir,
+				keptQueryParams: ["ref", "campaign_*"],
+			});
+			expect(response.status).toBe(200);
+			expect(response.headers.get("Content-Type")).toBe("text/html");
+			expect(await response.text()).toContain(
+				'<meta name="omul-kept-query-params" content="ref,campaign_*" />',
+			);
+		}
+	});
+
+	test("and into nothing that is not the page", async () => {
+		const script = await serveStatic("/app/assets/index.js", {
+			staticDir,
+			keptQueryParams: ["ref"],
+		});
+		expect(await script.text()).toBe("export {};");
 	});
 });

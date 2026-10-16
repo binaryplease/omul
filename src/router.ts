@@ -1,5 +1,10 @@
 import { useEffect } from "react";
 import { APP_BASE_PATH } from "../server/app-paths";
+import {
+	KEPT_QUERY_PARAMS_META,
+	keepsQueryParam,
+	splitKeptQueryParams,
+} from "../server/kept-query-params";
 import { BRAND_NAME } from "./components/BrandMark";
 
 // ── Client-side routing ──────────────────────────────────────
@@ -139,8 +144,76 @@ export function pathForRoute(route: Route): string {
 	}
 }
 
+/**
+ * The query parameters this deployment keeps across navigation (REQ203), as the
+ * server wrote them into the page — `[]` when it wrote none, which is the
+ * default, and outside a browser.
+ */
+function keptQueryParamsFromPage(): string[] {
+	if (typeof document === "undefined") return [];
+	return splitKeptQueryParams(
+		document
+			.querySelector(`meta[name="${KEPT_QUERY_PARAMS_META}"]`)
+			?.getAttribute("content"),
+	);
+}
+
+/**
+ * The part of a query string the address bar keeps across in-app navigation
+ * (REQ203) — `?` and the parameters `keptQueryParams` names, or `""` when there
+ * are none. Which ones those are is the operator's (`OMUL_KEPT_QUERY_PARAMS`,
+ * `server/kept-query-params.ts`); unconfigured, nothing is kept.
+ *
+ * The parameters are kept as the raw `name=value` segments they arrived as, in
+ * their order, rather than decoded and re-encoded: a round trip through
+ * `URLSearchParams` would rewrite `%20` as `+`, and the values must leave as
+ * they came. Pure given its list, so the rule can be asserted without a DOM.
+ */
+export function passThroughSearch(
+	search: string,
+	keptQueryParams: readonly string[] = keptQueryParamsFromPage(),
+): string {
+	return filterQuery(search, (name) => keepsQueryParam(keptQueryParams, name));
+}
+
+/**
+ * A query string reduced to the raw `name=value` segments whose name `keep`
+ * accepts, in their order and never re-encoded — `?` and those segments, or
+ * `""` when none are left. The one place the app filters a query by hand, so
+ * the pass-through rule and the landing clean-up in `auth.tsx` cannot drift.
+ */
+export function filterQuery(
+	search: string,
+	keep: (name: string) => boolean,
+): string {
+	const query = search.startsWith("?") ? search.slice(1) : search;
+	const kept = query
+		.split("&")
+		.filter((segment) => segment !== "" && keep(segment.split("=")[0]));
+	return kept.length > 0 ? `?${kept.join("&")}` : "";
+}
+
+/**
+ * The URL a route is written to the address bar as, carrying the kept
+ * parameters of `currentSearch` (REQ203). The query goes between the path and
+ * the hash, so the hash dialogs keep it too.
+ */
+export function urlForRoute(
+	route: Route,
+	currentSearch: string,
+	keptQueryParams: readonly string[] = keptQueryParamsFromPage(),
+): string {
+	const [path, hash] = pathForRoute(route).split("#");
+	const fragment = hash === undefined ? "" : `#${hash}`;
+	return `${path}${passThroughSearch(currentSearch, keptQueryParams)}${fragment}`;
+}
+
 export function navigate(route: Route) {
-	window.history.pushState(null, "", pathForRoute(route));
+	window.history.pushState(
+		null,
+		"",
+		urlForRoute(route, window.location.search),
+	);
 }
 
 /**

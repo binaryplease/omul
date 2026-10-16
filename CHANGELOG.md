@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The terms and the privacy policy are also named, with links, before a visitor signs up, creates a presentation (from the editor, a template or a generated draft), or joins one with a code, a link or the QR code.
   - Nothing is shown while the variables are unset.
   - The configured links are served at `GET /api/legal`.
+- Query parameters a visitor arrived with can stay in the address bar while they move around the app:
+  - List them in `OMUL_KEPT_QUERY_PARAMS`, comma-separated, as exact names (`ref`) or prefixes ending in `*` (`campaign_*`). Values are kept exactly as they arrived.
+  - Nothing is kept while the variable is unset.
+  - `mode`, `token` and `error`, which carry sign-in links, can never be kept. Listing one of them, or a malformed entry, stops the server at startup with an error naming the variable.
 - Q&A questions can be held for approval before the audience sees them:
   - Presenters turn this on in the Q&A panel with "Approve questions first". It is off by default.
   - While it is on, a new question is visible only to people who can edit the presentation, and nobody else can upvote it until it is approved.
