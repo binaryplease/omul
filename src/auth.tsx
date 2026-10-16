@@ -16,6 +16,7 @@ import {
 	UserCog,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { LANDING_QUERY_PARAMS } from "../server/kept-query-params";
 import {
 	authClient,
 	changeEmail,
@@ -33,7 +34,7 @@ import { LegalNotice } from "./components/LegalLinks";
 import { Modal } from "./components/ui/Modal";
 import { NoticeFrame } from "./components/ui/NoticeFrame";
 import { useAccountSeenInThisBrowser } from "./email-recovery-prompt";
-import { appHomeUrl } from "./router";
+import { appHomeUrl, filterQuery, passThroughSearch } from "./router";
 import { PENDING_EMAIL_CHANGE_KEY } from "./storage";
 
 // Shared input styling, matching the field treatment elsewhere in the app.
@@ -532,16 +533,18 @@ function readResetLanding(): Omit<ResetLanding, "dismiss"> | null {
 
 // Strip the landing query params (shared by the reset and verify flows — same
 // `mode`/`token`/`error` keys) but keep the user on the same page, so the link
-// can't be re-triggered on reload and the address bar stays clean.
+// can't be re-triggered on reload and the address bar stays clean. The rest of
+// the query is kept as the raw segments it arrived as — `searchParams.delete`
+// would re-encode every value it leaves, and the pass-through parameters
+// (REQ203) must stay unchanged.
 function clearLandingParamsFromUrl(): void {
 	if (typeof window === "undefined") return;
-	const url = new URL(window.location.href);
-	for (const key of ["mode", "token", "error"]) url.searchParams.delete(key);
-	window.history.replaceState(
-		{},
-		"",
-		`${url.pathname}${url.search}${url.hash}`,
+	const { pathname, search, hash } = window.location;
+	const query = filterQuery(
+		search,
+		(name) => !LANDING_QUERY_PARAMS.includes(name),
 	);
+	window.history.replaceState({}, "", `${pathname}${query}${hash}`);
 }
 
 /* ── Email verification (from email link) ─────────────── */
@@ -868,7 +871,11 @@ function DeleteAccountForm({ currentEmail }: { currentEmail: string }) {
 				</div>
 				<button
 					type="button"
-					onClick={() => window.location.assign(appHomeUrl())}
+					onClick={() =>
+						window.location.assign(
+							appHomeUrl(passThroughSearch(window.location.search).slice(1)),
+						)
+					}
 					className={BTN_PRIMARY}
 				>
 					Continue

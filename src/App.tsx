@@ -18,7 +18,12 @@ import { SharedResultsPage } from "./pages/SharedResultsPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
 import { WorkspacesPage } from "./pages/WorkspacesPage";
-import { getInitialRoute, navigate, type Route } from "./router";
+import {
+	getInitialRoute,
+	navigate,
+	passThroughSearch,
+	type Route,
+} from "./router";
 import { StoreProvider } from "./store";
 
 /**
@@ -38,7 +43,11 @@ function consumeShareTokenFromUrl(): void {
 	const id = path.slice("/edit/".length);
 	if (!id) return;
 	acceptShareToken(id, token);
-	window.history.replaceState(null, "", path);
+	window.history.replaceState(
+		null,
+		"",
+		`${path}${passThroughSearch(window.location.search)}`,
+	);
 }
 
 /**
@@ -65,7 +74,11 @@ function consumeResultsLinkFromUrl(): void {
 	const id = path.slice("/results/".length);
 	if (!id) return;
 	acceptResultsLinkToken(id, token);
-	window.history.replaceState(null, "", path);
+	window.history.replaceState(
+		null,
+		"",
+		`${path}${passThroughSearch(window.location.search)}`,
+	);
 }
 
 consumeShareTokenFromUrl();

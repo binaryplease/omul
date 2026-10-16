@@ -1,8 +1,13 @@
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "path";
 import { APP_ASSET_BASE, isAppPagePath } from "./server/app-paths";
+import {
+  KEPT_QUERY_PARAMS_ENV,
+  injectKeptQueryParams,
+  resolveKeptQueryParams,
+} from "./server/kept-query-params";
 
 /**
  * Serve the app's root-level pages in dev the way production serves them
@@ -40,13 +45,41 @@ function rootOwnedPages(): Plugin {
   };
 }
 
+/**
+ * Write the kept query parameters into the dev server's index.html the way
+ * production does (REQ203, `server/routes/static.ts`).
+ *
+ * In production the Bun server rewrites the page it hands out; in dev Vite hands
+ * it out, so without this the list would be empty here whatever the operator
+ * set, and the behaviour could not be tried on the machine it is written on.
+ * The variable is read the way the dev server process reads it — the shell
+ * first, then `.env` in the project directory — which `loadEnv` does when given
+ * the repository root rather than Vite's `root`. Serve only: a build that wrote
+ * the list into `dist/client/index.html` would bake one deployment's
+ * configuration into the image, and the server would then write it a second
+ * time.
+ */
+function keptQueryParamsInDev(): Plugin {
+  let environment: Record<string, string> = {};
+  return {
+    name: "omul-kept-query-params",
+    apply: "serve",
+    config(_config, { mode }) {
+      environment = loadEnv(mode, __dirname, KEPT_QUERY_PARAMS_ENV);
+    },
+    transformIndexHtml(html) {
+      return injectKeptQueryParams(html, resolveKeptQueryParams(environment));
+    },
+  };
+}
+
 export default defineConfig({
   // The app's home page and every built asset live under this prefix, because
   // the host root belongs to the marketing site — and `/assets/` does too,
   // which is the collision that makes this a move rather than a preference
   // (REQ179, server/app-paths.ts).
   base: APP_ASSET_BASE,
-  plugins: [react(), tailwindcss(), rootOwnedPages()],
+  plugins: [react(), tailwindcss(), rootOwnedPages(), keptQueryParamsInDev()],
   root: "src",
   publicDir: resolve(__dirname, "public"),
   build: {
