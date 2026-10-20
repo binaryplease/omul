@@ -25,6 +25,7 @@ import {
 	type SlideComment,
 	type UserFeedbackSubmission,
 	type VoteRefusalCode,
+	type WebsiteLinks,
 	withFreshSlideIds,
 	type Workspace,
 	type WorkspaceMember,
@@ -414,6 +415,13 @@ export const api = {
 	 * link for it.
 	 */
 	getLegalLinks: () => request<LegalLinks>("/legal"),
+
+	/**
+	 * Where this deployment's product website has its home (REQ200), in English
+	 * and in German. Each is `null` when the operator configured none, and a
+	 * participant's ended screen then links the app's own home.
+	 */
+	getWebsiteLinks: () => request<WebsiteLinks>("/website"),
 
 	/**
 	 * Whether this deployment collects feedback about omul (REQ185). `enabled`

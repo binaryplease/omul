@@ -268,6 +268,12 @@ export type {
 export type { LegalLinks } from "../server/legal-links";
 
 /**
+ * Where this instance's product website has its home (REQ200), as
+ * `GET /api/website` reports it. Type-only for the same reason.
+ */
+export type { WebsiteLinks } from "../server/website-links";
+
+/**
  * Breaking a slide's results down by an earlier slide's answers (REQ020,
  * REQ116).
  *

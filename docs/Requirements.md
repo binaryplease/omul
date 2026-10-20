@@ -208,8 +208,9 @@ Prose outside the markers is preserved.
 | [REQ192.md](requirements/REQ192.md) | Every control in the presenter top bar renders at one shared height | Live Session | P2 | pending | internal |
 | [REQ193.md](requirements/REQ193.md) | A fork runs none of the maintainers' private-copy setup | Platform & Operations | P2 | done | internal |
 | [REQ194.md](requirements/REQ194.md) | The home page offers a signed-out browser that holds presentations to add an email, so they survive cleared browser data | Accounts & Workspaces | P2 | done | internal |
+| [REQ200.md](requirements/REQ200.md) | The participant's ended screen offers home in the deck's language, linking to the product website's home in that language when the instance names one | Live Session | P2 | done | internal |
 | [REQ203.md](requirements/REQ203.md) | The query parameters the operator lists stay in the address bar across in-app navigation | Platform & Operations | P2 | done | BR150 |
 | [REQ213.md](requirements/REQ213.md) | The PDF export's markdown reduction must be linear in the text, the export must be rate-limited, and rendering must neither hold the server's thread nor pile up | Platform & Operations | P1 | done | internal |
 
-_192 entries — one row per file in `requirements/`._
+_193 entries — one row per file in `requirements/`._
 <!-- index:end -->
