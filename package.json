@@ -1,6 +1,6 @@
 {
   "name": "omul",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "license": "AGPL-3.0-only OR LicenseRef-omul-Commercial",
   "type": "module",
   "//bin": "The command-line client (REQ180, cli/index.ts). Bun runs the TypeScript entry point directly — there is no build step for it and no bundle to keep in sync — so `bun link` in a checkout puts `omul` on the PATH as it stands. The flake's packages.default installs the same entry point for `nix run`.",

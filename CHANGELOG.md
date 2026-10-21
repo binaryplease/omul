@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-21
+
 ### Added
 
 - `omul`, a command-line client that drives a running omul server with a personal API key and no browser: `health`, `auth login|status|logout`, `templates`, `create` (from a template or a deck file), `list`, `show` and `results`, with `--json` for the raw payload. Install it with `nix run github:binaryplease/omul#omul`, with `bun link` in a checkout, or run it as `mise run cli -- <command>`.
@@ -49,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The cards under "Your Presentations" on the home page show the title in full width on a line of its own, with the status beside it, then the code, slide count and date, then the five actions (share, move, export, duplicate, delete) in a row of their own. The actions are always visible instead of appearing only while the pointer is over the card, so they can also be found on a touch screen. The slide-count square at the left of the card is gone; the count is in the metadata line.
 - The Light / Dark / Auto theme switch is now a small app menu, opened from a three-dot button in the same place on every page. It holds the theme choice and, when they are configured, the links to the imprint, privacy policy and terms. The menu also appears on the shared results page, on error screens and on the presenter's blanked screen, where there was no theme switch before.
 - The storage library `@binaryplease/zodstore` is updated from 0.4.2 to 0.5.0, which brings its fixes to filtering on empty values and to how it checks a database file on open. The first start on an existing database renames the indexes that cover two fields to the library's new naming scheme. This needs no action and keeps every stored presentation, vote and question.
 - In a fork with GitHub Actions enabled, the CLA check no longer runs, and the image build no longer pushes to the fork owner's container registry. The image is still built, so a broken Dockerfile still shows up. Pull requests from a fork to this repository are still checked for the CLA.
