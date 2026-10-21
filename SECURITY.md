@@ -47,8 +47,8 @@ back-port to.
 
 | Version | Gets security fixes |
 |---|---|
-| `1.x` — the current release, and `main` | Yes |
-| Anything earlier | Nothing earlier exists |
+| `1.1.0` — the current release — and `main` | Yes |
+| Earlier `1.x` tags | No — update to the current release |
 
 A fix lands on `main` and goes out with the next release, and the container
 image `ghcr.io/binaryplease/omul:latest` is rebuilt from `main` by
