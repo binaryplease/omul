@@ -135,7 +135,7 @@ omul** below).
 | GET | `/api/presentations/shared` | ✅ session/key | List the decks other accounts have shared with the caller, each with its `accessLevel` (REQ075) — see **Sharing a deck with other accounts** below |
 | POST | `/api/presentations` | optional session/key | Create; returns `creatorToken` once (null for API-key create; records owner when signed in). `templateId` starts the deck from a catalog entry, copying its slides (REQ006) — see **Deck templates** below. `workspaceId` makes the deck the **workspace's** instead: no account owner, no edit token, and a role check on the caller (REQ128) — see **Workspaces** below. `workspaceTemplateId`, alongside it, starts that deck from one of the workspace's own published templates (REQ004) |
 | GET | `/api/presentations/:id` | — | Get presentation by ID. Reports the caller's own `accessLevel` (REQ075) and account-standing `commentAccess` (REQ074) on it |
-| PATCH | `/api/presentations/:id` | ✅ owner, token or `edit` grant | Update the deck's **authored** fields. The owner, the edit-token hash and the results-link pair are not among them and are dropped, not merged |
+| PATCH | `/api/presentations/:id` | ✅ owner, token or `edit` grant | Update the deck's **authored** fields. The owner, the edit-token hash and the results-link pair are not among them and are dropped, not merged. An optional `baseRevision` makes the write conditional: `409` with `refused: "stale-revision"`, the current `revision` and the current deck (`presentation`) when the deck has moved past it, and nothing written (REQ126) |
 | DELETE | `/api/presentations/:id` | ✅ owner or token | Delete presentation — and every collaborator grant on it. The one mutation an `edit` collaborator is **not** allowed (REQ075) |
 | POST | `/api/presentations/:id/start` | ✅ owner, token or `edit` grant | Go live |
 | POST | `/api/presentations/:id/end` | ✅ owner, token or `edit` grant | End presentation |
@@ -533,6 +533,23 @@ stored document, and `StoredPresentationSchema` *declares* `creatorId` and
 `creatorTokenHash` — so an `edit` collaborator could write themselves into
 ownership, or plant an edit-token hash they knew the secret for and survive being
 revoked, and step around both limits above in one request.
+
+**Two editors cannot silently save over each other (REQ126).** The editor sends
+every authored field on every Save, the whole slide list included, so with more
+than one account able to edit a deck the second Save used to replace the first
+wholesale. Every deck read now carries `revision`, a server-owned counter that
+advances by one on every successful write of authored content — `PATCH
+/api/presentations/:id`, `…/results-visibility`, `…/qa/settings` and
+`…/channels` — and that no request can write. The editor hands back the revision
+it loaded as `baseRevision`; once anyone else's write has moved the deck on, the
+PATCH is refused `409` with `refused: "stale-revision"`, the current `revision`
+and the current deck under `presentation` (sanitized like every editor read, so
+no `creatorId` or edit-token hash), and nothing is written or broadcast. A PATCH
+without `baseRevision` stays unconditional, which is what the CLI and API-key
+clients send. The comparison and the write share one per-deck queue
+(`createKeyedLock`), so two writes based on the same revision cannot both land
+within a server process. Merging a refused save onto the current deck is not
+done yet; the editor reports the refusal and keeps the unsaved edits on screen.
 
 **A grant names an account, and only ever by email.** `POST …/collaborators`
 takes the address the target signed up with and resolves it through Better Auth's

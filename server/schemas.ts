@@ -5920,6 +5920,13 @@ export const UpdatePresentationSchema = z.object({
 	themeBrand: DeckBrandSchema.optional(),
 	themeLogoUrl: z.string().optional(),
 	themeLogoAlt: z.string().optional(),
+	/**
+	 * The deck `revision` this write was based on (REQ126) — a precondition, not
+	 * a field: it is never stored. Named, the write lands only while the deck is
+	 * still at that revision and is refused `409` otherwise; absent, the write is
+	 * unconditional, as every PATCH was before the field existed.
+	 */
+	baseRevision: z.number().int().nonnegative().optional(),
 });
 
 export type UpdatePresentationInput = z.infer<typeof UpdatePresentationSchema>;
@@ -6156,6 +6163,17 @@ export const PresentationSchema = z.object({
 	 * its own buttons.
 	 */
 	workspaceId: z.string().nullable().default(null),
+	/**
+	 * The version of the deck's authored content this document shows (REQ126),
+	 * which an editor hands back as `baseRevision` on its Save so a write based on
+	 * a copy someone else has since saved over is refused rather than applied.
+	 *
+	 * Public because there is nothing in it to withhold: a counter of saves says
+	 * no more than the document it rides, and every phone already sees the deck
+	 * change when it does. It is not a credential — naming it opens nothing, and
+	 * the write it guards is still gated by `requireEdit`.
+	 */
+	revision: z.number().default(0),
 	createdAt: z.string(),
 });
 
@@ -7352,6 +7370,15 @@ export const StoredPresentationSchema = z.object({
 	 * from a genuine pre-auth deck.
 	 */
 	workspaceId: z.string().nullable().default(null),
+	/**
+	 * Which version of the deck's authored content this is (REQ126): advanced by
+	 * one on every write that changes it — the deck PATCH and the routes that
+	 * rewrite a setting the editor also saves — and by nothing else, never by a
+	 * caller. A write that names the revision it was based on is refused when the
+	 * deck has moved past it. Defaulted `0`, so a deck stored before the field
+	 * existed reads as never edited and the first write against it states `0`.
+	 */
+	revision: z.number().int().nonnegative().default(0),
 	createdAt: z.string().default(""),
 });
 

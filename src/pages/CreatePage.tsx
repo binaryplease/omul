@@ -9,7 +9,7 @@ import {
 	X,
 } from "lucide-react";
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
-import { api, getCreatorToken } from "../api";
+import { api, getCreatorToken, isStaleDeckWrite } from "../api";
 import {
 	AccessibilityFindingsStrip,
 	accessibilityFieldMarker,
@@ -235,6 +235,12 @@ export function CreatePage({
 	 * exist yet has no standing to report.
 	 */
 	const [accessLevel, setAccessLevel] = useState<DeckAccessLevel | null>(null);
+	/**
+	 * The deck `revision` this editor loaded (REQ126), handed back on Save so a
+	 * save based on a copy someone else has since saved over is refused instead
+	 * of replacing their work. `null` on a new deck, which has none to state.
+	 */
+	const [baseRevision, setBaseRevision] = useState<number | null>(null);
 	const [error, setError] = useState("");
 	const [selected, setSelected] = useState<Selection>(0);
 	/**
@@ -341,6 +347,7 @@ export function CreatePage({
 				}
 				setAccessLevel(data.accessLevel ?? null);
 				setCommentAccess(data.commentAccess ?? null);
+				setBaseRevision(data.revision);
 				loadEditor({
 					title: data.title,
 					slides: data.slides,
@@ -830,6 +837,7 @@ export function CreatePage({
 					themeBrand: savedBrand,
 					themeLogoUrl: themeLogoUrl.trim(),
 					themeLogoAlt: themeLogoAlt.trim(),
+					...(baseRevision !== null ? { baseRevision } : {}),
 				});
 				addToast("Presentation updated", "success");
 				go({ page: "present", id: editId });
@@ -857,8 +865,14 @@ export function CreatePage({
 				go({ page: "present", id: pres.id });
 			}
 		} catch (submitError: unknown) {
+			// REQ126 — nothing was written and nothing here is reset, so the edits
+			// stay on screen exactly as they were when Save was pressed.
 			setError(
-				submitError instanceof Error ? submitError.message : "Unknown error",
+				isStaleDeckWrite(submitError)
+					? "Your changes were not saved: someone else saved this deck after you opened it, and saving now would overwrite their work. Your edits are still here."
+					: submitError instanceof Error
+						? submitError.message
+						: "Unknown error",
 			);
 		} finally {
 			setSaving(false);

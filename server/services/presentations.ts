@@ -1021,7 +1021,67 @@ export async function listPresentationsSharedWith(
 }
 
 /**
+ * The queue every write that advances a deck's `revision` runs in (REQ126),
+ * keyed per presentation. The revision is read, compared with what the caller
+ * based its write on, and written one higher; two writes based on the same
+ * revision that interleaved across the store's `await`s would both pass the
+ * comparison, and the second would land on top of the first as though it had
+ * seen it — the silent overwrite the revision exists to refuse.
+ */
+const deckRevisionLock = createKeyedLock();
+
+/**
+ * How a write of a deck's authored content went (REQ126). `stale` carries the
+ * deck as it now stands, so the route can tell the caller which revision it
+ * lost to; `written` carries the deck as it stood before the write too, for a
+ * writer whose follow-up depends on what moved.
+ */
+export type AuthoredWriteOutcome =
+	| {
+			status: "written";
+			before: Record<string, unknown>;
+			deck: Record<string, unknown>;
+	  }
+	| { status: "stale"; deck: Record<string, unknown> }
+	| { status: "missing" };
+
+/**
+ * Write a change to a deck's authored content and advance its revision, in the
+ * deck's turn of {@link deckRevisionLock} — the one door every such write goes
+ * through, so no writer can move the content without moving the revision.
+ *
+ * `baseRevision` is the precondition: `null` writes unconditionally, a number
+ * writes only while the deck is still at it. `changesFor` is handed the deck as
+ * it stands inside the turn, for a writer whose change is derived from it.
+ */
+async function writeAuthoredContent(
+	id: string,
+	baseRevision: number | null,
+	changesFor: (deck: Record<string, unknown>) => Record<string, unknown>,
+): Promise<AuthoredWriteOutcome> {
+	return deckRevisionLock.run(id, async () => {
+		const before = await presentations.findOne(id);
+		if (!before) return { status: "missing" };
+		const revision = before.revision as number;
+		if (baseRevision !== null && baseRevision !== revision) {
+			return { status: "stale", deck: before };
+		}
+		const deck = await presentations.update(id, {
+			...changesFor(before),
+			revision: revision + 1,
+		});
+		return deck ? { status: "written", before, deck } : { status: "missing" };
+	});
+}
+
+/**
  * Apply a patch to a deck's authored fields and tell the room what moved.
+ *
+ * When `baseRevision` is a number the patch is a conditional write (REQ126): it
+ * lands only if the deck is still at that revision, and is refused as `stale` —
+ * with nothing written and nothing broadcast — once anyone else's write has
+ * moved it on. `null` keeps the unconditional write every caller had before the
+ * revision existed; only the editor states one.
  *
  * The patch is stripped of every credential-bearing field first
  * ({@link withoutUnwritableFields}): the store merges what it is given and
@@ -1036,23 +1096,24 @@ export async function listPresentationsSharedWith(
 export async function updatePresentation(
 	id: string,
 	rawChanges: Record<string, unknown>,
-) {
+	baseRevision: number | null = null,
+): Promise<AuthoredWriteOutcome> {
 	const changes = withoutUnwritableFields(rawChanges);
-	// REQ085 — the profanity filter's list as it stood before this write, read only
-	// when the write could move it. The editor sends every setting on every Save,
-	// so naming a field is no evidence it changed; comparing the list in force
-	// before and after is what keeps the room from being recounted on every Save.
+	const outcome = await writeAuthoredContent(id, baseRevision, () => changes);
+	if (outcome.status !== "written") return outcome;
+	const updated = outcome.deck;
+	// REQ085 — the profanity filter's list as it stood before this write, compared
+	// only when the write could move it. The editor sends every setting on every
+	// Save, so naming a field is no evidence it changed; comparing the list in
+	// force before and after is what keeps the room from being recounted on every
+	// Save.
 	const movesFilter =
 		"profanityFilterEnabled" in changes ||
 		"profanityFilterLanguage" in changes ||
 		"language" in changes;
 	const filterBefore = movesFilter
-		? profanityFilterLanguageFor(
-				((await presentations.findOne(id)) ?? {}) as ProfanityFilterState,
-			)
+		? profanityFilterLanguageFor(outcome.before as ProfanityFilterState)
 		: null;
-	const updated = await presentations.update(id, changes);
-	if (!updated) return updated;
 	// REQ059 — quiz scores are derived from the slide *as it stands now*, so
 	// re-marking a correct option re-orders the deck's standings without a single
 	// new vote. The board is a different slide from the one that was edited, so
@@ -1137,7 +1198,7 @@ export async function updatePresentation(
 			showJoinBar: updated.showJoinBar,
 		});
 	}
-	return updated;
+	return outcome;
 }
 
 /**
@@ -1785,13 +1846,13 @@ export async function setDeckResultsVisibility(
 	presentationId: string,
 	resultsVisibility: ResultsVisibility,
 ) {
-	const pres = await presentations.findOne(presentationId);
-	if (!pres) return null;
-
-	const updated = await presentations.update(presentationId, {
+	// It rewrites the slides, so it moves the revision (REQ126): an editor holding
+	// the overrides this clears must not be able to save them back unawares.
+	const outcome = await writeAuthoredContent(presentationId, null, (pres) => ({
 		resultsVisibility,
 		slides: withInheritedResultsVisibility(pres.slides as Slide[]),
-	});
+	}));
+	const updated = outcome.status === "written" ? outcome.deck : null;
 	if (updated) {
 		broadcastDeckResultsVisibility(presentationId, updated);
 	}
@@ -3071,15 +3132,18 @@ export async function setQASettings(
 		approvalRequired?: boolean;
 	},
 ) {
-	const pres = await presentations.findOne(presentationId);
-	if (!pres) return null;
-
-	const current = qaSettingsFor(qaSettingsOf(pres));
-	const updated = await presentations.update(presentationId, {
-		qaEnabled: changes.enabled ?? current.enabled,
-		qaVisibility: changes.visibility ?? current.visibility,
-		qaApprovalRequired: changes.approvalRequired ?? current.approvalRequired,
+	// The editor saves two of these settings too, so this moves the revision
+	// (REQ126): an editor's Save based on the deck before it would otherwise put
+	// the layer back the way it was.
+	const outcome = await writeAuthoredContent(presentationId, null, (pres) => {
+		const current = qaSettingsFor(qaSettingsOf(pres));
+		return {
+			qaEnabled: changes.enabled ?? current.enabled,
+			qaVisibility: changes.visibility ?? current.visibility,
+			qaApprovalRequired: changes.approvalRequired ?? current.approvalRequired,
+		};
 	});
+	const updated = outcome.status === "written" ? outcome.deck : null;
 	if (updated) broadcastQASettings(presentationId, updated);
 	return updated;
 }
@@ -3499,14 +3563,16 @@ export async function setParticipantChannels(
 	presentationId: string,
 	changes: { reactionsEnabled?: boolean; chatEnabled?: boolean },
 ) {
-	const pres = await presentations.findOne(presentationId);
-	if (!pres) return null;
-
-	const current = participantChannelsFor(participantChannelsOf(pres));
-	const updated = await presentations.update(presentationId, {
-		reactionsEnabled: changes.reactionsEnabled ?? current.reactions,
-		chatEnabled: changes.chatEnabled ?? current.chat,
+	// The editor saves both switches too, so this moves the revision (REQ126), for
+	// the reason `setQASettings` gives.
+	const outcome = await writeAuthoredContent(presentationId, null, (pres) => {
+		const current = participantChannelsFor(participantChannelsOf(pres));
+		return {
+			reactionsEnabled: changes.reactionsEnabled ?? current.reactions,
+			chatEnabled: changes.chatEnabled ?? current.chat,
+		};
 	});
+	const updated = outcome.status === "written" ? outcome.deck : null;
 	if (updated) broadcastChannelSettings(presentationId, updated);
 	return updated;
 }

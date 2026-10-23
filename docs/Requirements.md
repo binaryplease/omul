@@ -143,7 +143,7 @@ Prose outside the markers is preserved.
 | [REQ123.md](requirements/REQ123.md) | Zoom app | Integrations | P1 | pending | BR123 |
 | [REQ124.md](requirements/REQ124.md) | Screen-shared remote sessions | Live Session | P2 | pending | BR124 |
 | [REQ125.md](requirements/REQ125.md) | Concurrent sessions | Live Session | P3 | pending | BR125 |
-| [REQ126.md](requirements/REQ126.md) | Shared editing of decks and folders | Accounts & Workspaces | P1 | pending | BR126 |
+| [REQ126.md](requirements/REQ126.md) | Shared editing of decks and folders | Accounts & Workspaces | P1 | in-progress | BR126 |
 | [REQ127.md](requirements/REQ127.md) | Bulk slide operations | Deck & Slides | P2 | done | BR127 |
 | [REQ128.md](requirements/REQ128.md) | Workspace-owned decks | Accounts & Workspaces | P2 | done | BR128 |
 | [REQ129.md](requirements/REQ129.md) | Workspace roles | Accounts & Workspaces | P2 | done | BR129 |

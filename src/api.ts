@@ -108,6 +108,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 	return res.json();
 }
 
+/**
+ * Whether a thrown error is a deck write refused because the deck had moved on
+ * since the copy it was based on (REQ126) — the `409` a PATCH naming a stale
+ * `baseRevision` answers, and the only `409` that route gives. Nothing was
+ * written, so the caller still holds every edit it sent.
+ */
+export function isStaleDeckWrite(thrown: unknown): boolean {
+	return thrown instanceof ApiError && thrown.status === 409;
+}
+
 function isSignInRefusalCode(
 	value: unknown,
 ): value is ParticipantSignInRefusalCode {
@@ -589,6 +599,8 @@ export const api = {
 			themeBrand?: DeckBrand;
 			themeLogoUrl?: string;
 			themeLogoAlt?: string;
+			/** The deck `revision` the edit was based on (REQ126) — see {@link isStaleDeckWrite}. */
+			baseRevision?: number;
 		},
 	) =>
 		request<any>(`/presentations/${id}`, {

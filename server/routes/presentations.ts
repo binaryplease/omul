@@ -839,12 +839,31 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 		async ({ params, body, request, set }) => {
 			const auth = await requireEdit(request, params.id);
 			if (auth instanceof Response) return auth;
-			const updated = await updatePresentation(params.id, body as any);
-			if (!updated) {
+			const { baseRevision, ...changes } = body;
+			const outcome = await updatePresentation(
+				params.id,
+				changes,
+				baseRevision ?? null,
+			);
+			if (outcome.status === "missing") {
 				set.status = 404;
 				return { error: "Not found" };
 			}
-			return sanitize(updated, { canEdit: true });
+			// REQ126 — the deck moved on since the copy this write was based on.
+			// Nothing was written; the caller is handed the deck as it now stands,
+			// through the same projection as every editor read, to work from.
+			if (outcome.status === "stale") {
+				const presentation = sanitize(outcome.deck, { canEdit: true });
+				set.status = 409;
+				return {
+					error:
+						"Not saved: someone else saved this deck after you opened it.",
+					refused: "stale-revision",
+					revision: presentation.revision,
+					presentation,
+				};
+			}
+			return sanitize(outcome.deck, { canEdit: true });
 		},
 		{
 			body: UpdatePresentationSchema,
@@ -852,7 +871,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Presentations"],
 				summary: "Update presentation",
 				description:
-					"Partially updates a deck's **authored** fields (title, slides, settings). This is also where a deck's theme is set (REQ079/REQ080): `theme` names one of the built-in themes or `custom`, `themeBrand` carries the theme the deck defines for itself — its colours as `#rgb`/`#rrggbb` and the id of a face this build ships (REQ092) — and `themeLogoUrl` / `themeLogoAlt` the organizer's own mark (REQ136), which the participant-facing surfaces wear in place of the product's. Only the keys the request carries are changed; a key it omits is left exactly as it stood. Anything outside the authored set is **dropped**, not merged: the deck's owner (`creatorId`), its edit-token hash and its results-link pair are credentials the caller's own authorization is resolved from, so this route cannot write them under any spelling — ownership moves through `…/claim` (or the admin reassign action) and the results link through `…/results-link`. Server-managed state has its own routes too: `status` (`…/start`, `…/end`), `activeSlideIndex` (`…/slide`), `revealedSlideIds` (`…/reveal`), the question stamps (`…/timer`) and the countdown runs `countdownRuns` (`…/countdown`, REQ107). Requires `Authorization: Bearer <creatorToken>`, deck ownership, or an `edit` collaborator grant (REQ075).",
+					"Partially updates a deck's **authored** fields (title, slides, settings). This is also where a deck's theme is set (REQ079/REQ080): `theme` names one of the built-in themes or `custom`, `themeBrand` carries the theme the deck defines for itself — its colours as `#rgb`/`#rrggbb` and the id of a face this build ships (REQ092) — and `themeLogoUrl` / `themeLogoAlt` the organizer's own mark (REQ136), which the participant-facing surfaces wear in place of the product's. Only the keys the request carries are changed; a key it omits is left exactly as it stood. Anything outside the authored set is **dropped**, not merged: the deck's owner (`creatorId`), its edit-token hash and its results-link pair are credentials the caller's own authorization is resolved from, so this route cannot write them under any spelling — ownership moves through `…/claim` (or the admin reassign action) and the results link through `…/results-link`. Server-managed state has its own routes too: `status` (`…/start`, `…/end`), `activeSlideIndex` (`…/slide`), `revealedSlideIds` (`…/reveal`), the question stamps (`…/timer`) and the countdown runs `countdownRuns` (`…/countdown`, REQ107). **Stale writes are refused (REQ126):** every deck read carries `revision`, which advances by one on every successful write of authored content — this route, `…/results-visibility`, `…/qa/settings` and `…/channels` — and is never written by a caller. A body that names `baseRevision` is applied only while the deck is still at that revision; once anyone else's write has moved it on, nothing is written and the answer is `409` with `refused: \"stale-revision\"`, the current `revision`, and the deck as it now stands under `presentation` (the editor's projection, without `creatorId` or the edit-token hash). A body without `baseRevision` writes unconditionally. The comparison and the write run in one per-deck queue within the server process, so two writes naming the same revision cannot both land. Requires `Authorization: Bearer <creatorToken>`, deck ownership, or an `edit` collaborator grant (REQ075).",
 				security: [{ bearerAuth: [] }],
 			},
 		},
