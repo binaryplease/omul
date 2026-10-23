@@ -189,6 +189,64 @@ export function cellText(value: SheetCell): string {
 // ── Authored markdown, reduced to words ──────────────────────
 
 /**
+ * The `{lang=…}` that closes a passage marked as another language (REQ133),
+ * with a tag of the shape the client's `isSlideLanguageTag` accepts — restated
+ * here because the server does not import the client's renderer, and held to
+ * it by `SlideText.test.ts`.
+ */
+const LANGUAGE_MARK = /\{lang=([A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*)\}/y;
+const LANGUAGE_TAG_MAX_LENGTH = 35;
+
+/**
+ * One line with every `[passage]{lang=…}` reduced to its passage (REQ133).
+ *
+ * A language is something a page *says* rather than shows, so the words stay
+ * and the marking goes. The `[` dropped is the one that balances the `]`, so a
+ * link inside the passage keeps its own brackets for the reduction after this.
+ * A span whose tag is not shaped like one is left as typed, as the slide shows it.
+ */
+function withoutLanguageMarking(line: string): string {
+	const dropped = new Set<number>();
+	const openers: number[] = [];
+	let index = 0;
+	while (index < line.length) {
+		const character = line[index];
+		if (character === "\\") {
+			index += 2;
+			continue;
+		}
+		if (character === "[") openers.push(index);
+		if (character === "]") {
+			const opener = openers.pop();
+			LANGUAGE_MARK.lastIndex = index + 1;
+			const mark = LANGUAGE_MARK.exec(line);
+			const passage = opener === undefined ? "" : line.slice(opener + 1, index);
+			if (
+				opener !== undefined &&
+				mark !== null &&
+				(mark[1] as string).length <= LANGUAGE_TAG_MAX_LENGTH &&
+				passage.trim().length > 0
+			) {
+				dropped.add(opener);
+				const end = index + 1 + mark[0].length;
+				for (let markIndex = index; markIndex < end; markIndex += 1) {
+					dropped.add(markIndex);
+				}
+				index = end;
+				continue;
+			}
+		}
+		index += 1;
+	}
+	if (dropped.size === 0) return line;
+	// By code unit, as the indices were taken — never by code point.
+	return line
+		.split("")
+		.filter((_character, characterIndex) => !dropped.has(characterIndex))
+		.join("");
+}
+
+/**
  * A slide's authored text as plain words.
  *
  * `question` and `body` are markdown, stored verbatim and resolved where they
@@ -216,7 +274,7 @@ export function plainTextFromMarkdown(markdown: string): string {
 	return markdown
 		.split("\n")
 		.map((line) => {
-			const unprefixed = line
+			const unprefixed = withoutLanguageMarking(line)
 				// Sub-headings (REQ089) — the hashes are the markup, not the words.
 				.replace(/^\s{0,3}#{1,6}\s+/, "")
 				// A list marker becomes a bullet the reader can see.

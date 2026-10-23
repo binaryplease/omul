@@ -671,6 +671,22 @@ describe("REQ096 — reading a value into words", () => {
 			expect({ unit, ratio: ratio < 3 }).toEqual({ unit, ratio: true });
 		}
 	});
+
+	test("a passage in another language keeps its words and drops the marking (REQ133)", () => {
+		expect(plainTextFromMarkdown("She said [bonjour]{lang=fr} twice")).toBe(
+			"She said bonjour twice",
+		);
+		expect(plainTextFromMarkdown("- [**Grüezi**]{lang=de-CH}")).toBe("• Grüezi");
+		expect(
+			plainTextFromMarkdown("[voir [la doc](https://example.com)]{lang=fr}"),
+		).toBe("voir la doc (https://example.com)");
+		expect(plainTextFromMarkdown("[il dit [ja]{lang=de}]{lang=fr}")).toBe(
+			"il dit ja",
+		);
+		// What the slide shows as typed, the page prints as typed.
+		expect(plainTextFromMarkdown("[bonjour]{lang=1}")).toBe("[bonjour]{lang=1}");
+		expect(plainTextFromMarkdown("[bonjour]{dir=rtl}")).toBe("[bonjour]{dir=rtl}");
+	});
 });
 
 describe("REQ158 — nothing reaches the page the face cannot draw", () => {

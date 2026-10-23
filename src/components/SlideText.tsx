@@ -27,7 +27,8 @@ import { SlideMath } from "./SlideMath";
 // exactly one attacker-controlled attribute in the output — a link's `href` —
 // and {@link safeSlideLinkHref} allowlists the schemes that may reach it. A
 // `javascript:` URL is not sanitised into something harmless; it never becomes
-// a link at all.
+// a link at all. A passage marked as another language (REQ133) adds a second
+// attribute, `lang`, and only a value shaped like a language tag reaches it.
 //
 // A formula (REQ093) is found here like any other markup and drawn by
 // `<SlideMath/>`, the one subtree React does not build itself: KaTeX builds it
@@ -89,7 +90,7 @@ export const SLIDE_TEXT_SIZE_OPTIONS: ChoiceOption<SlideTextSize>[] = [
  * parser does not keep.
  */
 export const SLIDE_MARKDOWN_HINT =
-	"Heading and body take simple markdown: **bold**, *italic*, `code`, # sub-headings, and - or 1. lists. Links are written [like this](https://example.com) — or just paste an address starting with https://. They open in a new tab. Math is TeX between dollar signs: $x^2$ within a line, $$x^2$$ on a line of its own, and \\$ for a plain dollar sign.";
+	"Heading and body take simple markdown: **bold**, *italic*, `code`, # sub-headings, and - or 1. lists. Links are written [like this](https://example.com) — or just paste an address starting with https://. They open in a new tab. Math is TeX between dollar signs: $x^2$ within a line, $$x^2$$ on a line of its own, and \\$ for a plain dollar sign. A passage in another language is written [like this]{lang=fr}, so a screen reader pronounces it in that language.";
 
 /** The accent-underlined treatment every link in authored text wears. */
 export const SLIDE_LINK =
@@ -104,6 +105,11 @@ export type SlideInlineNode =
 	| { kind: "emphasis"; children: SlideInlineNode[] }
 	| { kind: "code"; text: string }
 	| { kind: "link"; href: string; children: SlideInlineNode[] }
+	/**
+	 * A passage in a language other than the deck's (REQ133), written
+	 * `[passage]{lang=fr}`. `lang` has passed {@link isSlideLanguageTag}.
+	 */
+	| { kind: "language"; lang: string; children: SlideInlineNode[] }
 	/**
 	 * A formula (REQ093). `tex` is what KaTeX is handed; `source` is the formula
 	 * exactly as typed, delimiters included — what the slide shows instead when
@@ -457,6 +463,92 @@ function readEmphasisRun(
 		: { content: source.slice(from, close), end: close + marker.length };
 }
 
+/**
+ * The braces that close a bracketed span: `{…}` straight after its `]`, with no
+ * brace or line break inside.
+ */
+const SPAN_ATTRIBUTES = /^\{([^{}\n]*)\}/;
+
+/**
+ * A language tag's shape (REQ133): BCP 47's, without its registry — a primary
+ * subtag of two or three letters, then any hyphen-separated subtags of one to
+ * eight letters or digits. `fr`, `de-CH`, `zh-Hant-TW` and `sr-Latn` pass; `1`,
+ * `english`, `fr_FR` and a quoted `"fr"` do not.
+ */
+const LANGUAGE_TAG = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$/;
+
+/** The longest tag accepted — the length BCP 47 asks every reader to hold. */
+const LANGUAGE_TAG_MAX_LENGTH = 35;
+
+/**
+ * Whether `tag` is shaped like a language tag, and so may become a `lang`
+ * attribute (REQ133).
+ *
+ * The value is authored, and it is the second attacker-controlled attribute
+ * this module emits after a link's `href`, so it is held to a shape rather than
+ * passed through: whatever does not look like a language never reaches the
+ * DOM. Restated in `plainTextFromMarkdown` (`server/deck-pdf.ts`), and the two
+ * are held together by `SlideText.test.ts`.
+ */
+export function isSlideLanguageTag(tag: string): boolean {
+	return tag.length <= LANGUAGE_TAG_MAX_LENGTH && LANGUAGE_TAG.test(tag);
+}
+
+/**
+ * The `[passage]{…}` span that opens at the `[` starting `source`, or `null`
+ * when that bracket closes no span (REQ133).
+ *
+ * The closing `]` is the one that balances the opening bracket, so a link can
+ * sit inside the passage — `[voir [la doc](https://example.com)]{lang=fr}` —
+ * and a bracket inside code, inside a formula or behind a backslash is not
+ * counted. `lang` is `null` when the braces are something other than one
+ * well-shaped `lang=` tag; the caller then shows the whole span as typed.
+ */
+function readBracketedSpan(
+	source: string,
+): { passage: string; lang: string | null; end: number } | null {
+	let depth = 0;
+	let index = 0;
+
+	while (index < source.length) {
+		const character = source[index] as string;
+		if (character === "\n") return null;
+		if (character === "\\" && ESCAPABLE.includes(source[index + 1] ?? "")) {
+			index += 2;
+			continue;
+		}
+		if (character === "`") {
+			const close = source.indexOf("`", index + 1);
+			const code = close === -1 ? "" : source.slice(index + 1, close);
+			index = code.length > 0 && !code.includes("\n") ? close + 1 : index + 1;
+			continue;
+		}
+		if (character === "$") {
+			const formula = readFormula(source, index);
+			index = formula?.end ?? index + (source[index + 1] === "$" ? 2 : 1);
+			continue;
+		}
+		if (character === "[") depth += 1;
+		if (character === "]") {
+			depth -= 1;
+			if (depth === 0) break;
+		}
+		index += 1;
+	}
+	if (depth !== 0) return null;
+
+	const passage = source.slice(1, index);
+	const attributes = SPAN_ATTRIBUTES.exec(source.slice(index + 1));
+	if (attributes === null || passage.trim().length === 0) return null;
+
+	const [, tag] = /^lang=(.*)$/.exec(attributes[1] as string) ?? [];
+	return {
+		passage,
+		lang: tag !== undefined && isSlideLanguageTag(tag) ? tag : null,
+		end: index + 1 + attributes[0].length,
+	};
+}
+
 function parseInlineNodes(source: string, depth: number): SlideInlineNode[] {
 	const nodes: SlideInlineNode[] = [];
 	let literal = "";
@@ -512,6 +604,29 @@ function parseInlineNodes(source: string, depth: number): SlideInlineNode[] {
 			const unopened = source[position + 1] === "$" ? "$$" : "$";
 			literal += unopened;
 			position += unopened.length;
+			continue;
+		}
+
+		// Before links, so the `[` that opens a span around a link is read as the
+		// span's rather than taken as the start of a longer label.
+		const span =
+			character === "[" && depth < INLINE_NESTING_LIMIT
+				? readBracketedSpan(rest)
+				: null;
+		if (span) {
+			flushLiteral();
+			// Braces that are not one well-shaped `lang=` are not half-applied: the
+			// whole span stays on the slide as typed, as a refused link does.
+			nodes.push(
+				span.lang === null
+					? { kind: "text", text: rest.slice(0, span.end) }
+					: {
+							kind: "language",
+							lang: span.lang,
+							children: parseInlineNodes(span.passage, depth + 1),
+						},
+			);
+			position += span.end;
 			continue;
 		}
 
@@ -602,8 +717,9 @@ function parseInlineNodes(source: string, depth: number): SlideInlineNode[] {
 }
 
 /**
- * One run of authored text with its inline markup read (REQ088, REQ089): bold,
- * italic, code, and links — markdown-style or typed bare.
+ * One run of authored text with its inline markup read (REQ088, REQ089, REQ133):
+ * bold, italic, code, links — markdown-style or typed bare — and passages
+ * marked as another language.
  *
  * Line breaks are kept as literal text rather than turned into blocks, which is
  * what makes this the right parse for a *heading*: a slide's question is one
@@ -619,7 +735,8 @@ function inlineHasMath(nodes: SlideInlineNode[]): boolean {
 			node.kind === "math" ||
 			((node.kind === "strong" ||
 				node.kind === "emphasis" ||
-				node.kind === "link") &&
+				node.kind === "link" ||
+				node.kind === "language") &&
 				inlineHasMath(node.children)),
 	);
 }
@@ -876,6 +993,14 @@ function renderInline(nodes: SlideInlineNode[]): ReactNode[] {
 						{renderInline(node.children)}
 					</a>
 				);
+			case "language":
+				// `lang` and nothing else: the passage looks exactly like its
+				// neighbours and is only *pronounced* differently (REQ133).
+				return (
+					<span key={index} lang={node.lang}>
+						{renderInline(node.children)}
+					</span>
+				);
 			case "math":
 				return (
 					<SlideMath
@@ -948,7 +1073,7 @@ function renderBlock(block: SlideTextBlock, index: number): ReactNode {
 }
 
 /**
- * Authored slide text, rendered (REQ088, REQ089, REQ091).
+ * Authored slide text, rendered (REQ088, REQ089, REQ091, REQ133).
  *
  * Two variants, because a slide's text is two different things:
  *

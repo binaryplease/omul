@@ -150,7 +150,7 @@ Prose outside the markers is preserved.
 | [REQ130.md](requirements/REQ130.md) | Workspace settings | Accounts & Workspaces | P2 | pending | BR130 |
 | [REQ131.md](requirements/REQ131.md) | Reduced-capability member role | Accounts & Workspaces | P2 | pending | BR131 |
 | [REQ132.md](requirements/REQ132.md) | Accessibility check | Rendering & Theming | P2 | done | BR132 |
-| [REQ133.md](requirements/REQ133.md) | Per-passage language marking | Rendering & Theming | P3 | pending | BR133 |
+| [REQ133.md](requirements/REQ133.md) | Per-passage language marking | Rendering & Theming | P3 | done | BR133 |
 | [REQ134.md](requirements/REQ134.md) | Require an authenticated participant | Access & Sharing | P2 | done | BR134 |
 | [REQ135.md](requirements/REQ135.md) | Organization branding on a deck | Rendering & Theming | P1 | done | BR135 |
 | [REQ136.md](requirements/REQ136.md) | Custom logo | Rendering & Theming | P1 | done | BR136 |

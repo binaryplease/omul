@@ -797,7 +797,7 @@ this. **Deleting the deck** sweeps them, beside its collaborator grants and for 
 sharper reason than a grant has — a comment is text people wrote, which is the
 last thing that should outlive what it was about (REQ146).
 
-## Authored slide text (REQ088, REQ089, REQ091, REQ093)
+## Authored slide text (REQ088, REQ089, REQ091, REQ093, REQ133)
 
 A slide's `question` — and `body` on a content slide — is **markdown, stored
 verbatim**. The boundary does not trim it, escape it, or resolve it: it comes
@@ -810,12 +810,31 @@ written `[label](url)` or pasted bare, and formulas (REQ093): TeX between `$…$
 inline or `$$…$$` on display, read on Pandoc's rules so that `$5 or $10` stays
 two prices, with `\$` for a literal dollar sign. The server neither typesets nor
 checks a formula — backslashes, braces and dollar signs are stored and served
-as typed. Two consequences for anything that consumes this API:
+as typed.
+
+A passage in a language other than the deck's (REQ133) is written as a
+Pandoc-style bracketed span, `[passage]{lang=fr}`, and is rendered inside an
+element carrying that `lang` so a screen reader switches pronunciation. Markup
+inside the passage — bold, italic, code, a link, an inline formula, another
+span — renders as it does anywhere else; to mark a link's label, wrap the link
+in the span. The tag must be **shaped like a BCP 47 tag**: a primary subtag of
+two or three letters, then any hyphen-separated subtags of one to eight letters
+or digits, 35 characters at most (`fr`, `de-CH`, `zh-Hant-TW`). The braces
+must hold `lang=<tag>` and nothing else — no quotes, no spaces, no second
+attribute. A span that fails either rule is not a language span: it is shown
+exactly as typed, markup inside it included. **Only `lang` is emitted**: the
+passage is drawn exactly like its neighbours, and nothing else written in the
+braces — no class, no `dir`, no other attribute — reaches the page. The PDF
+export keeps the passage's words and drops the marking. The server stores the
+span verbatim and neither parses nor checks it.
+
+Two consequences for anything that consumes this API:
 
 - **The markup is not sanitised on the way in, because it is never turned into
   HTML on the way out.** The renderer builds React elements, so the only
-  attacker-controlled attribute it can emit is a link's `href`, and only
-  `http`/`https`/`mailto`/`tel` reach one. A `javascript:` target is stored as
+  attacker-controlled attributes it can emit are a link's `href`, and only
+  `http`/`https`/`mailto`/`tel` reach one, and a passage's `lang`, which only a
+  tag of the shape above reaches. A `javascript:` target is stored as
   typed and simply never becomes a link — which is also why a client that
   rendered these strings as HTML itself would be reintroducing the hole this
   design does not have. A formula is typeset by a bundled KaTeX with every
