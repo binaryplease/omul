@@ -202,6 +202,11 @@ omul** below).
 | GET | `/api/workspaces/:id/templates` | ✅ member | The templates the workspace publishes out of its own decks (REQ004) — see **Templates a workspace publishes** below |
 | POST | `/api/workspaces/:id/templates` | ✅ `admin` / `owner` | Publish one of its decks as a template `{ presentationId, category, title?, description?, tags? }` — idempotent per deck |
 | DELETE | `/api/workspaces/:id/templates/:templateId` | ✅ `admin` / `owner` | Take one back down. No deck is touched |
+| GET | `/api/folders` | ✅ session/key | The caller's own folders by name, each with `presentationIds` — the decks filed in it (REQ126). See **Deck folders** below |
+| POST | `/api/folders` | ✅ session/key | Create a folder `{ name }` |
+| PATCH | `/api/folders/:id` | ✅ the folder's account | Rename it `{ name }` — another account's folder is `404`, like a missing one |
+| DELETE | `/api/folders/:id` | ✅ the folder's account | Delete it. Its decks are kept and go back to unfiled |
+| PUT | `/api/presentations/:id/folder` | ✅ the deck's owner | File the deck in one of the caller's folders `{ folderId }`, or unfile it with `folderId: null`; answers `{ folderId }`. A shared, workspace or token-held deck is `403` |
 | POST | `/api/admin/actions` | ✅ admin | Prepare a two-step action; returns a one-time `confirmationToken` |
 | POST | `/api/admin/actions/:id/confirm` | ✅ admin | Execute a prepared action `{ confirmationToken }` |
 | GET | `/api/admin/events` | ✅ admin | Append-only admin audit log |
@@ -742,6 +747,30 @@ asks a second question. `GET /api/workspaces` and `GET /api/workspaces/:id`
 report `role`. All of it is a *report*, never a credential: every gated route
 re-resolves the role from the request's own credentials, so a client that gets it
 wrong only mis-draws its own buttons.
+
+## Deck folders (REQ126)
+
+An account groups the decks it **owns** into folders. Folders are flat, a deck
+is in at most one, and a deck in none is unfiled. The home screen lists the
+account's decks by folder from `GET /api/folders` beside `/presentations/mine`.
+
+- **A folder is its account's alone.** Every folder route answers to the
+  caller's own account (`401` without one), and another account's folder
+  answers the same `404` as one that does not exist. No folder, name or filing
+  reaches another account, an anonymous caller or a participant, and no folder
+  id rides any deck read — membership lives in its own collection
+  (`folderEntries`), never on the deck document the room is handed.
+- **Filing is the deck owner's.** `PUT /api/presentations/:id/folder` needs the
+  caller to be the deck's account owner: a deck shared with them at any level,
+  one a workspace owns, and one held only by an edit token are refused. Filing
+  a filed deck moves it.
+- **No deck is ever deleted with a folder.** Deleting a folder unfiles its decks
+  and touches nothing else. A deck leaves its folder by itself when it is
+  deleted, moved into a workspace or reassigned to another account, so a filing
+  never outlives the ownership it was made under.
+- **Filing is not an authored edit.** It does not move the deck's `revision`
+  (REQ126 slice 1), so it never refuses an open editor's Save, and nothing is
+  broadcast to the room.
 
 ## Comment threads on slides (REQ074)
 

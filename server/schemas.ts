@@ -7537,6 +7537,74 @@ export type StoredDeckCollaborator = z.infer<
 	typeof StoredDeckCollaboratorSchema
 >;
 
+// ── Deck folders (REQ126) ────────────────────────────────────
+//
+// A folder belongs to exactly one account and groups decks that account owns.
+// Flat: a folder holds decks, never another folder. A folder is a label, not a
+// standing — nothing here authorizes anything on a deck, and deleting a folder
+// never deletes a deck.
+
+/** The longest a folder's name may be, in characters — a workspace's cap. */
+export const FOLDER_NAME_MAX_LENGTH = WORKSPACE_NAME_MAX_LENGTH;
+
+/**
+ * One account's folder. `ownerId` is the identity field and carries no default
+ * — a folder that lost it would be nobody's. It never leaves the server:
+ * {@link FolderSchema} does not declare it.
+ */
+export const StoredFolderSchema = z.object({
+	id: z.string(),
+	/** The owning account (Better Auth `user.id`). */
+	ownerId: z.string(),
+	name: z.string().default(""),
+	createdAt: z.string().default(""),
+	updatedAt: z.string().default(""),
+});
+
+/**
+ * One deck filed in one folder. A collection of its own rather than a field on
+ * the deck, for the reason a slide comment is one: the deck document is handed
+ * to the whole room, and a folder must never reach a participant — here there
+ * is nothing to strip. Unique on `presentationId`, so a deck is in at most one
+ * folder. `ownerId` is the folder's owner, kept so an account's filing is one
+ * indexed read. All three references are identity fields and carry no default.
+ */
+export const StoredFolderEntrySchema = z.object({
+	id: z.string(),
+	folderId: z.string(),
+	presentationId: z.string(),
+	ownerId: z.string(),
+	createdAt: z.string().default(""),
+});
+
+/**
+ * One folder, as its owner reads it: its name and the ids of the decks filed in
+ * it, newest filing first. Only ever sent to the owning account.
+ */
+export const FolderSchema = z.object({
+	id: z.string(),
+	name: z.string().default(""),
+	presentationIds: z.array(z.string()).default([]),
+	createdAt: z.string().default(""),
+	updatedAt: z.string().default(""),
+});
+
+export type Folder = z.infer<typeof FolderSchema>;
+
+/** Creating or renaming a folder: a name, required, trimmed, never blank. */
+export const FolderNameSchema = z.object({
+	name: z.string().trim().min(1).max(FOLDER_NAME_MAX_LENGTH),
+});
+
+/**
+ * Filing a deck: the folder it goes in, or `null` to unfile it. Required, with
+ * no default — a request that states nothing is malformed, never a silent
+ * unfile.
+ */
+export const FileDeckSchema = z.object({
+	folderId: z.string().min(1).nullable(),
+});
+
 /**
  * One comment on one slide (REQ074) — the stored half of a deck's threads.
  *

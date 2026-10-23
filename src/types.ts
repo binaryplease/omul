@@ -255,6 +255,8 @@ import {
 	WORKSPACE_TEMPLATE_DESCRIPTION_MAX_LENGTH,
 	WORKSPACE_TEMPLATE_TAG_LIMIT,
 	WORKSPACE_TEMPLATE_TAG_MAX_LENGTH,
+	type Folder,
+	FOLDER_NAME_MAX_LENGTH,
 	type Workspace,
 	type WorkspaceMember,
 	type WorkspaceRole,
@@ -380,6 +382,7 @@ export type {
 	VoteRefusalCode,
 	ParticipantSignInRefusalCode,
 	WithheldTally,
+	Folder,
 	Workspace,
 	WorkspaceMember,
 	WorkspaceRole,
@@ -562,6 +565,7 @@ export {
 	// decision, made in `server/schemas.ts` and enforced on every workspace-scoped
 	// mutation, and a surface that re-derived it by comparing role strings would
 	// eventually disagree with the server about who may press a button.
+	FOLDER_NAME_MAX_LENGTH,
 	WORKSPACE_NAME_MAX_LENGTH,
 	WORKSPACE_ROLES,
 	canAdministerWorkspace,

@@ -17,6 +17,7 @@ import { answerThemeRoutes } from "./routes/answer-themes";
 import { deckGenerationRoutes } from "./routes/deck-generation";
 import { discoveryRoutes, publicOriginStartupReport } from "./routes/discovery";
 import { feedbackRoutes } from "./routes/feedback";
+import { folderRoutes } from "./routes/folders";
 import { legalRoutes } from "./routes/legal";
 import { rateLimitStartupReport } from "./rate-limit";
 import { presentationRoutes } from "./routes/presentations";
@@ -111,6 +112,11 @@ const app = new Elysia()
 							"Workspaces (REQ128) — an owner of decks that is not an account — and the role each member holds in one (REQ129). Every workspace-scoped mutation is authorized against that role on the server.",
 					},
 					{
+						name: "Folders",
+						description:
+							"An account's own folders for the decks it owns (REQ126). Every folder read and write answers to the owning account alone.",
+					},
+					{
 						name: "Slides",
 						description:
 							"Per-slide presenter controls: navigation and result reveal.",
@@ -197,6 +203,10 @@ const app = new Elysia()
 	// it hold. Registered after the presentation routes it lists decks from —
 	// though neither depends on the other being mounted.
 	.use(workspaceRoutes)
+
+	// ── Deck folders (REQ126) ─────────────────────────────────
+	// An account's own grouping of the decks it owns.
+	.use(folderRoutes)
 
 	// ── Admin surface (operator-only, /api/admin/*) ───────────
 	.use(adminRoutes)

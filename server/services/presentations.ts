@@ -23,6 +23,7 @@ import {
 	deleteDeckAnswerThemes,
 	removeAnswerFromThemes,
 } from "./answer-themes";
+import { unfileDeck } from "./folders";
 import { deleteDeckParticipantAccounts } from "./participant-accounts";
 import { deleteDeckComments } from "./slide-comments";
 import { defaultDeckThemeFor, workspaceRoleFor } from "./workspaces";
@@ -833,6 +834,8 @@ export async function setPresentationWorkspace(
 ): Promise<Record<string, unknown> | null> {
 	const pres = await presentations.findOne(id);
 	if (!pres) return null;
+	// A folder is its owner's (REQ126), and the deck is changing owner.
+	await unfileDeck(id);
 	return presentations.update(
 		id,
 		workspaceId
@@ -849,6 +852,7 @@ export async function setPresentationWorkspace(
 export async function assignOwner(id: string, userId: string) {
 	const pres = await presentations.findOne(id);
 	if (!pres) return null;
+	if (pres.creatorId !== userId) await unfileDeck(id);
 	return presentations.update(id, { creatorId: userId });
 }
 
@@ -1303,6 +1307,7 @@ export async function deletePresentation(id: string) {
 	await eraseParticipantRecords(id);
 	await revokeAllDeckAccess(id);
 	await deleteDeckComments(id);
+	await unfileDeck(id);
 	return presentations.remove(id);
 }
 

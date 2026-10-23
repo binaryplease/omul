@@ -17,6 +17,7 @@ import {
 	type FeedbackChannel,
 	type FeedbackConfig,
 	FIRST_PASS,
+	type Folder,
 	isVoteRefusalCode,
 	isWithheldTally,
 	type LegalLinks,
@@ -1423,6 +1424,37 @@ export const api = {
 		if (workspaceId) forgetCreatorToken(id);
 		return moved;
 	},
+
+	// ── Deck folders (REQ126) ─────────────────────────────────
+	//
+	// The account's own, authenticated by the cookie session alone, like the
+	// workspace calls above: a folder is an account's, and no edit token names one.
+
+	/** The account's folders by name, each with the ids of the decks filed in it. */
+	listFolders: () => request<Folder[]>("/folders"),
+
+	createFolder: (name: string) =>
+		request<Folder>("/folders", {
+			method: "POST",
+			body: JSON.stringify({ name }),
+		}),
+
+	renameFolder: (folderId: string, name: string) =>
+		request<Folder>(`/folders/${folderId}`, {
+			method: "PATCH",
+			body: JSON.stringify({ name }),
+		}),
+
+	/** Delete a folder. Its decks are kept and go back to unfiled. */
+	deleteFolder: (folderId: string) =>
+		request<{ ok: true }>(`/folders/${folderId}`, { method: "DELETE" }),
+
+	/** File a deck this account owns in one of its folders, or unfile it with `null`. */
+	fileDeck: (presentationId: string, folderId: string | null) =>
+		request<{ folderId: string | null }>(
+			`/presentations/${presentationId}/folder`,
+			{ method: "PUT", body: JSON.stringify({ folderId }) },
+		),
 
 	deletePresentation: (id: string) =>
 		request<any>(`/presentations/${id}`, {
