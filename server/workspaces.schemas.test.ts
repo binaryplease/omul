@@ -3,8 +3,8 @@
  *
  * Everything a route is decided by, with no DB and no network between them:
  *
- *   - the role set — three of them, weakest first, and open at the weak end so
- *     REQ131's reduced role can arrive without renumbering anything;
+ *   - the role set — four of them, weakest first, with REQ131's `commenter`
+ *     at the weak end where the order left room for it;
  *   - the five capability predicates — what each role may do, stated once so no
  *     route re-derives it by comparing role strings;
  *   - `workspaceDeckAccessLevel` — the one bridge from a role to the deck access
@@ -20,8 +20,8 @@
  *     re-parses forward instead of failing;
  *   - the wire shapes — no account identifier can reach a client, by the same
  *     construction that keeps `creatorId` off a deck;
- *   - the request bodies — the add defaults to the *weakest* role, the role
- *     change refuses to default at all.
+ *   - the request bodies — the add defaults to `member`, the weakest role
+ *     that builds decks, and the role change refuses to default at all.
  *
  * What a role actually *buys* is a claim about the server and is tested there,
  * over HTTP, in `workspaces.integration.test.ts`.
@@ -60,12 +60,14 @@ import { weakestDeckAccessLevel } from "./services/collaborators";
 import { weakestWorkspaceRole } from "./services/workspaces";
 
 describe("the roles themselves (REQ129)", () => {
-	test("there are exactly three, weakest first", () => {
-		expect(WORKSPACE_ROLES).toEqual(["member", "admin", "owner"]);
+	test("there are exactly four, weakest first", () => {
+		expect(WORKSPACE_ROLES).toEqual(["commenter", "member", "admin", "owner"]);
 	});
 
-	test("an unstated role is the weakest one there is", () => {
-		expect(DEFAULT_WORKSPACE_ROLE).toBe(WORKSPACE_ROLES[0]);
+	test("an unstated role is member — the reduced role is granted by saying so", () => {
+		// REQ131 put `commenter` below it without moving the default: an add that
+		// names no role means what it always meant.
+		expect(DEFAULT_WORKSPACE_ROLE).toBe("member");
 	});
 
 	test("every role reads the workspace; none of them is no role", () => {
@@ -75,12 +77,22 @@ describe("the roles themselves (REQ129)", () => {
 		expect(canReadWorkspace(null)).toBe(false);
 	});
 
-	test("every role creates decks — REQ131's reduced role is the one that will not", () => {
-		// Stated as a fact about today rather than as a tautology: when the reduced
-		// role lands it goes at the front of WORKSPACE_ROLES and answers `false`
-		// here, and this test is what will have to be edited to say so.
-		for (const role of WORKSPACE_ROLES) {
-			expect(canCreateWorkspaceDecks(role)).toBe(true);
+	test("every role but commenter creates decks (REQ131)", () => {
+		expect(canCreateWorkspaceDecks("commenter")).toBe(false);
+		expect(
+			WORKSPACE_ROLES.filter((role) => canCreateWorkspaceDecks(role)),
+		).toEqual(["member", "admin", "owner"]);
+	});
+
+	test("commenter passes none of the predicates but reading the workspace", () => {
+		expect(canReadWorkspace("commenter")).toBe(true);
+		for (const predicate of [
+			canCreateWorkspaceDecks,
+			canAdministerWorkspaceDecks,
+			canManageWorkspaceMembers,
+			canAdministerWorkspace,
+		]) {
+			expect(predicate("commenter")).toBe(false);
 		}
 	});
 
@@ -118,8 +130,8 @@ describe("the roles themselves (REQ129)", () => {
 });
 
 describe("workspaceDeckAccessLevel — the bridge to the deck model (REQ128)", () => {
-	test("every role reads and runs the workspace's decks", () => {
-		for (const role of WORKSPACE_ROLES) {
+	test("every role but commenter reads and runs the workspace's decks", () => {
+		for (const role of WORKSPACE_ROLES.filter((role) => role !== "commenter")) {
 			const level = workspaceDeckAccessLevel(role);
 			expect(level).toBe("edit");
 			// The point of the bridge: a workspace deck is decided by the same two
@@ -128,6 +140,15 @@ describe("workspaceDeckAccessLevel — the bridge to the deck model (REQ128)", (
 			expect(canMutateDeck(level)).toBe(true);
 			expect(canReadDeckAuthoring(level)).toBe(true);
 		}
+	});
+
+	test("commenter resolves to `comment`: reads as authored, mutates nothing (REQ131)", () => {
+		const level = workspaceDeckAccessLevel("commenter");
+		expect(level).toBe("comment");
+		// The same two predicates a `comment` collaborator is decided by — so every
+		// route gated on a mutation, the run-state routes included, refuses it.
+		expect(canMutateDeck(level)).toBe(false);
+		expect(canReadDeckAuthoring(level)).toBe(true);
 	});
 
 	test("no membership resolves to no standing at all", () => {
@@ -233,6 +254,7 @@ describe("weakestWorkspaceRole — reading a pair that somehow has two membershi
 		expect(weakestWorkspaceRole(["member", "owner"])).toBe("member");
 		expect(weakestWorkspaceRole(["owner", "admin"])).toBe("admin");
 		expect(weakestWorkspaceRole(["owner", "owner"])).toBe("owner");
+		expect(weakestWorkspaceRole(["member", "commenter"])).toBe("commenter");
 	});
 });
 
@@ -252,8 +274,10 @@ describe("the stored shapes", () => {
 			workspaceId: "w1",
 			userId: "u1",
 		});
-		// The weakest role is what an unstated one means — a membership must not
-		// acquire the authority to delete the workspace by being old.
+		// `member` is what an unstated one means — a membership must not acquire
+		// the authority to delete the workspace by being old. Every row older than
+		// REQ131 was written with a role at least that strong, so the default it
+		// was read with did not change when `commenter` arrived below it.
 		expect(member.role).toBe("member");
 		expect(member.invitedBy).toBeNull();
 		expect(member.createdAt).toBe("");
@@ -356,7 +380,7 @@ describe("the wire shapes", () => {
 });
 
 describe("the request bodies", () => {
-	test("an add that states no role grants the weakest one", () => {
+	test("an add that states no role grants member, never more", () => {
 		expect(
 			AddWorkspaceMemberSchema.parse({ email: "other@example.com" }).role,
 		).toBe("member");

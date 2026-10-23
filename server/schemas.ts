@@ -6622,13 +6622,18 @@ export const WORKSPACE_NAME_MAX_LENGTH = 200;
 /**
  * The roles a workspace membership can carry, **weakest first** (REQ129).
  *
- * The order is the one thing the array asserts, and it is what leaves room for
- * REQ131's reduced role to arrive at the front without renumbering anything.
+ * The order is the one thing the array asserts, and it is what let REQ131's
+ * reduced role, `commenter`, arrive at the front without renumbering anything.
  * Capability is *not* read off this order — the predicates below name their roles
  * explicitly — because "everything above X" is exactly the reading that silently
  * admits a role nobody considered when it is inserted in the middle.
+ *
+ * `commenter` (REQ131) reads the workspace and its decks and comments on them,
+ * and does nothing else: it creates no deck, edits none and presents none. It
+ * consumes no seat, because no seat accounting exists in this repository yet —
+ * REQ144's seat count, when it arrives, must not count this role.
  */
-export const WORKSPACE_ROLES = ["member", "admin", "owner"] as const;
+export const WORKSPACE_ROLES = ["commenter", "member", "admin", "owner"] as const;
 
 export const WorkspaceRoleEnum = z.enum(WORKSPACE_ROLES);
 
@@ -6636,9 +6641,13 @@ export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
 
 /**
  * What a membership is worth when the request that made it did not say — the
- * weakest role there is, for the reason {@link ShareDeckSchema} defaults a grant
- * to `view`: a request that forgets to state what it is granting must not grant
- * the strongest thing available.
+ * weakest role that builds and runs decks, for the reason {@link ShareDeckSchema}
+ * defaults a grant to `view`: a request that forgets to state what it is granting
+ * must not grant the strongest thing available.
+ *
+ * Not the weakest role there is since REQ131: `commenter` sits below it, and
+ * making it the default would quietly change what every existing add without a
+ * role has always meant. Granting the reduced role is stated, never inferred.
  */
 export const DEFAULT_WORKSPACE_ROLE: WorkspaceRole = "member";
 
@@ -6647,12 +6656,16 @@ export const DEFAULT_WORKSPACE_ROLE: WorkspaceRole = "member";
  * between REQ129's role and the access model every deck route is already decided
  * by.
  *
- * All three roles read and run the workspace's decks today, which is REQ128's
- * "readable and presentable by its members". They differ in what they may do to
- * the *workspace* (see the predicates below), not in what they may do to a slide.
- * REQ131's reduced role is the first that will answer something weaker here, and
- * it will do so by returning `"comment"` from this one function rather than by
- * every deck route learning about workspaces.
+ * `member`, `admin` and `owner` read and run the workspace's decks, which is
+ * REQ128's "readable and presentable by its members". They differ in what they
+ * may do to the *workspace* (see the predicates below), not in what they may do
+ * to a slide.
+ *
+ * `commenter` (REQ131) answers `"comment"` — REQ075's level, read here rather
+ * than by every deck route learning about workspaces. So it reads each deck as
+ * its author wrote it and writes to its comment threads (REQ074), and every
+ * route gated by `canMutateDeck` refuses it: editing, and every run-state route
+ * — starting, ending, paging, revealing — which is what "cannot present" means.
  *
  * `null` — no membership — is the withholding answer, and it is what every
  * stranger, every participant and every anonymous caller resolves to.
@@ -6661,6 +6674,7 @@ export function workspaceDeckAccessLevel(
 	role: WorkspaceRole | null,
 ): DeckAccessLevel | null {
 	if (role === null) return null;
+	if (role === "commenter") return "comment";
 	return "edit";
 }
 
@@ -6670,9 +6684,10 @@ export function canReadWorkspace(role: WorkspaceRole | null): boolean {
 }
 
 /**
- * Whether a role may **create** decks the workspace owns. Every role today; the
- * reduced role REQ131 reserves is the one that will not, which is why this is a
- * predicate of its own rather than a reading of {@link canReadWorkspace}.
+ * Whether a role may **create** decks the workspace owns — directly, from one of
+ * its published templates, or by moving a deck in. Every role but `commenter`
+ * (REQ131), which is why this is a predicate of its own rather than a reading of
+ * {@link canReadWorkspace}.
  */
 export function canCreateWorkspaceDecks(role: WorkspaceRole | null): boolean {
 	return role === "member" || role === "admin" || role === "owner";
@@ -6693,8 +6708,8 @@ export function canCreateWorkspaceDecks(role: WorkspaceRole | null): boolean {
  *
  * *Using* a published template is not this predicate — it creates an ordinary
  * deck the workspace owns, so it is {@link canCreateWorkspaceDecks} like any
- * other create, and REQ131's reduced role will be shut out of both by the one
- * line it adds there.
+ * other create, and REQ131's `commenter` is shut out of both by the role that
+ * predicate leaves off its list.
  */
 export function canPublishWorkspaceTemplates(
 	role: WorkspaceRole | null,

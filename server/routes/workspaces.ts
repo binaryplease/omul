@@ -239,7 +239,7 @@ export const workspaceRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Workspaces"],
 				summary: "List the workspaces the signed-in account is in",
 				description:
-					"Returns the workspaces the caller is a member of (REQ128), newest membership first, each carrying the `role` they hold there (REQ129) — `member`, `admin` or `owner`. Requires a cookie session or a personal API key (`x-api-key`); returns 401 otherwise. Scoped to the caller: it cannot enumerate workspaces they are not in, and it never reports who else is in one (that is `GET /workspaces/:id/members`). No account identifier is in this payload.",
+					"Returns the workspaces the caller is a member of (REQ128), newest membership first, each carrying the `role` they hold there (REQ129) — `commenter` (REQ131), `member`, `admin` or `owner`. Requires a cookie session or a personal API key (`x-api-key`); returns 401 otherwise. Scoped to the caller: it cannot enumerate workspaces they are not in, and it never reports who else is in one (that is `GET /workspaces/:id/members`). No account identifier is in this payload.",
 				security: [{ bearerAuth: [] }],
 			},
 		},
@@ -484,7 +484,7 @@ export const workspaceRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Workspaces"],
 				summary: "Add an account to the workspace",
 				description:
-					"Adds a registered account at a stated role (REQ129): `member`, `admin` or `owner`, defaulting to `member` when the body omits it — a request that does not say what it is granting must not grant the strongest thing there is. Idempotent per account: adding an address that is already a member **changes their role** rather than adding a second membership, and answers `200` instead of the `201` a new one gets. The account is named by its login email and never by an id, because a caller is never handed one. `404` when no account is registered with that address (this endpoint sends no invitations and creates no accounts). Requires `admin` or `owner`; granting `owner` requires `owner`. Rate-limited (REQ145) on the same two budgets the deck-sharing endpoint spends, and for the same reason: the `404`/`201` distinction reports whether an address has an account.",
+					"Adds a registered account at a stated role (REQ129): `commenter` (REQ131 — reads and comments on the workspace's decks, and creates, edits and presents none), `member`, `admin` or `owner`, defaulting to `member` when the body omits it — a request that does not say what it is granting must not grant the strongest thing there is. Idempotent per account: adding an address that is already a member **changes their role** rather than adding a second membership, and answers `200` instead of the `201` a new one gets. The account is named by its login email and never by an id, because a caller is never handed one. `404` when no account is registered with that address (this endpoint sends no invitations and creates no accounts). Requires `admin` or `owner`; granting `owner` requires `owner`. Rate-limited (REQ145) on the same two budgets the deck-sharing endpoint spends, and for the same reason: the `404`/`201` distinction reports whether an address has an account.",
 				security: [{ bearerAuth: [] }],
 			},
 		},
@@ -630,7 +630,7 @@ export const workspaceRoutes = new Elysia({ prefix: "/api" })
 			// reading a collaborator reads a shared deck (REQ075): what a role governs
 			// is what its holder may change, not a redacted copy of a deck their own
 			// workspace owns. Resolved through the same bridge every gated route uses,
-			// so the day REQ131's reduced role arrives this needs no edit.
+			// so REQ131's `commenter` reads it at `comment` with no edit here.
 			const level = workspaceDeckAccessLevel(standing.role);
 			return decks.map((deck) =>
 				sanitize(deck, { canEdit: canReadDeckAuthoring(level) }),
@@ -666,7 +666,7 @@ export const workspaceRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Workspaces"],
 				summary: "List the templates a workspace publishes",
 				description:
-					"Returns the templates this workspace has published out of its own decks (REQ004), newest first — the same shape `GET /api/templates` answers with (`id`, `title`, `description`, `category`, `tags`, `slides`), plus the deck each was taken from (`sourcePresentationId`), who published it by display name, and when. Any member reads the list and can create from an entry; publishing and unpublishing need `admin` or `owner`. `403` for an account that is not a member — which is also what a workspace id that does not exist answers, so the route cannot be used to probe for one. An entry's id is what `POST /api/presentations` takes as `workspaceTemplateId`.",
+					"Returns the templates this workspace has published out of its own decks (REQ004), newest first — the same shape `GET /api/templates` answers with (`id`, `title`, `description`, `category`, `tags`, `slides`), plus the deck each was taken from (`sourcePresentationId`), who published it by display name, and when. Any member reads the list, and every role but `commenter` (REQ131) can create from an entry; publishing and unpublishing need `admin` or `owner`. `403` for an account that is not a member — which is also what a workspace id that does not exist answers, so the route cannot be used to probe for one. An entry's id is what `POST /api/presentations` takes as `workspaceTemplateId`.",
 				security: [{ bearerAuth: [] }],
 			},
 		},

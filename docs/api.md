@@ -619,32 +619,40 @@ says so. Two consequences a caller meets directly:
   shared deck private in one request nobody else is told about. Moving one back
   out is deliberate and owner-gated — see below.
 
-**Three roles, in one order: `member` < `admin` < `owner`.** Every role reads,
-edits and presents every deck the workspace owns and creates new ones in it —
-that is REQ128's "readable and presentable by its members", and it resolves
-through `workspaceDeckAccessLevel()`, the single bridge from a role to the
-`view`/`comment`/`edit` model every gated deck route is already decided by. What
-separates the roles is what they may do to the *workspace*:
+**Four roles, in one order: `commenter` < `member` < `admin` < `owner`.**
+`member`, `admin` and `owner` read, edit and present every deck the workspace
+owns and create new ones in it — that is REQ128's "readable and presentable by
+its members". `commenter` (REQ131) reads those decks and comments on them, and
+does nothing else. Both resolve through `workspaceDeckAccessLevel()`, the single
+bridge from a role to the `view`/`comment`/`edit` model every gated deck route is
+already decided by: `commenter` answers `comment`, the other three `edit`. What
+separates the three upper roles is what they may do to the *workspace*:
 
-| | `member` | `admin` | `owner` |
-|---|---|---|---|
-| Read, edit, present its decks; create new ones | ✅ | ✅ | ✅ |
-| Delete one of its decks; decide who outside the workspace it is shared with | — | ✅ | ✅ |
-| Publish one of its decks as a template, and take one down (REQ004) | — | ✅ | ✅ |
-| Add, remove and re-role members | — | ✅ | ✅ |
-| Grant or take back the `owner` role | — | — | ✅ |
-| Rename or delete the workspace; move a deck back out of it | — | — | ✅ |
-| Set the theme its new decks start in (REQ086) | — | — | ✅ |
+| | `commenter` | `member` | `admin` | `owner` |
+|---|---|---|---|---|
+| Read its decks as their authors wrote them; comment on them (REQ074) | ✅ | ✅ | ✅ | ✅ |
+| Edit and present its decks; create new ones (from a template too) | — | ✅ | ✅ | ✅ |
+| Delete one of its decks; decide who outside the workspace it is shared with | — | — | ✅ | ✅ |
+| Publish one of its decks as a template, and take one down (REQ004) | — | — | ✅ | ✅ |
+| Add, remove and re-role members | — | — | ✅ | ✅ |
+| Grant or take back the `owner` role | — | — | — | ✅ |
+| Rename or delete the workspace; move a deck back out of it | — | — | — | ✅ |
+| Set the theme its new decks start in (REQ086) | — | — | — | ✅ |
 
 Each row is a **predicate** in `server/schemas.ts`
 (`canCreateWorkspaceDecks`, `canAdministerWorkspaceDecks`,
 `canPublishWorkspaceTemplates`, `canManageWorkspaceMembers`,
 `canAdministerWorkspace`), and no route re-derives one by comparing role
-strings. The set is deliberately open at the weak end:
-REQ131 reserves a reduced-capability role that reads and comments but neither
-creates nor presents, and it arrives as one entry at the front of
-`WORKSPACE_ROLES` plus one line in each predicate rather than as a sweep for
-`!== "member"` spelled five different ways.
+strings. Each names the roles it admits, so `commenter` arrived at the front of
+`WORKSPACE_ROLES` admitted by none of them and needed no line in any. Its
+standing on a deck is REQ075's `comment` level, so it fails every route gated by
+`requireEdit` — editing, and every run-state route (start, end, paging, reveal,
+blank, timers and the rest) — exactly as a `comment` collaborator does, and that
+is what "cannot present" means here. Exports go through the same gate, so it
+does not download a deck's results either. **It consumes no seat**: there is no
+seat accounting in this repository (REQ144 is pending), and when there is, its
+count must not include this role. The default for an add that names no role
+stays `member` — the reduced role is granted by saying so.
 
 **Enforcement is server-side, on every mutation** — the sentence REQ129 ends on.
 A workspace deck's mutations run the same `requireEdit` every other deck's do,
@@ -1163,8 +1171,8 @@ publish that was refused for not saying. `title` defaults to the deck's own.
 is deliberately the narrower of two defensible readings: publishing writes to a
 surface every member reads and every deck made from it inherits. Starting a deck
 from an entry is an ordinary create, gated by `canCreateWorkspaceDecks()` like
-any other — so REQ131's reduced role will be shut out of both by the one line it
-adds there.
+any other — so REQ131's `commenter`, which that predicate does not admit, is shut
+out of both.
 
 **None of these routes is an existence oracle.** Every one of them resolves the
 caller's role in the workspace *first*: a workspace the caller is not in and one
