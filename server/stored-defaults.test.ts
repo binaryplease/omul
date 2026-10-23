@@ -55,6 +55,7 @@ import {
 	StoredChatMessageSchema,
 	StoredDeckCollaboratorSchema,
 	StoredFolderEntrySchema,
+	StoredFolderGrantSchema,
 	StoredFolderSchema,
 	StoredParticipantAccountSchema,
 	StoredParticipantNameSchema,
@@ -198,6 +199,12 @@ const STORED_COLLECTIONS: StoredCollection[] = [
 		name: "folderEntries",
 		schema: StoredFolderEntrySchema,
 		identityFields: ["id", "folderId", "presentationId", "ownerId"],
+		nestedBareFields: [],
+	},
+	{
+		name: "folderGrants",
+		schema: StoredFolderGrantSchema,
+		identityFields: ["id", "folderId", "userId"],
 		nestedBareFields: [],
 	},
 	{

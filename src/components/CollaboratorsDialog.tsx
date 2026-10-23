@@ -14,6 +14,11 @@ import { Modal } from "./ui/Modal";
 // what it governs is that deck, so it lives beside it rather than in
 // global chrome.
 //
+// A folder (REQ126) is shared through the same dialog, because it is the same
+// question asked one level up: the grant is the same shape, at the same levels,
+// and reaches every deck filed in the folder. Only the calls and the sentences
+// differ, and both are chosen by `subject.kind` from the two tables below.
+//
 // Everything here is the *owner's* surface. It is emphatically not where the
 // levels are enforced — that is the server, on every mutation route, and it
 // holds whether this dialog was ever drawn (see `server/routes/presentations.ts`
@@ -91,14 +96,67 @@ export function collaboratorDisplayName(
 	return "Account no longer exists";
 }
 
+/** What the dialog shares: one deck (REQ075), or a folder of them (REQ126). */
+export type ShareSubject = { kind: "deck" | "folder"; id: string; title: string };
+
+/** The four owner calls for each kind of subject, one shape for both. */
+const SHARE_CALLS = {
+	deck: {
+		list: api.listCollaborators,
+		share: api.shareDeck,
+		setLevel: api.setCollaboratorLevel,
+		revoke: api.removeCollaborator,
+	},
+	folder: {
+		list: api.listFolderCollaborators,
+		share: api.shareFolder,
+		setLevel: api.setFolderCollaboratorLevel,
+		revoke: api.removeFolderCollaborator,
+	},
+} as const;
+
+/** How the dialog speaks about each kind of subject. */
+const SHARE_COPY: Record<
+	ShareSubject["kind"],
+	{
+		title: string;
+		reach: string;
+		found: string;
+		granted: string;
+		inviteTitle: string;
+		unshared: string;
+		kept: string;
+	}
+> = {
+	deck: {
+		title: "Share this deck",
+		reach: "",
+		found: "find it",
+		granted: "this deck",
+		inviteTitle: "Share this deck with that account",
+		unshared:
+			"This deck is shared with nobody. Only you can open, edit and run it.",
+		kept: "Deleting this deck, and deciding who it is shared with, stay with you whatever level you grant.",
+	},
+	folder: {
+		title: "Share this folder",
+		reach:
+			" The level reaches every deck filed in it — the ones there now and any you file later — and a deck you move out of it is no longer reached.",
+		found: "find its decks",
+		granted: "the decks in this folder",
+		inviteTitle: "Share this folder and its decks with that account",
+		unshared:
+			"This folder is shared with nobody. Its decks are reached only by you and by whoever each deck is shared with.",
+		kept: "Deleting its decks, and deciding who the folder is shared with, stay with you whatever level you grant.",
+	},
+};
+
 export function CollaboratorsDialog({
-	presentationId,
-	deckTitle,
+	subject,
 	onClose,
 	onNotify,
 }: {
-	presentationId: string;
-	deckTitle: string;
+	subject: ShareSubject;
 	onClose: () => void;
 	/** How the dialog says what just happened — the surface's own toast. */
 	onNotify: (message: string, tone: "success" | "info" | "error") => void;
@@ -108,10 +166,12 @@ export function CollaboratorsDialog({
 	const [email, setEmail] = useState("");
 	const [level, setLevel] = useState<DeckAccessLevel>("view");
 	const [busy, setBusy] = useState(false);
+	const calls = SHARE_CALLS[subject.kind];
+	const copy = SHARE_COPY[subject.kind];
 
 	const refresh = useCallback(async () => {
 		try {
-			setCollaborators(await api.listCollaborators(presentationId));
+			setCollaborators(await SHARE_CALLS[subject.kind].list(subject.id));
 		} catch {
 			// A list that cannot be read leaves the dialog saying the deck is shared
 			// with nobody, which is the withholding reading: it offers no level to
@@ -120,7 +180,7 @@ export function CollaboratorsDialog({
 		} finally {
 			setLoading(false);
 		}
-	}, [presentationId]);
+	}, [subject.kind, subject.id]);
 
 	useEffect(() => {
 		refresh();
@@ -131,20 +191,20 @@ export function CollaboratorsDialog({
 		if (!address || busy) return;
 		setBusy(true);
 		try {
-			const grant = await api.shareDeck(presentationId, address, level);
+			const grant = await calls.share(subject.id, address, level);
 			// Re-read rather than splice: sharing again with an address that already
 			// has a grant *changes* it, so appending would show one person twice.
 			await refresh();
 			setEmail("");
 			onNotify(
-				`${collaboratorDisplayName(grant)} can now ${deckAccessLevelLabel(grant.level).toLowerCase()} this deck`,
+				`${collaboratorDisplayName(grant)} can now ${deckAccessLevelLabel(grant.level).toLowerCase()} ${copy.granted}`,
 				"success",
 			);
 		} catch (shareError: unknown) {
 			onNotify(
 				shareError instanceof Error
 					? shareError.message
-					: "Could not share this deck",
+					: `Could not share ${copy.granted}`,
 				"error",
 			);
 		} finally {
@@ -158,8 +218,8 @@ export function CollaboratorsDialog({
 	) => {
 		setBusy(true);
 		try {
-			const updated = await api.setCollaboratorLevel(
-				presentationId,
+			const updated = await calls.setLevel(
+				subject.id,
 				collaborator.id,
 				next,
 			);
@@ -185,7 +245,7 @@ export function CollaboratorsDialog({
 	const revoke = async (collaborator: DeckCollaborator) => {
 		setBusy(true);
 		try {
-			await api.removeCollaborator(presentationId, collaborator.id);
+			await calls.revoke(subject.id, collaborator.id);
 			setCollaborators((current) =>
 				current.filter((entry) => entry.id !== collaborator.id),
 			);
@@ -206,15 +266,15 @@ export function CollaboratorsDialog({
 	};
 
 	return (
-		<Modal title="Share this deck" icon={Users} onClose={onClose}>
+		<Modal title={copy.title} icon={Users} onClose={onClose}>
 			<div className="flex flex-col gap-4">
 				<p className="text-sm text-text-muted">
 					Give another {BRAND_NAME} account access to{" "}
-					<span className="text-text">{deckTitle}</span>. They sign in with their
-					own account and find it under “Shared with you” — there is no link to
-					pass on and nothing for them to forward. The level you choose is
-					enforced on the server for every change they try to make, not just in
-					what they are shown.
+					<span className="text-text">{subject.title}</span>.{copy.reach} They
+					sign in with their own account and {copy.found} under “Shared with
+					you” — there is no link to pass on and nothing for them to forward. The
+					level you choose is enforced on the server for every change they try
+					to make, not just in what they are shown.
 				</p>
 
 				{/* Invite by the address the account signed up with — a caller never
@@ -256,8 +316,8 @@ export function CollaboratorsDialog({
 							disabled={busy || !email.trim()}
 							title={
 								email.trim()
-									? "Share this deck with that account"
-									: "Share this deck — type the account's email address first"
+									? copy.inviteTitle
+									: `${copy.inviteTitle} — type the account's email address first`
 							}
 						>
 							<UserPlus size={14} />
@@ -274,9 +334,7 @@ export function CollaboratorsDialog({
 					{loading ? (
 						<span className="text-text-dim">Checking…</span>
 					) : collaborators.length === 0 ? (
-						<span className="text-text-muted">
-							This deck is shared with nobody. Only you can open, edit and run it.
-						</span>
+						<span className="text-text-muted">{copy.unshared}</span>
 					) : (
 						<ul className="flex flex-col gap-3">
 							{collaborators.map((collaborator) => (
@@ -329,9 +387,7 @@ export function CollaboratorsDialog({
 				<p className="text-xs text-text-dim">
 					Removing somebody takes effect at once — there is nothing of theirs to
 					expire. What it cannot reach is a page they already have open, which
-					keeps what it was last sent until it next asks the server. Deleting this
-					deck, and deciding who it is shared with, stay with you whatever level
-					you grant.
+					keeps what it was last sent until it next asks the server. {copy.kept}
 				</p>
 			</div>
 		</Modal>

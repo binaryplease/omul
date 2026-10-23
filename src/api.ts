@@ -1449,6 +1449,38 @@ export const api = {
 	deleteFolder: (folderId: string) =>
 		request<{ ok: true }>(`/folders/${folderId}`, { method: "DELETE" }),
 
+	/**
+	 * Who one of this account's folders is shared with (REQ126) — the deck
+	 * collaborator calls' shape, and the owner's alone on the same terms.
+	 */
+	listFolderCollaborators: (folderId: string) =>
+		request<DeckCollaborator[]>(`/folders/${folderId}/collaborators`),
+
+	/** Share a folder, and every deck filed in it, with an account by its email. */
+	shareFolder: (folderId: string, email: string, level: DeckAccessLevel) =>
+		request<DeckCollaborator>(`/folders/${folderId}/collaborators`, {
+			method: "POST",
+			body: JSON.stringify({ email, level }),
+		}),
+
+	/** Move one folder grant to another level, named by the grant's own id. */
+	setFolderCollaboratorLevel: (
+		folderId: string,
+		collaboratorId: string,
+		level: DeckAccessLevel,
+	) =>
+		request<DeckCollaborator>(
+			`/folders/${folderId}/collaborators/${collaboratorId}`,
+			{ method: "PATCH", body: JSON.stringify({ level }) },
+		),
+
+	/** Revoke one folder grant. Its decks stop reaching that account at once. */
+	removeFolderCollaborator: (folderId: string, collaboratorId: string) =>
+		request<{ ok: true }>(
+			`/folders/${folderId}/collaborators/${collaboratorId}`,
+			{ method: "DELETE" },
+		),
+
 	/** File a deck this account owns in one of its folders, or unfile it with `null`. */
 	fileDeck: (presentationId: string, folderId: string | null) =>
 		request<{ folderId: string | null }>(

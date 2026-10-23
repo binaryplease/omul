@@ -91,6 +91,10 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 	const [deleteFolderTarget, setDeleteFolderTarget] = useState<Folder | null>(
 		null,
 	);
+	/** The folder whose collaborator dialog is open (REQ126), if any. */
+	const [shareFolderTarget, setShareFolderTarget] = useState<Folder | null>(
+		null,
+	);
 	const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
 	const [importing, setImporting] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -459,6 +463,16 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 												</span>
 												{folder && (
 													<>
+														{/* Sharing a folder sits on the folder it shares,
+														    and reaches every deck under this heading. */}
+														<button
+															type="button"
+															className={`${OWN_DECK_ACTION} ${ICON_BUTTON_HOVER}`}
+															onClick={() => setShareFolderTarget(folder)}
+															title={`Share the folder “${folder.name}” and every deck in it with another account`}
+														>
+															<Users size={16} />
+														</button>
 														<button
 															type="button"
 															className={`${OWN_DECK_ACTION} ${ICON_BUTTON_HOVER}`}
@@ -656,9 +670,20 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 
 			{shareTarget && (
 				<CollaboratorsDialog
-					presentationId={shareTarget.id}
-					deckTitle={shareTarget.title}
+					subject={{ kind: "deck", id: shareTarget.id, title: shareTarget.title }}
 					onClose={() => setShareTarget(null)}
+					onNotify={addToast}
+				/>
+			)}
+
+			{shareFolderTarget && (
+				<CollaboratorsDialog
+					subject={{
+						kind: "folder",
+						id: shareFolderTarget.id,
+						title: shareFolderTarget.name,
+					}}
+					onClose={() => setShareFolderTarget(null)}
 					onNotify={addToast}
 				/>
 			)}

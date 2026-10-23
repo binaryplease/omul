@@ -736,7 +736,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Presentations"],
 				summary: "List the decks shared with the signed-in account",
 				description:
-					"Returns the decks another account has shared with the caller (REQ075), newest grant first, each carrying the `accessLevel` it was shared at — `view`, `comment` or `edit`. Requires a cookie session or a personal API key (`x-api-key`); returns 401 otherwise. Scoped to the caller — it cannot enumerate anyone else's grants, and it never reports who else a deck is shared with (that list is its owner's, see `GET /presentations/:id/collaborators`). Decks the caller **owns** are not here; they are `GET /presentations/mine`. A grant whose deck has been deleted is simply absent.",
+					"Returns the decks another account has shared with the caller (REQ075), newest grant first, each carrying the `accessLevel` it was shared at — `view`, `comment` or `edit`. A deck filed in a folder shared with the caller (REQ126) is here too, once, at the strongest of its folder grant and any grant on the deck itself. Requires a cookie session or a personal API key (`x-api-key`); returns 401 otherwise. Scoped to the caller — it cannot enumerate anyone else's grants, and it never reports who else a deck is shared with (that list is its owner's, see `GET /presentations/:id/collaborators`). Decks the caller **owns** are not here; they are `GET /presentations/mine`. A grant whose deck has been deleted is simply absent.",
 				security: [{ bearerAuth: [] }],
 			},
 		},

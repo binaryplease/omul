@@ -132,7 +132,7 @@ omul** below).
 | POST | `/api/deck-generation` | ✅ session/key by default | Draft a deck from `{ prompt, language? }` and return it as an ordinary editable presentation (REQ007). The account requirement is the operator's to lift (`OMUL_GENERATION_ALLOW_ANONYMOUS`) |
 | GET | `/api/presentations` | — | List presentations (`?creatorId=`) |
 | GET | `/api/presentations/mine` | ✅ session/key | List the signed-in account's owned decks |
-| GET | `/api/presentations/shared` | ✅ session/key | List the decks other accounts have shared with the caller, each with its `accessLevel` (REQ075) — see **Sharing a deck with other accounts** below |
+| GET | `/api/presentations/shared` | ✅ session/key | List the decks other accounts have shared with the caller — on the deck or through a folder it is filed in — each with its `accessLevel` (REQ075, REQ126) — see **Sharing a deck with other accounts** below |
 | POST | `/api/presentations` | optional session/key | Create; returns `creatorToken` once (null for API-key create; records owner when signed in). `templateId` starts the deck from a catalog entry, copying its slides (REQ006) — see **Deck templates** below. `workspaceId` makes the deck the **workspace's** instead: no account owner, no edit token, and a role check on the caller (REQ128) — see **Workspaces** below. `workspaceTemplateId`, alongside it, starts that deck from one of the workspace's own published templates (REQ004) |
 | GET | `/api/presentations/:id` | — | Get presentation by ID. Reports the caller's own `accessLevel` (REQ075) and account-standing `commentAccess` (REQ074) on it |
 | PATCH | `/api/presentations/:id` | ✅ owner, token or `edit` grant | Update the deck's **authored** fields. The owner, the edit-token hash and the results-link pair are not among them and are dropped, not merged. An optional `baseRevision` makes the write conditional: `409` with `refused: "stale-revision"`, the current `revision` and the current deck (`presentation`) when the deck has moved past it, and nothing written (REQ126) |
@@ -206,6 +206,10 @@ omul** below).
 | POST | `/api/folders` | ✅ session/key | Create a folder `{ name }` |
 | PATCH | `/api/folders/:id` | ✅ the folder's account | Rename it `{ name }` — another account's folder is `404`, like a missing one |
 | DELETE | `/api/folders/:id` | ✅ the folder's account | Delete it. Its decks are kept and go back to unfiled |
+| GET | `/api/folders/:id/collaborators` | ✅ the folder's account | Who the folder is shared with, and at what level — the deck list's shape, no account id |
+| POST | `/api/folders/:id/collaborators` | ✅ the folder's account | Share it, and every deck filed in it, with a registered account `{ email, level? }` — idempotent per account |
+| PATCH | `/api/folders/:id/collaborators/:collaboratorId` | ✅ the folder's account | Change one folder grant's level `{ level }` |
+| DELETE | `/api/folders/:id/collaborators/:collaboratorId` | ✅ the folder's account | Revoke one folder grant, immediately |
 | PUT | `/api/presentations/:id/folder` | ✅ the deck's owner | File the deck in one of the caller's folders `{ folderId }`, or unfile it with `folderId: null`; answers `{ folderId }`. A shared, workspace or token-held deck is `403` |
 | POST | `/api/admin/actions` | ✅ admin | Prepare a two-step action; returns a one-time `confirmationToken` |
 | POST | `/api/admin/actions/:id/confirm` | ✅ admin | Execute a prepared action `{ confirmationToken }` |
@@ -378,8 +382,8 @@ in the body:
 | the same seven public writes | 60 per minute | `participantId` |
 | `POST …/reactions` (REQ077) | 3000 per minute | client |
 | `POST …/reactions` (REQ077) | 120 per minute | `participantId` |
-| `POST …/collaborators` (REQ075) | 600 per minute | client |
-| `POST …/collaborators` (REQ075) | 60 per minute | the deck being shared |
+| `POST …/collaborators` (REQ075, and a folder's, REQ126) | 600 per minute | client |
+| `POST …/collaborators` (REQ075, and a folder's, REQ126) | 60 per minute | the deck or folder being shared |
 | `POST /api/workspaces/:id/members` (REQ129) | 600 per minute | client |
 | `POST /api/workspaces/:id/members` (REQ129) | 60 per minute | the workspace being added to |
 | `POST /api/feedback` (REQ185) | 20 per 10 minutes | client |
@@ -778,7 +782,35 @@ account's decks by folder from `GET /api/folders` beside `/presentations/mine`.
   never outlives the ownership it was made under.
 - **Filing is not an authored edit.** It does not move the deck's `revision`
   (REQ126 slice 1), so it never refuses an open editor's Save, and nothing is
-  broadcast to the room.
+  broadcast to the room. Neither does sharing a folder.
+
+### Sharing a folder
+
+A folder can be shared with registered accounts at the deck-sharing levels
+(`view`, `comment`, `edit`), and a grant on a folder reaches **every deck filed
+in it**. The four `/api/folders/:id/collaborators` routes mirror the deck's
+`…/collaborators` routes: an account is named by its login email, sharing again
+changes the level (`200`, not `201`), a grant is changed or revoked by its own
+`id`, and the list never carries an account id.
+
+- **Only the folder's owner** lists or changes its grants: `401` without an
+  account, `404` for anyone else — a grantee included — exactly as for a folder
+  that does not exist. Sharing a folder with its own owner is `400`.
+- **Enforced where a deck grant is.** `resolveDeckAccess` (and the account-only
+  resolution the comment threads use) reads the folder grant beside the deck's
+  own grant and the workspace role, and the **strongest** standing stands. A
+  folder grant is delegated on the same terms as a deck grant: `edit` through
+  a folder does not delete a deck or change who it is shared with.
+- **It counts only while the deck is the folder owner's.** The deck must be
+  filed in the folder *and* its current `creatorId` must be the folder's owner;
+  the filing row alone is not trusted. So a deck that is unfiled, moved to
+  another folder, deleted, moved into a workspace or reassigned is no longer
+  reached. Deleting a deck never touches the folder's grants; deleting the
+  folder deletes them.
+- **The grantee's side** is `GET /api/presentations/shared` and the home
+  screen's "Shared with You": every deck reached through a folder grant is
+  there once, with its effective `accessLevel`. There is no listing of the
+  folders themselves on the grantee's side.
 
 ## Comment threads on slides (REQ074)
 

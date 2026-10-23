@@ -23,7 +23,11 @@ import {
 	deleteDeckAnswerThemes,
 	removeAnswerFromThemes,
 } from "./answer-themes";
-import { unfileDeck } from "./folders";
+import {
+	folderAccessLevelFor,
+	listFolderDecksSharedWith,
+	unfileDeck,
+} from "./folders";
 import { deleteDeckParticipantAccounts } from "./participant-accounts";
 import { deleteDeckComments } from "./slide-comments";
 import { defaultDeckThemeFor, workspaceRoleFor } from "./workspaces";
@@ -581,7 +585,11 @@ export type DeckAccess = {
 	userId: string | null;
 	/** Whether that account is the deck's owner (`creatorId`). */
 	isOwner: boolean;
-	/** Whether the level came from a collaborator grant rather than the first three. */
+	/**
+	 * Whether the level came from a collaborator grant rather than the first
+	 * three — on the deck itself or, since REQ126, on the folder it is filed in.
+	 * Both are a delegated standing, and refused the same things.
+	 */
 	viaGrant: boolean;
 	/** The workspace that owns this deck (REQ128), or `null` for an account's own. */
 	workspaceId: string | null;
@@ -615,6 +623,11 @@ export type DeckAccess = {
  * or worse, admit somebody the workspace has removed. A caller can hold both, and
  * the **strongest** of the two stands: two independent reasons to be on a deck do
  * not weaken each other (see `strongestDeckAccessLevel`).
+ *
+ * Since REQ126 a grant on the **folder** the deck is filed in is a fifth, joined
+ * to the same fold: it counts only while the deck's current owner is the
+ * folder's owner (`folderAccessLevelFor`), and it is a grant in every other
+ * respect — delegated, so `viaGrant`.
  *
  * @param allowLegacy grandfather pre-auth decks (no owner, no token hash). True
  *   for ordinary edits (backward compatibility); pass false for ownership-
@@ -660,13 +673,16 @@ export async function resolveDeckAccess(
 	const granted = userId
 		? await deckAccessLevelFor(pres.id as string, userId)
 		: null;
+	const fromFolder = userId
+		? await folderAccessLevelFor(pres.id as string, ownerId, userId)
+		: null;
 	const fromWorkspace = workspaceDeckAccessLevel(workspaceRole);
-	const level = strongestDeckAccessLevel([granted, fromWorkspace]);
+	const level = strongestDeckAccessLevel([granted, fromFolder, fromWorkspace]);
 	return {
 		level,
 		userId,
 		isOwner,
-		viaGrant: level !== null && level === granted,
+		viaGrant: level !== null && (level === granted || level === fromFolder),
 		workspaceId,
 		workspaceRole,
 		viaWorkspace: level !== null && level === fromWorkspace,
@@ -690,7 +706,7 @@ export async function resolveDeckAccess(
  * editor of a deck nobody owns.
  *
  * So the only standings that resolve are the ones an account can hold: being the
- * deck's owner, holding a grant on it, or — since REQ128 — being in the workspace
+ * deck's owner, holding a grant on it or on its folder (REQ126), or — since REQ128 — being in the workspace
  * that owns it, which is an account standing on exactly the same terms and is
  * what makes the deck's threads readable by the team that keeps the deck.
  * Everything else is `null`, which is the withholding answer both comment
@@ -709,9 +725,14 @@ export async function resolveDeckAccountAccess(
 		? workspaceDeckAccessLevel(await workspaceRoleFor(workspaceId, userId))
 		: null;
 	const granted = await deckAccessLevelFor(pres.id as string, userId);
+	const fromFolder = await folderAccessLevelFor(
+		pres.id as string,
+		ownerId,
+		userId,
+	);
 	return {
 		userId,
-		level: strongestDeckAccessLevel([granted, fromWorkspace]),
+		level: strongestDeckAccessLevel([granted, fromFolder, fromWorkspace]),
 	};
 }
 
@@ -1010,18 +1031,61 @@ export async function listPresentations(creatorId?: string) {
  * were interrupted, and the honest reading of "which decks am I on?" is the
  * decks that still exist. Newest grant first — the order a person meets an
  * invitation in.
+ *
+ * Since REQ126 the decks filed in a folder shared with the account are here
+ * too, each once, at the strongest of its deck grant and its folder grant — the
+ * level `resolveDeckAccess` would resolve for these two standings. A folder's
+ * deck counts only while its `creatorId` is the folder's owner, and never when
+ * it is the caller's own.
  */
 export async function listPresentationsSharedWith(
 	userId: string,
 ): Promise<{ pres: Record<string, unknown>; level: DeckAccessLevel }[]> {
-	const grants = await listGrantsForUser(userId);
-	const decks = await Promise.all(
-		grants.map(async (grant) => {
-			const pres = await presentations.findOne(grant.presentationId);
-			return pres ? { pres, level: grant.level } : null;
+	const [deckGrants, folderDecks] = await Promise.all([
+		listGrantsForUser(userId),
+		listFolderDecksSharedWith(userId),
+	]);
+	const standings = [
+		...deckGrants.map((grant) => ({
+			presentationId: grant.presentationId,
+			ownerId: null as string | null,
+			level: grant.level,
+			grantedAt: grant.createdAt,
+		})),
+		...folderDecks,
+	];
+	const reached = await Promise.all(
+		standings.map(async (standing) => {
+			const pres = await presentations.findOne(standing.presentationId);
+			if (!pres) return null;
+			const creatorId = (pres.creatorId as string | null) ?? null;
+			if (standing.ownerId !== null && creatorId !== standing.ownerId) {
+				return null;
+			}
+			return creatorId === userId ? null : { pres, ...standing };
 		}),
 	);
-	return decks.filter((entry) => entry !== null);
+	const byDeck = new Map<
+		string,
+		{ pres: Record<string, unknown>; level: DeckAccessLevel; grantedAt: string }
+	>();
+	for (const entry of reached) {
+		if (!entry) continue;
+		const known = byDeck.get(entry.presentationId);
+		byDeck.set(entry.presentationId, {
+			pres: entry.pres,
+			level:
+				strongestDeckAccessLevel([known?.level ?? null, entry.level]) ??
+				entry.level,
+			grantedAt:
+				known && known.grantedAt > entry.grantedAt
+					? known.grantedAt
+					: entry.grantedAt,
+		});
+	}
+	return [...byDeck.values()]
+		.sort((first, second) => second.grantedAt.localeCompare(first.grantedAt))
+		.map(({ pres, level }) => ({ pres, level }));
 }
 
 /**

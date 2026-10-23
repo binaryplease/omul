@@ -7555,9 +7555,9 @@ export type StoredDeckCollaborator = z.infer<
 // ── Deck folders (REQ126) ────────────────────────────────────
 //
 // A folder belongs to exactly one account and groups decks that account owns.
-// Flat: a folder holds decks, never another folder. A folder is a label, not a
-// standing — nothing here authorizes anything on a deck, and deleting a folder
-// never deletes a deck.
+// Flat: a folder holds decks, never another folder. Deleting a folder never
+// deletes a deck. A folder itself authorizes nothing; a grant on it
+// ({@link StoredFolderGrantSchema}) is the one thing here that does.
 
 /** The longest a folder's name may be, in characters — a workspace's cap. */
 export const FOLDER_NAME_MAX_LENGTH = WORKSPACE_NAME_MAX_LENGTH;
@@ -7618,6 +7618,27 @@ export const FolderNameSchema = z.object({
  */
 export const FileDeckSchema = z.object({
 	folderId: z.string().min(1).nullable(),
+});
+
+/**
+ * One account's grant on one folder (REQ126, slice 4), at the REQ075 levels —
+ * the folder's half of {@link StoredDeckCollaboratorSchema}, and read the same
+ * way from both ends: a folder asks "who is on this?", a grantee "which folders
+ * am I on?". It reaches a filed deck only while that deck's `creatorId` is still
+ * the folder's owner, which access resolution checks rather than trusts.
+ *
+ * `folderId` and `userId` are the identity pair and carry no default. One row
+ * per pair, held by a unique index. The owner reads the list through
+ * {@link DeckCollaboratorSchema}, which drops `userId`.
+ */
+export const StoredFolderGrantSchema = z.object({
+	id: z.string(),
+	folderId: z.string(),
+	/** The invited account (Better Auth `user.id`). Never leaves the server. */
+	userId: z.string(),
+	level: DeckAccessLevelEnum.default("view"),
+	createdAt: z.string().default(""),
+	updatedAt: z.string().default(""),
 });
 
 /**
