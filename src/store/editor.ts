@@ -97,26 +97,7 @@ export interface EditorSlice extends EditorDocument {
 	setThemeLogoAlt: (themeLogoAlt: string) => void;
 
 	/** Populate the editor from a fetched presentation (Edit mode). */
-	loadEditor: (input: {
-		title: string;
-		slides: Slide[];
-		language?: string;
-		mode?: PresentationMode;
-		allowRepeatPasses?: boolean;
-		resultsVisibility?: ResultsVisibility;
-		qaEnabled?: boolean;
-		qaVisibility?: QAVisibility;
-		reactionsEnabled?: boolean;
-		chatEnabled?: boolean;
-		requireParticipantName?: boolean;
-		requireParticipantSignIn?: boolean;
-		profanityFilterEnabled?: boolean;
-		profanityFilterLanguage?: ParticipantLanguage | null;
-		theme?: string;
-		themeBrand?: Partial<DeckBrand> | null;
-		themeLogoUrl?: string;
-		themeLogoAlt?: string;
-	}) => void;
+	loadEditor: (input: EditorDocumentInput) => void;
 	/** Reset to a blank single-slide draft (Create mode). */
 	resetEditor: () => void;
 
@@ -145,6 +126,102 @@ export interface EditorSlice extends EditorDocument {
 		changes: Partial<SlideOption>,
 	) => void;
 	removeOption: (slideId: string, optionId: string) => void;
+}
+
+/** What a fetched deck hands the editor — the wire's shape, defaults unapplied. */
+export type EditorDocumentInput = {
+	title: string;
+	slides: Slide[];
+	language?: string;
+	mode?: PresentationMode;
+	allowRepeatPasses?: boolean;
+	resultsVisibility?: ResultsVisibility;
+	qaEnabled?: boolean;
+	qaVisibility?: QAVisibility;
+	reactionsEnabled?: boolean;
+	chatEnabled?: boolean;
+	requireParticipantName?: boolean;
+	requireParticipantSignIn?: boolean;
+	profanityFilterEnabled?: boolean;
+	profanityFilterLanguage?: ParticipantLanguage | null;
+	theme?: string;
+	themeBrand?: Partial<DeckBrand> | null;
+	themeLogoUrl?: string;
+	themeLogoAlt?: string;
+};
+
+/**
+ * A fetched deck as the editor holds it — what `loadEditor` puts on screen, and
+ * what a refused save's current deck is read through before it is merged with
+ * (REQ126), so the two sides of a merge are normalized alike and a default
+ * filled in on one of them never reads as somebody's edit.
+ */
+export function editorDocumentFor({
+	title,
+	slides,
+	language,
+	mode,
+	allowRepeatPasses,
+	resultsVisibility,
+	qaEnabled,
+	qaVisibility,
+	reactionsEnabled,
+	chatEnabled,
+	requireParticipantName,
+	requireParticipantSignIn,
+	profanityFilterEnabled,
+	profanityFilterLanguage,
+	theme,
+	themeBrand,
+	themeLogoUrl,
+	themeLogoAlt,
+}: EditorDocumentInput): EditorDocument {
+	return {
+		title,
+		slides,
+		language: language ?? "en",
+		mode: mode ?? "live",
+		// One set of answers per device is what an unknown deck reads as
+		// (REQ083), as the schema defaults it.
+		allowRepeatPasses: allowRepeatPasses ?? false,
+		resultsVisibility: resultsVisibility ?? "instant",
+		// The theme arrives as a bare string from the wire, so it lands through
+		// the same resolver every render surface uses (REQ079): a deck holding a
+		// palette this build does not know opens in the house theme rather than
+		// putting an unrenderable id into the picker.
+		theme: deckThemeIdFor({ theme }),
+		// And the brand it may carry lands through the schema's own reader
+		// (REQ080): a colour outside the grammar, or a face this build does not
+		// ship, opens as unauthored rather than as a value the editor would
+		// write straight back out.
+		themeBrand:
+			deckBrandFor({ theme: CUSTOM_DECK_THEME_ID, themeBrand }) ??
+			EMPTY_DECK_BRAND,
+		themeLogoUrl: themeLogoUrl ?? "",
+		themeLogoAlt: themeLogoAlt ?? "",
+		// The withholding value is what an unknown deck reads as, the same way
+		// the schema defaults it (REQ037): a deck loaded from anywhere must not
+		// arrive in the editor already publishing its room's questions.
+		qaEnabled: qaEnabled ?? false,
+		qaVisibility: qaVisibility ?? "presenter",
+		// Closed is what an unknown deck reads as here too (REQ077/REQ078): a
+		// deck loaded from anywhere must not arrive in the editor already
+		// carrying a chat channel its author never opened.
+		reactionsEnabled: reactionsEnabled ?? false,
+		chatEnabled: chatEnabled ?? false,
+		// And off is what an unknown deck reads as here (REQ076), for the
+		// sharpest version of the same reason: an editor that opened somebody
+		// else's deck with this switched on would put a question at the door of
+		// a room its organizer never meant to ask.
+		requireParticipantName: requireParticipantName ?? false,
+		// REQ134 — off is what an unknown deck reads as, as the schema defaults
+		// it: an editor must not save a door onto a deck that never had one.
+		requireParticipantSignIn: requireParticipantSignIn ?? false,
+		// REQ085 — off, following the deck's language, is what an unknown deck
+		// reads as, the way the schema defaults it.
+		profanityFilterEnabled: profanityFilterEnabled ?? false,
+		profanityFilterLanguage: profanityFilterLanguage ?? null,
+	};
 }
 
 export function createEditorSlice(set: AppSet, get: AppGet): EditorSlice {
@@ -237,72 +314,7 @@ export function createEditorSlice(set: AppSet, get: AppGet): EditorSlice {
 		setThemeLogoAlt: (themeLogoAlt) =>
 			dispatch({ type: "set-meta", changes: { themeLogoAlt } }),
 
-		loadEditor: ({
-			title,
-			slides,
-			language,
-			mode,
-			allowRepeatPasses,
-			resultsVisibility,
-			qaEnabled,
-			qaVisibility,
-			reactionsEnabled,
-			chatEnabled,
-			requireParticipantName,
-			requireParticipantSignIn,
-			profanityFilterEnabled,
-			profanityFilterLanguage,
-			theme,
-			themeBrand,
-			themeLogoUrl,
-			themeLogoAlt,
-		}) =>
-			set({
-				title,
-				slides,
-				language: language ?? "en",
-				mode: mode ?? "live",
-				// One set of answers per device is what an unknown deck reads as
-				// (REQ083), as the schema defaults it.
-				allowRepeatPasses: allowRepeatPasses ?? false,
-				resultsVisibility: resultsVisibility ?? "instant",
-				// The theme arrives as a bare string from the wire, so it lands through
-				// the same resolver every render surface uses (REQ079): a deck holding a
-				// palette this build does not know opens in the house theme rather than
-				// putting an unrenderable id into the picker.
-				theme: deckThemeIdFor({ theme }),
-				// And the brand it may carry lands through the schema's own reader
-				// (REQ080): a colour outside the grammar, or a face this build does not
-				// ship, opens as unauthored rather than as a value the editor would
-				// write straight back out.
-				themeBrand:
-					deckBrandFor({ theme: CUSTOM_DECK_THEME_ID, themeBrand }) ??
-					EMPTY_DECK_BRAND,
-				themeLogoUrl: themeLogoUrl ?? "",
-				themeLogoAlt: themeLogoAlt ?? "",
-				// The withholding value is what an unknown deck reads as, the same way
-				// the schema defaults it (REQ037): a deck loaded from anywhere must not
-				// arrive in the editor already publishing its room's questions.
-				qaEnabled: qaEnabled ?? false,
-				qaVisibility: qaVisibility ?? "presenter",
-				// Closed is what an unknown deck reads as here too (REQ077/REQ078): a
-				// deck loaded from anywhere must not arrive in the editor already
-				// carrying a chat channel its author never opened.
-				reactionsEnabled: reactionsEnabled ?? false,
-				chatEnabled: chatEnabled ?? false,
-				// And off is what an unknown deck reads as here (REQ076), for the
-				// sharpest version of the same reason: an editor that opened somebody
-				// else's deck with this switched on would put a question at the door of
-				// a room its organizer never meant to ask.
-				requireParticipantName: requireParticipantName ?? false,
-				// REQ134 — off is what an unknown deck reads as, as the schema defaults
-				// it: an editor must not save a door onto a deck that never had one.
-				requireParticipantSignIn: requireParticipantSignIn ?? false,
-				// REQ085 — off, following the deck's language, is what an unknown deck
-				// reads as, the way the schema defaults it.
-				profanityFilterEnabled: profanityFilterEnabled ?? false,
-				profanityFilterLanguage: profanityFilterLanguage ?? null,
-			}),
+		loadEditor: (input) => set(editorDocumentFor(input)),
 
 		resetEditor: () => set(blankDocument()),
 

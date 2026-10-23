@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { ApiError, api, signInRefusalOf } from "../api";
 import { getDict, type Lang } from "../i18n";
 import { reportingSignInRefusals } from "../pages/ParticipantPage";
+import { editorDocumentFor } from "../store/editor";
 import { createAppStore } from "../store/store";
 import type { ParticipantSignInRefusalCode } from "../types";
 import {
@@ -78,13 +79,20 @@ describe("the editor's switch reaches the server", () => {
 			"utf8",
 		);
 		const save = page.slice(
-			page.indexOf("await api.updatePresentation(editId"),
+			page.indexOf("const edits: EditorDocument = {"),
 			page.indexOf("} catch (submitError"),
 		);
 		expect(save.match(/\brequireParticipantSignIn,/g)?.length).toBe(2);
-		expect(page).toContain(
-			"requireParticipantSignIn: data.requireParticipantSignIn",
-		);
+		// A loaded deck reaches the editor through the one reader of a fetched
+		// deck, which keeps the switch as stored (REQ126 put the load through it).
+		expect(page).toContain("editorDocumentFor(data)");
+		expect(
+			editorDocumentFor({
+				title: "Deck",
+				slides: [],
+				requireParticipantSignIn: true,
+			}).requireParticipantSignIn,
+		).toBe(true);
 		expect(page).toContain("checked={requireParticipantSignIn}");
 		expect(page).toContain("onChange={onRequireParticipantSignInChange}");
 		expect(page).toContain(

@@ -26,6 +26,7 @@ import {
 	type ParticipantLanguage,
 	type ParticipantRosterEntry,
 	type ParticipantSignInRefusalCode,
+	type Presentation,
 	type ReactionKind,
 	RESULTS_TOKEN_HEADER,
 	type ResultsLink,
@@ -70,16 +71,24 @@ export class ApiError extends Error {
 	 * (REQ185).
 	 */
 	readonly status: number;
+	/**
+	 * The refusal's whole body, for the one refusal that hands back more than a
+	 * reason: a stale deck write carries the deck as it now stands (REQ126) —
+	 * see {@link staleDeckWriteOf}.
+	 */
+	readonly body: unknown;
 
 	constructor(
 		message: string,
 		refused: VoteRefusalCode | ParticipantSignInRefusalCode | null,
 		status = 0,
+		body: unknown = null,
 	) {
 		super(message);
 		this.name = "ApiError";
 		this.refused = refused;
 		this.status = status;
+		this.body = body;
 	}
 }
 
@@ -103,19 +112,41 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 				? err.refused
 				: null,
 			res.status,
+			err,
 		);
 	}
 	return res.json();
 }
 
 /**
- * Whether a thrown error is a deck write refused because the deck had moved on
- * since the copy it was based on (REQ126) — the `409` a PATCH naming a stale
- * `baseRevision` answers, and the only `409` that route gives. Nothing was
- * written, so the caller still holds every edit it sent.
+ * The current deck a thrown error carries when it is a deck write refused
+ * because the deck had moved on since the copy it was based on (REQ126) — the
+ * `409` with `refused: "stale-revision"` a PATCH naming a stale `baseRevision`
+ * answers — or `null` for anything else, another `409` included. Nothing was
+ * written, so the caller still holds every edit it sent, and this is the deck
+ * and revision it merges them onto. The deck is the editor's projection, read
+ * as `getPresentation` reads one.
  */
-export function isStaleDeckWrite(thrown: unknown): boolean {
-	return thrown instanceof ApiError && thrown.status === 409;
+export function staleDeckWriteOf(
+	thrown: unknown,
+): { revision: number; presentation: Presentation } | null {
+	if (!(thrown instanceof ApiError) || thrown.status !== 409) return null;
+	const body = thrown.body as {
+		refused?: unknown;
+		revision?: unknown;
+		presentation?: { slides?: unknown } | null;
+	} | null;
+	if (
+		body?.refused !== "stale-revision" ||
+		typeof body.revision !== "number" ||
+		!Array.isArray(body.presentation?.slides)
+	) {
+		return null;
+	}
+	return {
+		revision: body.revision,
+		presentation: body.presentation as Presentation,
+	};
 }
 
 function isSignInRefusalCode(
@@ -599,7 +630,7 @@ export const api = {
 			themeBrand?: DeckBrand;
 			themeLogoUrl?: string;
 			themeLogoAlt?: string;
-			/** The deck `revision` the edit was based on (REQ126) — see {@link isStaleDeckWrite}. */
+			/** The deck `revision` the edit was based on (REQ126) — see {@link staleDeckWriteOf}. */
 			baseRevision?: number;
 		},
 	) =>
