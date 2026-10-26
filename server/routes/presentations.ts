@@ -7,6 +7,7 @@ import {
 	resolveUserId,
 } from "../accounts";
 import {
+	enterDeckPdfRender,
 	guardCreate,
 	guardDeckPdf,
 	guardJoin,
@@ -1956,10 +1957,21 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 			const input = await getResultsExport(params.id, { exportedAt });
 			if (!input) return jsonError(404, "Not found");
 
+			// One render at a time across every caller, and a short queue behind
+			// it; past that a 503 rather than an unbounded backlog (REQ213). The
+			// renderer yields while it works, so the requests that are not
+			// exports are answered meanwhile.
+			const turn = await enterDeckPdfRender();
+			if ("refused" in turn) return turn.refused;
 			const includeResults = query.results !== "false";
-			const pdf = await renderDeckDocument(
-				buildDeckDocument({ ...input, includeResults }),
-			);
+			let pdf: Uint8Array<ArrayBuffer>;
+			try {
+				pdf = await renderDeckDocument(
+					buildDeckDocument({ ...input, includeResults }),
+				);
+			} finally {
+				turn.leave();
+			}
 			const filename = deckPdfFilename(
 				input.presentation.title,
 				exportedAt,
@@ -1981,7 +1993,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Results"],
 				summary: "Render the deck to PDF, with or without its results",
 				description:
-					"Renders the whole deck as a self-contained PDF (REQ096): a cover page naming the deck and its counts, then one section per slide — what it asked, and what it offered to answer with (options and the marked answer key, scale statements, ranking and 100 Points items, grid axes, a guess range and its reference, form fields). `results=true` (the default) draws each slide's tally underneath it, as bars where the aggregation publishes a share of the whole and as a table where it does not; `results=false` renders the deck alone. The numbers are the same aggregation the results endpoints publish, flattened by the same function the XLSX export's Aggregates sheet is written from — never recomputed. Nothing outside the file is referenced: a slide's media is named by its URL rather than fetched, and the text is set in the PDF standard fonts, whose WinAnsi encoding folds text outside Latin-1 to its nearest unaccented form (REQ158). Requires `Authorization: Bearer <creatorToken>` (or deck ownership) for **both** readings — even without a tally the document carries every quiz answer key, including one a running question is still withholding from the room (REQ056). A results link (REQ098) does not open this route. Served as an attachment and marked `Cache-Control: no-store`. Rate-limited per client address (REQ213): over the limit answers `429` with a `Retry-After` header and `retryAfterSeconds` in the body.",
+					"Renders the whole deck as a self-contained PDF (REQ096): a cover page naming the deck and its counts, then one section per slide — what it asked, and what it offered to answer with (options and the marked answer key, scale statements, ranking and 100 Points items, grid axes, a guess range and its reference, form fields). `results=true` (the default) draws each slide's tally underneath it, as bars where the aggregation publishes a share of the whole and as a table where it does not; `results=false` renders the deck alone. The numbers are the same aggregation the results endpoints publish, flattened by the same function the XLSX export's Aggregates sheet is written from — never recomputed. Nothing outside the file is referenced: a slide's media is named by its URL rather than fetched, and the text is set in the PDF standard fonts, whose WinAnsi encoding folds text outside Latin-1 to its nearest unaccented form (REQ158). Requires `Authorization: Bearer <creatorToken>` (or deck ownership) for **both** readings — even without a tally the document carries every quiz answer key, including one a running question is still withholding from the room (REQ056). A results link (REQ098) does not open this route. Served as an attachment and marked `Cache-Control: no-store`. Rate-limited per client address (REQ213): over the limit answers `429` with a `Retry-After` header and `retryAfterSeconds` in the body. One render runs at a time across every caller, with a short queue behind it; past that the export answers `503` with `Retry-After` at once. The render yields the thread while it works, so other requests are answered meanwhile.",
 				security: [{ bearerAuth: [] }],
 			},
 		},

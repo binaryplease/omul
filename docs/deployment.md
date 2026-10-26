@@ -284,6 +284,11 @@ Three things to know before tuning your deployment around them:
   deployment; running several replicas divides every ceiling above by the
   number of replicas.
 
+The PDF export has one more bound that is not in this table, because it is not
+a rate: one render runs at a time across every caller, four more may wait, and
+past that the export answers `503` with `Retry-After` (REQ213). It protects the
+server's single thread, so `OMUL_RATE_LIMITS_DISABLED` does not switch it off.
+
 ### Behind a reverse proxy, set `OMUL_TRUST_PROXY`
 
 The default ignores `X-Forwarded-For` deliberately — it is a caller-supplied

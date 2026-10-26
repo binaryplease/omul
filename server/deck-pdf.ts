@@ -184,7 +184,8 @@ export function cellText(value: SheetCell): string {
  *
  * **Linear in the text, and that is load-bearing** (REQ213). Bun serves every
  * request from one thread, so a reduction that is quadratic in a field is a
- * request that stalls the whole process — and a deck is uncapped in slides.
+ * request that stalls the whole process — and a field's own length cap is no
+ * defence against work that grows with its square.
  * The links and the bold are therefore read by {@link reduceLinks} and
  * {@link reduceStrong} rather than by the expressions they replace, which
  * rescan the rest of the line from every opener that never closes. The
@@ -1052,13 +1053,49 @@ function wrapLine(
 type Fonts = { regular: PDFFont; bold: PDFFont };
 
 /**
+ * How long the renderer works before it hands the thread back (REQ213).
+ *
+ * Bun serves every request from one thread, and a deck at its caps
+ * (`SLIDE_LIMIT` slides, every field at its length limit) takes on the
+ * order of a second to lay out — linear work, but a second all the same. Done
+ * in one stretch, that second is a second in which no other request is
+ * answered: not a vote, not a join, not a health check. So the renderer works
+ * in slices and yields between them, and the longest anything else waits on an
+ * export is about one slice rather than the whole render.
+ *
+ * Ten milliseconds is short enough that a vote landing mid-export is not
+ * noticeably late, and long enough that the yields themselves cost nothing a
+ * reader would see: a worst-case render yields about a hundred and fifty times.
+ */
+export const RENDER_SLICE_MS = 10;
+
+/**
+ * A function that, once {@link RENDER_SLICE_MS} has passed since it last
+ * yielded, waits for the event loop to run whatever else is ready — and
+ * otherwise returns at once. Called between units of work small enough that
+ * none of them is itself a long stall.
+ */
+function createYielder(sliceMs: number): () => Promise<void> {
+	let sliceStartedAt = performance.now();
+	return async () => {
+		if (performance.now() - sliceStartedAt < sliceMs) return;
+		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		sliceStartedAt = performance.now();
+	};
+}
+
+/**
  * The page the renderer is currently writing onto, and how far down it is.
  *
  * A factory closure rather than a class: the whole of the flow is
  * "put this at the cursor, and start a page when it will not fit", and every
  * block draws through the same two calls.
  */
-function createFlow(document: PDFDocument, fonts: Fonts) {
+function createFlow(
+	document: PDFDocument,
+	fonts: Fonts,
+	yieldIfDue: () => Promise<void>,
+) {
 	let page: PDFPage | null = null;
 	let cursorY = 0;
 
@@ -1272,8 +1309,13 @@ function createFlow(document: PDFDocument, fonts: Fonts) {
 		 * A table whose first column is the entry and whose rest are its metrics.
 		 * The header repeats on every page the table runs onto — a column of bare
 		 * numbers under no heading is not a reading of anything.
+		 *
+		 * Asynchronous because its rows are the one run of work here that the
+		 * caps do not bound per block: a room's open responses are as many as
+		 * the room wrote, so the table yields between rows like the render loop
+		 * does between blocks.
 		 */
-		table(columns: string[], rows: string[][]): void {
+		async table(columns: string[], rows: string[][]): Promise<void> {
 			const entryWidth = CONTENT_WIDTH * 0.42;
 			const metricWidth =
 				columns.length > 1 ? (CONTENT_WIDTH - entryWidth) / (columns.length - 1) : 0;
@@ -1315,6 +1357,7 @@ function createFlow(document: PDFDocument, fonts: Fonts) {
 
 			drawHeader();
 			for (const row of rows) {
+				await yieldIfDue();
 				const cells = row.map((cell, index) =>
 					wrapLine(winAnsiText(cell), fonts.regular, 9.5, widthOf(index) - 6),
 				);
@@ -1364,11 +1407,13 @@ export async function renderDeckDocument(
 		regular: await document.embedFont(StandardFonts.Helvetica),
 		bold: await document.embedFont(StandardFonts.HelveticaBold),
 	};
-	const flow = createFlow(document, fonts);
+	const yieldIfDue = createYielder(RENDER_SLICE_MS);
+	const flow = createFlow(document, fonts, yieldIfDue);
 
 	for (const section of model.sections) {
 		flow.startSection();
 		for (const block of section.blocks) {
+			await yieldIfDue();
 			switch (block.kind) {
 				case "title":
 					flow.prose(block.text, {
@@ -1421,6 +1466,7 @@ export async function renderDeckDocument(
 					break;
 				case "bullets":
 					for (const item of block.items) {
+						await yieldIfDue();
 						flow.prose(`• ${item}`, {
 							size: 10.5,
 							font: fonts.regular,
@@ -1431,14 +1477,20 @@ export async function renderDeckDocument(
 					flow.gap(6);
 					break;
 				case "facts":
-					for (const fact of block.facts) flow.fact(fact);
+					for (const fact of block.facts) {
+						await yieldIfDue();
+						flow.fact(fact);
+					}
 					flow.gap(6);
 					break;
 				case "bars":
-					for (const bar of block.bars) flow.bar(bar);
+					for (const bar of block.bars) {
+						await yieldIfDue();
+						flow.bar(bar);
+					}
 					break;
 				case "table":
-					flow.table(block.columns, block.rows);
+					await flow.table(block.columns, block.rows);
 					break;
 				case "rule":
 					flow.rule();
@@ -1451,7 +1503,8 @@ export async function renderDeckDocument(
 	// while page 3 is being filled.
 	const pages = document.getPages();
 	const footer = winAnsiText(model.footer);
-	pages.forEach((page, index) => {
+	for (const [index, page] of pages.entries()) {
+		await yieldIfDue();
 		const counter = `${index + 1} / ${pages.length}`;
 		const counterWidth = fonts.regular.widthOfTextAtSize(counter, 8.5);
 		const footerText = wrapLine(
@@ -1474,7 +1527,7 @@ export async function renderDeckDocument(
 			font: fonts.regular,
 			color: DIM,
 		});
-	});
+	}
 
 	// pdf-lib allocates its output as a plain `new Uint8Array(size)`, so the bytes
 	// are backed by an `ArrayBuffer` and go out as written rather than through a

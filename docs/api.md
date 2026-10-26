@@ -432,10 +432,29 @@ its `join` message only subscribes a socket to a room.
 
 The **PDF export** is the one read on the list, and the one authorized route
 there for a reason other than probing (REQ213): rendering a deck is CPU on the
-single thread every other request is served from, decks are uncapped in slides,
-and the edit token it asks for is one anonymous create away. Sixty in five
-minutes is a whole workshop on one wifi exporting both readings of their own
-decks at once.
+single thread every other request is served from, and the edit token it asks
+for is one anonymous create away. Every write caps a deck at 200 slides
+(`SLIDE_LIMIT`) and each field at its length limit, so a render is bounded — but
+a deck at those caps still takes about a second and a half of render work.
+Sixty in five minutes is a whole workshop on one wifi exporting both readings
+of their own decks at once, and at the worst case it is a minute and a half of
+rendering in five: one address cannot hold the render slot on its own.
+
+That per-client ceiling is not what keeps the server answering. Two things
+are, and neither is a rate limit, so neither is switched off by
+`OMUL_RATE_LIMITS_DISABLED`:
+
+- **The render yields.** It works in slices of about ten milliseconds
+  (`RENDER_SLICE_MS`) and hands the thread back between them, so a vote, a
+  join or a health check that arrives mid-export waits about one slice rather
+  than the whole render.
+- **Render work in hand is bounded, whoever asks** (`DECK_PDF_RENDER_GATE`).
+  One render runs at a time and four more may wait their turn; past that the
+  export answers **`503`** at once, with a `Retry-After` header (5 seconds)
+  and `retryAfterSeconds` in the body. A `503` rather than a `429`, because the
+  refusal is about the server's load, not about anything the caller did. The
+  decks people export render in milliseconds, so the queue does not form in
+  use.
 
 ## Sharing a deck with other accounts (REQ075)
 

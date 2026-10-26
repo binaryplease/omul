@@ -721,6 +721,39 @@ describe("REQ096 — the file the browser saves", () => {
 });
 
 describe("REQ096 — rendering", () => {
+	test("rendering a long deck hands the thread back while it works (REQ213)", async () => {
+		// A deck with every field at its cap: real render work, about a second at
+		// the full slide limit. Bun answers every request from this one thread, so
+		// what matters is not how long the render takes but how long the thread
+		// is gone at a stretch. A timer asking to run every millisecond measures
+		// that stretch; compared with the render's own length rather than with a
+		// clock, so the bound holds on any machine — a render that never yields
+		// keeps the thread for nearly all of itself, one that does for a sliver.
+		const text = "lorem ipsum dolor sit amet ".repeat(200).slice(0, SLIDE_TEXT_MAX_LENGTH);
+		const slides = Array.from({ length: 60 }, (_, index) =>
+			slide({ id: `s${index}`, type: "text", question: text, body: text }),
+		);
+		const document = buildDeckDocument(input(deck(slides)));
+
+		let longestGap = 0;
+		let lastTick = performance.now();
+		const probe = setInterval(() => {
+			const now = performance.now();
+			longestGap = Math.max(longestGap, now - lastTick);
+			lastTick = now;
+		}, 1);
+		const started = performance.now();
+		lastTick = started;
+		await renderDeckDocument(document);
+		const renderTook = performance.now() - started;
+		clearInterval(probe);
+
+		expect(renderTook).toBeGreaterThan(0);
+		expect({ shareOfRenderHeld: longestGap / renderTook < 0.25 }).toEqual({
+			shareOfRenderHeld: true,
+		});
+	});
+
 	test("a document renders to PDF bytes, whatever it carries", async () => {
 		const document = buildDeckDocument(
 			input(
