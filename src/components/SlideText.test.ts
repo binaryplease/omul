@@ -29,6 +29,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { plainTextFromMarkdown } from "../../server/deck-pdf";
 import { SlideTextSizeEnum } from "../../server/schemas";
 import {
+	createBracketedSpanReader,
 	isSlideLanguageTag,
 	parseSlideInline,
 	parseSlideText,
@@ -745,9 +746,13 @@ describe("a passage in another language (REQ133)", () => {
 		}
 	});
 
-	test("adversarial brackets at the field's length still parse in a blink", () => {
+	test("adversarial brackets at the field's length are read in linear work", () => {
+		// Counted rather than timed, so the bound holds on any machine: a clock
+		// limit passed on a laptop and failed on a slower CI runner. Scanning
+		// afresh from every `[` took work quadratic in the text (5,000 unclosed
+		// brackets, about 12.5 million steps); one reader per run of text reads
+		// each token once and steps each position once.
 		const fill = (unit: string) => unit.repeat(5000 / unit.length);
-		const started = performance.now();
 		for (const written of [
 			fill("["),
 			fill("[a"),
@@ -755,11 +760,18 @@ describe("a passage in another language (REQ133)", () => {
 			fill("[`a"),
 			fill("[a]{lang=fr}"),
 			`${fill("[")}a${fill("]{lang=fr}")}`,
+			`${fill("[a]{")}${fill("]")}`,
+			`${fill("[")}\n${fill("[a]{lang=fr}")}`,
 		]) {
+			// Asked at every bracket, as the parser asks it.
+			const spans = createBracketedSpanReader(written);
+			for (let index = 0; index < written.length; index += 1) {
+				if (written[index] === "[") spans.read(index);
+			}
+			expect(spans.steps).toBeLessThanOrEqual(2 * written.length);
 			parseSlideInline(written);
 			parseSlideText(written);
 		}
-		expect(performance.now() - started).toBeLessThan(500);
 	});
 });
 

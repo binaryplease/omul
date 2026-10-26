@@ -495,57 +495,163 @@ export function isSlideLanguageTag(tag: string): boolean {
 }
 
 /**
- * The `[passage]{…}` span that opens at the `[` starting `source`, or `null`
- * when that bracket closes no span (REQ133).
+ * The index just past the token that starts at `index`, as a bracketed span's
+ * scan reads the text (REQ133): an escaped character, a code span or a formula
+ * is one token, so a bracket inside it is not counted; anything else is one
+ * character.
+ *
+ * Depends on nothing before `index`, which is what lets every scan that reaches
+ * a position share the one reading of it.
+ */
+function spanTokenEnd(source: string, index: number): number {
+	const character = source[index] as string;
+	if (character === "\\" && ESCAPABLE.includes(source[index + 1] ?? "")) {
+		return index + 2;
+	}
+	if (character === "`") {
+		const close = source.indexOf("`", index + 1);
+		const code = close === -1 ? "" : source.slice(index + 1, close);
+		return code.length > 0 && !code.includes("\n") ? close + 1 : index + 1;
+	}
+	if (character === "$") {
+		const formula = readFormula(source, index);
+		return formula?.end ?? index + (source[index + 1] === "$" ? 2 : 1);
+	}
+	return index + 1;
+}
+
+/** A `[passage]{…}` span, with `end` counted from its opening bracket. */
+type BracketedSpan = { passage: string; lang: string | null; end: number };
+
+/** Not yet read, in the reader's tables. */
+const UNREAD = -2;
+/** Nothing closes it before a line break or the end of the text. */
+const UNCLOSED = -1;
+
+/**
+ * Reads the `[passage]{…}` spans of one run of text (REQ133): `read(start)` is
+ * the span that opens at the `[` at `start`, or `null` when that bracket closes
+ * no span.
  *
  * The closing `]` is the one that balances the opening bracket, so a link can
  * sit inside the passage — `[voir [la doc](https://example.com)]{lang=fr}` —
  * and a bracket inside code, inside a formula or behind a backslash is not
- * counted. `lang` is `null` when the braces are something other than one
- * well-shaped `lang=` tag; the caller then shows the whole span as typed.
+ * counted; a line break before the balancing `]` means no span. `lang` is
+ * `null` when the braces are something other than one well-shaped `lang=` tag;
+ * the caller then shows the whole span as typed.
+ *
+ * One reader serves every bracket of the text, and that is the point of it.
+ * Scanning forward afresh from each `[` costs the length of the text per
+ * bracket, so five thousand unclosed ones (an authored field's length) took
+ * time quadratic in it. Here each token is read once, by whichever scan reaches
+ * it first, and each bracket's closer is found once, by a stack over that scan.
+ * A scan that runs into a position an earlier one read stops there and takes
+ * the rest from it: its still-open brackets close where the text from that
+ * position first drops below its own level, found by stepping over whole
+ * bracket pairs and remembered for every position on the way. So the work is
+ * linear in the text, and `steps` counts it: tokens read plus positions
+ * stepped, never more than twice the text's length.
+ *
+ * Exported so the test can hold `steps` to that bound.
  */
-function readBracketedSpan(
-	source: string,
-): { passage: string; lang: string | null; end: number } | null {
-	let depth = 0;
-	let index = 0;
+export function createBracketedSpanReader(source: string): {
+	read: (start: number) => BracketedSpan | null;
+	readonly steps: number;
+} {
+	const tokenEnd = new Int32Array(source.length).fill(UNREAD);
+	const closeOf = new Int32Array(source.length).fill(UNREAD);
+	const dropFrom = new Int32Array(source.length).fill(UNREAD);
+	let steps = 0;
 
-	while (index < source.length) {
-		const character = source[index] as string;
-		if (character === "\n") return null;
-		if (character === "\\" && ESCAPABLE.includes(source[index + 1] ?? "")) {
-			index += 2;
-			continue;
+	/**
+	 * The first `]` that closes a level below the one open at `from`, or
+	 * `UNCLOSED`. Every position from `from` on is already read.
+	 */
+	function closerBelow(from: number): number {
+		const stepped: number[] = [];
+		let index = from;
+		let found = UNCLOSED;
+		while (index < source.length) {
+			if (dropFrom[index] !== UNREAD) {
+				found = dropFrom[index] as number;
+				break;
+			}
+			steps += 1;
+			stepped.push(index);
+			const character = source[index];
+			if (character === "\n") break;
+			if (character === "]") {
+				found = index;
+				break;
+			}
+			if (character === "[") {
+				const close = closeOf[index] as number;
+				if (close === UNCLOSED) break;
+				index = close + 1;
+				continue;
+			}
+			index = tokenEnd[index] as number;
 		}
-		if (character === "`") {
-			const close = source.indexOf("`", index + 1);
-			const code = close === -1 ? "" : source.slice(index + 1, close);
-			index = code.length > 0 && !code.includes("\n") ? close + 1 : index + 1;
-			continue;
-		}
-		if (character === "$") {
-			const formula = readFormula(source, index);
-			index = formula?.end ?? index + (source[index + 1] === "$" ? 2 : 1);
-			continue;
-		}
-		if (character === "[") depth += 1;
-		if (character === "]") {
-			depth -= 1;
-			if (depth === 0) break;
-		}
-		index += 1;
+		for (const position of stepped) dropFrom[position] = found;
+		return found;
 	}
-	if (depth !== 0) return null;
 
-	const passage = source.slice(1, index);
-	const attributes = SPAN_ATTRIBUTES.exec(source.slice(index + 1));
-	if (attributes === null || passage.trim().length === 0) return null;
+	/** Read forward from `start` until the end or a position already read. */
+	function scan(start: number): void {
+		const open: number[] = [];
+		let index = start;
+		while (index < source.length) {
+			if (index !== start && tokenEnd[index] !== UNREAD) break;
+			steps += 1;
+			const character = source[index];
+			tokenEnd[index] = spanTokenEnd(source, index);
+			if (character === "\n") {
+				for (const bracket of open) closeOf[bracket] = UNCLOSED;
+				open.length = 0;
+			} else if (character === "[") {
+				open.push(index);
+			} else if (character === "]") {
+				const bracket = open.pop();
+				if (bracket !== undefined) closeOf[bracket] = index;
+			}
+			index = tokenEnd[index] as number;
+		}
+		// What is still open closes, innermost first, on the text already read.
+		let from = index;
+		while (open.length > 0) {
+			const bracket = open.pop() as number;
+			const close = from < source.length ? closerBelow(from) : UNCLOSED;
+			closeOf[bracket] = close;
+			if (close === UNCLOSED) {
+				for (const outer of open) closeOf[outer] = UNCLOSED;
+				break;
+			}
+			from = close + 1;
+		}
+	}
 
-	const [, tag] = /^lang=(.*)$/.exec(attributes[1] as string) ?? [];
+	function read(start: number): BracketedSpan | null {
+		if (tokenEnd[start] === UNREAD) scan(start);
+		const close = closeOf[start] as number;
+		if (close < 0) return null;
+
+		const attributes = SPAN_ATTRIBUTES.exec(source.slice(close + 1));
+		const passage = source.slice(start + 1, close);
+		if (attributes === null || passage.trim().length === 0) return null;
+
+		const [, tag] = /^lang=(.*)$/.exec(attributes[1] as string) ?? [];
+		return {
+			passage,
+			lang: tag !== undefined && isSlideLanguageTag(tag) ? tag : null,
+			end: close + 1 + attributes[0].length - start,
+		};
+	}
+
 	return {
-		passage,
-		lang: tag !== undefined && isSlideLanguageTag(tag) ? tag : null,
-		end: index + 1 + attributes[0].length,
+		read,
+		get steps() {
+			return steps;
+		},
 	};
 }
 
@@ -553,6 +659,8 @@ function parseInlineNodes(source: string, depth: number): SlideInlineNode[] {
 	const nodes: SlideInlineNode[] = [];
 	let literal = "";
 	let position = 0;
+	// One for the whole run, made at its first bracket (REQ133).
+	let spans: ReturnType<typeof createBracketedSpanReader> | null = null;
 
 	function flushLiteral(): void {
 		if (literal.length > 0) {
@@ -611,7 +719,7 @@ function parseInlineNodes(source: string, depth: number): SlideInlineNode[] {
 		// span's rather than taken as the start of a longer label.
 		const span =
 			character === "[" && depth < INLINE_NESTING_LIMIT
-				? readBracketedSpan(rest)
+				? (spans ??= createBracketedSpanReader(source)).read(position)
 				: null;
 		if (span) {
 			flushLiteral();
