@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Exporting a presentation as PDF can no longer stall the server. Turning slide text into plain words for the PDF took time that grew with the square of the text for some markup; it now grows linearly, and the output is unchanged.
 - `GET /api/presentations/:id/deck.pdf` is now rate-limited: 60 exports per 5 minutes per client. Over the limit it answers `429` with a `Retry-After` header, like the other limited routes. `OMUL_RATE_LIMITS_DISABLED=true` turns it off with the rest.
+- A PDF export no longer holds up other requests while it renders: the renderer hands the server's thread back every few milliseconds. One export renders at a time across all callers, with up to four waiting; past that the export answers `503` with a `Retry-After` header. This bound protects the server rather than limiting a rate, so `OMUL_RATE_LIMITS_DISABLED` does not turn it off.
 
 ## [1.1.0] - 2026-10-21
 
