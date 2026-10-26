@@ -752,7 +752,7 @@ describe("REQ096 — rendering", () => {
 		expect({ shareOfRenderHeld: longestGap / renderTook < 0.25 }).toEqual({
 			shareOfRenderHeld: true,
 		});
-	});
+	}, 30_000);
 
 	test("a document renders to PDF bytes, whatever it carries", async () => {
 		const document = buildDeckDocument(

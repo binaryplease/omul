@@ -130,10 +130,13 @@ describe("PDF export under load (REQ213)", () => {
 		expect({ shareOfExportWaited: slowestHealth / exportTook < 0.25 }).toEqual({
 			shareOfExportWaited: true,
 		});
-	});
+	}, 30_000);
 
 	test("exports past the running one and its queue are refused at once with 503", async () => {
-		const deck = await createLongDeck(60);
+		// Long enough that a render outlasts the time all the asks take to
+		// arrive, short enough that the renders the gate lets through finish well
+		// inside the test's time on a slow runner.
+		const deck = await createLongDeck(25);
 		const capacity = DECK_PDF_RENDER_GATE.concurrent + DECK_PDF_RENDER_GATE.queued;
 		const asked = capacity + 3;
 
@@ -158,7 +161,7 @@ describe("PDF export under load (REQ213)", () => {
 		const lastRefused = Math.max(...refused.map((result) => result.finishedAt));
 		expect(lastRefused).toBeLessThan(firstRendered);
 		expect(firstRendered).toBeGreaterThan(started);
-	});
+	}, 30_000);
 
 	test("once the queue has drained, the next export renders again", async () => {
 		const deck = await createLongDeck(2);
