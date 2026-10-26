@@ -181,26 +181,116 @@ export function cellText(value: SheetCell): string {
  * kept beside its label because a printed page cannot be clicked.
  *
  * Line structure survives, because a body written as a list is a list.
+ *
+ * **Linear in the text, and that is load-bearing** (REQ213). Bun serves every
+ * request from one thread, so a reduction that is quadratic in a field is a
+ * request that stalls the whole process — and a deck is uncapped in slides.
+ * The links and the bold are therefore read by {@link reduceLinks} and
+ * {@link reduceStrong} rather than by the expressions they replace, which
+ * rescan the rest of the line from every opener that never closes. The
+ * expressions that remain cannot: three are anchored at the start of the line,
+ * and code and italic stop at their own next delimiter, so each opener's scan
+ * ends where the next one's begins.
  */
 export function plainTextFromMarkdown(markdown: string): string {
 	return markdown
 		.split("\n")
-		.map((line) =>
-			line
+		.map((line) => {
+			const unprefixed = line
 				// Sub-headings (REQ089) — the hashes are the markup, not the words.
 				.replace(/^\s{0,3}#{1,6}\s+/, "")
 				// A list marker becomes a bullet the reader can see.
 				.replace(/^\s*[-*+]\s+/, "• ")
-				.replace(/^\s*(\d+)\.\s+/, "$1. ")
-				// A link keeps both halves: nothing on paper can follow the label.
-				.replace(/\[([^\]]*)\]\(([^)]+)\)/g, "$1 ($2)")
-				.replace(/`([^`]*)`/g, "$1")
-				.replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, "$2")
+				.replace(/^\s*(\d+)\.\s+/, "$1. ");
+			// A link keeps both halves: nothing on paper can follow the label.
+			const unlinked = reduceLinks(unprefixed).replace(/`([^`]*)`/g, "$1");
+			return reduceStrong(unlinked)
 				.replace(/(\*|_)(?=\S)([^*_]*?\S)\1/g, "$2")
-				.trimEnd(),
-		)
+				.trimEnd();
+		})
 		.join("\n")
 		.trim();
+}
+
+/**
+ * Every `[label](address)` on a line as `label (address)` — exactly what
+ * `/\[([^\]]*)\]\(([^)]+)\)/g` replaced with `"$1 ($2)"` produces, read in one
+ * pass instead.
+ *
+ * The expression scans from each `[` to the next `]`, so a line of `[` with no
+ * `]` costs it the rest of the line once per bracket (REQ213). Here a failed
+ * `[` hands its verdict to every `[` up to the `]` it reached, because each of
+ * those reaches the same `]` and fails the same way — so the scan resumes past
+ * it — and a missing `]` or `)` ends the line's links outright, since no later
+ * opener could find one either.
+ */
+function reduceLinks(line: string): string {
+	let output = "";
+	let copied = 0;
+	let open = line.indexOf("[");
+	while (open !== -1) {
+		const close = line.indexOf("]", open + 1);
+		if (close === -1) break;
+		if (line[close + 1] === "(") {
+			const end = line.indexOf(")", close + 2);
+			if (end === -1) break;
+			// `[^)]+` — an empty address is not a link.
+			if (end > close + 2) {
+				output += `${line.slice(copied, open)}${line.slice(open + 1, close)} (${line.slice(close + 2, end)})`;
+				copied = end + 1;
+				open = line.indexOf("[", copied);
+				continue;
+			}
+		}
+		open = line.indexOf("[", close + 1);
+	}
+	return output + line.slice(copied);
+}
+
+/** What `\s` matches, asked of one character. */
+const WHITESPACE = /\s/;
+
+/**
+ * Every `**bold**` and `__bold__` on a line as its words — exactly what
+ * `/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g` replaced with `"$2"` produces: an opener
+ * followed by a non-space, closed by the first matching pair that follows a
+ * non-space.
+ *
+ * The expression searches the rest of the line for that closer from every
+ * opener, so a line of openers that never close costs it the rest of the line
+ * once per opener (REQ213). An opener that finds no closer proves that no later
+ * opener of the same pair can — any closer after a later opener is after this
+ * one too — so each pair is searched to the end of the line at most once.
+ */
+function reduceStrong(line: string): string {
+	let output = "";
+	let copied = 0;
+	const unclosable = new Set<string>();
+	let index = 0;
+	while (index + 2 < line.length) {
+		const pair = line.slice(index, index + 2);
+		if (
+			(pair !== "**" && pair !== "__") ||
+			unclosable.has(pair) ||
+			WHITESPACE.test(line[index + 2] as string)
+		) {
+			index += 1;
+			continue;
+		}
+		let closer = line.indexOf(pair, index + 3);
+		while (closer !== -1 && WHITESPACE.test(line[closer - 1] as string)) {
+			closer = line.indexOf(pair, closer + 1);
+		}
+		if (closer === -1) {
+			unclosable.add(pair);
+			index += 1;
+			continue;
+		}
+		output += line.slice(copied, index) + line.slice(index + 2, closer);
+		copied = closer + 2;
+		index = copied;
+	}
+	return output + line.slice(copied);
 }
 
 // ── Building the document ────────────────────────────────────

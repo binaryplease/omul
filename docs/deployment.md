@@ -262,6 +262,7 @@ the JSON body.
 | the same public writes | 60 per minute | `participantId` |
 | `POST /api/feedback` (feedback about omul, REQ185) | 20 per 10 minutes | client |
 | `POST /api/feedback/participant` (the prompt after a session, REQ186) | 300 per 10 minutes | client |
+| `GET /api/presentations/:id/deck.pdf` (PDF export, REQ213) | 60 per 5 minutes | client |
 
 Three things to know before tuning your deployment around them:
 

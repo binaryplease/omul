@@ -17,7 +17,9 @@ process.env.NODE_ENV = "test";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import {
 	CREATE_RULE,
+	DECK_PDF_RULE,
 	GENERATION_RULE,
+	guardDeckPdf,
 	guardJoin,
 	guardReaction,
 	guardSubmission,
@@ -303,6 +305,40 @@ describe("rate limits on create, join and vote (REQ145)", () => {
 		expect(allowed.status).toBe(404);
 	});
 
+	test("the PDF export is refused with a 429 once its window is full (REQ213)", async () => {
+		// The token an anonymous create hands out is all this route asks for, which
+		// is why it is budgeted at all.
+		const created: Any = await (await createAs("203.0.113.30")).json();
+		const exportAs = (address: string) =>
+			fetch(`${baseUrl}/api/presentations/${created.id}/deck.pdf`, {
+				headers: {
+					Authorization: `Bearer ${created.creatorToken}`,
+					"X-Forwarded-For": address,
+				},
+			});
+
+		const address = "203.0.113.31";
+		for (let attempt = 0; attempt < DECK_PDF_RULE.limit; attempt++) {
+			const allowed = await exportAs(address);
+			expect(allowed.status).toBe(200);
+			await allowed.arrayBuffer();
+		}
+
+		const refused = await exportAs(address);
+		expect(refused.status).toBe(429);
+		const retryAfter = Number(refused.headers.get("Retry-After"));
+		expect(retryAfter).toBeGreaterThanOrEqual(1);
+		expect(retryAfter).toBeLessThanOrEqual(DECK_PDF_RULE.windowMs / 1000);
+		const body: Any = await refused.json();
+		expect(body.error).toContain("PDF");
+		expect(body.retryAfterSeconds).toBe(retryAfter);
+
+		// Another client still renders.
+		const other = await exportAs("203.0.113.32");
+		expect(other.status).toBe(200);
+		expect(other.headers.get("Content-Type")).toBe("application/pdf");
+	});
+
 	test("a vote is refused once the participant's own window is full", async () => {
 		const participantId = "participant-exhausted";
 		// Spend the per-participant budget from an address that is not the one the
@@ -490,6 +526,10 @@ describe("rate limits on create, join and vote (REQ145)", () => {
 				headers: { "X-Forwarded-For": address },
 			});
 			expect(joined.status).toBe(404);
+			const context = { request: fabricatedRequest(address), server: null };
+			for (let attempt = 0; attempt < DECK_PDF_RULE.limit + 5; attempt++) {
+				expect(guardDeckPdf(context)).toBeNull();
+			}
 		} finally {
 			delete process.env.OMUL_RATE_LIMITS_DISABLED;
 		}

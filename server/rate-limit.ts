@@ -597,6 +597,23 @@ export const PARTICIPANT_FEEDBACK_RULE: RateLimitRule = {
 	windowMs: 10 * 60_000,
 };
 
+/**
+ * Rendering a deck to PDF (REQ096, REQ213) — the one read on this list, and on
+ * it because it is the most expensive call a caller with a token can repeat.
+ *
+ * Its cost is CPU on the thread every other request is served from, and a deck
+ * is uncapped in slides, so one render of a long deck is real work however
+ * linear the renderer is. An edit token is no throttle either: an anonymous
+ * create hands one out, so this route is as open as create itself.
+ *
+ * An export is a click on a finished deck — an organizer takes a handful in a
+ * session, and both readings at most once each. Sixty in five minutes is a
+ * workshop of thirty, each building their own deck on one wifi, exporting both
+ * readings inside the same five minutes; a script re-rendering a deck in a
+ * loop gets one render every five seconds.
+ */
+export const DECK_PDF_RULE: RateLimitRule = { limit: 60, windowMs: 5 * 60_000 };
+
 const createWindow = createSlidingWindow(CREATE_RULE);
 const generationWindow = createSlidingWindow(GENERATION_RULE);
 const joinWindow = createSlidingWindow(JOIN_RULE);
@@ -612,6 +629,7 @@ const feedbackWindow = createSlidingWindow(FEEDBACK_RULE);
 const participantFeedbackWindow = createSlidingWindow(
 	PARTICIPANT_FEEDBACK_RULE,
 );
+const deckPdfWindow = createSlidingWindow(DECK_PDF_RULE);
 
 /** Drop every counter. For tests that need a clean slate between cases. */
 export function resetRateLimits(): void {
@@ -624,6 +642,7 @@ export function resetRateLimits(): void {
 	reactionParticipantWindow.reset();
 	feedbackWindow.reset();
 	participantFeedbackWindow.reset();
+	deckPdfWindow.reset();
 }
 
 // ── Route guards ────────────────────────────────────────────
@@ -658,6 +677,8 @@ const SUBMISSION_MESSAGE = "Too many submissions — please slow down";
 const REACTION_MESSAGE = "Too many reactions — please slow down";
 const FEEDBACK_MESSAGE =
 	"Too much feedback sent from here — please wait a moment";
+const DECK_PDF_MESSAGE =
+	"Too many PDF exports from here — please wait a moment";
 
 /** Rate-limit `POST /api/presentations`. */
 export function guardCreate({ request, server }: GuardContext): Response | null {
@@ -723,6 +744,14 @@ export function guardJoin({ request, server }: GuardContext): Response | null {
 	const verdict = joinWindow.check(clientKey(request, server));
 	if (verdict.allowed) return null;
 	return tooManyRequests(verdict.retryAfterSeconds, JOIN_MESSAGE);
+}
+
+/** Rate-limit `GET /api/presentations/:id/deck.pdf` (REQ213). */
+export function guardDeckPdf({ request, server }: GuardContext): Response | null {
+	if (!rateLimitsEnabled()) return null;
+	const verdict = deckPdfWindow.check(clientKey(request, server));
+	if (verdict.allowed) return null;
+	return tooManyRequests(verdict.retryAfterSeconds, DECK_PDF_MESSAGE);
 }
 
 /**

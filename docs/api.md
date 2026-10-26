@@ -199,8 +199,8 @@ omul** below).
 | GET | `/api/admin/events` | ✅ admin | Append-only admin audit log |
 | GET | `/api/admin/feedback` | ✅ admin | Feedback about omul, `?channel=user\|participant` and an optional `cursor`: the channel's totals and fifty entries newest first, a `user` entry's contact resolved at read time (REQ185). `404` while both channels are off — see **Feedback about omul** below |
 
-Ten of those routes are rate-limited and can answer `429` — see **Rate
-limits** directly below.
+Some of those routes are rate-limited and can answer `429` — **Rate limits**
+directly below lists which.
 
 ## The discovery index (REQ151)
 
@@ -371,10 +371,11 @@ in the body:
 | `POST /api/workspaces/:id/members` (REQ129) | 60 per minute | the workspace being added to |
 | `POST /api/feedback` (REQ185) | 20 per 10 minutes | client |
 | `POST /api/feedback/participant` (REQ186) | 300 per 10 minutes | client |
+| `GET …/deck.pdf` (REQ213) | 60 per 5 minutes | client |
 
-Sharing a deck and adding somebody to a workspace are the two **authenticated**
-routes on that list, and they are there for a reason of their own (REQ075,
-REQ129): answering `404` for an address with no account and `201` for one that
+Sharing a deck and adding somebody to a workspace are two of the
+**authenticated** routes on that list, and they are there for a reason of their
+own (REQ075, REQ129): answering `404` for an address with no account and `201` for one that
 has makes each an account-existence oracle, which an invite flow needs and an
 enumerator must not have at full speed. Both spend the same two submission
 budgets, keyed by the deck (or the workspace) rather than by a participant, so
@@ -428,6 +429,13 @@ Not rate-limited, and deliberately so: the presenter's own mutations (already
 gated by owner-or-edit-token), the results reads the presenter's screen polls,
 and the WebSocket at `/ws`, which carries no create, join-code lookup or vote —
 its `join` message only subscribes a socket to a room.
+
+The **PDF export** is the one read on the list, and the one authorized route
+there for a reason other than probing (REQ213): rendering a deck is CPU on the
+single thread every other request is served from, decks are uncapped in slides,
+and the edit token it asks for is one anonymous create away. Sixty in five
+minutes is a whole workshop on one wifi exporting both readings of their own
+decks at once.
 
 ## Sharing a deck with other accounts (REQ075)
 

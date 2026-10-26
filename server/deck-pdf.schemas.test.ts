@@ -44,6 +44,7 @@ import {
 	type Presentation,
 	PresentationSchema,
 	type Slide,
+	SLIDE_TEXT_MAX_LENGTH,
 	SlideSchema,
 } from "./schemas";
 
@@ -615,6 +616,59 @@ describe("REQ096 — reading a value into words", () => {
 			"Docs (https://example.com)",
 		);
 		expect(plainTextFromMarkdown("- one\n- two")).toBe("• one\n• two");
+	});
+
+	test("links and bold are read as the expressions they replaced read them (REQ213)", () => {
+		// The leftmost `[` opens, the first `]` and `)` close, an empty address is
+		// no link, and a link that fails leaves its text exactly as written.
+		expect(plainTextFromMarkdown("[a[b](c) [d](e)")).toBe("a[b (c) d (e)");
+		expect(plainTextFromMarkdown("[a]() [b](c)")).toBe("[a]() b (c)");
+		expect(plainTextFromMarkdown("[a] (b) [c](d")).toBe("[a] (b) [c](d");
+		expect(plainTextFromMarkdown("[a](b(c))")).toBe("a (b(c))");
+		// A bold run closes on the first matching pair after a non-space, and a
+		// pair of the other kind does not close it. Italic runs after bold, so a
+		// pair left standing can still be read as two single delimiters.
+		expect(plainTextFromMarkdown("**a __b** c")).toBe("a __b c");
+		expect(plainTextFromMarkdown("**a **b**")).toBe("a **b");
+		expect(plainTextFromMarkdown("** a** **b **")).toBe("** a** *b *");
+		expect(plainTextFromMarkdown("*****")).toBe("*");
+		expect(plainTextFromMarkdown("[**Docs**](https://example.com/a_b)")).toBe(
+			"Docs (https://example.com/a_b)",
+		);
+	});
+
+	test("adversarial markup costs work linear in the text (REQ213)", () => {
+		// The same amount of text, cut once into many short fields and once into
+		// few long ones: linear work takes the same time for both, quadratic work
+		// takes eight times as long for the long ones. Compared as a ratio rather
+		// than against a clock, so the bound holds on any machine. Driven through
+		// the document builder, so it is the export's own reduction being timed.
+		const longest = SLIDE_TEXT_MAX_LENGTH;
+		const shortest = longest / 8;
+		const totalPerField = longest * 32;
+		const exportOf = (unit: string, fieldLength: number) => {
+			const text = unit.repeat(Math.ceil(fieldLength / unit.length)).slice(0, fieldLength);
+			const slides = Array.from({ length: totalPerField / fieldLength }, (_, index) =>
+				slide({ id: `s${index}`, type: "text", question: text, body: text }),
+			);
+			return input(deck(slides), { includeResults: false });
+		};
+		const fastest = (deckInput: DeckPdfInput) => {
+			let best = Number.POSITIVE_INFINITY;
+			for (let attempt = 0; attempt < 9; attempt++) {
+				const started = performance.now();
+				buildDeckDocument(deckInput);
+				best = Math.min(best, performance.now() - started);
+			}
+			return best;
+		};
+		for (const unit of ["[", "[a](", "[a](b", "**a ", "__a ", "*a ", "_a ", "`a"]) {
+			const short = exportOf(unit, shortest);
+			const long = exportOf(unit, longest);
+			fastest(short);
+			const ratio = fastest(long) / Math.max(fastest(short), 0.05);
+			expect({ unit, ratio: ratio < 3 }).toEqual({ unit, ratio: true });
+		}
 	});
 });
 
