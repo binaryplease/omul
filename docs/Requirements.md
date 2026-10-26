@@ -129,7 +129,7 @@ Prose outside the markers is preserved.
 | [REQ109.md](requirements/REQ109.md) | Blank the audience view | Live Session | P3 | done | BR109 |
 | [REQ110.md](requirements/REQ110.md) | Skip a slide | Deck & Slides | P3 | done | BR110 |
 | [REQ111.md](requirements/REQ111.md) | Open and close participation per slide | Live Session | P2 | done | BR111 |
-| [REQ112.md](requirements/REQ112.md) | Join code lifetime | Access & Sharing | P3 | pending | BR112 |
+| [REQ112.md](requirements/REQ112.md) | Join code lifetime | Access & Sharing | P3 | deferred | BR112 |
 | [REQ113.md](requirements/REQ113.md) | Insights over collected answers | Results & Export | P2 | pending | BR113 |
 | [REQ114.md](requirements/REQ114.md) | Group free-text answers | Results & Export | P2 | in-progress | BR114 |
 | [REQ115.md](requirements/REQ115.md) | Summarize free-text answers | Results & Export | P2 | pending | BR115 |
@@ -137,7 +137,7 @@ Prose outside the markers is preserved.
 | [REQ117.md](requirements/REQ117.md) | Direct join link | Access & Sharing | P0 | done | BR117 |
 | [REQ118.md](requirements/REQ118.md) | Join screen with code, link and QR | Access & Sharing | P0 | done | BR118 |
 | [REQ119.md](requirements/REQ119.md) | Embeddable presentation | Access & Sharing | P2 | pending | BR119 |
-| [REQ120.md](requirements/REQ120.md) | Import a presentation file | Integrations | P1 | pending | BR120 |
+| [REQ120.md](requirements/REQ120.md) | Import a presentation file | Integrations | P1 | deferred | BR120 |
 | [REQ121.md](requirements/REQ121.md) | Drive interactive slides from PowerPoint | Integrations | P1 | pending | BR121 |
 | [REQ122.md](requirements/REQ122.md) | Microsoft Teams app | Integrations | P1 | pending | BR122 |
 | [REQ123.md](requirements/REQ123.md) | Zoom app | Integrations | P1 | pending | BR123 |
@@ -154,10 +154,10 @@ Prose outside the markers is preserved.
 | [REQ134.md](requirements/REQ134.md) | Require an authenticated participant | Access & Sharing | P2 | done | BR134 |
 | [REQ135.md](requirements/REQ135.md) | Organization branding on a deck | Rendering & Theming | P1 | done | BR135 |
 | [REQ136.md](requirements/REQ136.md) | Custom logo | Rendering & Theming | P1 | done | BR136 |
-| [REQ137.md](requirements/REQ137.md) | Single sign-on | Accounts & Workspaces | P1 | pending | BR137 |
+| [REQ137.md](requirements/REQ137.md) | Single sign-on | Accounts & Workspaces | P1 | deferred | BR137 |
 | [REQ138.md](requirements/REQ138.md) | Directory provisioning | Accounts & Workspaces | P2 | pending | BR138 |
 | [REQ139.md](requirements/REQ139.md) | Workspace-level access control | Accounts & Workspaces | P2 | pending | BR139 |
-| [REQ140.md](requirements/REQ140.md) | Data retention window | Platform & Operations | P2 | pending | BR140 |
+| [REQ140.md](requirements/REQ140.md) | Data retention window | Platform & Operations | P2 | deferred | BR140 |
 | [REQ141.md](requirements/REQ141.md) | Workspace usage reporting | Accounts & Workspaces | P2 | pending | BR141 |
 | [REQ144.md](requirements/REQ144.md) | Workspace subscription and seats | Accounts & Workspaces | P2 | pending | BR144 |
 | [REQ145.md](requirements/REQ145.md) | Abuse limits on the account-free routes | Platform & Operations | P1 | done | internal |
@@ -215,7 +215,7 @@ Prose outside the markers is preserved.
 | [REQ200.md](requirements/REQ200.md) | The participant's ended screen offers home in the deck's language, linking to the product website's home in that language when the instance names one | Live Session | P2 | done | internal |
 | [REQ203.md](requirements/REQ203.md) | The query parameters the operator lists stay in the address bar across in-app navigation | Platform & Operations | P2 | done | BR150 |
 | [REQ206.md](requirements/REQ206.md) | The deck PDF export reads as a finished handout, not a data dump | Results & Export | P2 | pending | internal |
-| [REQ207.md](requirements/REQ207.md) | Decide whether a deck can be edited while it is live, and make every way into the editor follow that decision | Live Session | P2 | pending | internal |
+| [REQ207.md](requirements/REQ207.md) | Decide whether a deck can be edited while it is live, and make every way into the editor follow that decision | Live Session | P2 | planned | internal |
 | [REQ208.md](requirements/REQ208.md) | Restarting an ended deck puts the presenter and every participant on the same slide | Live Session | P1 | done | internal |
 | [REQ209.md](requirements/REQ209.md) | A participant never sees "Waiting for presenter" while the deck is live | Live Session | P1 | done | internal |
 | [REQ211.md](requirements/REQ211.md) | Every dialog and popover keeps one keyboard contract — Escape closes it, focus goes in and comes back, Tab stays inside, and it fits the viewport | Rendering & Theming | P2 | pending | internal |
