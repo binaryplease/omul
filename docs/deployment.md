@@ -262,6 +262,7 @@ the JSON body.
 | the same public writes | 60 per minute | `participantId` |
 | `POST /api/feedback` (feedback about omul, REQ185) | 20 per 10 minutes | client |
 | `POST /api/feedback/participant` (the prompt after a session, REQ186) | 300 per 10 minutes | client |
+| `GET /api/presentations/:id/deck.pdf` (PDF export, REQ213) | 60 per 5 minutes | client |
 
 Three things to know before tuning your deployment around them:
 
@@ -282,6 +283,11 @@ Three things to know before tuning your deployment around them:
 - **The counters are process-local.** That matches the single-container
   deployment; running several replicas divides every ceiling above by the
   number of replicas.
+
+The PDF export has one more bound that is not in this table, because it is not
+a rate: one render runs at a time across every caller, four more may wait, and
+past that the export answers `503` with `Retry-After` (REQ213). It protects the
+server's single thread, so `OMUL_RATE_LIMITS_DISABLED` does not switch it off.
 
 ### Behind a reverse proxy, set `OMUL_TRUST_PROXY`
 

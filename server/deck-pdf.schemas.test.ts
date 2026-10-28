@@ -44,6 +44,7 @@ import {
 	type Presentation,
 	PresentationSchema,
 	type Slide,
+	SLIDE_TEXT_MAX_LENGTH,
 	SlideSchema,
 } from "./schemas";
 
@@ -616,6 +617,59 @@ describe("REQ096 — reading a value into words", () => {
 		);
 		expect(plainTextFromMarkdown("- one\n- two")).toBe("• one\n• two");
 	});
+
+	test("links and bold are read as the expressions they replaced read them (REQ213)", () => {
+		// The leftmost `[` opens, the first `]` and `)` close, an empty address is
+		// no link, and a link that fails leaves its text exactly as written.
+		expect(plainTextFromMarkdown("[a[b](c) [d](e)")).toBe("a[b (c) d (e)");
+		expect(plainTextFromMarkdown("[a]() [b](c)")).toBe("[a]() b (c)");
+		expect(plainTextFromMarkdown("[a] (b) [c](d")).toBe("[a] (b) [c](d");
+		expect(plainTextFromMarkdown("[a](b(c))")).toBe("a (b(c))");
+		// A bold run closes on the first matching pair after a non-space, and a
+		// pair of the other kind does not close it. Italic runs after bold, so a
+		// pair left standing can still be read as two single delimiters.
+		expect(plainTextFromMarkdown("**a __b** c")).toBe("a __b c");
+		expect(plainTextFromMarkdown("**a **b**")).toBe("a **b");
+		expect(plainTextFromMarkdown("** a** **b **")).toBe("** a** *b *");
+		expect(plainTextFromMarkdown("*****")).toBe("*");
+		expect(plainTextFromMarkdown("[**Docs**](https://example.com/a_b)")).toBe(
+			"Docs (https://example.com/a_b)",
+		);
+	});
+
+	test("adversarial markup costs work linear in the text (REQ213)", () => {
+		// The same amount of text, cut once into many short fields and once into
+		// few long ones: linear work takes the same time for both, quadratic work
+		// takes eight times as long for the long ones. Compared as a ratio rather
+		// than against a clock, so the bound holds on any machine. Driven through
+		// the document builder, so it is the export's own reduction being timed.
+		const longest = SLIDE_TEXT_MAX_LENGTH;
+		const shortest = longest / 8;
+		const totalPerField = longest * 32;
+		const exportOf = (unit: string, fieldLength: number) => {
+			const text = unit.repeat(Math.ceil(fieldLength / unit.length)).slice(0, fieldLength);
+			const slides = Array.from({ length: totalPerField / fieldLength }, (_, index) =>
+				slide({ id: `s${index}`, type: "text", question: text, body: text }),
+			);
+			return input(deck(slides), { includeResults: false });
+		};
+		const fastest = (deckInput: DeckPdfInput) => {
+			let best = Number.POSITIVE_INFINITY;
+			for (let attempt = 0; attempt < 9; attempt++) {
+				const started = performance.now();
+				buildDeckDocument(deckInput);
+				best = Math.min(best, performance.now() - started);
+			}
+			return best;
+		};
+		for (const unit of ["[", "[a](", "[a](b", "**a ", "__a ", "*a ", "_a ", "`a"]) {
+			const short = exportOf(unit, shortest);
+			const long = exportOf(unit, longest);
+			fastest(short);
+			const ratio = fastest(long) / Math.max(fastest(short), 0.05);
+			expect({ unit, ratio: ratio < 3 }).toEqual({ unit, ratio: true });
+		}
+	});
 });
 
 describe("REQ096 — nothing reaches the page the fonts cannot draw", () => {
@@ -667,6 +721,39 @@ describe("REQ096 — the file the browser saves", () => {
 });
 
 describe("REQ096 — rendering", () => {
+	test("rendering a long deck hands the thread back while it works (REQ213)", async () => {
+		// A deck with every field at its cap: real render work, about a second at
+		// the full slide limit. Bun answers every request from this one thread, so
+		// what matters is not how long the render takes but how long the thread
+		// is gone at a stretch. A timer asking to run every millisecond measures
+		// that stretch; compared with the render's own length rather than with a
+		// clock, so the bound holds on any machine — a render that never yields
+		// keeps the thread for nearly all of itself, one that does for a sliver.
+		const text = "lorem ipsum dolor sit amet ".repeat(200).slice(0, SLIDE_TEXT_MAX_LENGTH);
+		const slides = Array.from({ length: 60 }, (_, index) =>
+			slide({ id: `s${index}`, type: "text", question: text, body: text }),
+		);
+		const document = buildDeckDocument(input(deck(slides)));
+
+		let longestGap = 0;
+		let lastTick = performance.now();
+		const probe = setInterval(() => {
+			const now = performance.now();
+			longestGap = Math.max(longestGap, now - lastTick);
+			lastTick = now;
+		}, 1);
+		const started = performance.now();
+		lastTick = started;
+		await renderDeckDocument(document);
+		const renderTook = performance.now() - started;
+		clearInterval(probe);
+
+		expect(renderTook).toBeGreaterThan(0);
+		expect({ shareOfRenderHeld: longestGap / renderTook < 0.25 }).toEqual({
+			shareOfRenderHeld: true,
+		});
+	}, 30_000);
+
 	test("a document renders to PDF bytes, whatever it carries", async () => {
 		const document = buildDeckDocument(
 			input(

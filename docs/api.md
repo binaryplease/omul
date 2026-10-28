@@ -199,8 +199,8 @@ omul** below).
 | GET | `/api/admin/events` | ✅ admin | Append-only admin audit log |
 | GET | `/api/admin/feedback` | ✅ admin | Feedback about omul, `?channel=user\|participant` and an optional `cursor`: the channel's totals and fifty entries newest first, a `user` entry's contact resolved at read time (REQ185). `404` while both channels are off — see **Feedback about omul** below |
 
-Ten of those routes are rate-limited and can answer `429` — see **Rate
-limits** directly below.
+Some of those routes are rate-limited and can answer `429` — **Rate limits**
+directly below lists which.
 
 ## The discovery index (REQ151)
 
@@ -371,10 +371,11 @@ in the body:
 | `POST /api/workspaces/:id/members` (REQ129) | 60 per minute | the workspace being added to |
 | `POST /api/feedback` (REQ185) | 20 per 10 minutes | client |
 | `POST /api/feedback/participant` (REQ186) | 300 per 10 minutes | client |
+| `GET …/deck.pdf` (REQ213) | 60 per 5 minutes | client |
 
-Sharing a deck and adding somebody to a workspace are the two **authenticated**
-routes on that list, and they are there for a reason of their own (REQ075,
-REQ129): answering `404` for an address with no account and `201` for one that
+Sharing a deck and adding somebody to a workspace are two of the
+**authenticated** routes on that list, and they are there for a reason of their
+own (REQ075, REQ129): answering `404` for an address with no account and `201` for one that
 has makes each an account-existence oracle, which an invite flow needs and an
 enumerator must not have at full speed. Both spend the same two submission
 budgets, keyed by the deck (or the workspace) rather than by a participant, so
@@ -428,6 +429,32 @@ Not rate-limited, and deliberately so: the presenter's own mutations (already
 gated by owner-or-edit-token), the results reads the presenter's screen polls,
 and the WebSocket at `/ws`, which carries no create, join-code lookup or vote —
 its `join` message only subscribes a socket to a room.
+
+The **PDF export** is the one read on the list, and the one authorized route
+there for a reason other than probing (REQ213): rendering a deck is CPU on the
+single thread every other request is served from, and the edit token it asks
+for is one anonymous create away. Every write caps a deck at 200 slides
+(`SLIDE_LIMIT`) and each field at its length limit, so a render is bounded — but
+a deck at those caps still takes about a second and a half of render work.
+Sixty in five minutes is a whole workshop on one wifi exporting both readings
+of their own decks at once, and at the worst case it is a minute and a half of
+rendering in five: one address cannot hold the render slot on its own.
+
+That per-client ceiling is not what keeps the server answering. Two things
+are, and neither is a rate limit, so neither is switched off by
+`OMUL_RATE_LIMITS_DISABLED`:
+
+- **The render yields.** It works in slices of about ten milliseconds
+  (`RENDER_SLICE_MS`) and hands the thread back between them, so a vote, a
+  join or a health check that arrives mid-export waits about one slice rather
+  than the whole render.
+- **Render work in hand is bounded, whoever asks** (`DECK_PDF_RENDER_GATE`).
+  One render runs at a time and four more may wait their turn; past that the
+  export answers **`503`** at once, with a `Retry-After` header (5 seconds)
+  and `retryAfterSeconds` in the body. A `503` rather than a `429`, because the
+  refusal is about the server's load, not about anything the caller did. The
+  decks people export render in milliseconds, so the queue does not form in
+  use.
 
 ## Sharing a deck with other accounts (REQ075)
 

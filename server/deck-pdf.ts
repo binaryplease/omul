@@ -181,26 +181,117 @@ export function cellText(value: SheetCell): string {
  * kept beside its label because a printed page cannot be clicked.
  *
  * Line structure survives, because a body written as a list is a list.
+ *
+ * **Linear in the text, and that is load-bearing** (REQ213). Bun serves every
+ * request from one thread, so a reduction that is quadratic in a field is a
+ * request that stalls the whole process — and a field's own length cap is no
+ * defence against work that grows with its square.
+ * The links and the bold are therefore read by {@link reduceLinks} and
+ * {@link reduceStrong} rather than by the expressions they replace, which
+ * rescan the rest of the line from every opener that never closes. The
+ * expressions that remain cannot: three are anchored at the start of the line,
+ * and code and italic stop at their own next delimiter, so each opener's scan
+ * ends where the next one's begins.
  */
 export function plainTextFromMarkdown(markdown: string): string {
 	return markdown
 		.split("\n")
-		.map((line) =>
-			line
+		.map((line) => {
+			const unprefixed = line
 				// Sub-headings (REQ089) — the hashes are the markup, not the words.
 				.replace(/^\s{0,3}#{1,6}\s+/, "")
 				// A list marker becomes a bullet the reader can see.
 				.replace(/^\s*[-*+]\s+/, "• ")
-				.replace(/^\s*(\d+)\.\s+/, "$1. ")
-				// A link keeps both halves: nothing on paper can follow the label.
-				.replace(/\[([^\]]*)\]\(([^)]+)\)/g, "$1 ($2)")
-				.replace(/`([^`]*)`/g, "$1")
-				.replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, "$2")
+				.replace(/^\s*(\d+)\.\s+/, "$1. ");
+			// A link keeps both halves: nothing on paper can follow the label.
+			const unlinked = reduceLinks(unprefixed).replace(/`([^`]*)`/g, "$1");
+			return reduceStrong(unlinked)
 				.replace(/(\*|_)(?=\S)([^*_]*?\S)\1/g, "$2")
-				.trimEnd(),
-		)
+				.trimEnd();
+		})
 		.join("\n")
 		.trim();
+}
+
+/**
+ * Every `[label](address)` on a line as `label (address)` — exactly what
+ * `/\[([^\]]*)\]\(([^)]+)\)/g` replaced with `"$1 ($2)"` produces, read in one
+ * pass instead.
+ *
+ * The expression scans from each `[` to the next `]`, so a line of `[` with no
+ * `]` costs it the rest of the line once per bracket (REQ213). Here a failed
+ * `[` hands its verdict to every `[` up to the `]` it reached, because each of
+ * those reaches the same `]` and fails the same way — so the scan resumes past
+ * it — and a missing `]` or `)` ends the line's links outright, since no later
+ * opener could find one either.
+ */
+function reduceLinks(line: string): string {
+	let output = "";
+	let copied = 0;
+	let open = line.indexOf("[");
+	while (open !== -1) {
+		const close = line.indexOf("]", open + 1);
+		if (close === -1) break;
+		if (line[close + 1] === "(") {
+			const end = line.indexOf(")", close + 2);
+			if (end === -1) break;
+			// `[^)]+` — an empty address is not a link.
+			if (end > close + 2) {
+				output += `${line.slice(copied, open)}${line.slice(open + 1, close)} (${line.slice(close + 2, end)})`;
+				copied = end + 1;
+				open = line.indexOf("[", copied);
+				continue;
+			}
+		}
+		open = line.indexOf("[", close + 1);
+	}
+	return output + line.slice(copied);
+}
+
+/** What `\s` matches, asked of one character. */
+const WHITESPACE = /\s/;
+
+/**
+ * Every `**bold**` and `__bold__` on a line as its words — exactly what
+ * `/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g` replaced with `"$2"` produces: an opener
+ * followed by a non-space, closed by the first matching pair that follows a
+ * non-space.
+ *
+ * The expression searches the rest of the line for that closer from every
+ * opener, so a line of openers that never close costs it the rest of the line
+ * once per opener (REQ213). An opener that finds no closer proves that no later
+ * opener of the same pair can — any closer after a later opener is after this
+ * one too — so each pair is searched to the end of the line at most once.
+ */
+function reduceStrong(line: string): string {
+	let output = "";
+	let copied = 0;
+	const unclosable = new Set<string>();
+	let index = 0;
+	while (index + 2 < line.length) {
+		const pair = line.slice(index, index + 2);
+		if (
+			(pair !== "**" && pair !== "__") ||
+			unclosable.has(pair) ||
+			WHITESPACE.test(line[index + 2] as string)
+		) {
+			index += 1;
+			continue;
+		}
+		let closer = line.indexOf(pair, index + 3);
+		while (closer !== -1 && WHITESPACE.test(line[closer - 1] as string)) {
+			closer = line.indexOf(pair, closer + 1);
+		}
+		if (closer === -1) {
+			unclosable.add(pair);
+			index += 1;
+			continue;
+		}
+		output += line.slice(copied, index) + line.slice(index + 2, closer);
+		copied = closer + 2;
+		index = copied;
+	}
+	return output + line.slice(copied);
 }
 
 // ── Building the document ────────────────────────────────────
@@ -962,13 +1053,49 @@ function wrapLine(
 type Fonts = { regular: PDFFont; bold: PDFFont };
 
 /**
+ * How long the renderer works before it hands the thread back (REQ213).
+ *
+ * Bun serves every request from one thread, and a deck at its caps
+ * (`SLIDE_LIMIT` slides, every field at its length limit) takes on the
+ * order of a second to lay out — linear work, but a second all the same. Done
+ * in one stretch, that second is a second in which no other request is
+ * answered: not a vote, not a join, not a health check. So the renderer works
+ * in slices and yields between them, and the longest anything else waits on an
+ * export is about one slice rather than the whole render.
+ *
+ * Ten milliseconds is short enough that a vote landing mid-export is not
+ * noticeably late, and long enough that the yields themselves cost nothing a
+ * reader would see: a worst-case render yields about a hundred and fifty times.
+ */
+export const RENDER_SLICE_MS = 10;
+
+/**
+ * A function that, once {@link RENDER_SLICE_MS} has passed since it last
+ * yielded, waits for the event loop to run whatever else is ready — and
+ * otherwise returns at once. Called between units of work small enough that
+ * none of them is itself a long stall.
+ */
+function createYielder(sliceMs: number): () => Promise<void> {
+	let sliceStartedAt = performance.now();
+	return async () => {
+		if (performance.now() - sliceStartedAt < sliceMs) return;
+		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		sliceStartedAt = performance.now();
+	};
+}
+
+/**
  * The page the renderer is currently writing onto, and how far down it is.
  *
  * A factory closure rather than a class: the whole of the flow is
  * "put this at the cursor, and start a page when it will not fit", and every
  * block draws through the same two calls.
  */
-function createFlow(document: PDFDocument, fonts: Fonts) {
+function createFlow(
+	document: PDFDocument,
+	fonts: Fonts,
+	yieldIfDue: () => Promise<void>,
+) {
 	let page: PDFPage | null = null;
 	let cursorY = 0;
 
@@ -1182,8 +1309,13 @@ function createFlow(document: PDFDocument, fonts: Fonts) {
 		 * A table whose first column is the entry and whose rest are its metrics.
 		 * The header repeats on every page the table runs onto — a column of bare
 		 * numbers under no heading is not a reading of anything.
+		 *
+		 * Asynchronous because its rows are the one run of work here that the
+		 * caps do not bound per block: a room's open responses are as many as
+		 * the room wrote, so the table yields between rows like the render loop
+		 * does between blocks.
 		 */
-		table(columns: string[], rows: string[][]): void {
+		async table(columns: string[], rows: string[][]): Promise<void> {
 			const entryWidth = CONTENT_WIDTH * 0.42;
 			const metricWidth =
 				columns.length > 1 ? (CONTENT_WIDTH - entryWidth) / (columns.length - 1) : 0;
@@ -1225,6 +1357,7 @@ function createFlow(document: PDFDocument, fonts: Fonts) {
 
 			drawHeader();
 			for (const row of rows) {
+				await yieldIfDue();
 				const cells = row.map((cell, index) =>
 					wrapLine(winAnsiText(cell), fonts.regular, 9.5, widthOf(index) - 6),
 				);
@@ -1274,11 +1407,13 @@ export async function renderDeckDocument(
 		regular: await document.embedFont(StandardFonts.Helvetica),
 		bold: await document.embedFont(StandardFonts.HelveticaBold),
 	};
-	const flow = createFlow(document, fonts);
+	const yieldIfDue = createYielder(RENDER_SLICE_MS);
+	const flow = createFlow(document, fonts, yieldIfDue);
 
 	for (const section of model.sections) {
 		flow.startSection();
 		for (const block of section.blocks) {
+			await yieldIfDue();
 			switch (block.kind) {
 				case "title":
 					flow.prose(block.text, {
@@ -1331,6 +1466,7 @@ export async function renderDeckDocument(
 					break;
 				case "bullets":
 					for (const item of block.items) {
+						await yieldIfDue();
 						flow.prose(`• ${item}`, {
 							size: 10.5,
 							font: fonts.regular,
@@ -1341,14 +1477,20 @@ export async function renderDeckDocument(
 					flow.gap(6);
 					break;
 				case "facts":
-					for (const fact of block.facts) flow.fact(fact);
+					for (const fact of block.facts) {
+						await yieldIfDue();
+						flow.fact(fact);
+					}
 					flow.gap(6);
 					break;
 				case "bars":
-					for (const bar of block.bars) flow.bar(bar);
+					for (const bar of block.bars) {
+						await yieldIfDue();
+						flow.bar(bar);
+					}
 					break;
 				case "table":
-					flow.table(block.columns, block.rows);
+					await flow.table(block.columns, block.rows);
 					break;
 				case "rule":
 					flow.rule();
@@ -1361,7 +1503,8 @@ export async function renderDeckDocument(
 	// while page 3 is being filled.
 	const pages = document.getPages();
 	const footer = winAnsiText(model.footer);
-	pages.forEach((page, index) => {
+	for (const [index, page] of pages.entries()) {
+		await yieldIfDue();
 		const counter = `${index + 1} / ${pages.length}`;
 		const counterWidth = fonts.regular.widthOfTextAtSize(counter, 8.5);
 		const footerText = wrapLine(
@@ -1384,7 +1527,7 @@ export async function renderDeckDocument(
 			font: fonts.regular,
 			color: DIM,
 		});
-	});
+	}
 
 	// pdf-lib allocates its output as a plain `new Uint8Array(size)`, so the bytes
 	// are backed by an `ArrayBuffer` and go out as written rather than through a

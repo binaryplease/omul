@@ -597,6 +597,129 @@ export const PARTICIPANT_FEEDBACK_RULE: RateLimitRule = {
 	windowMs: 10 * 60_000,
 };
 
+/**
+ * Rendering a deck to PDF (REQ096, REQ213) — the one read on this list, and on
+ * it because it is the most expensive call a caller with a token can repeat.
+ *
+ * Its cost is CPU on the thread every other request is served from. Every
+ * write caps a deck at `SLIDE_LIMIT` (200) slides and each authored field at
+ * its length limit, and the render is linear, so the cost is bounded — but a
+ * deck at those caps still takes about one to one and a half seconds of render
+ * work. An edit token is no throttle either: an anonymous create hands one
+ * out, so this route is as open as create itself.
+ *
+ * What protects the thread is not this rule. The renderer hands the thread
+ * back every `RENDER_SLICE_MS` (`server/deck-pdf.ts`), so other requests are answered while it
+ * works, and {@link DECK_PDF_RENDER_GATE} caps how much render work can be in
+ * hand at once, whoever asks. What this rule still guards is the share one
+ * address can take of that single render slot: at the worst case above, sixty
+ * renders in five minutes is a minute and a half of rendering in five, so one
+ * address alone cannot hold the slot and others still get theirs.
+ *
+ * An export is a click on a finished deck — an organizer takes a handful in a
+ * session, and both readings at most once each. Sixty in five minutes is a
+ * workshop of thirty, each building their own deck on one wifi, exporting both
+ * readings inside the same five minutes; a script re-rendering a deck in a
+ * loop gets one render every five seconds. Tightening it would refuse that
+ * workshop without making the thread any safer than the gate already does, so
+ * the number is unchanged by the gate.
+ */
+export const DECK_PDF_RULE: RateLimitRule = { limit: 60, windowMs: 5 * 60_000 };
+
+/** How many PDF renders may run at once, and how many may wait for a turn. */
+export interface RenderGateRule {
+	concurrent: number;
+	queued: number;
+	/** What a refused caller is told to wait, in seconds. */
+	retryAfterSeconds: number;
+}
+
+/**
+ * The ceiling on PDF render work in hand at once, across every caller (REQ213).
+ *
+ * The per-client {@link DECK_PDF_RULE} cannot bound this on its own: a few
+ * addresses, each inside its own limit, can still ask for renders faster than
+ * one thread finishes them, and without a ceiling the work they leave behind
+ * only grows. So one render runs at a time — they share one thread, so two at
+ * once finish no sooner than one after the other, and one at a time gets the
+ * first caller their file soonest — and four more may wait their turn. A deck
+ * at its caps renders in about one and a half seconds, so the last of the four
+ * waits about six; the decks people actually export render in milliseconds, so
+ * a queue of four does not form in use.
+ *
+ * Past that, the export answers `503` with `Retry-After` rather than queueing
+ * without limit: a bounded, stated refusal instead of a backlog nobody can
+ * see the end of. Five seconds is about how long the full queue takes to
+ * drain at the worst case.
+ *
+ * Not switched off by `OMUL_RATE_LIMITS_DISABLED`. That switch exists so a load
+ * test is not throttled by the rate at which it asks; this is not a rate but a
+ * bound on how much one thread is asked to hold, and a load test that removes
+ * it measures a server nobody runs.
+ */
+export const DECK_PDF_RENDER_GATE: RenderGateRule = {
+	concurrent: 1,
+	queued: 4,
+	retryAfterSeconds: 5,
+};
+
+/** One gate: {@link RenderGateRule} applied to the callers that reach it. */
+export interface RenderGate {
+	/**
+	 * A turn: resolves to the function that gives it back once the slot is
+	 * free, or `null` at once when the slot and the queue are both full.
+	 */
+	enter(): Promise<() => void> | null;
+	/** How many renders are running and how many are waiting, right now. */
+	load(): { running: number; waiting: number };
+}
+
+/**
+ * A first-come, first-served gate. In memory and per process, like the sliding
+ * windows: one server is one thread, and the thread is the thing it protects.
+ */
+export function createRenderGate(rule: RenderGateRule): RenderGate {
+	let running = 0;
+	const waiting: (() => void)[] = [];
+
+	const leave = (): void => {
+		const next = waiting.shift();
+		if (next) {
+			next();
+			return;
+		}
+		running -= 1;
+	};
+
+	return {
+		enter() {
+			if (running < rule.concurrent) {
+				running += 1;
+				return Promise.resolve(onceOnly(leave));
+			}
+			if (waiting.length >= rule.queued) return null;
+			// The slot passes straight from the caller leaving to this one, so
+			// `running` is not touched on the way: nobody can slip in between.
+			return new Promise((resolve) => {
+				waiting.push(() => resolve(onceOnly(leave)));
+			});
+		},
+		load() {
+			return { running, waiting: waiting.length };
+		},
+	};
+}
+
+/** `release` that a second call cannot run twice — a `finally` and a retry both call it. */
+function onceOnly(release: () => void): () => void {
+	let released = false;
+	return () => {
+		if (released) return;
+		released = true;
+		release();
+	};
+}
+
 const createWindow = createSlidingWindow(CREATE_RULE);
 const generationWindow = createSlidingWindow(GENERATION_RULE);
 const joinWindow = createSlidingWindow(JOIN_RULE);
@@ -612,6 +735,8 @@ const feedbackWindow = createSlidingWindow(FEEDBACK_RULE);
 const participantFeedbackWindow = createSlidingWindow(
 	PARTICIPANT_FEEDBACK_RULE,
 );
+const deckPdfWindow = createSlidingWindow(DECK_PDF_RULE);
+const deckPdfRenderGate = createRenderGate(DECK_PDF_RENDER_GATE);
 
 /** Drop every counter. For tests that need a clean slate between cases. */
 export function resetRateLimits(): void {
@@ -624,6 +749,7 @@ export function resetRateLimits(): void {
 	reactionParticipantWindow.reset();
 	feedbackWindow.reset();
 	participantFeedbackWindow.reset();
+	deckPdfWindow.reset();
 }
 
 // ── Route guards ────────────────────────────────────────────
@@ -658,6 +784,8 @@ const SUBMISSION_MESSAGE = "Too many submissions — please slow down";
 const REACTION_MESSAGE = "Too many reactions — please slow down";
 const FEEDBACK_MESSAGE =
 	"Too much feedback sent from here — please wait a moment";
+const DECK_PDF_MESSAGE =
+	"Too many PDF exports from here — please wait a moment";
 
 /** Rate-limit `POST /api/presentations`. */
 export function guardCreate({ request, server }: GuardContext): Response | null {
@@ -723,6 +851,56 @@ export function guardJoin({ request, server }: GuardContext): Response | null {
 	const verdict = joinWindow.check(clientKey(request, server));
 	if (verdict.allowed) return null;
 	return tooManyRequests(verdict.retryAfterSeconds, JOIN_MESSAGE);
+}
+
+/** Rate-limit `GET /api/presentations/:id/deck.pdf` (REQ213). */
+export function guardDeckPdf({ request, server }: GuardContext): Response | null {
+	if (!rateLimitsEnabled()) return null;
+	const verdict = deckPdfWindow.check(clientKey(request, server));
+	if (verdict.allowed) return null;
+	return tooManyRequests(verdict.retryAfterSeconds, DECK_PDF_MESSAGE);
+}
+
+const DECK_PDF_BUSY_MESSAGE =
+	"Too many PDF exports are being rendered right now — please try again in a moment";
+
+/**
+ * A turn at rendering a deck to PDF (REQ213), under {@link DECK_PDF_RENDER_GATE}.
+ *
+ * Resolves to the function that ends the turn — call it in a `finally` — or to
+ * the `503` to send when the slot and the queue are both full. Asked for after
+ * authorization and after the deck is read, so only a render that is really
+ * going to happen holds a place in the queue.
+ */
+export async function enterDeckPdfRender(): Promise<
+	{ leave: () => void } | { refused: Response }
+> {
+	const turn = deckPdfRenderGate.enter();
+	if (!turn) {
+		return {
+			refused: serviceBusy(
+				DECK_PDF_RENDER_GATE.retryAfterSeconds,
+				DECK_PDF_BUSY_MESSAGE,
+			),
+		};
+	}
+	return { leave: await turn };
+}
+
+/**
+ * The `503` a server answers when it is too busy to take the work on, in the
+ * same shape as {@link tooManyRequests}: a `Retry-After` header and the same
+ * number in the body. A `503` rather than a `429` because the refusal is about
+ * the server's load, not about anything this caller did.
+ */
+export function serviceBusy(retryAfterSeconds: number, message: string): Response {
+	return new Response(JSON.stringify({ error: message, retryAfterSeconds }), {
+		status: 503,
+		headers: {
+			"Content-Type": "application/json",
+			"Retry-After": String(retryAfterSeconds),
+		},
+	});
 }
 
 /**

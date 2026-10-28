@@ -1,6 +1,7 @@
 /**
  * Unit tests for the abuse limiter (REQ145) — the sliding window itself, the
- * two environment switches, and how a client is identified.
+ * render gate (REQ213), the two environment switches, and how a client is
+ * identified.
  *
  * The route wiring is covered separately in `rate-limit.integration.test.ts`.
  */
@@ -10,10 +11,13 @@ import {
 	clientAddress,
 	clientBucketKey,
 	clientKey,
+	createRenderGate,
 	createSlidingWindow,
+	DECK_PDF_RENDER_GATE,
 	rateLimitsEnabled,
 	rateLimitStartupReport,
 	resetRateLimitNotices,
+	serviceBusy,
 	tooManyRequests,
 	trustedProxyHops,
 	untrustedProxyNotice,
@@ -126,6 +130,62 @@ describe("sliding window", () => {
 		window.reset();
 		expect(window.trackedKeys()).toBe(0);
 		expect(window.check("alice").allowed).toBe(true);
+	});
+});
+
+describe("render gate (REQ213)", () => {
+	test("a turn is free while the slot is, and the queue fills behind it", async () => {
+		const gate = createRenderGate({ concurrent: 1, queued: 2, retryAfterSeconds: 5 });
+		const first = gate.enter();
+		const second = gate.enter();
+		const third = gate.enter();
+		expect(first).not.toBeNull();
+		expect(second).not.toBeNull();
+		expect(third).not.toBeNull();
+		expect(gate.load()).toEqual({ running: 1, waiting: 2 });
+		// The slot and the queue are both full: refused at once, not queued.
+		expect(gate.enter()).toBeNull();
+		await first;
+	});
+
+	test("turns are handed on first come, first served", async () => {
+		const gate = createRenderGate({ concurrent: 1, queued: 3, retryAfterSeconds: 5 });
+		const order: string[] = [];
+		const leaveFirst = await gate.enter();
+		const later = ["b", "c", "d"].map(async (name) => {
+			const leave = await gate.enter();
+			order.push(name);
+			leave?.();
+		});
+		expect(order).toEqual([]);
+		leaveFirst?.();
+		await Promise.all(later);
+		expect(order).toEqual(["b", "c", "d"]);
+		expect(gate.load()).toEqual({ running: 0, waiting: 0 });
+	});
+
+	test("giving a turn back twice frees one place, not two", async () => {
+		const gate = createRenderGate({ concurrent: 1, queued: 0, retryAfterSeconds: 5 });
+		const leave = await gate.enter();
+		leave?.();
+		leave?.();
+		expect(gate.load()).toEqual({ running: 0, waiting: 0 });
+		const again = await gate.enter();
+		expect(gate.enter()).toBeNull();
+		again?.();
+	});
+
+	test("the export's gate runs one render and keeps a short queue", () => {
+		expect(DECK_PDF_RENDER_GATE.concurrent).toBe(1);
+		expect(DECK_PDF_RENDER_GATE.queued).toBeGreaterThan(0);
+		expect(DECK_PDF_RENDER_GATE.retryAfterSeconds).toBeGreaterThan(0);
+	});
+
+	test("a busy refusal is a 503 that says when to come back", async () => {
+		const response = serviceBusy(5, "Busy");
+		expect(response.status).toBe(503);
+		expect(response.headers.get("Retry-After")).toBe("5");
+		expect(await response.json()).toEqual({ error: "Busy", retryAfterSeconds: 5 });
 	});
 });
 
