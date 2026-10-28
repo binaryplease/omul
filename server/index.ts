@@ -21,7 +21,9 @@ import { rateLimitStartupReport } from "./rate-limit";
 import { presentationRoutes } from "./routes/presentations";
 import { staticRoutes } from "./routes/static";
 import { templateRoutes } from "./routes/templates";
+import { websiteRoutes } from "./routes/website";
 import { workspaceRoutes } from "./routes/workspaces";
+import { websiteLinksStartupReport } from "./website-links";
 import { joinRoom, registerClient, removeClient } from "./ws";
 
 const PORT = process.env.PORT || 3000;
@@ -34,6 +36,8 @@ const legalLinksReport = legalLinksStartupReport();
 // The kept query parameters (REQ203) for the same reason: every page load
 // writes them into index.html, so a malformed list stops the boot here.
 const keptQueryParamsReport = keptQueryParamsStartupReport();
+// The website's home (REQ200), for the same reason.
+const websiteLinksReport = websiteLinksStartupReport();
 
 // Open the document store before starting the server.
 await connectDb();
@@ -146,6 +150,11 @@ const app = new Elysia()
 	// Where the operator's imprint, privacy policy and terms live, read by the
 	// client's app menu and contract-conclusion notices. Unset means no link.
 	.use(legalRoutes)
+
+	// ── Product website's home (REQ200) ───────────────────────
+	// Where a participant's ended screen links home, in the deck's language.
+	// Unset means the app's own home page.
+	.use(websiteRoutes)
 
 	// ── Feedback about omul (REQ185, REQ186) ──────────────────
 	// Sent from the app menu, or in answer to the prompt after a session, to the
@@ -272,6 +281,9 @@ for (const line of legalLinksReport) console.log(line);
 // Which query parameters the address bar keeps (REQ203). An empty list drops
 // every one on the first navigation, which from outside looks like a defect.
 for (const line of keptQueryParamsReport) console.log(line);
+// Where a participant's ended screen leads (REQ200). Unset leads to the app's
+// own home, which from outside looks the same as a website nobody configured.
+for (const line of websiteLinksReport) console.log(line);
 
 // Whether this deployment collects feedback (REQ185, REQ186), on which channel,
 // and whether anybody can read it: on with no administrator stores answers

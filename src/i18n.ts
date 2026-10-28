@@ -13,6 +13,12 @@ export type Dict = {
 	willStartSoon: string;
 	presentationEnded: string;
 	thankYou: string;
+	/**
+	 * The ended screen's way onward (REQ200): to the product website's home in
+	 * the deck's language when the instance names one, the app's own home
+	 * otherwise. Neutral and navigational. `{brand}` is the product's name.
+	 */
+	goToHomepage: string;
 	typeResponse: string;
 	submit: string;
 	voteSubmitted: string;
@@ -286,6 +292,7 @@ const en: Dict = {
 	willStartSoon: "The presentation will start soon",
 	presentationEnded: "Presentation Ended",
 	thankYou: "Thank you for participating!",
+	goToHomepage: "Go to the {brand} homepage",
 	typeResponse: "Type your response...",
 	submit: "Submit",
 	voteSubmitted: "Vote submitted!",
@@ -424,6 +431,7 @@ const de: Dict = {
 	willStartSoon: "Die Präsentation beginnt gleich",
 	presentationEnded: "Präsentation beendet",
 	thankYou: "Danke für deine Teilnahme!",
+	goToHomepage: "Zur {brand}-Startseite",
 	typeResponse: "Antwort eingeben...",
 	submit: "Absenden",
 	voteSubmitted: "Antwort gesendet!",
@@ -564,6 +572,7 @@ const fr: Dict = {
 	willStartSoon: "La présentation va commencer",
 	presentationEnded: "Présentation terminée",
 	thankYou: "Merci d'avoir participé !",
+	goToHomepage: "Aller à la page d'accueil de {brand}",
 	typeResponse: "Tapez votre réponse...",
 	submit: "Envoyer",
 	voteSubmitted: "Réponse envoyée !",
@@ -705,6 +714,7 @@ const es: Dict = {
 	willStartSoon: "La presentación comenzará pronto",
 	presentationEnded: "Presentación finalizada",
 	thankYou: "¡Gracias por participar!",
+	goToHomepage: "Ir a la página de inicio de {brand}",
 	typeResponse: "Escribe tu respuesta...",
 	submit: "Enviar",
 	voteSubmitted: "¡Respuesta enviada!",
@@ -846,6 +856,7 @@ const it: Dict = {
 	willStartSoon: "La presentazione inizierà a breve",
 	presentationEnded: "Presentazione terminata",
 	thankYou: "Grazie per aver partecipato!",
+	goToHomepage: "Vai alla home page di {brand}",
 	typeResponse: "Scrivi la tua risposta...",
 	submit: "Invia",
 	voteSubmitted: "Risposta inviata!",
@@ -986,6 +997,7 @@ const pt: Dict = {
 	willStartSoon: "A apresentação começará em breve",
 	presentationEnded: "Apresentação encerrada",
 	thankYou: "Obrigado por participar!",
+	goToHomepage: "Ir para a página inicial de {brand}",
 	typeResponse: "Digite sua resposta...",
 	submit: "Enviar",
 	voteSubmitted: "Resposta enviada!",
@@ -1126,6 +1138,7 @@ const nl: Dict = {
 	willStartSoon: "De presentatie begint zo",
 	presentationEnded: "Presentatie beëindigd",
 	thankYou: "Bedankt voor je deelname!",
+	goToHomepage: "Naar de startpagina van {brand}",
 	typeResponse: "Typ je antwoord...",
 	submit: "Verzenden",
 	voteSubmitted: "Antwoord verzonden!",

@@ -37,6 +37,7 @@ import {
 } from "../components/ReactionBar";
 import { SlideAppearanceScope } from "../components/SlideAppearance";
 import { SlideBackground } from "../components/SlideBackground";
+import { WebsiteHomeLink } from "../components/WebsiteHomeLink";
 import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { useToast } from "../components/ui/Toast";
@@ -458,13 +459,12 @@ export function ParticipantPage({
 					<DeckMark deck={pres} className="mb-4" />
 					<h2 className="text-2xl font-bold mb-2">{t.presentationEnded}</h2>
 					<p className="text-text-muted mb-6">{t.thankYou}</p>
-					<button
-						type="button"
-						className="btn-secondary"
-						onClick={() => go({ page: "home" })}
-					>
-						Back to home
-					</button>
+					{/* REQ200 — home, in the deck's language: the website's when the
+					    instance names one, the app's own otherwise. */}
+					<WebsiteHomeLink
+						language={pres.language}
+						onAppHome={() => go({ page: "home" })}
+					/>
 					{/* REQ186 — omul's own question, on a card of its own below the
 					    organizer's goodbye: in omul's default theme and under omul's
 					    mark, drawn only for a sampled device that was in the room. */}

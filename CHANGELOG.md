@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The button on a participant's screen after a presentation ends is now in the presentation's language ("Zur omul-Startseite", "Go to the omul homepage", …) instead of always "Back to home". An instance can point it at its product website's home with `OMUL_WEBSITE_HOME_URL_EN` and `OMUL_WEBSITE_HOME_URL_DE`: a German presentation links to the German home, every other language to the English one, and to whichever is set when only one is. Each takes an absolute `http(s)://` URL or a path on the same host; any other value stops the server at startup with an error naming the variable. While both are unset the button opens the app's home page as before. The configured addresses are served at `GET /api/website`.
+
 ### Security
 
 - Exporting a presentation as PDF can no longer stall the server. Turning slide text into plain words for the PDF took time that grew with the square of the text for some markup; it now grows linearly, and the output is unchanged.

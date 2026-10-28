@@ -13,12 +13,12 @@
  * host starting with a single `/` — the second because the app is built to share
  * its host with a marketing site that holds exactly these pages (REQ179), and
  * `/imprint` is how such a deployment names one. Anything else is a fatal
- * startup error rather than a link that is silently dropped: the variable exists
- * so that the link is there, and a `javascript:` URL or a typo that resolves
- * relative to whatever page the visitor is on is worse than no link at all.
+ * startup error; the rule is `server/configured-url.ts`'s, shared with the
+ * website's home (REQ200).
  */
 
 import { z } from "zod";
+import { configuredUrlFrom } from "./configured-url";
 
 /** The three variables, keyed by the field each one fills. */
 export const LEGAL_LINK_ENV = {
@@ -41,41 +41,6 @@ export const LegalLinksSchema = z.object({
 export type LegalLinks = z.infer<typeof LegalLinksSchema>;
 
 /**
- * A path on this host — one leading slash, and no backslash anywhere: a browser
- * reads `\` as `/`, so `//elsewhere`, `/\elsewhere` and `\\elsewhere` all leave
- * the host, and none of them is a path on it.
- */
-const SAME_HOST_PATH = /^\/(?!\/)[^\s\\]*$/;
-
-function isAcceptedLegalUrl(value: string): boolean {
-	if (SAME_HOST_PATH.test(value)) return true;
-	try {
-		const parsed = new URL(value);
-		return (
-			(parsed.protocol === "https:" || parsed.protocol === "http:") &&
-			parsed.host.length > 0
-		);
-	} catch {
-		return false;
-	}
-}
-
-/**
- * One variable, read. Blank and whitespace are unset; a malformed value throws,
- * naming the variable and what it accepts.
- */
-function legalUrlFrom(variable: string, raw: string | undefined): string | null {
-	const value = (raw ?? "").trim();
-	if (!value) return null;
-	if (!isAcceptedLegalUrl(value)) {
-		throw new Error(
-			`${variable} must be an absolute http(s):// URL or a path on this host starting with "/" — got ${JSON.stringify(raw)}.`,
-		);
-	}
-	return value;
-}
-
-/**
  * The legal-text addresses this deployment configured. Read on every call
  * rather than frozen at import, so the route and the boot report cannot
  * disagree and a test can set the environment it describes.
@@ -84,15 +49,15 @@ export function resolveLegalLinks(
 	environment: Record<string, string | undefined> = process.env,
 ): LegalLinks {
 	return {
-		imprintUrl: legalUrlFrom(
+		imprintUrl: configuredUrlFrom(
 			LEGAL_LINK_ENV.imprintUrl,
 			environment[LEGAL_LINK_ENV.imprintUrl],
 		),
-		privacyUrl: legalUrlFrom(
+		privacyUrl: configuredUrlFrom(
 			LEGAL_LINK_ENV.privacyUrl,
 			environment[LEGAL_LINK_ENV.privacyUrl],
 		),
-		termsUrl: legalUrlFrom(
+		termsUrl: configuredUrlFrom(
 			LEGAL_LINK_ENV.termsUrl,
 			environment[LEGAL_LINK_ENV.termsUrl],
 		),
