@@ -226,8 +226,10 @@ Prose outside the markers is preserved.
 | [REQ216.md](requirements/REQ216.md) | When a quiz question's window ends, every connected participant's phone must switch to the revealed results without a reload | Quiz & Scoring | P1 | done | internal |
 | [REQ217.md](requirements/REQ217.md) | Restarting a quiz question's timer must leave every answer already given with the points it earned in its own window | Quiz & Scoring | P1 | done | internal |
 | [REQ218.md](requirements/REQ218.md) | A leaderboard row must be called by its holder's stated name on a deck that asks for names | Quiz & Scoring | P1 | done | internal |
+| [REQ219.md](requirements/REQ219.md) | The editor must warn about a quiz question with no correct answer, and going live must name it | Quiz & Scoring | P1 | done | internal |
+| [REQ220.md](requirements/REQ220.md) | A slide that poses no question must save without one, and a refused save must name and select its slide | Deck & Slides | P2 | done | internal |
 | [REQ245.md](requirements/REQ245.md) | A slide's body text can be edited directly on the editor canvas, as its question already can | Deck & Slides | P2 | pending | internal |
 | [REQ246.md](requirements/REQ246.md) | Account deletion requires the account's password whatever the session's age | Accounts & Workspaces | P1 | done | internal |
 
-_210 entries — one row per file in `requirements/`._
+_212 entries — one row per file in `requirements/`._
 <!-- index:end -->

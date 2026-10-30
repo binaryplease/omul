@@ -903,8 +903,8 @@ those comments are one authority — if they disagree, fix the drift.
 
 | Site | What it does | Why it stands |
 |---|---|---|
-| `ConfirmModal.tsx` / `Modal.tsx` — backdrop `<div>` | Click (and Escape, in `Modal`) dismisses, with no ARIA role | The focusable Cancel button is the keyboard path out; a role plus its own key handler would add a second, redundant "Cancel" to the tab order |
-| `ConfirmModal.tsx` / `Modal.tsx` / `PresenterPage.tsx` — panel `<div>` | `onClick` that only calls `stopPropagation` | Not an affordance — there is no user action here to give a keyboard equivalent to |
+| `ConfirmModal.tsx` / `Modal.tsx` — backdrop `<div>` | Click dismisses, with no ARIA role (Escape too, in `Modal`; `ConfirmModal` hears Escape on its panel) | The focusable Cancel button is the keyboard path out; a role plus its own key handler would add a second, redundant "Cancel" to the tab order |
+| `ConfirmModal.tsx` / `Modal.tsx` / `PresenterPage.tsx` — panel `<div>` | `onClick` that only calls `stopPropagation` | Not an affordance — there is no user action here to give a keyboard equivalent to. `ConfirmModal`'s panel is the `role="dialog"` (REQ219): labelled by its title, described by its message, focus on Cancel while it is open and back on the opener after |
 | `PresenterPage.tsx` — results-poll `useEffect` | Deps narrower than the captures | The 3s poll must restart only when *what* is polled changes, not on every new `pres` object from the store |
 | `PresenterPage.tsx` — `handleKeyDown` `useCallback` | Omits `handleSlide` from the deps | `handleSlide` is render-unstable; listing it would re-subscribe the window keydown listener every render |
 | `Results.tsx` — poll dot cluster | Array index as `key` | Dots come from a bare count, so the index *is* the identity; the fly-in animation depends on the DOM node surviving across renders |

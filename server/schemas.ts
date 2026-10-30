@@ -130,6 +130,21 @@ export function isContentSlideType(type: SlideType): boolean {
 }
 
 /**
+ * Whether a slide cannot be saved without a question written on it — the rule
+ * the editor's save applies, and the one its placeholder has to be honest about.
+ *
+ * Exactly the slides that collect answers: a participant cannot answer nothing.
+ * Not "every slide that is not content", which is what the editor used to ask,
+ * and a leaderboard is again the proof (REQ220): it asks the room nothing, its
+ * heading is optional, and an empty one is drawn as the board's own title on
+ * every surface — so refusing to save one demanded a question from a slide that
+ * poses none.
+ */
+export function slideRequiresQuestion(type: SlideType): boolean {
+	return isInteractiveSlideType(type);
+}
+
+/**
  * What each slide type is **called**, in the words a person reads.
  *
  * One descriptor, because the name of a type is now written on both sides of
@@ -3632,6 +3647,39 @@ export function matchesQuizAnswer(slide: QuizSettings, text: string): boolean {
 	if (submitted.length === 0) return false;
 	return acceptedQuizAnswers(slide).some(
 		(accepted) => normalizeQuizAnswer(accepted) === submitted,
+	);
+}
+
+/**
+ * Whether a quiz slide has an answer key at all (REQ219): an option marked
+ * correct on a select-answer question, an accepted answer on a typed one —
+ * read through the same two functions the grader reads, so "has a solution"
+ * cannot mean one thing where it is warned about and another where it is
+ * scored.
+ *
+ * A quiz without one is a legal draft and saves as one, but every answer to it
+ * scores nothing (see {@link isCorrectQuizAnswer}), so the editor flags it on the
+ * slide and in the slide list, and going live names it before the room meets
+ * it. Any other slide type reads `true`: only a quiz is scored, so only a quiz
+ * can be missing a key.
+ */
+export function quizHasAnswerKey(slide: QuizSettings): boolean {
+	if (slide.type !== "quiz") return true;
+	return quizAnswerModeFor(slide) === "type"
+		? acceptedQuizAnswers(slide).length > 0
+		: correctQuizOptionIds(slide).length > 0;
+}
+
+/**
+ * The positions (from 0) of the quiz slides in `slides` that have no answer key
+ * (REQ219) — what going live names. In deck order, so the list reads the way
+ * the presenter will reach them.
+ */
+export function quizSlidesWithoutAnswerKey(
+	slides: readonly QuizSettings[],
+): number[] {
+	return slides.flatMap((slide, slideIndex) =>
+		quizHasAnswerKey(slide) ? [] : [slideIndex],
 	);
 }
 

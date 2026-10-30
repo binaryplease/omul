@@ -902,6 +902,56 @@ describe("WebSocket integration", () => {
 		await viewer.close();
 	});
 
+	test("switching the name question off re-broadcasts the leaderboard (REQ218)", async () => {
+		// The switch decides what a row is called, and a board already on screen
+		// hears that only from this frame — re-fetching it would show the change,
+		// but a phone does not re-fetch on its own.
+		const pres = await createLeaderboardDeck({ requireParticipantName: true });
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		await viewer.waitFor("presentation.started");
+
+		const named = await fetch(
+			`${baseUrl}/api/presentations/${pres.id}/participant-name`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ participantId: "participant-1", name: "Jurgen" }),
+			},
+		);
+		expect(named.status).toBe(200);
+		await answerQuiz(pres.id, "participant-1", "mercury");
+		await viewer.waitForCount(
+			"results.updated",
+			(candidate) =>
+				(candidate.data as { slideId: string }).slideId === "board" &&
+				(candidate.data.results as { entries: { label: string }[] }).entries[0]
+					?.label === "Jurgen",
+		);
+		// Let the coalescing window pass, so the frame below can only be the one
+		// the switch sends rather than a trailing recount of the answer.
+		await new Promise((resolve) => setTimeout(resolve, 700));
+		viewer.received.length = 0;
+
+		const patch = await authed(`/api/presentations/${pres.id}`, pres.creatorToken, {
+			method: "PATCH",
+			body: JSON.stringify({ requireParticipantName: false }),
+		});
+		expect(patch.status).toBe(200);
+		const env = await viewer.waitForCount(
+			"results.updated",
+			(candidate) => (candidate.data as { slideId: string }).slideId === "board",
+		);
+		const board = env.data.results as { entries: { label: string }[] };
+		expect(board.entries[0].label).toStartWith("Player ");
+
+		await viewer.close();
+	});
+
 	test("a room answering together costs one board recount per window, not one per answer (REQ059)", async () => {
 		// The board is a whole-deck aggregate with only a latest value, so N answers
 		// inside one window have one answer between them. Re-scoring the deck and

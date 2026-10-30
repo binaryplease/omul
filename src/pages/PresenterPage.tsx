@@ -63,6 +63,7 @@ import {
 	PresenterSlideView,
 	presenterSlideWidthClass,
 } from "../components/PresenterSlideView";
+import { quizAnswerKeyGoLiveWarning } from "../components/QuizAnswerKeyWarning";
 import { useQuizQuestionRunning } from "../components/QuizTimer";
 import {
 	ParticipantRosterPanel,
@@ -345,6 +346,14 @@ export function PresenterPage({
 	const [confirmShareEdit, setConfirmShareEdit] = useState(false);
 	/** Whether the "this clears every response" prompt is up (REQ101). */
 	const [confirmReset, setConfirmReset] = useState(false);
+	/**
+	 * The quiz questions nobody can get right, named before the deck goes live
+	 * (REQ219) — `null` when the prompt is down.
+	 */
+	const [answerKeyWarning, setAnswerKeyWarning] = useState<{
+		title: string;
+		message: string;
+	} | null>(null);
 	/** Whether the export dialog is up (REQ095/REQ096). */
 	const [exportOpen, setExportOpen] = useState(false);
 	/** Whether the results-link dialog is up (REQ098). */
@@ -527,7 +536,23 @@ export function PresenterPage({
 		setResultsFor,
 	]);
 
-	const handleStart = async () => {
+	/**
+	 * Go live — or, when some quiz question has no correct answer, first say
+	 * which (REQ219). A question, not a refusal: a quiz with no key is a draft
+	 * the presenter may run on purpose (a show of hands, a warm-up), so "Start
+	 * anyway" is one click away and "Cancel" leaves them where they were.
+	 */
+	const handleStart = () => {
+		const warning = pres ? quizAnswerKeyGoLiveWarning(pres.slides) : null;
+		if (warning) {
+			setAnswerKeyWarning(warning);
+			return;
+		}
+		void goLive();
+	};
+
+	const goLive = async () => {
+		setAnswerKeyWarning(null);
 		try {
 			await startPresentation(id);
 			addToast("Presentation started", "success");
@@ -2036,6 +2061,17 @@ export function PresenterPage({
 				confirmLabel="Copy edit link"
 				onConfirm={copyEditLink}
 				onCancel={() => setConfirmShareEdit(false)}
+			/>
+
+			{/* REQ219 — the quiz questions nobody can get right, named by slide
+			    before the room meets them. */}
+			<ConfirmModal
+				open={answerKeyWarning !== null}
+				title={answerKeyWarning?.title ?? ""}
+				message={answerKeyWarning?.message ?? ""}
+				confirmLabel="Start anyway"
+				onConfirm={goLive}
+				onCancel={() => setAnswerKeyWarning(null)}
 			/>
 
 			{/* REQ101 — what a reset actually costs, spelled out before it happens.

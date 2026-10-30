@@ -26,7 +26,9 @@ import {
 	QUIZ_SUBMISSION_GRACE_MS,
 	quizClosedAfterOpening,
 	quizDeadlineFor,
+	quizHasAnswerKey,
 	quizQuestionIsRunning,
+	quizSlidesWithoutAnswerKey,
 	quizRemainingMs,
 	quizTimeLimitFor,
 	scoreQuizAnswer,
@@ -157,6 +159,67 @@ describe("correctness (REQ013, REQ056)", () => {
 		const unfinished = { options: [{ id: "a", text: "A" }] };
 		expect(correctQuizOptionIds(unfinished)).toEqual([]);
 		expect(isCorrectQuizAnswer(unfinished, "a")).toBe(false);
+	});
+});
+
+describe("quizHasAnswerKey (REQ219)", () => {
+	const options = [
+		{ id: "a", text: "Wien" },
+		{ id: "b", text: "Graz" },
+	];
+
+	test("a select-answer quiz with no option marked has no key", () => {
+		expect(quizHasAnswerKey({ type: "quiz", options })).toBe(false);
+	});
+
+	test("one marked option is a key", () => {
+		expect(
+			quizHasAnswerKey({
+				type: "quiz",
+				options: [{ ...options[0], isCorrect: true }, options[1]],
+			}),
+		).toBe(true);
+	});
+
+	test("a typed quiz has a key only once it accepts an answer the grader can match", () => {
+		const typed = { type: "quiz" as const, quizAnswerMode: "type" as const };
+		expect(quizHasAnswerKey({ ...typed, quizAnswers: [] })).toBe(false);
+		// Rows the grader drops (blank, or punctuation that normalizes to
+		// nothing) are no key either — the same reading that scores answers.
+		expect(
+			quizHasAnswerKey({ ...typed, quizAnswers: [{ text: " " }, { text: "." }] }),
+		).toBe(false);
+		expect(quizHasAnswerKey({ ...typed, quizAnswers: [{ text: "Wien" }] })).toBe(
+			true,
+		);
+	});
+
+	test("a typed quiz is not rescued by a marked option it no longer offers", () => {
+		expect(
+			quizHasAnswerKey({
+				type: "quiz",
+				quizAnswerMode: "type",
+				options: [{ id: "a", isCorrect: true }],
+				quizAnswers: [],
+			}),
+		).toBe(false);
+	});
+
+	test("only a quiz can be missing a key", () => {
+		expect(quizHasAnswerKey({ type: "multiple-choice", options })).toBe(true);
+		expect(quizHasAnswerKey({ type: "leaderboard" })).toBe(true);
+	});
+
+	test("the slides without one are listed in deck order", () => {
+		expect(
+			quizSlidesWithoutAnswerKey([
+				{ type: "text" },
+				{ type: "quiz", options },
+				{ type: "quiz", options: [{ id: "a", isCorrect: true }] },
+				{ type: "quiz", quizAnswerMode: "type", quizAnswers: [] },
+			]),
+		).toEqual([1, 3]);
+		expect(quizSlidesWithoutAnswerKey([{ type: "text" }])).toEqual([]);
 	});
 });
 

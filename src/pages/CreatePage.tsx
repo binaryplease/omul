@@ -63,6 +63,7 @@ import { StatusBadge } from "../components/ui/StatusBadge";
 import { useToast } from "../components/ui/Toast";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
+import { slideSaveRefusalFor } from "../slide-save-refusal";
 import { useStore, useStoreApi } from "../store";
 import {
 	type CurrentDeck,
@@ -96,19 +97,10 @@ import {
 	deckBrandFor,
 	deckLogoFor,
 	EMPTY_DECK_BRAND,
-	gridAxesFor,
-	guessRangeFor,
-	guessReferenceFor,
-	isContentSlideType,
-	isReachableGuessReference,
 	participantLanguageFor,
-	pinAreaFor,
 	profanityFilterLanguageFor,
 	slideWriteRefusalFor,
-	pinImageFor,
-	slideEmbedFor,
 	slideHasResults,
-	slideVideoFor,
 } from "../types";
 
 // ── Create / Edit Page ────────────────────────────────────────
@@ -631,178 +623,13 @@ export function CreatePage({
 			setError("Title is required");
 			return;
 		}
-		for (let index = 0; index < slides.length; index++) {
-			const slide = slides[index];
-			const isContent = isContentSlideType(slide.type);
-			const fail = (message: string) => {
-				setSelected(index);
-				setError(message);
-			};
-			if (!isContent && !slide.question.trim()) {
-				fail("All slides need a question");
-				return;
-			}
-			if (slide.type === "image" && !slide.mediaUrl?.trim()) {
-				fail("Image slides need an image URL");
-				return;
-			}
-			// REQ064 — a video slide is the video, so a deck cannot ship one that
-			// points at nothing, and it is refused here rather than discovered as a
-			// dead rectangle on a projector. Both failures are the same failure: the
-			// resolver is what the three rendering surfaces ask, so a URL it will not
-			// play is a slide that will not play.
-			if (slide.type === "video" && !slide.mediaUrl?.trim()) {
-				fail("Video slides need a video URL");
-				return;
-			}
-			if (slide.type === "video" && !slideVideoFor(slide)) {
-				fail("That video link can't be played — use an http(s) address");
-				return;
-			}
-			// REQ066/REQ067/REQ068 — an embed slide is the external deck or board, so
-			// the same rule applies for the same reason, against the same resolver
-			// the three rendering surfaces ask. A link outside the three providers is
-			// refused here rather than framed on a guess later.
-			if (slide.type === "embed" && !slide.mediaUrl?.trim()) {
-				fail("Embed slides need a deck or board URL");
-				return;
-			}
-			if (slide.type === "embed" && !slideEmbedFor(slide)) {
-				fail(
-					"That link can't be embedded — use an https Google Slides, PowerPoint or Miro address",
-				);
-				return;
-			}
-			if (
-				(slide.type === "multiple-choice" || slide.type === "quiz") &&
-				slide.options?.some((option) => !option.text.trim())
-			) {
-				fail("All options need text");
-				return;
-			}
-			// REQ034: a nameless item is unrankable — participants would be
-			// ordering a blank row against the ones they can read.
-			if (
-				slide.type === "ranking" &&
-				slide.rankingItems?.some((item) => !item.text.trim())
-			) {
-				fail("All ranking items need text");
-				return;
-			}
-			// REQ045: a nameless item cannot be funded — participants would be
-			// weighing a blank row against the ones they can read. Two items is
-			// the floor: with one, the whole budget has nowhere else to go, so
-			// there is no trade-off to force (REQ044).
-			if (slide.type === "points") {
-				if ((slide.pointsItems?.length ?? 0) < 2) {
-					fail("100 Points slides need at least two items");
-					return;
-				}
-				if (slide.pointsItems?.some((item) => !item.text.trim())) {
-					fail("All 100 Points items need text");
-					return;
-				}
-			}
-			// REQ040/REQ043 — the frame is what makes an estimate an estimate, so
-			// an unusable one is refused before it can be answered rather than
-			// leaving participants to discover it by having every guess rejected.
-			if (slide.type === "guess-number") {
-				const range = guessRangeFor(slide);
-				if (range.max <= range.min) {
-					fail(
-						"A Guess the Number slide needs a highest value above its lowest",
-					);
-					return;
-				}
-				if (range.step < 1 || range.step > range.max - range.min) {
-					fail("The step must be at least 1 and no wider than the range");
-					return;
-				}
-				// REQ041/REQ042 — a reference no selectable value can reach claims a
-				// correct answer while scoring every participant wrong forever, which
-				// is worse than having no reference at all. The reference itself need
-				// not sit on the step grid (a true figure of 517 on a slide stepping
-				// in tens is a fine question at ±10); what must hold is that the
-				// tolerance window contains at least one value the slide offers.
-				if (!isReachableGuessReference(range, guessReferenceFor(slide))) {
-					fail(
-						"The correct answer is out of reach — no selectable value falls inside its tolerance",
-					);
-					return;
-				}
-			}
-			// REQ061 — a form with no answerable field asks nothing: the vote
-			// boundary refuses every submission to it, and the slide would meet the
-			// room as a heading over a submit button. Both failures are the same
-			// failure — `isUsableFormField` is what the boundary, the phone and the
-			// tally all read, so a field it will not accept is a field that is not
-			// there. Refused at save rather than discovered in front of an audience.
-			if (slide.type === "form") {
-				const fields = slide.formFields ?? [];
-				if (fields.length === 0) {
-					fail("Form slides need at least one field");
-					return;
-				}
-				if (fields.some((field) => !(field.label ?? "").trim())) {
-					fail("All form fields need a label");
-					return;
-				}
-				// A choice field with nothing to choose between is the one way a
-				// labelled field can still be unanswerable.
-				if (
-					fields.some(
-						(field) =>
-							field.type === "choice" &&
-							!(field.options ?? []).some((option) => option.text.trim()),
-					)
-				) {
-					fail("Choice fields need at least one option with text");
-					return;
-				}
-			}
-			// REQ052 — the image *is* the question here: without it there is no
-			// coordinate space for a pin, the vote boundary refuses every submission,
-			// and the slide would meet the room as a blank frame. Refused at save
-			// rather than left to be discovered on the projector.
-			if (slide.type === "pin-image") {
-				if (!pinImageFor(slide).url) {
-					fail("Pin on Image slides need an image URL");
-					return;
-				}
-				// REQ053 — an area part of which nobody can reach makes "how many were
-				// inside?" a number about the picture rather than about the room, so a
-				// target that runs off the image is refused the way an unreachable
-				// guess reference is. A slide with no area at all is fine: it simply
-				// claims no correct answer.
-				if (slide.pinArea && !pinAreaFor(slide)) {
-					fail(
-						"The correct area runs off the image — keep it inside the picture",
-					);
-					return;
-				}
-			}
-			if (slide.type === "grid") {
-				// REQ047 — a nameless item cannot be judged on either dimension.
-				if (
-					!slide.gridItems?.length ||
-					slide.gridItems.some((item) => !item.text.trim())
-				) {
-					fail("All grid items need text");
-					return;
-				}
-				// REQ048 — an unnamed axis leaves "left vs right" to guesswork,
-				// which is exactly the misreading axis titles exist to prevent.
-				const { xAxis, yAxis } = gridAxesFor(slide);
-				if (!xAxis.title.trim() || !yAxis.title.trim()) {
-					fail("Both grid axes need a title");
-					return;
-				}
-				// REQ049 — endpoints must describe a range to place items along.
-				if (xAxis.min >= xAxis.max || yAxis.min >= yAxis.max) {
-					fail("Each grid axis needs a low value below its high value");
-					return;
-				}
-			}
+		// The editor's own rules (REQ220: the refusal names the slide, and the
+		// slide is selected so the author lands in front of it).
+		const saveRefusal = slideSaveRefusalFor(slides);
+		if (saveRefusal) {
+			setSelected(saveRefusal.slideIndex);
+			setError(saveRefusal.message);
+			return;
 		}
 
 		// REQ159 — the write caps, checked with the same schema the boundary
@@ -1086,8 +913,14 @@ export function CreatePage({
 					/>
 				)}
 
+				{/* An alert, because a refused Save moves the author to another slide
+				    (REQ220) and a screen-reader user would otherwise land there
+				    without hearing why. */}
 				{error && (
-					<div className="flex items-center gap-2 px-4 sm:px-6 py-2 bg-error/10 border-t border-error/30 text-error text-sm">
+					<div
+						role="alert"
+						className="flex items-center gap-2 px-4 sm:px-6 py-2 bg-error/10 border-t border-error/30 text-error text-sm"
+					>
 						<AlertTriangle size={15} className="flex-shrink-0" />
 						{error}
 					</div>

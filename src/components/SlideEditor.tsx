@@ -114,6 +114,7 @@ import {
 	quizAudioUrlForOption,
 	useQuizAudioPreview,
 } from "./QuizAudioCue";
+import { QuizAnswerKeyWarning } from "./QuizAnswerKeyWarning";
 import { isChoiceShapedSlide } from "./SlideCanvasFields";
 import { deckThemeAppearance } from "./DeckTheme";
 import { slideLayoutOptions } from "./SlideAppearance";
@@ -1531,15 +1532,6 @@ function QuizAnswerFields({ slide, onUpdate }: SlideSettingsProps) {
 							disabled={(slide.quizAnswers?.length ?? 0) >= QUIZ_ANSWER_LIMIT}
 							disabledLabel={`At most ${QUIZ_ANSWER_LIMIT} accepted answers`}
 						/>
-						{/* A typed question with no solution scores nobody — the same
-						    stance a choice slide takes when nothing is marked correct
-						    (REQ013). Said out loud, because unlike a blank option it
-						    leaves no visible gap on the participant's screen. */}
-						{acceptedQuizAnswers(slide).length === 0 && (
-							<p className="rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
-								No accepted answer yet — nobody can score on this question.
-							</p>
-						)}
 						{duplicates > 0 && (
 							<p className="text-xs text-text-muted">
 								{duplicates === 1
@@ -1550,6 +1542,11 @@ function QuizAnswerFields({ slide, onUpdate }: SlideSettingsProps) {
 					</div>
 				</Field>
 			)}
+			{/* A quiz with no solution scores nobody — the same stance a choice
+			    slide takes when nothing is marked correct (REQ013). Said out loud
+			    in either mode (REQ219), because unlike a blank option it leaves no
+			    visible gap on the participant's screen: they just read "wrong". */}
+			<QuizAnswerKeyWarning slide={slide} />
 		</>
 	);
 }

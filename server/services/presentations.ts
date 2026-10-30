@@ -2427,15 +2427,18 @@ export function resetStandingsBroadcasts(): void {
  * Without it a leaderboard on screen would sit at whatever it said when the room
  * arrived — a board reporting a race that has already moved on.
  *
- * Called from all three things that re-score a board, because scores are derived
+ * Called from both things that re-score a board, because scores are derived
  * from the deck as it stands now rather than stored: an **answer** landing on a
- * quiz question, an **edit** to what counts as correct, and a **restarted
- * window**, which re-measures the speed half of every answer given under it. The
- * presenter's poll would eventually catch all three on the projector; a
+ * quiz question, and an **edit** to what counts as correct. A restarted window
+ * is not one of them any more: each answer keeps the window it was given in
+ * (REQ217), so a restart moves no score. And from the two things that re-label
+ * a board without re-scoring it (REQ218): a participant **stating or correcting
+ * their name**, and the deck's **name question being switched** on or off. The
+ * presenter's poll would eventually catch all of them on the projector; a
  * participant's phone only ever hears about them here.
  *
- * **All three still arrive; what changed is how often the same news is sent.**
- * One of the three — an answer landing — is walked by every person in the room,
+ * **Every one still arrives; what changed is how often the same news is sent.**
+ * One of them — an answer landing — is walked by every person in the room,
  * and re-scoring the whole deck per individual answer made a 300-person question
  * cost 300 deck rescans and 300 room-wide broadcasts, 299 of which described a
  * board nobody had time to read. The recount is therefore coalesced: the first
