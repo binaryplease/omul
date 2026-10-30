@@ -2,6 +2,10 @@ import { Eye, Link2Off } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api, clearResultsToken, getResultsToken } from "../api";
 import { DeckMark, DeckThemeScope } from "../components/DeckTheme";
+import {
+	LEADERBOARD_LABELS_EN,
+	leaderboardHeadingText,
+} from "../components/Leaderboard";
 import { ResultsDisplay } from "../components/Results";
 import { SegmentedResults } from "../components/SegmentedResults";
 import { SlideAppearanceScope } from "../components/SlideAppearance";
@@ -241,7 +245,14 @@ export function SharedResultsPage({ id }: { id: string }) {
 									</span>
 									<h2 className="text-lg sm:text-xl font-semibold flex-1">
 										<SlideText
-											text={slide.question ?? ""}
+											text={
+												slide.type === "leaderboard"
+													? leaderboardHeadingText(
+															slide.question,
+															LEADERBOARD_LABELS_EN,
+														)
+													: (slide.question ?? "")
+											}
 											size={slideTextSizeFor(slide as any)}
 											variant="inline"
 										/>

@@ -4,6 +4,7 @@ import { CountdownRunControls, countdownRunFor } from "./CountdownFace";
 import {
 	LEADERBOARD_LABELS_EN,
 	LeaderboardHeading,
+	leaderboardHeadingText,
 	readLeaderboard,
 } from "./Leaderboard";
 import { SlideParticipationControl } from "./LiveRoom";
@@ -180,7 +181,7 @@ function PresenterStandingsHeading({
 		<LeaderboardHeading
 			title={
 				<SlideText
-					text={slide.question || LEADERBOARD_LABELS_EN.title}
+					text={leaderboardHeadingText(slide.question, LEADERBOARD_LABELS_EN)}
 					size={slideTextSizeFor(slide)}
 					variant="inline"
 				/>
@@ -438,6 +439,7 @@ export function PresenterSlideView({
 						<QuizTimer
 							countdown={quizCountdown}
 							label="s left"
+							spokenLabel="{seconds} seconds left"
 							expiredLabel="Time's up"
 						/>
 						{canControl && onRestartTimer && (

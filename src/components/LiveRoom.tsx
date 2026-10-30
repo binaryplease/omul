@@ -235,10 +235,17 @@ export function SlideParticipationControl({
 export function ParticipationGate({
 	open,
 	labels,
+	labelledBy,
 	children,
 }: {
 	open: boolean;
 	labels: ParticipationLabels;
+	/**
+	 * The id of what names the answer controls — the question above them. A
+	 * `<fieldset>` is a group to assistive technology, and an unnamed group is
+	 * announced as just "group" (REQ221).
+	 */
+	labelledBy?: string;
 	children: React.ReactNode;
 }) {
 	return (
@@ -252,7 +259,11 @@ export function ParticipationGate({
 					{labels.closed}
 				</p>
 			)}
-			<fieldset disabled={!open} className="contents m-0 w-full border-0 p-0">
+			<fieldset
+				disabled={!open}
+				aria-labelledby={labelledBy}
+				className="contents m-0 w-full border-0 p-0"
+			>
 				{children}
 			</fieldset>
 		</>

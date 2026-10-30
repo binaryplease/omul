@@ -116,6 +116,19 @@ export function leaderboardLabelsFor(
 }
 
 /**
+ * The heading a leaderboard slide is read under: its authored heading, or the
+ * board's own title when it has none (REQ220 lets one save empty). One reading,
+ * so the shared screen, the phone and the shared results page cannot title the
+ * same board two ways — the last of them once drew an empty `<h2>` instead.
+ */
+export function leaderboardHeadingText(
+	question: string | null | undefined,
+	labels: Pick<LeaderboardLabels, "title">,
+): string {
+	return question || labels.title;
+}
+
+/**
  * A board payload as it arrives over the wire: JSON, so every field is nominally
  * optional until it has been read through {@link readLeaderboard}.
  */

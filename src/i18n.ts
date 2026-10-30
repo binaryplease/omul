@@ -150,6 +150,18 @@ export type Dict = {
 	quizSecondsLeft: string;
 	quizTimesUp: string;
 	/**
+	 * What a screen reader hears when the countdown crosses a threshold
+	 * (REQ221) — spelled out in full, because the visible "12s left" is read as
+	 * a letter. `{seconds}` is the number.
+	 */
+	quizSecondsLeftSpoken: string;
+	/**
+	 * The short state an answer is in between the tap and the server's reply
+	 * (REQ224): drawn on the chosen card and announced, so a slow network is
+	 * not a screen that has simply stopped responding.
+	 */
+	answerSending: string;
+	/**
 	 * Why the options can no longer be picked (the cards stay visible
 	 * and disabled, and say why). The two reasons are kept apart because they
 	 * call for different things from the participant: one has answered and is
@@ -389,6 +401,8 @@ const en: Dict = {
 	formPrivacyNote: "Only the organizer can read what you write here.",
 	quizSecondsLeft: "s left",
 	quizTimesUp: "Time's up",
+	quizSecondsLeftSpoken: "{seconds} seconds left",
+	answerSending: "Sending…",
 	quizAnswerLocked: "Your answer is locked in",
 	quizWindowClosed: "The time for this question is over",
 	participationClosed: "The presenter has closed this question",
@@ -544,6 +558,8 @@ const de: Dict = {
 	formPrivacyNote: "Nur der Moderator kann lesen, was du hier schreibst.",
 	quizSecondsLeft: "s übrig",
 	quizTimesUp: "Zeit abgelaufen",
+	quizSecondsLeftSpoken: "Noch {seconds} Sekunden",
+	answerSending: "Wird gesendet …",
 	quizAnswerLocked: "Deine Antwort steht fest",
 	quizWindowClosed: "Die Zeit für diese Frage ist vorbei",
 	participationClosed: "Der Präsentator hat diese Frage geschlossen",
@@ -701,6 +717,8 @@ const fr: Dict = {
 	formPrivacyNote: "Seul l'organisateur peut lire ce que vous \u00e9crivez ici.",
 	quizSecondsLeft: "s restantes",
 	quizTimesUp: "Temps écoulé",
+	quizSecondsLeftSpoken: "Plus que {seconds} secondes",
+	answerSending: "Envoi…",
 	quizAnswerLocked: "Votre réponse est définitive",
 	quizWindowClosed: "Le temps pour cette question est écoulé",
 	participationClosed: "Le présentateur a fermé cette question",
@@ -858,6 +876,8 @@ const es: Dict = {
 	formPrivacyNote: "Solo el organizador puede leer lo que escribes aqu\u00ed.",
 	quizSecondsLeft: "s restantes",
 	quizTimesUp: "Tiempo agotado",
+	quizSecondsLeftSpoken: "Quedan {seconds} segundos",
+	answerSending: "Enviando…",
 	quizAnswerLocked: "Tu respuesta es definitiva",
 	quizWindowClosed: "El tiempo para esta pregunta ha terminado",
 	participationClosed: "El presentador ha cerrado esta pregunta",
@@ -1014,6 +1034,8 @@ const it: Dict = {
 	formPrivacyNote: "Solo l'organizzatore pu\u00f2 leggere ci\u00f2 che scrivi qui.",
 	quizSecondsLeft: "s rimasti",
 	quizTimesUp: "Tempo scaduto",
+	quizSecondsLeftSpoken: "Mancano {seconds} secondi",
+	answerSending: "Invio in corso…",
 	quizAnswerLocked: "La tua risposta è definitiva",
 	quizWindowClosed: "Il tempo per questa domanda è finito",
 	participationClosed: "Il relatore ha chiuso questa domanda",
@@ -1170,6 +1192,8 @@ const pt: Dict = {
 	formPrivacyNote: "S\u00f3 o organizador pode ler o que escreve aqui.",
 	quizSecondsLeft: "s restantes",
 	quizTimesUp: "Tempo esgotado",
+	quizSecondsLeftSpoken: "Faltam {seconds} segundos",
+	answerSending: "A enviar…",
 	quizAnswerLocked: "A tua resposta é definitiva",
 	quizWindowClosed: "O tempo para esta pergunta acabou",
 	participationClosed: "O apresentador fechou esta pergunta",
@@ -1326,6 +1350,8 @@ const nl: Dict = {
 	formPrivacyNote: "Alleen de organisator kan lezen wat je hier schrijft.",
 	quizSecondsLeft: "s over",
 	quizTimesUp: "Tijd voorbij",
+	quizSecondsLeftSpoken: "Nog {seconds} seconden",
+	answerSending: "Wordt verzonden…",
 	quizAnswerLocked: "Je antwoord staat vast",
 	quizWindowClosed: "De tijd voor deze vraag is voorbij",
 	participationClosed: "De presentator heeft deze vraag gesloten",

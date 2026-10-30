@@ -775,3 +775,65 @@ describe("colour helpers", () => {
 		expect(authoredColorInputValue("#ff", "#111114")).toBe("#111114");
 	});
 });
+
+describe("the status colours read as words in both schemes (REQ222)", () => {
+	// "Correct!", "Time's up", a "correct" label and "1 of 2" are drawn in these
+	// tokens as text, so they are held to the 4.5:1 text floor rather than the
+	// 3:1 one for bars and dots. A deck theme writes none of the three, so every
+	// built-in theme's grounds wear the chrome's values and are measured too.
+	const STATUS_TOKENS = ["--color-success", "--color-warning", "--color-error"];
+	const GROUNDS = [
+		"--color-void",
+		"--color-surface",
+		"--color-surface-raised",
+		"--color-surface-hover",
+	];
+
+	test("each clears 4.5:1 on every ground of the chrome and of every built-in theme", () => {
+		const failures: string[] = [];
+		for (const scheme of SCHEMES) {
+			const grounds: [string, string][] = [];
+			for (const ground of GROUNDS) {
+				grounds.push([`chrome ${ground}`, CHROME[scheme][ground]]);
+			}
+			for (const theme of BUILT_IN_DECK_THEME_IDS) {
+				const tokens = DECK_THEME_APPEARANCE[theme][scheme].tokens;
+				for (const ground of GROUNDS) {
+					grounds.push([`${theme} ${ground}`, tokens[ground] ?? ""]);
+				}
+			}
+			for (const token of STATUS_TOKENS) {
+				const words = parseHexColor(CHROME[scheme][token] ?? "");
+				for (const [name, value] of grounds) {
+					const behind = parseHexColor(value);
+					if (!words || !behind) {
+						failures.push(`${scheme} ${token} on ${name}: unparseable`);
+						continue;
+					}
+					const ratio = contrastRatio(words, behind);
+					if (ratio < ACCENT_TEXT_MIN_CONTRAST) {
+						failures.push(`${scheme} ${token} on ${name}: ${ratio.toFixed(2)}:1`);
+					}
+				}
+			}
+		}
+		expect(failures).toEqual([]);
+	});
+
+	test("an auto-scheme reader in a dark OS gets the dark values back", () => {
+		// `:root.auto` takes the light overrides and the media query undoes them;
+		// a status colour missing from the second block would leave the deep
+		// light-scheme green on a dark ground.
+		const css = readFileSync(join(import.meta.dir, "..", "index.css"), "utf8").replace(
+			/\/\*[\s\S]*?\*\//g,
+			"",
+		);
+		const autoDark = declarationsIn(
+			css,
+			"@media (prefers-color-scheme: dark) {\n\t:root.auto {",
+		);
+		for (const token of STATUS_TOKENS) {
+			expect(autoDark[token]).toBe(CHROME.dark[token]);
+		}
+	});
+});

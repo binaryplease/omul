@@ -14,11 +14,13 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PresentationSchema, QUIZ_SUBMISSION_GRACE_MS } from "../../server/schemas";
 import type { Presentation, Slide } from "../types";
-import { ParticipantSlideView } from "./ParticipantSlideView";
+import { choiceCardState, ParticipantSlideView } from "./ParticipantSlideView";
 
 const TIME_LIMIT_SECONDS = 30;
 
@@ -201,5 +203,99 @@ describe("a participant's phone when a quiz question ends (REQ216)", () => {
 		);
 		expect(markup).toContain("Live results");
 		expect(markup).toContain("correct</span>");
+	});
+});
+
+describe("the quiz view to a screen reader (REQ221)", () => {
+	test("the answer controls are a group named by the question", () => {
+		// An unnamed group is announced as just "group".
+		const markup = phone(SELECT_QUIZ, liveDeck(SELECT_QUIZ, RUNNING), null);
+		const labelledBy = markup.match(/<fieldset aria-labelledby="([^"]+)"/)?.[1];
+		expect(labelledBy).toBeTruthy();
+		expect(markup).toContain(`<h2 id="${labelledBy}"`);
+	});
+
+	test("a locked option keeps focus: aria-disabled, never disabled", () => {
+		// A disabled button gives up focus, so the card just pressed dropped the
+		// participant onto <body> the moment the answer locked.
+		const markup = phone(SELECT_QUIZ, liveDeck(SELECT_QUIZ, OVER), null);
+		const cards = markup.match(/<button[^>]*option-card[^>]*>/g) ?? [];
+		expect(cards).toHaveLength(2);
+		for (const card of cards) {
+			expect(card).toContain('aria-disabled="true"');
+			expect(card).not.toContain("disabled=\"\"");
+		}
+	});
+
+	test("the lock reason sits in a polite region mounted before it is needed", () => {
+		// Running: the region is already there, empty, so what lands in it later
+		// is announced.
+		expect(phone(SELECT_QUIZ, liveDeck(SELECT_QUIZ, RUNNING), null)).toContain(
+			'<div role="status" aria-atomic="false"><p class="text-center text-sm text-text-muted "></p>',
+		);
+		expect(phone(SELECT_QUIZ, liveDeck(SELECT_QUIZ, OVER), null)).toMatch(
+			/<div role="status" aria-atomic="false"><p[^>]*>The time for this question is over<\/p>/,
+		);
+	});
+
+	test("the typed answer keeps focus too", () => {
+		const markup = phone(TYPED_QUIZ, liveDeck(TYPED_QUIZ, OVER), null);
+		const field = markup.match(/<input[^>]*>/)?.[0] ?? "";
+		expect(field).toContain("readOnly");
+		expect(field).toContain('aria-disabled="true"');
+		expect(field).not.toContain(" disabled=");
+		expect(markup).toContain('role="timer"');
+	});
+});
+
+describe("choiceCardState (REQ221, REQ223, REQ224)", () => {
+	const base = {
+		selectedIds: [] as string[],
+		pendingOptionId: null,
+		submitting: false,
+		blockedByCap: false,
+		locked: false,
+	};
+
+	test("the card just tapped is drawn as the choice while its answer is sent", () => {
+		const sending = { ...base, pendingOptionId: "mercury", submitting: true };
+		expect(choiceCardState({ ...sending, optionId: "mercury" })).toEqual({
+			selected: true,
+			pending: true,
+			unavailable: true,
+			dimmed: false,
+		});
+		// The others step back, so which one was picked is not in doubt.
+		expect(choiceCardState({ ...sending, optionId: "mars" })).toEqual({
+			selected: false,
+			pending: false,
+			unavailable: true,
+			dimmed: true,
+		});
+	});
+
+	test("an open card answers a tap; a locked one does not, and the chosen one stands out", () => {
+		expect(choiceCardState({ ...base, optionId: "mars" }).unavailable).toBe(false);
+		const locked = { ...base, selectedIds: ["mercury"], locked: true };
+		expect(choiceCardState({ ...locked, optionId: "mercury" })).toEqual({
+			selected: true,
+			pending: false,
+			unavailable: true,
+			dimmed: false,
+		});
+		expect(choiceCardState({ ...locked, optionId: "mars" }).dimmed).toBe(true);
+	});
+});
+
+describe("an option card under the pointer (REQ223)", () => {
+	test("only a card that can still be picked takes the hover style", () => {
+		// A locked card under a pointer the layout moved there wore the accent
+		// border, which reads as "selected".
+		const css = readFileSync(join(import.meta.dir, "..", "index.css"), "utf8");
+		const hoverRules = css.match(/\.option-card:hover[^{]*\{/g) ?? [];
+		expect(hoverRules.length).toBeGreaterThan(0);
+		for (const rule of hoverRules) {
+			expect(rule).toContain(':not(:disabled, [aria-disabled="true"])');
+		}
 	});
 });

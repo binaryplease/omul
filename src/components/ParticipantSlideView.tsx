@@ -2,13 +2,14 @@ import {
 	Check,
 	ChevronDown,
 	ChevronUp,
+	LoaderCircle,
 	Minus,
 	Plus,
 	Square,
 	SquareCheck,
 	X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { api, ApiError } from "../api";
 import { ContentSlideView } from "./ContentSlideView";
 import { countdownRunFor } from "./CountdownFace";
@@ -22,6 +23,7 @@ import {
 import {
 	LeaderboardHeading,
 	LeaderboardStandingView,
+	leaderboardHeadingText,
 	leaderboardLabelsFor,
 } from "./Leaderboard";
 import { ParticipationGate, participationLabelsFor } from "./LiveRoom";
@@ -140,11 +142,91 @@ function QuizVerdict({
 			</p>
 			{/* The running total only reads as a total once there is more than one
 			    question to have totalled. */}
+			{/* Information rather than a caption, so the muted tier that clears
+			    4.5:1, not the dim one built for 3:1 (REQ222). */}
 			{(scorecard?.quizCount ?? 0) > 1 && (
-				<p className="mt-2 text-xs text-text-dim">
+				<p className="mt-2 text-xs text-text-muted">
 					{`${dict.quizTotalScore}: ${scorecard?.totalPoints} / ${scorecard?.maxPoints}`}
 				</p>
 			)}
+		</div>
+	);
+}
+
+/**
+ * How one option card on a choice slide is drawn and whether it answers a tap
+ * (REQ221, REQ223, REQ224) — read once here so the class, the ARIA state and
+ * the click guard cannot disagree about it.
+ *
+ * - **`pending`**: the card just tapped on a single-choice slide, while its
+ *   answer is on its way. It is drawn as the choice at once: a slow network is
+ *   not a reason to leave somebody wondering whether the tap registered.
+ * - **`selected`**: what the server holds, or the pending choice.
+ * - **`unavailable`**: the tap would do nothing — an answer in flight, the
+ *   selection cap, or a locked quiz question. Stated with `aria-disabled`
+ *   rather than `disabled` by the caller, so the card the participant just
+ *   pressed keeps keyboard focus instead of dropping it to the page.
+ * - **`dimmed`**: unavailable and not the one chosen, so the chosen card is the
+ *   one that stands out.
+ */
+export function choiceCardState({
+	optionId,
+	selectedIds,
+	pendingOptionId,
+	submitting,
+	blockedByCap,
+	locked,
+}: {
+	optionId: string;
+	selectedIds: readonly string[];
+	pendingOptionId: string | null;
+	submitting: boolean;
+	blockedByCap: boolean;
+	locked: boolean;
+}): { selected: boolean; pending: boolean; unavailable: boolean; dimmed: boolean } {
+	const pending = pendingOptionId === optionId;
+	const selected = pending || selectedIds.includes(optionId);
+	const unavailable = submitting || blockedByCap || locked;
+	return {
+		selected,
+		pending,
+		unavailable,
+		dimmed: (blockedByCap || locked || pendingOptionId !== null) && !selected,
+	};
+}
+
+/**
+ * The polite live region under an answer control (REQ221): why it is locked,
+ * that an answer is being sent, and — once the question is over — the verdict
+ * passed in as children. Always mounted, empty or not, because a screen reader
+ * only announces changes to a region it already knew about; one that appeared
+ * together with its message would usually say nothing.
+ *
+ * `aria-atomic="false"` so a change reads as itself: the verdict arriving is
+ * "Correct! +836 points", not the lock line again in front of it.
+ */
+function AnswerStatus({
+	message,
+	spokenOnly = false,
+	children = null,
+}: {
+	message: string | null;
+	/** Whether the message is already drawn elsewhere and only needs saying. */
+	spokenOnly?: boolean;
+	children?: React.ReactNode;
+}) {
+	return (
+		<div role="status" aria-atomic="false">
+			<p
+				className={
+					spokenOnly
+						? "sr-only"
+						: `text-center text-sm text-text-muted ${message ? "pt-1" : ""}`
+				}
+			>
+				{message ?? ""}
+			</p>
+			{children}
 		</div>
 	);
 }
@@ -593,6 +675,13 @@ export function ParticipantSlideView({
 	const textInputRef = useRef<HTMLInputElement | null>(null);
 	const [scaleValue, setScaleValue] = useState(3);
 	const [submitting, setSubmitting] = useState(false);
+	/**
+	 * The option a single-choice answer is on its way for (REQ224) — drawn as
+	 * the choice the moment it is tapped, not when the server replies.
+	 */
+	const [pendingOptionId, setPendingOptionId] = useState<string | null>(null);
+	/** What names the answer controls: the question above them (REQ221). */
+	const questionHeadingId = useId();
 	const { addToast } = useToast();
 
 	const t = getDict(pres.language);
@@ -834,7 +923,12 @@ export function ParticipantSlideView({
 		// inherited (REQ111).
 		if (refusedWhileClosed()) return;
 		if (maxSelectionsFor(slide) === 1) {
-			await handleVote(optionId);
+			setPendingOptionId(optionId);
+			try {
+				await handleVote(optionId);
+			} finally {
+				setPendingOptionId(null);
+			}
 			return;
 		}
 		const current = choiceSelections[slide.id] ?? [];
@@ -988,6 +1082,8 @@ export function ParticipantSlideView({
 			: quizCountdown.expired
 				? t.quizWindowClosed
 				: null;
+	/** Whether the typed answer field takes no more input right now. */
+	const typedAnswerLocked = submitting || quizLockReason !== null;
 
 	/**
 	 * This participant's own verdict on this question, once the question is over
@@ -1054,7 +1150,9 @@ export function ParticipantSlideView({
 				<LeaderboardHeading
 					title={
 						<SlideText
-							text={slide.question || t.leaderboardTitle}
+							text={leaderboardHeadingText(slide.question, {
+								title: t.leaderboardTitle,
+							})}
 							size={slideTextSizeFor(slide)}
 							variant="inline"
 						/>
@@ -1124,12 +1222,17 @@ export function ParticipantSlideView({
 			   The results below stay drawn and stay readable — closing a question
 			   stops the room adding to a tally, not looking at it — and every answer
 			   already given is still on screen and still counted. */
-			<ParticipationGate open={participationOpen} labels={participationLabels}>
+			<ParticipationGate
+				open={participationOpen}
+				labels={participationLabels}
+				labelledBy={questionHeadingId}
+			>
 				{/* The question exactly as the shared screen draws it — same authored
 				    string, same markup, same step (REQ088/REQ089/REQ091). A link that
 				    is clickable on a projector nobody can reach and dead on the phones
 				    in the room's hands would be the wrong way round. */}
 				<h2
+					id={questionHeadingId}
 					className={`w-full text-2xl font-bold mb-4 slide-in ${placement.text} ${
 						appearance.backgroundImage !== "" ? "slide-title-overlay" : ""
 					}`}
@@ -1165,6 +1268,7 @@ export function ParticipantSlideView({
 						<QuizTimer
 							countdown={quizCountdown}
 							label={t.quizSecondsLeft}
+							spokenLabel={t.quizSecondsLeftSpoken}
 							expiredLabel={t.quizTimesUp}
 							className="mb-5"
 						/>
@@ -1186,40 +1290,49 @@ export function ParticipantSlideView({
 								onChange={(event) => setInputValue(event.target.value)}
 								onKeyDown={(event) =>
 									event.key === "Enter" &&
-									!quizLockReason &&
+									!typedAnswerLocked &&
 									inputValue.trim() &&
 									handleVote(inputValue.trim())
 								}
-								disabled={submitting || quizLockReason !== null}
+								// Read-only rather than disabled while the answer is
+								// sent and once it is final: a disabled field gives up
+								// focus, and Enter would leave the participant on the
+								// page itself (REQ221).
+								readOnly={typedAnswerLocked}
+								aria-disabled={typedAnswerLocked || undefined}
 								title={quizLockReason ?? undefined}
 								aria-label={t.quizTypeAnswer}
 							/>
 							<button
 								type="button"
 								className="btn-primary px-6"
-								onClick={() => handleVote(inputValue.trim())}
-								disabled={
-									submitting ||
-									!inputValue.trim() ||
-									quizLockReason !== null
+								onClick={() => {
+									if (typedAnswerLocked || !inputValue.trim()) return;
+									handleVote(inputValue.trim());
+								}}
+								aria-disabled={
+									typedAnswerLocked || !inputValue.trim() || undefined
 								}
+								aria-busy={submitting || undefined}
 								title={quizLockReason ?? undefined}
 							>
-								{t.quizSubmitAnswer}
+								{submitting ? t.answerSending : t.quizSubmitAnswer}
 							</button>
 						</div>
-						{/* The disabled control's reason, spelled out rather than left
-						    to a tooltip a touch device never shows. */}
-						{quizLockReason && (
-							<p className="pt-1 text-center text-sm text-text-muted">
-								{quizLockReason}
-							</p>
-						)}
-						<QuizVerdict
-							result={ownQuizResult}
-							scorecard={scorecard}
-							dict={t}
-						/>
+						{/* The locked control's reason, spelled out rather than left
+						    to a tooltip a touch device never shows, and announced with
+						    the verdict once it is in. */}
+						<AnswerStatus
+							message={submitting ? t.answerSending : quizLockReason}
+							// The button already reads "Sending…" while it is.
+							spokenOnly={submitting}
+						>
+							<QuizVerdict
+								result={ownQuizResult}
+								scorecard={scorecard}
+								dict={t}
+							/>
+						</AnswerStatus>
 					</div>
 				) : slide.type === "multiple-choice" ||
 					slide.type === "quiz" ? (
@@ -1242,6 +1355,7 @@ export function ParticipantSlideView({
 										<QuizTimer
 											countdown={quizCountdown}
 											label={t.quizSecondsLeft}
+											spokenLabel={t.quizSecondsLeftSpoken}
 											expiredLabel={t.quizTimesUp}
 											className="mb-5"
 										/>
@@ -1256,29 +1370,41 @@ export function ParticipantSlideView({
 										</p>
 									)}
 									{slide.options?.map((opt, i) => {
-										const isSelected = selected.includes(opt.id);
 										// A card that would exceed the cap stays
-										// visible and disabled, and says why.
-										const blockedByCap = capReached && !isSelected;
+										// visible and unavailable, and says why.
+										const blockedByCap =
+											capReached && !selected.includes(opt.id);
+										const card = choiceCardState({
+											optionId: opt.id,
+											selectedIds: selected,
+											pendingOptionId,
+											submitting,
+											blockedByCap,
+											locked: quizLockReason !== null,
+										});
 										return (
 											<button
 												key={opt.id}
 												type="button"
-												aria-pressed={isSelected}
-												className={`option-card ${isSelected ? "selected" : ""} ${
-													blockedByCap || (quizLockReason && !isSelected)
-														? "opacity-50 cursor-not-allowed"
-														: ""
+												aria-pressed={card.selected}
+												// Unavailable is said, not enforced by `disabled`: a
+												// disabled button gives up focus, and the card just
+												// pressed would drop the participant onto the page
+												// (REQ221). The click is guarded instead.
+												aria-disabled={card.unavailable || undefined}
+												aria-busy={card.pending || undefined}
+												className={`option-card ${card.selected ? "selected" : ""} ${
+													card.dimmed ? "opacity-50" : ""
 												}`}
 												style={{
-													borderColor: isSelected
+													borderColor: card.selected
 														? POLL_COLORS[i % POLL_COLORS.length]
 														: undefined,
 												}}
-												onClick={() => handleChoiceSelect(opt.id)}
-												disabled={
-													submitting || blockedByCap || quizLockReason !== null
-												}
+												onClick={() => {
+													if (card.unavailable) return;
+													handleChoiceSelect(opt.id);
+												}}
 												title={
 													blockedByCap
 														? `You can select at most ${limit} options — deselect one first`
@@ -1296,8 +1422,19 @@ export function ParticipantSlideView({
 													<span className="flex-1 text-left">
 														{opt.text}
 													</span>
+													{/* The answer on its way (REQ224) — on the card it
+													    belongs to, and spoken by the status below. */}
+													{card.pending && (
+														<span
+															aria-hidden="true"
+															className="flex flex-shrink-0 items-center gap-1.5 text-sm text-text-muted"
+														>
+															<LoaderCircle size={16} className="animate-spin" />
+															{t.answerSending}
+														</span>
+													)}
 													{isMulti &&
-														(isSelected ? (
+														(card.selected ? (
 															<SquareCheck
 																size={18}
 																className="flex-shrink-0 text-accent"
@@ -1312,18 +1449,20 @@ export function ParticipantSlideView({
 											</button>
 										);
 									})}
-									{/* The disabled cards' reason, spelled out rather than
-									    left to a tooltip a touch device never shows. */}
-									{quizLockReason && (
-										<p className="pt-1 text-center text-sm text-text-muted">
-											{quizLockReason}
-										</p>
-									)}
-									<QuizVerdict
-										result={ownQuizResult}
-										scorecard={scorecard}
-										dict={t}
-									/>
+									{/* The unavailable cards' reason, spelled out rather
+									    than left to a tooltip a touch device never shows,
+									    and announced with the verdict once it is in. */}
+									<AnswerStatus
+										message={submitting ? t.answerSending : quizLockReason}
+										// A single choice draws its sending state on the card.
+										spokenOnly={pendingOptionId !== null}
+									>
+										<QuizVerdict
+											result={ownQuizResult}
+											scorecard={scorecard}
+											dict={t}
+										/>
+									</AnswerStatus>
 								</div>
 							);
 						})()

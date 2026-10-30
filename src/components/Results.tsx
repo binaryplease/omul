@@ -768,7 +768,7 @@ function TypedQuizResults({
 	if (!tally.entries) {
 		return (
 			<div>
-				<p className="py-10 text-center text-text-dim">
+				<p className="py-10 text-center text-text-muted">
 					{answeredCount === 0
 						? "No answers yet"
 						: `${answeredCount} answer${answeredCount === 1 ? "" : "s"} in — they appear once the question is over.`}
@@ -813,9 +813,11 @@ function TypedQuizResults({
 				</div>
 			)}
 			{/* The answer key itself, once it may be shown — an accepted answer
-			    nobody gave is as much a part of the result as the ones they did. */}
+			    nobody gave is as much a part of the result as the ones they did.
+			    Information, not a caption, so it is drawn in the muted text tier
+			    that clears 4.5:1 rather than the dim one built for 3:1 (REQ222). */}
 			{tally.accepted && tally.accepted.length > 0 && (
-				<p className="mt-4 text-center text-xs text-text-dim">
+				<p className="mt-4 text-center text-xs text-text-muted">
 					Accepted: {tally.accepted.join(" · ")}
 				</p>
 			)}

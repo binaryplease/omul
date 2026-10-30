@@ -71,6 +71,8 @@ export type QuizCountdown = {
 	remainingShare: number;
 	/** Whether there is a window to show at all. */
 	timed: boolean;
+	/** The window's length in seconds, or `null` when it has none. */
+	timeLimit: number | null;
 };
 
 /**
@@ -124,6 +126,7 @@ export function useQuizCountdown(
 		expired: deadline !== null && remainingMs <= 0,
 		remainingShare: windowMs > 0 ? Math.min(1, remainingMs / windowMs) : 1,
 		timed: deadline !== null,
+		timeLimit,
 	};
 }
 
@@ -171,6 +174,42 @@ export function useQuizQuestionRunning(
 }
 
 /**
+ * The seconds left at which the countdown speaks up to a screen reader
+ * (REQ221), largest first. The visible number changes every second, and a live
+ * region that read each one out would drown everything else on the page — so
+ * the number itself is a silent `timer`, and only these moments, plus the
+ * window closing, are announced.
+ */
+export const QUIZ_TIMER_SPOKEN_THRESHOLDS = [30, 10] as const;
+
+/**
+ * What the countdown is announcing right now: the last threshold it has
+ * crossed, `"expired"` once the window is past, or `null` before the first.
+ *
+ * A threshold only counts when the window is longer than it: a ten-second
+ * question starts *at* ten seconds, and announcing "10 seconds left" over the
+ * question as it appears would be one more thing talking while it is read.
+ * Held as a value rather than an event so the region's text changes exactly
+ * once per threshold however often the clock re-renders it.
+ */
+export function quizCountdownAnnouncement(
+	countdown: Pick<
+		QuizCountdown,
+		"timed" | "expired" | "remainingSeconds" | "timeLimit"
+	>,
+): number | "expired" | null {
+	if (!countdown.timed) return null;
+	const { timeLimit } = countdown;
+	if (countdown.expired) return "expired";
+	let crossed: number | null = null;
+	for (const threshold of QUIZ_TIMER_SPOKEN_THRESHOLDS) {
+		if (timeLimit !== null && timeLimit <= threshold) continue;
+		if (countdown.remainingSeconds <= threshold) crossed = threshold;
+	}
+	return crossed;
+}
+
+/**
  * The countdown itself: seconds left over a bar that drains with them, or the
  * closed state once the window is past.
  *
@@ -178,22 +217,31 @@ export function useQuizQuestionRunning(
  * reads the same on a phone and on the projector. A question with no window
  * renders nothing at all — there is no time to report, and a "∞" would only
  * invite the reader to look for a number.
+ *
+ * The number is a `timer` (silent by its role) and the announcement beside it
+ * a polite `status` that only changes at {@link quizCountdownAnnouncement}'s
+ * moments (REQ221). The bar repeats the number as a picture and is hidden from
+ * assistive technology.
  */
 export function QuizTimer({
 	countdown,
 	label,
+	spokenLabel,
 	expiredLabel,
 	className = "",
 }: {
 	countdown: QuizCountdown;
 	/** Unit suffix beside the number, e.g. "s left" — localized by the caller. */
 	label: string;
+	/** The announcement at a threshold, e.g. "{seconds} seconds left". */
+	spokenLabel: string;
 	/** What the closed state says, e.g. "Time's up". */
 	expiredLabel: string;
 	className?: string;
 }) {
 	if (!countdown.timed) return null;
 	const { expired, remainingSeconds, remainingShare } = countdown;
+	const announcement = quizCountdownAnnouncement(countdown);
 	// The last quarter of the window reads as urgent, the last tenth as almost
 	// gone — the same escalation the room feels, so the colour is information
 	// rather than decoration.
@@ -211,11 +259,24 @@ export function QuizTimer({
 		<div className={`w-full max-w-xs mx-auto ${tone} ${className}`}>
 			<div className="flex items-center justify-center gap-2">
 				{expired ? <TimerOff size={16} /> : <Timer size={16} />}
-				<span className="font-mono text-sm font-semibold tabular-nums">
+				<span
+					role="timer"
+					className="font-mono text-sm font-semibold tabular-nums"
+				>
 					{expired ? expiredLabel : `${remainingSeconds}${label}`}
 				</span>
 			</div>
-			<div className="mt-1.5 h-1.5 rounded-full bg-surface-raised overflow-hidden border border-border">
+			<p role="status" className="sr-only">
+				{announcement === "expired"
+					? expiredLabel
+					: announcement === null
+						? ""
+						: spokenLabel.replace("{seconds}", String(announcement))}
+			</p>
+			<div
+				aria-hidden="true"
+				className="mt-1.5 h-1.5 rounded-full bg-surface-raised overflow-hidden border border-border"
+			>
 				<div
 					className="h-full rounded-full bar-fill"
 					style={{

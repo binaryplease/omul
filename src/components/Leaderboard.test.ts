@@ -15,6 +15,7 @@ import { LEADERBOARD_DEFAULT_SIZE } from "../types";
 import {
 	LEADERBOARD_LABELS_EN,
 	leaderboardBarWidth,
+	leaderboardHeadingText,
 	leaderboardLabelsFor,
 	leaderboardRankSurface,
 	readLeaderboard,
@@ -130,5 +131,25 @@ describe("leaderboardLabelsFor (REQ059/REQ084)", () => {
 				expect(labels[key as keyof typeof labels]).toBeTruthy();
 			}
 		}
+	});
+});
+
+describe("leaderboardHeadingText (REQ220)", () => {
+	test("an empty heading reads as the board's title, never as nothing", () => {
+		// A leaderboard may save without a heading; the shared results page once
+		// drew it as an empty <h2> while the other surfaces showed the title.
+		expect(leaderboardHeadingText("", LEADERBOARD_LABELS_EN)).toBe("Leaderboard");
+		expect(leaderboardHeadingText(null, LEADERBOARD_LABELS_EN)).toBe(
+			"Leaderboard",
+		);
+		expect(
+			leaderboardHeadingText(undefined, leaderboardLabelsFor(getDict("de"))),
+		).toBe("Bestenliste");
+	});
+
+	test("an authored heading is kept as written", () => {
+		expect(leaderboardHeadingText("Final standings", LEADERBOARD_LABELS_EN)).toBe(
+			"Final standings",
+		);
 	});
 });
