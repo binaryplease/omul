@@ -16,7 +16,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PresentationSchema } from "../../server/schemas";
 import type { Presentation, Slide } from "../types";
-import { PresenterSlideView } from "./PresenterSlideView";
+import { PresenterSlideView, RESTART_TIMER_HINT } from "./PresenterSlideView";
 
 const SELECT_QUIZ: Slide = {
 	id: "q1",
@@ -199,11 +199,28 @@ describe("the shared screen once a quiz question is over (REQ214)", () => {
 	test("closing the question to answers ends it, with time still on the clock", () => {
 		const markup = sharedScreen(
 			SELECT_QUIZ,
-			liveDeck(SELECT_QUIZ, RUNNING, { closedSlideIds: ["q1"] }),
+			liveDeck(SELECT_QUIZ, RUNNING, {
+				closedSlideIds: ["q1"],
+				slideClosedAt: { q1: new Date().toISOString() },
+			}),
 			SELECT_TALLY,
 		);
 		expect(markup).toContain("Mercury");
 		expect(markup).toContain("correct</span>");
+	});
+
+	test("a question closed before it opened shows no result (REQ216)", () => {
+		// Closing ahead of time ended nothing: the presenter will reopen it, and the
+		// room must not be shown the answer first.
+		const markup = sharedScreen(
+			SELECT_QUIZ,
+			liveDeck(SELECT_QUIZ, RUNNING, {
+				closedSlideIds: ["q1"],
+				slideClosedAt: { q1: new Date(Date.now() - 60_000).toISOString() },
+			}),
+			SELECT_TALLY,
+		);
+		expect(markup).not.toContain("correct</span>");
 	});
 
 	test("Private keeps them off the shared screen even then", () => {
@@ -241,5 +258,20 @@ describe("a plain choice slide with a marked option (REQ013)", () => {
 		});
 		expect(markup).toContain("Mercury");
 		expect(markup).toContain("correct</span>");
+	});
+});
+
+describe("restarting a quiz question's timer (REQ217)", () => {
+	test("states that answers already given keep their points", () => {
+		const markup = sharedScreen(SELECT_QUIZ, liveDeck(SELECT_QUIZ, OVER), SELECT_TALLY);
+		// The tooltip and the accessible description say the same thing, and the
+		// button's name stays the words on it.
+		expect(markup).toContain(`title="${RESTART_TIMER_HINT}"`);
+		expect(markup).toContain('aria-describedby="restart-timer-hint-q1"');
+		expect(markup).toContain(
+			`<span id="restart-timer-hint-q1" class="sr-only">${RESTART_TIMER_HINT}</span>`,
+		);
+		expect(RESTART_TIMER_HINT).toContain("answers already given keep their points");
+		expect(RESTART_TIMER_HINT).toContain("who have not answered");
 	});
 });

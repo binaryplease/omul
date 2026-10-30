@@ -65,6 +65,18 @@ import {
 export const SHARED_SCREEN_LABEL = "Shared screen";
 
 /**
+ * What restarting a quiz question's timer does, stated where the presenter
+ * reaches for it (REQ217): the tooltip and the button's accessible description.
+ * A restart moves the question's window and nothing else — every answer already
+ * given keeps the points it earned against the window it was given in, and only
+ * participants who have not answered get the fresh one. No confirmation guards
+ * it: it destroys nothing, and a question the presenter restarted by mistake
+ * costs the room nothing it had already won.
+ */
+export const RESTART_TIMER_HINT =
+	"Reopens this question for participants who have not answered yet — answers already given keep their points";
+
+/**
  * How the shared screen draws a slide. Three renderings, because three kinds of
  * slide are genuinely different objects on a projector — one that collects
  * answers and shows their tally, one that reports on the questions around it
@@ -429,14 +441,23 @@ export function PresenterSlideView({
 							expiredLabel="Time's up"
 						/>
 						{canControl && onRestartTimer && (
-							<button
-								type="button"
-								className="text-xs text-text-muted hover:text-text underline"
-								onClick={() => onRestartTimer(slide.id)}
-								title="Reopen this question with a fresh window — answers already given stand"
-							>
-								Restart timer
-							</button>
+							<>
+								<button
+									type="button"
+									className="text-xs text-text-muted hover:text-text underline"
+									onClick={() => onRestartTimer(slide.id)}
+									title={RESTART_TIMER_HINT}
+									aria-describedby={`restart-timer-hint-${slide.id}`}
+								>
+									Restart timer
+								</button>
+								{/* Described as well as tooltipped: a title alone reaches
+								    neither every screen reader nor a touch screen. Outside
+								    the button, so the name stays "Restart timer". */}
+								<span id={`restart-timer-hint-${slide.id}`} className="sr-only">
+									{RESTART_TIMER_HINT}
+								</span>
+							</>
 						)}
 						{audioCue && <QuizAudioCueControl cue={audioCue} />}
 					</div>

@@ -125,6 +125,7 @@ import {
 	withInheritedResultsVisibility,
 	withoutUnwritableFields,
 	withCountdownRun,
+	withSlideClosedAt,
 	withSlideParticipation,
 	QUIZ_CORRECT_POINTS,
 	QUIZ_MAX_POINTS,
@@ -1392,6 +1393,16 @@ function slideStartedAtIn(
 		: {};
 }
 
+/** Read a presentation's close stamps (REQ111) with every key present. */
+function slideClosedAtIn(
+	pres: Record<string, unknown>,
+): Record<string, string> {
+	const stamps = pres.slideClosedAt;
+	return stamps && typeof stamps === "object"
+		? { ...(stamps as Record<string, string>) }
+		: {};
+}
+
 /**
  * The question-opening stamps after a slide is reached (REQ057), or `null` when
  * nothing changes because the slide was already opened.
@@ -1467,8 +1478,12 @@ export async function setActiveSlide(
  *
  * Deliberately not automatic: see {@link withSlideOpenedOnce} for why arriving
  * at a slide a second time leaves the original instant standing. Answers
- * already given stand too — a restart hands the remaining participants a fresh
- * window, it does not clear the room's answers, which is what `reset` is for.
+ * already given stand too, **score included** (REQ217): a restart hands the
+ * participants who have not answered a fresh window, and nothing else. Each
+ * answer is timed against the window it was given in (`quizWindowOpenedAt` on
+ * the vote), so moving the slide's stamp re-times nobody, and the one-answer
+ * rule keeps whoever already answered from answering again. Clearing the
+ * room's answers is what `reset` is for.
  */
 export async function restartSlideTimer(
 	presentationId: string,
@@ -1495,10 +1510,14 @@ export async function restartSlideTimer(
 		// The close scheduled for the old window is replaced by this one's
 		// (REQ216), so the room is not told the question is over while it runs.
 		armQuizWindowCloses(presentationId, updated);
-		// A fresh window re-measures every answer already given against it
-		// (REQ057's speed half), so the standings move here too — see
-		// {@link broadcastStandings} for why the board cannot hear it any other way.
-		await broadcastStandings(presentationId);
+		// The question is running again, so the room's copy of its tally goes
+		// back to withholding the key and the typed answers it was sent when the
+		// first window closed (REQ216) — re-sent here because no row changed to
+		// carry it. The standings are not: no answer's score moved (REQ217).
+		const slide = (updated.slides as Slide[]).find(
+			(candidate) => candidate.id === slideId,
+		);
+		if (slide?.type === "quiz") await broadcastResults(presentationId, slideId);
 	}
 	return updated;
 }
@@ -1706,6 +1725,7 @@ export async function resetPresentation(presentationId: string) {
 		sessionStartedAt: null,
 		sessionEndedAt: null,
 		closedSlideIds: [],
+		slideClosedAt: {},
 		audienceBlanked: false,
 		// The countdowns the last session started (REQ107) go with it, running,
 		// paused or finished: a re-run opens every clock at its full length.
@@ -1825,11 +1845,20 @@ export async function setSlideParticipation(
 			const slides = pres.slides as Slide[];
 			if (!slides.some((slide) => slide.id === slideId)) return null;
 
+			// The close instant travels with the closed set (REQ216): it is what
+			// tells a quiz question the presenter ended from one they closed before
+			// it was ever asked (`quizClosedAfterOpening`).
 			return presentations.update(presentationId, {
 				closedSlideIds: withSlideParticipation(
 					(pres.closedSlideIds as string[] | undefined) ?? [],
 					slideId,
 					open,
+				),
+				slideClosedAt: withSlideClosedAt(
+					slideClosedAtIn(pres),
+					slideId,
+					open,
+					new Date().toISOString(),
 				),
 			});
 		},
@@ -1839,6 +1868,7 @@ export async function setSlideParticipation(
 			presentationId,
 			slideId,
 			open,
+			closedAt: slideClosedAtIn(updated)[slideId] ?? null,
 		});
 		// REQ216 — closing a quiz question that has opened ends it, so its key
 		// and typed answers become the room's (`solutionVisibleToAudience`), and
@@ -2717,8 +2747,9 @@ export async function submitVote(
 				);
 				if (standing.length > 0) return { refused: "quiz-already-answered" };
 
+				const windowOpenedAt = slideStartedAtIn(pres)[slideId] ?? null;
 				const deadline = quizDeadlineFor(
-					slideStartedAtIn(pres)[slideId],
+					windowOpenedAt,
 					quizTimeLimitFor(slide),
 				);
 				if (!isQuizWindowOpen(deadline, Date.now())) {
@@ -2726,12 +2757,17 @@ export async function submitVote(
 				}
 
 				for (const stale of existing) await votes.remove(stale.id as string);
+				// The answer carries the window it was accepted in (REQ217): the
+				// same instant the deadline above was measured from, so the window
+				// that let it in is the one its speed is scored against — whatever
+				// a later restart does to the slide's own stamp.
 				return votes.insert({
 					presentationId,
 					slideId,
 					value: submitted,
 					participantId,
 					pass,
+					quizWindowOpenedAt: windowOpenedAt,
 					createdAt: new Date().toISOString(),
 				});
 			},
@@ -4048,6 +4084,11 @@ export async function getParticipantRoster(
 // total left behind — and it is why both read sites below (the room's tally and
 // one participant's card) call the same function rather than each re-deriving
 // what a point is worth.
+//
+// The one input a vote carries for it is the window it was given in
+// (`quizWindowOpenedAt`, REQ217): *when* a question opened is a fact about the
+// moment of answering, not about the slide as it now stands, and a restarted
+// timer would otherwise rewrite it under every answer already given.
 
 /** One participant's answer to one quiz question, scored. */
 type ScoredQuizAnswer = {
@@ -4064,7 +4105,10 @@ type ScoredQuizAnswer = {
 	/** How this question was answered, so a read site never re-derives it. */
 	answerMode: QuizAnswerMode;
 	isCorrect: boolean;
-	/** Time from the question opening to the answer landing; null if untimed. */
+	/**
+	 * Time from the opening of the window this answer was given in to the answer
+	 * landing (REQ217); null if unknown.
+	 */
 	elapsedMs: number | null;
 	points: number;
 };
@@ -4131,6 +4175,26 @@ function finalQuizAnswers(
 }
 
 /**
+ * The opening instant one quiz answer's speed is measured from (REQ057, REQ217):
+ * the window it was accepted in, as stamped on the vote — or, for an answer
+ * stored before votes carried that stamp, the slide's current one.
+ *
+ * Per answer rather than per slide because a restarted timer gives one question
+ * two windows: the answers given in the first were timed against it, and a
+ * restart that re-measured them against the second would take their speed
+ * away (or, clamped the other way, hand the slowest of them the most).
+ * Correctness is not stored with it — it is still read from the slide as it now
+ * stands, so re-marking the solution re-scores the room.
+ */
+function answerWindowOpenedAt(
+	quizVote: Record<string, unknown>,
+	slideStartedAt: string | null,
+): string | null {
+	const stamped = quizVote.quizWindowOpenedAt;
+	return typeof stamped === "string" && stamped !== "" ? stamped : slideStartedAt;
+}
+
+/**
  * Score every answer on one quiz slide, whichever way it is answered (REQ055).
  *
  * Which rows those are is {@link finalQuizAnswers}' call, made here rather than
@@ -4146,13 +4210,13 @@ function scoreQuizSlide(
 ): ScoredQuizSlide {
 	const timeLimit = quizTimeLimitFor(slide);
 	const deadline = quizDeadlineFor(startedAt, timeLimit);
-	const openedAt = startedAt ? Date.parse(startedAt) : Number.NaN;
 	const answerMode = quizAnswerModeFor(slide);
 
 	const answers: ScoredQuizAnswer[] = [];
 	for (const quizVote of finalQuizAnswers(slide, slideVotes)) {
 		const submitted = String(quizVote.value ?? "");
 		const answeredAt = Date.parse(String(quizVote.createdAt ?? ""));
+		const openedAt = Date.parse(answerWindowOpenedAt(quizVote, startedAt) ?? "");
 		const elapsedMs =
 			Number.isNaN(openedAt) || Number.isNaN(answeredAt)
 				? null

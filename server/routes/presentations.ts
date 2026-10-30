@@ -1200,7 +1200,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Slides"],
 				summary: "Restart a slide's question timer",
 				description:
-					"Reopens the slide's question, restarting the countdown a quiz slide runs on (REQ057). Arriving at a slide opens its question automatically and *keeps* that instant however often the presenter pages back, so this is the deliberate way to hand the room a fresh window after a mis-navigation. Answers already given stand — use `reset` to clear votes. Requires `Authorization: Bearer <creatorToken>`.",
+					"Reopens the slide's question, restarting the countdown a quiz slide runs on (REQ057). Arriving at a slide opens its question automatically and *keeps* that instant however often the presenter pages back, so this is the deliberate way to hand the room a fresh window after a mis-navigation. The fresh window is for participants who have not answered yet: every answer already given stands **with the points it earned**, because each is timed against the window it was given in (REQ217), and the one-answer rule still refuses a second answer. Use `reset` to clear votes. Requires `Authorization: Bearer <creatorToken>`.",
 				security: [{ bearerAuth: [] }],
 			},
 		},

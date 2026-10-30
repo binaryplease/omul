@@ -251,6 +251,7 @@ import {
 	withheldTally,
 	withCountdownRun,
 	withInheritedResultsVisibility,
+	withSlideClosedAt,
 	withSlideParticipation,
 	withoutPresenterNotes,
 	WORKSPACE_NAME_MAX_LENGTH,
@@ -564,6 +565,7 @@ export {
 	withheldTally,
 	withCountdownRun,
 	withInheritedResultsVisibility,
+	withSlideClosedAt,
 	withSlideParticipation,
 	withoutPresenterNotes,
 	// Workspaces (REQ128, REQ129). The role predicates are composed rather than

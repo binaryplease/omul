@@ -3367,7 +3367,11 @@ export function slideEmbedFor(slide: EmbedSettings): SlideEmbed | null {
 //    re-answer would let someone bank a fast time and then correct it.
 //  - **Points are derived, never stored.** A score is a function of the votes
 //    and the slide, so re-authoring which option is correct re-scores the room
-//    with no migration and no stale total left behind.
+//    with no migration and no stale total left behind. The one thing an answer
+//    keeps for it is the opening instant of the window it was given in
+//    (`quizWindowOpenedAt` on the vote, REQ217): a restarted timer gives the
+//    question a second window for whoever has not answered yet, and an answer
+//    already given is still timed against the first.
 
 /**
  * What a correct answer is worth on its own, however late in the window it
@@ -3700,15 +3704,16 @@ export function isCorrectQuizAnswer(
  * {@link QUIZ_MAX_POINTS} at its best.
  *
  * An answer that *predates* the window it is measured against is a different
- * case entirely, and it earns the correctness half and **no** speed bonus. This
- * happens when the presenter restarts a question's timer
- * ({@link quizDeadlineFor}'s opening instant moves forward, under answers
- * already given), and the obvious reading — clamp the elapsed time to zero —
+ * case entirely, and it earns the correctness half and **no** speed bonus. An
+ * answer is timed against the window it was given in (REQ217), so this only
+ * happens to an answer stored before votes recorded that window, on a question
+ * whose timer was restarted after it — measured against the slide's newer
+ * opening instant. The obvious reading — clamp the elapsed time to zero —
  * inverts the ranking it exists to produce: the participant who answered a
  * second before the buzzer would be handed {@link QUIZ_MAX_POINTS} for being
  * the slowest in the room, outscoring everyone who answers the fresh window
- * quickly. There is no honest speed to report for an answer given against a
- * window that no longer exists, so none is claimed.
+ * quickly. There is no honest speed to report for an answer measured against a
+ * window it was not given in, so none is claimed.
  */
 export function scoreQuizAnswer(answer: {
 	isCorrect: boolean;
@@ -4104,6 +4109,14 @@ type SolutionRevealState = {
 	 */
 	closedSlideIds?: string[] | undefined;
 	/**
+	 * When each closed slide was closed, ISO by slide id (REQ111). What tells a
+	 * close *after* a question opened — which ends it — from one made ahead of
+	 * time, which reveals nothing; see {@link quizClosedAfterOpening}. Optional
+	 * for the same reason as above; absent reads as "not known to have closed
+	 * after opening", which withholds.
+	 */
+	slideClosedAt?: Record<string, string> | undefined;
+	/**
 	 * Who paces the deck (REQ003). Read only by {@link quizQuestionIsRunning}: an
 	 * audience-paced deck collects before it is started and stamps no opening
 	 * instant, so "not asked yet" means something different there.
@@ -4173,10 +4186,68 @@ export function solutionVisibleToAudience(
 	if (slide.type !== "quiz") return true;
 	if (deck.status === "ended") return true;
 	if ((deck.revealedSlideIds ?? []).includes(slide.id)) return true;
-	const openedAt = deck.slideStartedAt?.[slide.id];
-	if (openedAt && !slideAcceptsSubmissions(deck, slide.id)) return true;
-	const deadline = quizDeadlineFor(openedAt, quizTimeLimitFor(slide));
+	if (quizClosedAfterOpening(deck, slide.id)) return true;
+	const deadline = quizDeadlineFor(
+		deck.slideStartedAt?.[slide.id],
+		quizTimeLimitFor(slide),
+	);
 	return deadline !== null && !isQuizWindowOpen(deadline, now);
+}
+
+/**
+ * Whether a slide is closed to submissions **and** was closed at or after the
+ * instant its question opened (REQ111, REQ216) — the one reading of "the
+ * presenter ended this question", as opposed to "the presenter closed it ahead
+ * of time".
+ *
+ * The two look identical in `closedSlideIds` and mean opposite things. A close
+ * after opening ends a question that ran: nobody can answer any more, so its
+ * key is the room's. A close made before the question opened — the switch is
+ * on the slide from the editor onwards, so a draft deck can carry one — ended
+ * nothing: the room has not been asked yet, and if that close counted, going
+ * live (or navigating there) would publish the answer at the instant the
+ * window opened, and reopening would let everyone answer with it in front of
+ * them. So the close instant is compared with the opening one, and a close
+ * whose instant is unknown (a deck closed before the stamp existed) reads as
+ * *not* after — the side that withholds.
+ *
+ * A restart moves the opening instant past an earlier close, which puts a
+ * still-closed question back on the withholding side: the presenter has asked
+ * it again.
+ */
+export function quizClosedAfterOpening(
+	deck: SolutionRevealState,
+	slideId: string,
+): boolean {
+	if (slideAcceptsSubmissions(deck, slideId)) return false;
+	const openedAt = Date.parse(deck.slideStartedAt?.[slideId] ?? "");
+	const closedAt = Date.parse(deck.slideClosedAt?.[slideId] ?? "");
+	if (Number.isNaN(openedAt) || Number.isNaN(closedAt)) return false;
+	return closedAt >= openedAt;
+}
+
+/**
+ * The close stamps after one slide is opened or closed (REQ111) — the instant
+ * half of {@link withSlideParticipation}, composed by the route that writes the
+ * pair and by the session store that applies its broadcast.
+ *
+ * Opening drops the slide's stamp. Closing keeps an existing stamp rather than
+ * moving it, so a double-tap or a broadcast that arrives twice cannot push a
+ * close that already ended a question past the instant it opened again.
+ */
+export function withSlideClosedAt(
+	stamps: Readonly<Record<string, string>>,
+	slideId: string,
+	open: boolean,
+	closedAt: string,
+): Record<string, string> {
+	const next = { ...stamps };
+	if (open) {
+		delete next[slideId];
+		return next;
+	}
+	next[slideId] = stamps[slideId] ?? closedAt;
+	return next;
 }
 
 /**
@@ -4193,10 +4264,14 @@ export function solutionVisibleToAudience(
  * The question is over — and the slide's reveal setting takes over again — when
  * {@link solutionVisibleToAudience} says the audience may have its key (window
  * closed with its grace, closed to submissions after opening, results
- * revealed, deck ended), **or** when the slide is closed to submissions at all
- * (REQ111) — which on an audience-paced deck, where nothing is ever opened,
- * hands the room no key but still leaves nothing to copy. An untimed question
- * has no window to close, so it runs until one of those happens.
+ * revealed, deck ended), **or**, on an audience-paced deck, when the slide is
+ * closed to submissions at all (REQ111) — nothing is ever opened there, so a
+ * close hands the room no key but still leaves nothing to copy. On a
+ * live-paced deck a close made *before* the question opened is not an ending
+ * (see {@link quizClosedAfterOpening}): the question still runs, with nobody
+ * able to answer until the presenter reopens it, and its result stays off the
+ * projector meanwhile. An untimed question has no window to close, so it runs
+ * until one of those happens.
  *
  * It only runs while somebody can be answering it (REQ216). A live-paced deck
  * that is not live yet — a draft, or one reset back to draft — is collecting
@@ -4222,12 +4297,16 @@ export function quizQuestionIsRunning(
 	if (slide.type !== "quiz") return false;
 	if (deck.mode === "survey") {
 		if (deck.status === "ended") return false;
-	} else {
-		if (deck.status !== "live") return false;
-		if (!deck.slideStartedAt?.[slide.id]) return false;
+		if (solutionVisibleToAudience(slide, deck, now)) return false;
+		return slideAcceptsSubmissions(deck, slide.id);
 	}
-	if (solutionVisibleToAudience(slide, deck, now)) return false;
-	return slideAcceptsSubmissions(deck, slide.id);
+	if (deck.status !== "live") return false;
+	if (!deck.slideStartedAt?.[slide.id]) return false;
+	// A close after opening already counts as over above; one made ahead of
+	// time ended nothing (see `quizClosedAfterOpening`), so the question runs —
+	// and its result stays off the projector — until its window, a reveal or the
+	// end of the deck says otherwise.
+	return !solutionVisibleToAudience(slide, deck, now);
 }
 
 /**
@@ -6088,6 +6167,13 @@ export const PresentationSchema = z.object({
 	closedSlideIds: z.array(z.string()).default([]),
 	audienceBlanked: z.boolean().default(false),
 	/**
+	 * When each slide in `closedSlideIds` was closed, ISO by slide id (REQ111).
+	 * Public with the set it stamps: a phone and the projector both decide from
+	 * it whether a closed quiz question was *ended* or only closed ahead of time
+	 * — see {@link quizClosedAfterOpening}.
+	 */
+	slideClosedAt: z.record(z.string(), z.string()).default({}),
+	/**
 	 * When each slide's question was opened, as an ISO instant keyed by slide id
 	 * (REQ057). Written by the server when the presenter navigates to a slide,
 	 * and the one thing a quiz's countdown and its deadline are derived from —
@@ -7353,6 +7439,13 @@ export const StoredPresentationSchema = z.object({
 	 */
 	closedSlideIds: z.array(z.string()).default([]),
 	audienceBlanked: z.boolean().default(false),
+	/**
+	 * When each closed slide was closed, ISO by slide id (REQ111, REQ216).
+	 * Defaulted `{}`: a deck closed before the stamp existed reads as "not known
+	 * to have closed after its question opened", which withholds a quiz key
+	 * rather than publishing it — see {@link quizClosedAfterOpening}.
+	 */
+	slideClosedAt: z.record(z.string(), z.string()).default({}),
 	/** When each slide's question was opened, ISO by slide id (REQ057). */
 	slideStartedAt: z.record(z.string(), z.string()).default({}),
 	/**
@@ -7804,6 +7897,17 @@ export const StoredVoteSchema = z.object({
 	 * a pass after they are read back, where the default has filled it in.
 	 */
 	pass: z.number().int().min(FIRST_PASS).default(FIRST_PASS),
+	/**
+	 * On a quiz answer: the opening instant of the window it was given in, ISO
+	 * (REQ057) — the slide's `slideStartedAt` at the moment it was accepted. Its
+	 * speed is measured against this and nothing later, so a presenter restarting
+	 * the timer hands the rest of the room a fresh window without re-timing an
+	 * answer already given (REQ217). `null` on every other slide type, on a quiz
+	 * answered with no opening instant (an audience-paced deck), and on an answer
+	 * stored before this field existed — which is measured against the slide's
+	 * current instant, as it always was.
+	 */
+	quizWindowOpenedAt: z.string().nullable().default(null),
 	createdAt: z.string().default(""),
 });
 

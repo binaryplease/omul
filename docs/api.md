@@ -1796,6 +1796,7 @@ screen is *showing anything*.
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `closedSlideIds` | string[] | `[]` | The slides the presenter has closed to submissions (REQ111) |
+| `slideClosedAt` | Record<string, string> | `{}` | When each closed slide was closed, ISO by slide id. A quiz question closed at or after its opening instant is **ended**; one closed before it opened (or with no recorded instant) ended nothing and keeps its key back (REQ216) |
 | `audienceBlanked` | boolean | `false` | Whether the shared screen is currently blanked (REQ109) |
 
 Both are **server-managed live state**, in the family `revealedSlideIds` and
@@ -2371,9 +2372,14 @@ question closes) and broadcasts `slide.started`. It **closes**
 A slide is stamped **once**, on first arrival, and re-stamped only by
 `POST /presentations/:id/timer`. Re-stamping on every visit would make a
 question's window — and so every score measured against it — depend on how often
-the presenter paged back through the deck. Restarting hands the remaining
-participants a fresh window; answers already given stand (`reset` is what clears
-votes, and it clears the stamps with them).
+the presenter paged back through the deck. Restarting hands the participants
+who have not answered a fresh window and does nothing else: answers already given
+stand **with the points they earned** (REQ217) — each quiz answer is stored with
+the opening instant of the window it was accepted in (`quizWindowOpenedAt` on the
+vote) and is timed against that, and the one-answer rule keeps whoever already
+answered from answering again. `reset` is what clears votes, and it clears the
+stamps with them. A restart re-sends the room the question's tally, withheld
+again, since the question is running once more (REQ216).
 
 Two cases have **no deadline at all**, and they must not read as one already
 past: a question the presenter has not reached, and a survey (REQ003/REQ082),
@@ -2402,7 +2408,9 @@ full 1000.
 
 Points are **derived, never stored**: a function of the votes and the slide as it
 stands now, so re-marking which option is correct re-scores the room with no
-migration and no stale total left behind.
+migration and no stale total left behind. The one input an answer carries for it
+is *when its window opened* (`quizWindowOpenedAt`, REQ217) — a fact about the
+moment of answering, which a restarted timer must not rewrite.
 
 | Constant | Value | Meaning |
 |---|---|---|
@@ -2417,9 +2425,10 @@ marked nothing correct has no correct answer, so nobody scores on it. An
 fast inside, so nobody is ranked against a clock the slide never offered, and
 every question stays worth the same at its best.
 
-An answer that **predates** the window it is measured against — the presenter
-restarted the question's timer under it — earns the correctness half and no
-speed bonus. Crediting it as instant instead would invert the ranking the score
+An answer that **predates** the window it is measured against earns the
+correctness half and no speed bonus. Since REQ217 this only happens to an answer
+stored before votes recorded their window, on a question restarted after it,
+which falls back to the slide's newer opening instant. Crediting it as instant instead would invert the ranking the score
 exists to produce: whoever answered last before the restart would take the
 maximum, outscoring everyone who answers the fresh window quickly.
 
@@ -2555,13 +2564,14 @@ It rides the ordinary results endpoint — `GET /api/presentations/:id/results/:
 the presenter's poll, the participant's fetch on arrival, and the broadcast after
 an answer lands.
 
-Because scores are **derived from the deck as it stands now**, three different
-things move a board, and all three re-broadcast every leaderboard slide in the
-deck (`broadcastStandings`): an **answer** landing on a quiz question, a **PATCH**
-that changes what counts as correct, and a **restarted question window**
-(`POST /:id/timer`), which re-measures the speed half of every answer already
-given. Each is a change to a *different* slide from the board that reports it, so
-none of them would reach a participant's phone otherwise. A deck with no board
+Because scores are **derived from the deck as it stands now**, two different
+things move a board, and both re-broadcast every leaderboard slide in the deck
+(`broadcastStandings`): an **answer** landing on a quiz question, and a **PATCH**
+that changes what counts as correct. Each is a change to a *different* slide from
+the board that reports it, so neither would reach a participant's phone
+otherwise. A **restarted question window** (`POST /:id/timer`) moves no score —
+every answer is timed against the window it was given in (REQ217) — so it
+re-broadcasts no board. A deck with no board
 broadcasts nothing extra.
 
 A leaderboard **is** an aggregated result, so it sits behind the ordinary
@@ -4003,7 +4013,7 @@ foreground or the network comes back. Each new socket joins again.
 | `presentation.results-visibility` | server → clients | `{ presentationId, resultsVisibility }` — the deck's reveal mode moved (REQ015–REQ018). Sent by both its writers: the deck-wide endpoint, and a deck PATCH that names the field. Carries the deck-level setting only; clients re-read the deck for the per-slide overrides — see **The deck's reveal mode** above |
 | `slide.started` | server → clients | `{ presentationId, slideId, startedAt }` — a slide's question was opened, which is what a quiz countdown runs from (REQ057) |
 | `slide.countdown` | server → clients | `{ presentationId, slideId, run }` — a countdown slide's clock was started, paused, resumed or reset (REQ107). `run` is the deck's new `countdownRuns[slideId]`, `{ remainingMs, resumedAt }` with `resumedAt: null` while paused, or `null` after a reset. Applied through `withCountdownRun`, the function the server writes with. An action that changed nothing sends no frame |
-| `slide.participation` | server → clients | `{ presentationId, slideId, open }` — one slide was opened or closed to submissions (REQ111). Carries its value, like the settings frames below: a phone that learned about a closed question only by having an answer bounce is the failure the switch exists to prevent. Closing a quiz question that has opened **ends it** (REQ216): its answer key becomes the audience's, exactly as at the end of its window, and a `results.updated` follows; reopening it inside its window withholds the key again |
+| `slide.participation` | server → clients | `{ presentationId, slideId, open, closedAt }` — one slide was opened or closed to submissions (REQ111); `closedAt` is the stored close instant (`slideClosedAt`), `null` on an open. Carries its value, like the settings frames below: a phone that learned about a closed question only by having an answer bounce is the failure the switch exists to prevent. Closing a quiz question that has opened **ends it** (REQ216): its answer key becomes the audience's, exactly as at the end of its window, and a `results.updated` follows; reopening it inside its window withholds the key again. A close made **before** the question opened ends nothing — reaching the question later does not publish its key |
 | `presentation.blanked` | server → clients | `{ presentationId, blanked }` — the shared screen was blanked, or brought back (REQ109). Broadcast because the screen being projected may be a second browser rather than the presenter's own |
 | `presentation.participant-name` | server → clients | `{ presentationId, requireParticipantName }` — the deck started or stopped asking joiners for a name (REQ076). Sent by its one writer, the deck PATCH. Carries the **switch and nothing else**: a frame naming somebody would put a name on every phone in the room, and the roster is fetched by a credentialed caller instead |
 | `presentation.repeat-passes` | server → clients | `{ presentationId, allowRepeatPasses }` — the deck started or stopped letting a device go through it again (REQ083). Sent by its one writer, the deck PATCH. The switch as stored; a client reads it with the deck's pace through `deckAllowsRepeatPasses()`. Nothing about who has made how many passes rides it |

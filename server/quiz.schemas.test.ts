@@ -10,7 +10,9 @@
  *   - REQ214 — when a question is still being answered, so the shared screen
  *     draws nothing of what the room answered until it is over
  *   - REQ216 — that only a question somebody can be answering is running, and
- *     that closing an opened question ends it for the audience's payload too
+ *     that closing an opened question ends it for the audience's payload too,
+ *     while closing one before it opened ends nothing
+ *   - REQ217 — that an answer is timed against the window it was given in
  */
 
 import { describe, expect, test } from "bun:test";
@@ -22,16 +24,29 @@ import {
 	QUIZ_MAX_POINTS,
 	QUIZ_SPEED_POINTS,
 	QUIZ_SUBMISSION_GRACE_MS,
+	quizClosedAfterOpening,
 	quizDeadlineFor,
 	quizQuestionIsRunning,
 	quizRemainingMs,
 	quizTimeLimitFor,
 	scoreQuizAnswer,
 	solutionVisibleToAudience,
+	withSlideClosedAt,
 } from "./schemas";
 
 const OPENED_AT = "2026-01-01T12:00:00.000Z";
 const OPENED_MS = Date.parse(OPENED_AT);
+
+/** The presenter closed the question to answers five seconds after it opened. */
+const CLOSED_AFTER_OPENING = {
+	closedSlideIds: ["qz"],
+	slideClosedAt: { qz: "2026-01-01T12:00:05.000Z" },
+};
+/** The presenter closed the question a minute before it was ever opened. */
+const CLOSED_BEFORE_OPENING = {
+	closedSlideIds: ["qz"],
+	slideClosedAt: { qz: "2026-01-01T11:59:00.000Z" },
+};
 
 describe("quizTimeLimitFor (REQ057)", () => {
 	test("reads the authored number of seconds", () => {
@@ -197,11 +212,11 @@ describe("scoreQuizAnswer (REQ054, REQ056)", () => {
 	});
 
 	test("an answer that predates its window claims no speed at all", () => {
-		// The presenter restarted the timer under an answer already given, so the
-		// window this answer is being measured against is not the one it was given
-		// in. Crediting it as instant would hand the maximum to whoever answered
-		// last before the restart — the slowest in the room outscoring everyone
-		// who answers the fresh window quickly.
+		// An answer stored before votes recorded their window (REQ217), on a
+		// question whose timer was restarted after it: the window it is measured
+		// against is not the one it was given in. Crediting it as instant would
+		// hand the maximum to whoever answered last before the restart — the
+		// slowest in the room outscoring everyone who answers the fresh window.
 		expect(
 			scoreQuizAnswer({
 				isCorrect: true,
@@ -279,8 +294,34 @@ describe("quizQuestionIsRunning (REQ214)", () => {
 		expect(
 			quizQuestionIsRunning(
 				quiz,
-				{ ...opened, closedSlideIds: ["qz"] },
+				{ ...opened, ...CLOSED_AFTER_OPENING },
+				OPENED_MS + 5_000,
+			),
+		).toBe(false);
+	});
+
+	test("a close made before it opened ended nothing, so it still runs (REQ216)", () => {
+		// The projector must not draw the result of a question nobody has been
+		// asked yet: the presenter reopens it, and the room would answer with it in
+		// front of them.
+		expect(
+			quizQuestionIsRunning(
+				quiz,
+				{ ...opened, ...CLOSED_BEFORE_OPENING },
 				OPENED_MS,
+			),
+		).toBe(true);
+		// A close whose instant is unknown reads the same way — the side that
+		// withholds.
+		expect(
+			quizQuestionIsRunning(quiz, { ...opened, closedSlideIds: ["qz"] }, OPENED_MS),
+		).toBe(true);
+		// Its window still ends it.
+		expect(
+			quizQuestionIsRunning(
+				quiz,
+				{ ...opened, ...CLOSED_BEFORE_OPENING },
+				deadline + QUIZ_SUBMISSION_GRACE_MS + 1,
 			),
 		).toBe(false);
 	});
@@ -306,7 +347,7 @@ describe("quizQuestionIsRunning (REQ214)", () => {
 		expect(
 			quizQuestionIsRunning(
 				untimed,
-				{ ...opened, closedSlideIds: ["qz"] },
+				{ ...opened, ...CLOSED_AFTER_OPENING },
 				OPENED_MS + 10_000_000,
 			),
 		).toBe(false);
@@ -378,8 +419,8 @@ describe("solutionVisibleToAudience on a closed quiz question (REQ216)", () => {
 		expect(
 			solutionVisibleToAudience(
 				quiz,
-				{ ...opened, closedSlideIds: ["qz"] },
-				OPENED_MS,
+				{ ...opened, ...CLOSED_AFTER_OPENING },
+				OPENED_MS + 5_000,
 			),
 		).toBe(true);
 	});
@@ -400,5 +441,65 @@ describe("solutionVisibleToAudience on a closed quiz question (REQ216)", () => {
 				OPENED_MS,
 			),
 		).toBe(false);
+	});
+
+	test("a question closed ahead of time keeps its key back once it opens", () => {
+		// The step-2 review's scenario: the presenter closes a draft deck's first
+		// quiz, then goes live. The opening stamp lands on a closed slide, and the
+		// close must not read as the end of a question that has only just begun.
+		expect(
+			solutionVisibleToAudience(
+				quiz,
+				{ ...opened, ...CLOSED_BEFORE_OPENING },
+				OPENED_MS,
+			),
+		).toBe(false);
+		// Nor a close nobody recorded the instant of.
+		expect(
+			solutionVisibleToAudience(
+				quiz,
+				{ ...opened, closedSlideIds: ["qz"], slideClosedAt: {} },
+				OPENED_MS,
+			),
+		).toBe(false);
+	});
+
+	test("a restart puts a question closed before it back on the withholding side", () => {
+		// The presenter asked it again: the close ended the old window, not this one.
+		const restarted = {
+			...opened,
+			...CLOSED_AFTER_OPENING,
+			slideStartedAt: { qz: "2026-01-01T12:01:00.000Z" },
+		};
+		expect(
+			solutionVisibleToAudience(quiz, restarted, Date.parse("2026-01-01T12:01:01Z")),
+		).toBe(false);
+		expect(quizClosedAfterOpening(restarted, "qz")).toBe(false);
+	});
+});
+
+describe("withSlideClosedAt (REQ111, REQ216)", () => {
+	const AT = "2026-01-01T12:00:05.000Z";
+
+	test("closing stamps the slide, and opening drops the stamp", () => {
+		const closed = withSlideClosedAt({}, "qz", false, AT);
+		expect(closed).toEqual({ qz: AT });
+		expect(withSlideClosedAt(closed, "qz", true, AT)).toEqual({});
+	});
+
+	test("a second close keeps the first instant", () => {
+		// A double-tap must not move a close that ended a question past an opening.
+		expect(
+			withSlideClosedAt({ qz: AT }, "qz", false, "2026-01-01T12:09:00.000Z"),
+		).toEqual({ qz: AT });
+	});
+
+	test("leaves every other slide's stamp alone and never mutates its input", () => {
+		const stamps = { other: AT };
+		expect(withSlideClosedAt(stamps, "qz", false, AT)).toEqual({
+			other: AT,
+			qz: AT,
+		});
+		expect(stamps).toEqual({ other: AT });
 	});
 });

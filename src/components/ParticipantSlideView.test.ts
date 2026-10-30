@@ -146,11 +146,28 @@ describe("a participant's phone when a quiz question ends (REQ216)", () => {
 	test("closing the question to answers ends it with time still on the clock", () => {
 		const markup = phone(
 			SELECT_QUIZ,
-			liveDeck(SELECT_QUIZ, RUNNING, { closedSlideIds: ["q1"] }),
+			liveDeck(SELECT_QUIZ, RUNNING, {
+				closedSlideIds: ["q1"],
+				slideClosedAt: { q1: new Date().toISOString() },
+			}),
 			SELECT_TALLY_OVER,
 		);
 		expect(markup).toContain("Live results");
 		expect(markup).toContain("correct</span>");
+	});
+
+	test("a question closed before it opened is not over (REQ216)", () => {
+		// A close made ahead of time ended nothing, so the phone does not switch to
+		// the results of a question the room has not been asked yet.
+		const markup = phone(
+			SELECT_QUIZ,
+			liveDeck(SELECT_QUIZ, RUNNING, {
+				closedSlideIds: ["q1"],
+				slideClosedAt: { q1: new Date(Date.now() - 60_000).toISOString() },
+			}),
+			SELECT_TALLY_OVER,
+		);
+		expect(markup).not.toContain("Live results");
 	});
 
 	test("while the window is open, nothing of the room's answers is drawn", () => {

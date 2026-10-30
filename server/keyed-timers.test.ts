@@ -13,7 +13,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { TimerFactory } from "./coalesce";
-import { createKeyedTimers } from "./keyed-timers";
+import { createKeyedTimers, MAX_TIMER_DELAY_MS } from "./keyed-timers";
 
 /** A timer nothing fires but the test, remembering each delay it was given. */
 function manualTimer(): {
@@ -127,6 +127,22 @@ describe("keyed timers", () => {
 		timers.schedule("deck:qz", -250);
 		expect(timer.delays).toEqual([0]);
 		expect(runs).toEqual([]);
+	});
+
+	test("a delay past what a timer can hold is capped, not handed over to overflow", () => {
+		// A quiz time limit has no upper bound, so its close can be weeks away. A
+		// runtime handed more than 2³¹−1 ms fires after one, and the close —
+		// finding its window still open — would schedule itself again, once per
+		// millisecond, for the whole window.
+		const timer = manualTimer();
+		const timers = createKeyedTimers({
+			work: async () => {},
+			setTimer: timer.setTimer,
+		});
+		timers.schedule("deck:qz", 2_500_000_000);
+		timers.schedule("deck:qz2", MAX_TIMER_DELAY_MS);
+		expect(timer.delays).toEqual([MAX_TIMER_DELAY_MS, MAX_TIMER_DELAY_MS]);
+		expect(MAX_TIMER_DELAY_MS).toBe(2 ** 31 - 1);
 	});
 
 	test("a failing run is reported, not thrown", async () => {

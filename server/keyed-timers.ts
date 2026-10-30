@@ -47,7 +47,9 @@ export interface KeyedTimers {
 	/**
 	 * Run the work for `key` in `delayMs`, replacing whatever was pending for it.
 	 * A delay at or below zero runs on the next turn of the event loop rather
-	 * than inline, so a caller never runs the work inside its own write.
+	 * than inline, so a caller never runs the work inside its own write. A delay
+	 * past {@link MAX_TIMER_DELAY_MS} is capped to it — the work fires early and
+	 * is expected to re-read and schedule the remainder.
 	 */
 	schedule(key: string, delayMs: number): void;
 	/** Drop the pending timer for `key`, if there is one. */
@@ -57,6 +59,17 @@ export interface KeyedTimers {
 	/** How many keys hold a pending timer (tests, introspection). */
 	pendingKeys(): number;
 }
+
+/**
+ * The longest delay a timer can be handed as it was asked: 2³¹−1 ms, about 24.8
+ * days. Past it the runtime does not wait longer, it fires after **one**
+ * millisecond — so a work function that finds its moment still ahead and
+ * schedules the rest again (as a quiz close does for a window that has moved
+ * later) would spin on the store once per millisecond for as long as the delay
+ * stays out of range. A delay past this is waited out in steps of it instead:
+ * the work re-reads when the step fires and schedules what is left.
+ */
+export const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
 /** Ignore a run's failure when the caller supplied no handler. */
 function ignoreError(): void {}
@@ -88,7 +101,7 @@ export function createKeyedTimers(options: KeyedTimersOptions): KeyedTimers {
 				if (cancelByKey.get(key) === cancelTimer) cancelByKey.delete(key);
 				work(key).catch((cause: unknown) => onError(key, cause));
 			},
-			Math.max(0, delayMs),
+			Math.min(MAX_TIMER_DELAY_MS, Math.max(0, delayMs)),
 		);
 		cancelByKey.set(key, cancelTimer);
 	}

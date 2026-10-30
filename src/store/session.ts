@@ -29,6 +29,7 @@ import type {
 import {
 	isWithheldTally,
 	withCountdownRun,
+	withSlideClosedAt,
 	withSlideParticipation,
 } from "../types";
 import type { AppState } from "./store";
@@ -274,6 +275,8 @@ export interface SessionSlice {
 	applySlideParticipation: (payload: {
 		slideId: string;
 		open: boolean;
+		/** When the server stamped the close, ISO; `null` on an open. */
+		closedAt?: string | null;
 	}) => void;
 	/** The shared screen was blanked, or brought back (REQ109). */
 	applyAudienceBlanked: (payload: { blanked: boolean }) => void;
@@ -623,6 +626,17 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 							slideId,
 							open,
 						),
+				// The close instant with it (REQ216): it decides whether this screen
+				// reads a closed quiz question as ended or as closed ahead of time.
+				slideClosedAt:
+					updated?.slideClosedAt && typeof updated.slideClosedAt === "object"
+						? (updated.slideClosedAt as Record<string, string>)
+						: withSlideClosedAt(
+								get().presentation?.slideClosedAt ?? {},
+								slideId,
+								open,
+								new Date().toISOString(),
+							),
 			});
 		},
 
@@ -747,6 +761,7 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 						// closed question over an open one and a curtain over a deck the
 						// room can already see.
 						closedSlideIds: [],
+						slideClosedAt: {},
 						audienceBlanked: false,
 						// The session clock with them (REQ108): the next run is
 						// timed from its own start.
@@ -833,7 +848,7 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		 * phone comes to believe a question is open that the boundary is refusing,
 		 * and then draws a live control over a refusal.
 		 */
-		applySlideParticipation: ({ slideId, open }) => {
+		applySlideParticipation: ({ slideId, open, closedAt }) => {
 			const current = get().presentation;
 			if (!current) return;
 			patchPresentation({
@@ -841,6 +856,15 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 					current.closedSlideIds ?? [],
 					slideId,
 					open,
+				),
+				// The server's own instant when the frame carries one; a frame from
+				// before it did reads as "closed now", which can only ever land on
+				// the side that ends a question the presenter has just closed.
+				slideClosedAt: withSlideClosedAt(
+					current.slideClosedAt ?? {},
+					slideId,
+					open,
+					closedAt ?? new Date().toISOString(),
 				),
 			});
 		},

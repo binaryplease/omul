@@ -733,33 +733,146 @@ describe("quiz competition integration", () => {
 		expect((await answer(pres.id, "late", "mercury")).status).toBe(200);
 	}, 10_000);
 
-	test("a restart never lets an earlier answer outscore a fast answer in the new window", async () => {
-		// The restart moves the question's opening instant forward, under answers
-		// already given. Crediting those as instant would rank the room by who
-		// answered *last* before the restart.
+	/** Restart a quiz question's timer as the presenter (REQ057). */
+	async function restartTimer(pres: AnyJson, slideId = "qz"): Promise<void> {
+		const restart = await authed(
+			`/api/presentations/${pres.id}/timer`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId }) },
+		);
+		expect(restart.status).toBe(200);
+	}
+
+	test("a restart keeps the points every answer already given earned (REQ217)", async () => {
+		// The protocol's M1: a participant who answered fast in the first window
+		// fell from +836 to +500 when the presenter restarted the timer, because
+		// their answer was re-measured against a window opened after it.
 		const pres = await createAndStart([quizSlide({ timeLimit: 30 })]);
 		await answer(pres.id, "early", "mercury");
-		const beforeRestart = (await scorecard(pres.id, "early")).totalPoints;
-		expect(beforeRestart).toBeGreaterThan(QUIZ_CORRECT_POINTS);
+		await answer(pres.id, "wrong", "venus");
+		const before = (await scorecard(pres.id, "early")).totalPoints;
+		expect(before).toBeGreaterThan(QUIZ_CORRECT_POINTS);
+		const tallyBefore = (await results(pres.id, "qz", pres.creatorToken)).scoring;
 
 		// Opening instants are recorded to the millisecond, and a presenter
 		// restarts a question seconds after an answer, not inside the same tick.
 		await wait(20);
-		const restart = await authed(
-			`/api/presentations/${pres.id}/timer`,
-			pres.creatorToken,
-			{ method: "POST", body: JSON.stringify({ slideId: "qz" }) },
-		);
-		expect(restart.status).toBe(200);
-		expect((await answer(pres.id, "fresh", "mercury")).status).toBe(200);
+		await restartTimer(pres);
 
-		const early = (await scorecard(pres.id, "early")).totalPoints;
-		const fresh = (await scorecard(pres.id, "fresh")).totalPoints;
-		// The pre-restart answer keeps the correctness half and claims no speed —
-		// there is no honest speed to report against a window it never ran in.
-		expect(early).toBe(QUIZ_CORRECT_POINTS);
-		expect(early).toBeLessThan(fresh);
-		expect(early).toBeLessThan(QUIZ_MAX_POINTS);
+		expect((await scorecard(pres.id, "early")).totalPoints).toBe(before);
+		expect((await scorecard(pres.id, "wrong")).totalPoints).toBe(0);
+		const tallyAfter = (await results(pres.id, "qz", pres.creatorToken)).scoring;
+		expect(tallyAfter.totalPoints).toBe(tallyBefore.totalPoints);
+		// The window itself did move: the question is open again from now.
+		expect(Date.parse(tallyAfter.startedAt)).toBeGreaterThan(
+			Date.parse(tallyBefore.startedAt),
+		);
+	});
+
+	test("a restart reopens the question only for whoever has not answered (REQ217)", async () => {
+		const pres = await createAndStart([quizSlide({ timeLimit: 30 })]);
+		await answer(pres.id, "early", "venus");
+		await wait(20);
+		await restartTimer(pres);
+
+		// The one-answer rule outlives the restart: a second chance at a question
+		// already answered would let a wrong answer be corrected for points.
+		const again = await answer(pres.id, "early", "mercury");
+		expect(again.status).toBe(400);
+		expect((await again.json()).refused).toBe("quiz-already-answered");
+		expect((await scorecard(pres.id, "early")).totalPoints).toBe(0);
+
+		// Somebody who had not answered is timed against the fresh window.
+		expect((await answer(pres.id, "fresh", "mercury")).status).toBe(200);
+		expect((await scorecard(pres.id, "fresh")).totalPoints).toBeGreaterThan(
+			QUIZ_CORRECT_POINTS,
+		);
+	});
+
+	test("re-marking the solution after a restart still re-scores the room (REQ056, REQ217)", async () => {
+		// Only *when* the window opened is kept with an answer; whether it was
+		// right is still read from the slide as it now stands.
+		const pres = await createAndStart([quizSlide({ timeLimit: 30 })]);
+		await answer(pres.id, "early", "venus");
+		await wait(20);
+		await restartTimer(pres);
+		expect((await scorecard(pres.id, "early")).totalPoints).toBe(0);
+
+		const patch = await authed(
+			`/api/presentations/${pres.id}`,
+			pres.creatorToken,
+			{
+				method: "PATCH",
+				body: JSON.stringify({
+					slides: [
+						quizSlide({
+							timeLimit: 30,
+							options: [
+								{ id: "venus", text: "Venus", isCorrect: true },
+								{ id: "mercury", text: "Mercury" },
+								{ id: "mars", text: "Mars" },
+							],
+						}),
+					],
+				}),
+			},
+		);
+		expect(patch.status).toBe(200);
+		// Timed against the window it was given in — so fast, not the bare
+		// correctness half a re-measure against the restarted window would give.
+		expect((await scorecard(pres.id, "early")).totalPoints).toBeGreaterThan(
+			QUIZ_CORRECT_POINTS,
+		);
+	});
+
+	test("paging away from a question and back changes no score (REQ057, REQ217)", async () => {
+		const pres = await createAndStart([
+			quizSlide({ timeLimit: 30 }),
+			quizSlide({ id: "qz2", question: "Second" }),
+		]);
+		await answer(pres.id, "p1", "mercury");
+		const before = (await scorecard(pres.id, "p1")).totalPoints;
+
+		const goTo = (index: number) =>
+			authed(`/api/presentations/${pres.id}/slide`, pres.creatorToken, {
+				method: "POST",
+				body: JSON.stringify({ index }),
+			});
+		await wait(20);
+		expect((await goTo(1)).status).toBe(200);
+		await wait(20);
+		expect((await goTo(0)).status).toBe(200);
+
+		expect((await scorecard(pres.id, "p1")).totalPoints).toBe(before);
+	});
+
+	test("an answer stored before votes carried their window is timed as it always was", async () => {
+		// A deck live across the upgrade holds answers with no recorded window.
+		// They fall back to the slide's own instant — the reading they were scored
+		// by when they were given — and claim no speed against a later restart.
+		const pres = await createAndStart([quizSlide({ timeLimit: 30 })]);
+		// Written straight into the collection, as the case above does, because
+		// `submitVote` now always records the window.
+		const { createStore } = await import("./db");
+		const { StoredVoteSchema } = await import("./schemas");
+		const voteStore = createStore("votes", StoredVoteSchema);
+		await voteStore.insert({
+			presentationId: pres.id,
+			slideId: "qz",
+			value: "mercury",
+			participantId: "legacy",
+			statementId: null,
+			skip: false,
+			createdAt: new Date().toISOString(),
+		});
+		expect((await scorecard(pres.id, "legacy")).totalPoints).toBeGreaterThan(
+			QUIZ_CORRECT_POINTS,
+		);
+		await wait(20);
+		await restartTimer(pres);
+		expect((await scorecard(pres.id, "legacy")).totalPoints).toBe(
+			QUIZ_CORRECT_POINTS,
+		);
 	});
 
 	test("restarting the timer of a slide the deck does not have is a 404", async () => {
