@@ -63,6 +63,7 @@ import {
 	PresenterSlideView,
 	presenterSlideWidthClass,
 } from "../components/PresenterSlideView";
+import { useQuizQuestionRunning } from "../components/QuizTimer";
 import {
 	ParticipantRosterPanel,
 	participantRosterHeading,
@@ -481,13 +482,24 @@ export function PresenterPage({
 		isOwner && rosterOpen,
 	);
 
+	// Whether the active slide is a quiz question the room is still answering.
+	// The shared screen draws none of its results until it is over; when that
+	// moment comes, the tally in hand may be the last answer's broadcast, which
+	// withholds the typed answers and the key from everybody. Re-polling right
+	// then puts the editor's full tally on screen without waiting out the beat.
+	const activeQuizRunning = useQuizQuestionRunning(
+		pres?.slides[pres.activeSlideIndex],
+		pres,
+		serverClockOffsetMs,
+	);
+
 	// Fetch results for active slide (initial + 3s poll)
 	// The dep list is deliberately narrower than the captures: the 3s poll must
 	// restart only when the *identity* of what is being polled changes
-	// (presentation, active slide, live/not-live), not on every new `pres`
-	// object the session store hands back. Depending on the whole `pres` would
-	// let unrelated store updates tear down and re-create the interval
-	// mid-flight.
+	// (presentation, active slide, live/not-live, a quiz question ending), not on
+	// every new `pres` object the session store hands back. Depending on the
+	// whole `pres` would let unrelated store updates tear down and re-create the
+	// interval mid-flight.
 	useEffect(() => {
 		if (!pres || pres.status !== "live") return;
 		const slide = pres.slides[pres.activeSlideIndex];
@@ -507,7 +519,13 @@ export function PresenterPage({
 		const interval = setInterval(fetchResults, 3000);
 
 		return () => clearInterval(interval);
-	}, [pres?.id, pres?.activeSlideIndex, pres?.status, setResultsFor]);
+	}, [
+		pres?.id,
+		pres?.activeSlideIndex,
+		pres?.status,
+		activeQuizRunning,
+		setResultsFor,
+	]);
 
 	const handleStart = async () => {
 		try {

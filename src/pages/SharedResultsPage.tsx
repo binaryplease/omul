@@ -12,7 +12,11 @@ import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { usePageTitle } from "../router";
 import type { Presentation, Slide } from "../types";
-import { slideHasResults, slideTextSizeFor } from "../types";
+import {
+	quizQuestionIsRunning,
+	slideHasResults,
+	slideTextSizeFor,
+} from "../types";
 
 // ── The shared results page (REQ098) ──────────────────────────
 //
@@ -226,7 +230,18 @@ export function SharedResultsPage({ id }: { id: string }) {
 										/>
 									</h2>
 								</div>
-								{results ? (
+								{quizQuestionIsRunning(slide, state.deck, Date.now()) ? (
+									/* A quiz question the room is still answering. A link
+									   holder's tally (and an owner's, reading their own
+									   page) carries the per-option counts even now, and this
+									   page is one tab away from a participant's phone — so
+									   it waits for the question to be over, as the shared
+									   screen does. The poll re-renders it when it is. */
+									<p className="text-text-dim text-sm">
+										This quiz question is still being answered — its results
+										appear here once it is over.
+									</p>
+								) : results ? (
 									<>
 										<ResultsDisplay slide={slide} results={results} />
 										{/* REQ020/REQ116 — the same tally, split by what these

@@ -8,7 +8,12 @@ import {
 } from "./Leaderboard";
 import { SlideParticipationControl } from "./LiveRoom";
 import { type QuizAudioCue, QuizAudioCueControl } from "./QuizAudioCue";
-import { QuizTimer, quizWindowFor, useQuizCountdown } from "./QuizTimer";
+import {
+	QuizTimer,
+	quizWindowFor,
+	useQuizCountdown,
+	useQuizQuestionRunning,
+} from "./QuizTimer";
 import {
 	answerModerationFor,
 	describeResponses,
@@ -254,6 +259,15 @@ export function PresenterSlideView({
 		quizWindowFor(slide, pres),
 		serverClockOffsetMs,
 	);
+	/**
+	 * Whether this is a quiz question the room is still answering. This screen is
+	 * held by an editor, so the payload in hand carries the answer key and the
+	 * full tally even now — and it is the screen the whole room is reading. While
+	 * the question runs it draws the question, the countdown and the response
+	 * count, and nothing of what anybody answered; once it is over, the slide's
+	 * reveal setting decides as it does for every other slide.
+	 */
+	const quizRunning = useQuizQuestionRunning(slide, pres, serverClockOffsetMs);
 
 	const {
 		canControl,
@@ -451,7 +465,9 @@ export function PresenterSlideView({
 			</PresenterSlideHeading>
 
 			{/* Results visualization — gated by the effective results visibility:
-			    the slide's override, else the deck default (REQ102) */}
+			    the slide's override, else the deck default (REQ102) — and, on a
+			    quiz question, by the question being over: "instant" means at the
+			    end of the window, never while the room is still answering. */}
 			{visibility === "private" ? (
 				<div className="text-center text-text-dim py-16">
 					Results are private — not shown on the shared screen.
@@ -471,6 +487,12 @@ export function PresenterSlideView({
 							Reveal results
 						</button>
 					)}
+				</div>
+			) : quizRunning ? (
+				<div className="text-center text-text-dim py-16">
+					{quizCountdown.timed
+						? "Results appear when the time is up."
+						: "Results appear once the question is closed to answers."}
 				</div>
 			) : results ? (
 				<>

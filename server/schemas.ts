@@ -4163,6 +4163,41 @@ export function solutionVisibleToAudience(
 }
 
 /**
+ * Whether a quiz question is still being answered — the state in which a
+ * room-facing surface draws its question, its countdown and how many have
+ * answered, and **nothing of what they answered**.
+ *
+ * The shared screen is held by an editor, so the payload gate above lets it
+ * read the answer key and the tally at any moment; what keeps them off the
+ * projector while the room is still deciding is this. Both halves of the result
+ * are held back, not just the key: the per-option bars and the typed answers
+ * are the majority's answer, which on a question being scored is the answer.
+ *
+ * The question is over — and the slide's reveal setting takes over again — when
+ * {@link solutionVisibleToAudience} says the audience may have its key (window
+ * closed with its grace, results revealed, deck ended), **or** when the
+ * presenter has closed the slide to submissions (REQ111): once nobody can
+ * answer, there is nothing left to copy. An untimed question, and one not yet
+ * opened, have no window to close, so they run until one of those happens.
+ *
+ * Never true for any other slide type: a plain choice slide with a marked
+ * option keeps scoring nobody and reveals as it always has (REQ013).
+ */
+export function quizQuestionIsRunning(
+	slide: {
+		id: string;
+		type?: SlideType | undefined;
+		timeLimit?: number | undefined;
+	},
+	deck: SolutionRevealState & LiveRoomState,
+	now: number,
+): boolean {
+	if (slide.type !== "quiz") return false;
+	if (solutionVisibleToAudience(slide, deck, now)) return false;
+	return slideAcceptsSubmissions(deck, slide.id);
+}
+
+/**
  * The deck's slides as an audience may see them: every quiz question that is
  * not yet over loses the `isCorrect` marks on its options and, on a typed
  * question (REQ055), the accepted answers themselves — which are the answer

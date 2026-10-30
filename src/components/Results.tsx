@@ -540,10 +540,17 @@ type ChoiceTallyPayload = Partial<ChoiceTally> | null | undefined;
  * a solution the payload withholds (REQ056). A quiz tally reports `isCorrect`
  * as `null` while the question is running, and the broadcast that follows every
  * answer carries that same withheld shape to *everyone* — including the
- * presenter, whose authenticated poll had just supplied the real one. Falling
- * back to the deck in hand keeps the shared screen's correct mark steady
- * between the two, and tells a participant nothing new: their copy of the deck
- * is redacted by the same rule.
+ * presenter, whose authenticated poll supplies the real one. Falling back to
+ * the deck in hand keeps the shared screen's correct mark steady from the moment
+ * the question is over, when the tally it holds may still be the last withheld
+ * broadcast, and tells a participant nothing new: their copy of the deck is
+ * redacted by the same rule.
+ *
+ * It is **not** what keeps the key off the projector while the question runs —
+ * this function cannot tell a running question from a finished one. The surfaces
+ * the room reads draw no tally at all for a quiz question until it is over
+ * (`quizQuestionIsRunning`, read through `useQuizQuestionRunning` on the shared
+ * screen), so this fallback is only ever reached after that.
  */
 function readChoiceTally(
 	results: ChoiceTallyPayload,

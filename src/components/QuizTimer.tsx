@@ -1,7 +1,13 @@
 import { Timer, TimerOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Presentation, Slide } from "../types";
-import { quizDeadlineFor, quizRemainingMs, quizTimeLimitFor } from "../types";
+import {
+	QUIZ_SUBMISSION_GRACE_MS,
+	quizDeadlineFor,
+	quizQuestionIsRunning,
+	quizRemainingMs,
+	quizTimeLimitFor,
+} from "../types";
 
 // ── Quiz question countdown (REQ057) ──────────────────────────
 //
@@ -119,6 +125,49 @@ export function useQuizCountdown(
 		remainingShare: windowMs > 0 ? Math.min(1, remainingMs / windowMs) : 1,
 		timed: deadline !== null,
 	};
+}
+
+/**
+ * Whether a quiz question is still being answered, re-read at the instant it
+ * stops being so ({@link quizQuestionIsRunning}).
+ *
+ * A surface that holds a question's results back while it runs has to let them
+ * through **by itself** when the window closes, not on the next vote that
+ * happens to re-render it — and the last votes arrive before the deadline, so
+ * waiting for one would leave the screen blank under "Time's up". The
+ * countdown cannot be the trigger either: it stops at the deadline, and the
+ * question is not over until the submission grace after it. So this schedules
+ * one re-read of its own, on the server's clock, for the moment the grace runs
+ * out. Every other way a question ends (revealed, closed to submissions, deck
+ * ended) arrives as a new presentation and re-renders the caller anyway.
+ */
+export function useQuizQuestionRunning(
+	slide: Pick<Slide, "id" | "type" | "timeLimit"> | null | undefined,
+	presentation: Presentation | null | undefined,
+	clockOffsetMs: number,
+): boolean {
+	const [readAt, setReadAt] = useState(0);
+	const running =
+		!!slide &&
+		!!presentation &&
+		quizQuestionIsRunning(slide, presentation, Date.now() + clockOffsetMs);
+	const { deadline } = quizWindowFor(slide, presentation);
+
+	useEffect(() => {
+		if (!running || deadline === null) return;
+		const closesInMs =
+			deadline + QUIZ_SUBMISSION_GRACE_MS - (Date.now() + clockOffsetMs);
+		// One millisecond past the grace, because the grace's last instant still
+		// counts as open (`isQuizWindowOpen`).
+		const timeout = setTimeout(
+			() => setReadAt(Date.now()),
+			Math.max(0, closesInMs) + 1,
+		);
+		return () => clearTimeout(timeout);
+		// `readAt` re-arms it should a timer ever fire a hair early on this clock.
+	}, [running, deadline, clockOffsetMs, readAt]);
+
+	return running;
 }
 
 /**

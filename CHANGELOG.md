@@ -93,6 +93,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A space or an arrow key typed into a field on the presenter screen, such as the chat, no longer moves the live presentation to another slide.
 - The move up, move down and delete controls in a slide's header say why they are unavailable, on hover, on focus and after a tap.
 
+### Fixed
+
+- The presenter screen no longer gives away the answer to a quiz question while the room is still answering it. Until the time is up or submissions are closed, it shows only the question, the countdown and the number of responses: no "correct" mark, no per-option bars, no "Accepted:" list and no typed answers. Once the question is over, its results appear according to the slide's reveal setting, and with "Instant" they appear on their own when the time runs out. The shared results page holds a running quiz question back in the same way. Plain multiple-choice slides with a correct option are unchanged.
+
 ### Security
 
 - Exporting a presentation as PDF can no longer stall the server. Turning slide text into plain words for the PDF took time that grew with the square of the text for some markup; it now grows linearly, and the output is unchanged.

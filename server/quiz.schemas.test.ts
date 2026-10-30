@@ -7,6 +7,8 @@
  *   - REQ057 — how long a question stays open, and when it is past
  *   - REQ056 — which answer is the solution, on a slide that has one at all
  *   - REQ054 — what an answer scores, by correctness and by speed
+ *   - REQ214 — when a question is still being answered, so the shared screen
+ *     draws nothing of what the room answered until it is over
  */
 
 import { describe, expect, test } from "bun:test";
@@ -19,6 +21,7 @@ import {
 	QUIZ_SPEED_POINTS,
 	QUIZ_SUBMISSION_GRACE_MS,
 	quizDeadlineFor,
+	quizQuestionIsRunning,
 	quizRemainingMs,
 	quizTimeLimitFor,
 	scoreQuizAnswer,
@@ -235,5 +238,90 @@ describe("scoreQuizAnswer (REQ054, REQ056)", () => {
 		expect(
 			scoreQuizAnswer({ isCorrect: true, elapsedMs: null, timeLimitSeconds: 30 }),
 		).toBe(QUIZ_MAX_POINTS);
+	});
+});
+
+describe("quizQuestionIsRunning (REQ214)", () => {
+	const quiz = { id: "qz", type: "quiz" as const, timeLimit: 10 };
+	const deadline = OPENED_MS + 10_000;
+	/** A live deck that opened the question at OPENED_AT and touched nothing else. */
+	const opened = {
+		status: "live",
+		slideStartedAt: { qz: OPENED_AT },
+		revealedSlideIds: [],
+		closedSlideIds: [],
+	};
+
+	test("runs from the moment it opens until the grace after the buzzer", () => {
+		expect(quizQuestionIsRunning(quiz, opened, OPENED_MS)).toBe(true);
+		expect(quizQuestionIsRunning(quiz, opened, deadline - 1)).toBe(true);
+		// An answer in flight at the buzzer still counts, so the screen must not
+		// hand the room the answer while it can still be sent.
+		expect(
+			quizQuestionIsRunning(quiz, opened, deadline + QUIZ_SUBMISSION_GRACE_MS),
+		).toBe(true);
+	});
+
+	test("is over once the grace has run out", () => {
+		expect(
+			quizQuestionIsRunning(
+				quiz,
+				opened,
+				deadline + QUIZ_SUBMISSION_GRACE_MS + 1,
+			),
+		).toBe(false);
+	});
+
+	test("is over once the presenter closes it to answers", () => {
+		expect(
+			quizQuestionIsRunning(
+				quiz,
+				{ ...opened, closedSlideIds: ["qz"] },
+				OPENED_MS,
+			),
+		).toBe(false);
+	});
+
+	test("is over once its results are revealed, or the deck has ended", () => {
+		expect(
+			quizQuestionIsRunning(
+				quiz,
+				{ ...opened, revealedSlideIds: ["qz"] },
+				OPENED_MS,
+			),
+		).toBe(false);
+		expect(
+			quizQuestionIsRunning(quiz, { ...opened, status: "ended" }, OPENED_MS),
+		).toBe(false);
+	});
+
+	test("an untimed question runs until it is closed, however long it has been open", () => {
+		const untimed = { ...quiz, timeLimit: 0 };
+		expect(quizQuestionIsRunning(untimed, opened, OPENED_MS + 10_000_000)).toBe(
+			true,
+		);
+		expect(
+			quizQuestionIsRunning(
+				untimed,
+				{ ...opened, closedSlideIds: ["qz"] },
+				OPENED_MS + 10_000_000,
+			),
+		).toBe(false);
+	});
+
+	test("a question not opened yet has nothing of its own to show", () => {
+		expect(
+			quizQuestionIsRunning(quiz, { ...opened, slideStartedAt: {} }, OPENED_MS),
+		).toBe(true);
+	});
+
+	test("a plain choice slide with a marked option is not a quiz", () => {
+		expect(
+			quizQuestionIsRunning(
+				{ id: "qz", type: "multiple-choice", timeLimit: 10 },
+				opened,
+				OPENED_MS,
+			),
+		).toBe(false);
 	});
 });

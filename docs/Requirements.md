@@ -221,8 +221,10 @@ Prose outside the markers is preserved.
 | [REQ211.md](requirements/REQ211.md) | Every dialog and popover keeps one keyboard contract — Escape closes it, focus goes in and comes back, Tab stays inside, and it fits the viewport | Rendering & Theming | P2 | pending | internal |
 | [REQ212.md](requirements/REQ212.md) | The app renders when served over plain HTTP on a LAN address, where the browser offers no `crypto.randomUUID` | Platform & Operations | P2 | pending | internal |
 | [REQ213.md](requirements/REQ213.md) | The PDF export's markdown reduction must be linear in the text, the export must be rate-limited, and rendering must neither hold the server's thread nor pile up | Platform & Operations | P1 | done | internal |
+| [REQ214.md](requirements/REQ214.md) | While a quiz question's window is open, the shared screen must show its question, countdown and response count only — never the solution or what the room answered | Quiz & Scoring | P0 | done | internal |
+| [REQ215.md](requirements/REQ215.md) | A running quiz question's per-option counts must not reach a client that cannot edit the deck, on the results endpoints or the results broadcast | Quiz & Scoring | P2 | pending | internal |
 | [REQ245.md](requirements/REQ245.md) | A slide's body text can be edited directly on the editor canvas, as its question already can | Deck & Slides | P2 | pending | internal |
 | [REQ246.md](requirements/REQ246.md) | Account deletion requires the account's password whatever the session's age | Accounts & Workspaces | P1 | done | internal |
 
-_205 entries — one row per file in `requirements/`._
+_207 entries — one row per file in `requirements/`._
 <!-- index:end -->
