@@ -234,8 +234,9 @@ Prose outside the markers is preserved.
 | [REQ224.md](requirements/REQ224.md) | An answer in flight must show as chosen and sending at once | Quiz & Scoring | P3 | done | internal |
 | [REQ225.md](requirements/REQ225.md) | Quiz and leaderboard text the audience reads must be in the deck's language | Rendering & Theming | P3 | done | internal |
 | [REQ226.md](requirements/REQ226.md) | A timed quiz question on screen at go-live must wait for the presenter to start its timer | Quiz & Scoring | P3 | done | internal |
+| [REQ227.md](requirements/REQ227.md) | Navigating a deck that is not live must not open a quiz question's window | Quiz & Scoring | P3 | done | internal |
 | [REQ245.md](requirements/REQ245.md) | A slide's body text can be edited directly on the editor canvas, as its question already can | Deck & Slides | P2 | pending | internal |
 | [REQ246.md](requirements/REQ246.md) | Account deletion requires the account's password whatever the session's age | Accounts & Workspaces | P1 | done | internal |
 
-_218 entries — one row per file in `requirements/`._
+_219 entries — one row per file in `requirements/`._
 <!-- index:end -->

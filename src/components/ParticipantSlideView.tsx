@@ -1086,10 +1086,13 @@ export function ParticipantSlideView({
 	// A third reason comes first (REQ226): the question is on screen but has not
 	// been started — it was the slide on screen when the deck went live, and its
 	// window opens when the presenter starts its timer. Its cards are shown and
-	// locked, so the room can read the question while it waits.
+	// locked, so the room can read the question while it waits. Unless the
+	// presenter has also closed the slide: starting the timer does not reopen
+	// it, so "waiting" would promise something that will not come, and the
+	// closed gate above the question already says what does hold it.
 	const quizLockReason = !isQuizSlide
 		? null
-		: quizAwaitingStart(slide, pres)
+		: quizAwaitingStart(slide, pres) && participationOpen
 			? t.quizWaitingToStart
 			: answeredQuiz
 				? t.quizAnswerLocked

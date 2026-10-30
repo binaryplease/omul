@@ -775,6 +775,82 @@ describe("quiz competition integration", () => {
 		expect((await answer(pres.id, "p1", "mercury")).status).toBe(200);
 	});
 
+	test("paging through a draft opens nothing, so the first question still waits at go-live (REQ227)", async () => {
+		// The step-8 review: the presenter's slide list navigates a draft too,
+		// and the stamp a draft click left behind survived going live, so the
+		// question came up already running — or already over.
+		const pres = await create([
+			quizSlide(),
+			quizSlide({ id: "qz2" }),
+		]);
+		for (const index of [1, 0]) {
+			const goTo = await authed(
+				`/api/presentations/${pres.id}/slide`,
+				pres.creatorToken,
+				{ method: "POST", body: JSON.stringify({ index }) },
+			);
+			expect(goTo.status).toBe(200);
+		}
+		expect((await fetchPresentation(pres.id)).slideStartedAt).toEqual({});
+
+		const start = await authed(
+			`/api/presentations/${pres.id}/start`,
+			pres.creatorToken,
+			{ method: "POST" },
+		);
+		expect(start.status).toBe(200);
+		expect((await fetchPresentation(pres.id)).slideStartedAt.qz).toBeUndefined();
+		const early = await answer(pres.id, "early", "mercury");
+		expect(early.status).toBe(400);
+		expect((await early.json()).refused).toBe("quiz-not-started");
+	});
+
+	test("a question visited in a draft opens fresh when the live deck reaches it (REQ227)", async () => {
+		const pres = await create([
+			{
+				id: "intro",
+				type: "multiple-choice",
+				question: "Ready?",
+				options: [{ id: "yes", text: "Yes" }],
+			},
+			quizSlide({ timeLimit: 1 }),
+		]);
+		await authed(`/api/presentations/${pres.id}/slide`, pres.creatorToken, {
+			method: "POST",
+			body: JSON.stringify({ index: 1 }),
+		});
+		// Longer than the whole window: a draft stamp would have expired by now.
+		await wait(1_100 + QUIZ_SUBMISSION_GRACE_MS);
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		await authed(`/api/presentations/${pres.id}/slide`, pres.creatorToken, {
+			method: "POST",
+			body: JSON.stringify({ index: 1 }),
+		});
+		expect((await answer(pres.id, "p1", "mercury")).status).toBe(200);
+	}, 10_000);
+
+	test("going live from a draft drops a stamp left by earlier draft navigation (REQ227)", async () => {
+		// A deck stored before navigation stopped stamping drafts still carries
+		// the stamps; going live must not inherit a window nobody saw open.
+		const pres = await create([
+			quizSlide(),
+			quizSlide({ id: "qz2" }),
+		]);
+		const { createStore } = await import("./db");
+		const { StoredPresentationSchema } = await import("./schemas");
+		const store = createStore("presentations", StoredPresentationSchema);
+		const stale = new Date(Date.now() - 60_000).toISOString();
+		await store.update(pres.id, { slideStartedAt: { qz: stale, qz2: stale } });
+
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		expect((await fetchPresentation(pres.id)).slideStartedAt).toEqual({});
+		expect((await answer(pres.id, "early", "mercury")).status).toBe(400);
+	});
+
 	test("starting the timer publishes the question's deadline", async () => {
 		const pres = await createAndStart();
 		const fetched = await fetchPresentation(pres.id);
@@ -1029,6 +1105,33 @@ describe("quiz competition integration", () => {
 		expect(payload.scoring.startedAt).toBe(null);
 		expect(payload.scoring.deadline).toBe(null);
 		expect(payload.scoring.closed).toBe(false);
+		expect((await answer(pres.id, "p1", "mercury")).status).toBe(200);
+		expect((await scorecard(pres.id, "p1")).totalPoints).toBe(QUIZ_MAX_POINTS);
+	}, 10_000);
+
+	test("a timed quiz on the first slide of a survey stays untimed after go-live (REQ226)", async () => {
+		// Going live used to stamp the first slide of a survey too, which gave
+		// that one question a deadline no other survey question has.
+		const res = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Survey quiz",
+				mode: "survey",
+				slides: [quizSlide({ timeLimit: 1 })],
+			}),
+		});
+		expect(res.status).toBe(201);
+		const pres = await res.json();
+		const start = await authed(
+			`/api/presentations/${pres.id}/start`,
+			pres.creatorToken,
+			{ method: "POST" },
+		);
+		expect(start.status).toBe(200);
+		await wait(1_100 + QUIZ_SUBMISSION_GRACE_MS);
+
+		expect((await results(pres.id)).scoring.deadline).toBe(null);
 		expect((await answer(pres.id, "p1", "mercury")).status).toBe(200);
 		expect((await scorecard(pres.id, "p1")).totalPoints).toBe(QUIZ_MAX_POINTS);
 	}, 10_000);

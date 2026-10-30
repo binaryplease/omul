@@ -42,7 +42,13 @@ function inFreshProcess(configured: string | undefined, expression: string) {
 	if (configured === undefined) delete environment[VARIABLE];
 	else environment[VARIABLE] = configured;
 
-	const ran = Bun.spawnSync({ cmd: ["bun", "-e", source], env: environment });
+	// `--no-env-file`: the probe runs in the checkout, and Bun would otherwise
+	// load a developer's local `.env` on top of the environment decided above —
+	// putting back the very variable an "unset" case just removed.
+	const ran = Bun.spawnSync({
+		cmd: ["bun", "--no-env-file", "-e", source],
+		env: environment,
+	});
 	if (ran.exitCode !== 0) {
 		throw new Error(`allowlist probe failed: ${ran.stderr.toString()}`);
 	}

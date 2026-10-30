@@ -1449,9 +1449,14 @@ export async function setActiveSlide(
 	const slide = slides[slideIndex];
 	// Arriving at a slide opens its question (REQ057). Written in the same
 	// update as the navigation so a participant can never see the new slide
-	// before the instant its countdown runs from.
+	// before the instant its countdown runs from. Only on a live deck: an owner
+	// paging through a draft is rehearsing, and a window opened then would run
+	// out before the room ever saw the question (REQ227).
 	const openedAt = new Date().toISOString();
-	const stamps = withSlideOpenedOnce(slideStartedAtIn(pres), slide.id, openedAt);
+	const stamps =
+		pres.status === "live"
+			? withSlideOpenedOnce(slideStartedAtIn(pres), slide.id, openedAt)
+			: null;
 
 	const updated = await presentations.update(presentationId, {
 		activeSlideIndex: slideIndex,
@@ -1648,10 +1653,21 @@ export async function startPresentation(presentationId: string) {
 	const slides = pres.slides as Slide[];
 	const first = slides[0];
 	const openedAt = new Date().toISOString();
-	const stamps =
+	// A presenter-paced draft has opened nothing (REQ227): navigation does not
+	// stamp before the deck is live, and a draft of that kind took no answer a
+	// stamp could have timed. Any stamp it still carries was left by navigation
+	// from before that rule, and would start the deck with a question already
+	// running — or already expired — so going live from draft starts from none.
+	// A survey draft keeps its stamps: it collects answers in draft (REQ003).
+	const fromRehearsal =
+		pres.status === "draft" &&
+		((pres.mode as "live" | "survey" | undefined) ?? "live") === "live";
+	const before = fromRehearsal ? {} : slideStartedAtIn(pres);
+	const opened =
 		first && !opensByHandAtGoLive(first)
-			? withSlideOpenedOnce(slideStartedAtIn(pres), first.id, openedAt)
+			? withSlideOpenedOnce(before, first.id, openedAt)
 			: null;
+	const stamps = opened ?? (fromRehearsal ? before : null);
 
 	// The session clock (REQ108) runs from the moment the deck goes live. A start
 	// on a deck that is already live keeps the clock it has — a second click must
@@ -1685,7 +1701,7 @@ export async function startPresentation(presentationId: string) {
 			slideIndex: 0,
 			slideId: first?.id ?? null,
 		});
-		if (stamps && first) {
+		if (opened && first) {
 			broadcastToPresentation(presentationId, "slide.started", {
 				presentationId,
 				slideId: first.id,

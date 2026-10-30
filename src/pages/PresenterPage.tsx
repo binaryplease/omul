@@ -348,6 +348,7 @@ export function PresenterPage({
 	const [confirmShareEdit, setConfirmShareEdit] = useState(false);
 	/** Whether the "this clears every response" prompt is up (REQ101). */
 	const [confirmReset, setConfirmReset] = useState(false);
+	const timerRequestInFlight = useRef(false);
 	/**
 	 * The quiz questions nobody can get right, named before the deck goes live
 	 * (REQ219) — `null` when the prompt is down.
@@ -606,6 +607,11 @@ export function PresenterPage({
 	 * since go-live (REQ226), and the toast says which of the two it was.
 	 */
 	const handleRestartTimer = async (slideId: string) => {
+		// A double click is one start, not a start and a restart a moment later.
+		// A ref rather than state, because the second click of a double click
+		// lands before React has re-rendered with anything.
+		if (timerRequestInFlight.current) return;
+		timerRequestInFlight.current = true;
 		const slide = pres?.slides.find((candidate) => candidate.id === slideId);
 		const { confirmation } = quizTimerControlFor(
 			!!slide && !!pres && quizAwaitingStart(slide, pres),
@@ -617,6 +623,8 @@ export function PresenterPage({
 			setError(
 				timerError instanceof Error ? timerError.message : "Unknown error",
 			);
+		} finally {
+			timerRequestInFlight.current = false;
 		}
 	};
 

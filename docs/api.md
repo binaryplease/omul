@@ -2357,7 +2357,8 @@ by the tally and does not lock its participant out (`isStandingQuizAnswer()`).
 
 ### The window
 
-A question **opens** when the presenter reaches its slide: the server stamps
+A question **opens** when the presenter reaches its slide on a live deck (paging
+through a draft or an ended deck opens nothing, REQ227): the server stamps
 `slideStartedAt[slideId]` (an ISO instant on the presentation document, public
 because both the shared screen and every phone have to agree on when the
 question closes) and broadcasts `slide.started`. It **closes**
@@ -2397,7 +2398,9 @@ code. It waits instead — on screen, closed to answers (`quizAwaitingStart` in
 `server/schemas.ts`) — until the presenter opens it with
 `POST /presentations/:id/timer`, which the shared screen offers as **Start
 timer** in that state and as **Restart timer** once the question has run.
-Reaching a quiz slide later by navigation still opens it on arrival.
+Reaching a quiz slide later by navigation still opens it on arrival. On a
+presenter-paced deck, going live from `draft` first drops any stamps the draft
+still carries (REQ227), so no question starts the session already running.
 
 Submissions are accepted for `QUIZ_SUBMISSION_GRACE_MS` (1.5 s) past the
 deadline, because a tap made at half a second left still has to reach the

@@ -244,6 +244,21 @@ describe("a participant's phone while a quiz question waits at go-live (REQ226)"
 		expect(markup).toContain("Warten, bis diese Frage gestartet wird");
 	});
 
+	test("a waiting question the presenter has also closed says closed, not waiting (REQ227)", () => {
+		// Starting the timer does not reopen a closed slide, so "waiting for the
+		// presenter to start" would promise something that is not coming.
+		const markup = phone(
+			SELECT_QUIZ,
+			waiting(SELECT_QUIZ, {
+				closedSlideIds: ["q1"],
+				slideClosedAt: { q1: new Date().toISOString() },
+			}),
+			null,
+		);
+		expect(markup).toContain("The presenter has closed this question");
+		expect(markup).not.toContain("Waiting for the presenter");
+	});
+
 	test("once the presenter starts it, the countdown runs and the options open", () => {
 		const markup = phone(SELECT_QUIZ, liveDeck(SELECT_QUIZ, RUNNING), null);
 		expect(markup).toContain("s left");
