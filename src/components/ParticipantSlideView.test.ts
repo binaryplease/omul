@@ -206,6 +206,53 @@ describe("a participant's phone when a quiz question ends (REQ216)", () => {
 	});
 });
 
+describe("a participant's phone while a quiz question waits at go-live (REQ226)", () => {
+	/** The deck has just gone live on the quiz; nobody has started its timer. */
+	const waiting = (slide: Slide, overrides: Record<string, unknown> = {}) =>
+		liveDeck(slide, RUNNING, { slideStartedAt: {}, ...overrides });
+
+	test("the question and its options are shown, locked, with the reason", () => {
+		const markup = phone(SELECT_QUIZ, waiting(SELECT_QUIZ), null);
+		expect(markup).toContain("Which planet is closest to the sun?");
+		const cards = markup.match(/<button[^>]*option-card[^>]*>/g) ?? [];
+		expect(cards).toHaveLength(2);
+		for (const card of cards) expect(card).toContain('aria-disabled="true"');
+		// Said in the polite region, so it is announced and not only tooltipped.
+		expect(markup).toMatch(
+			/<div role="status" aria-atomic="false"><p[^>]*>Waiting for the presenter to start this question<\/p>/,
+		);
+		// No countdown before the window opens, and no verdict on a question
+		// nobody could have answered yet.
+		expect(markup).not.toContain("s left");
+		expect(markup).not.toContain("No answer in time");
+		expect(markup).not.toContain("Live results");
+	});
+
+	test("a typed question's field is locked the same way", () => {
+		const markup = phone(TYPED_QUIZ, waiting(TYPED_QUIZ), null);
+		const field = markup.match(/<input[^>]*>/)?.[0] ?? "";
+		expect(field).toContain('aria-disabled="true"');
+		expect(markup).toContain("Waiting for the presenter to start this question");
+	});
+
+	test("the reason is in the deck's language", () => {
+		const markup = phone(
+			SELECT_QUIZ,
+			waiting(SELECT_QUIZ, { language: "de" }),
+			null,
+		);
+		expect(markup).toContain("Warten, bis diese Frage gestartet wird");
+	});
+
+	test("once the presenter starts it, the countdown runs and the options open", () => {
+		const markup = phone(SELECT_QUIZ, liveDeck(SELECT_QUIZ, RUNNING), null);
+		expect(markup).toContain("s left");
+		expect(markup).not.toContain("Waiting for the presenter");
+		const cards = markup.match(/<button[^>]*option-card[^>]*>/g) ?? [];
+		for (const card of cards) expect(card).not.toContain("aria-disabled");
+	});
+});
+
 describe("the quiz view to a screen reader (REQ221)", () => {
 	test("the answer controls are a group named by the question", () => {
 		// An unnamed group is announced as just "group".

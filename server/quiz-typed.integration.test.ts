@@ -90,6 +90,18 @@ async function createAndStart(
 		{ method: "POST" },
 	);
 	expect(startRes.status).toBe(200);
+	// Going live leaves a timed first question waiting for the presenter
+	// (REQ226); these tests are about a question the room is answering, so
+	// every question is opened as the presenter's timer control opens it.
+	for (const slide of slides) {
+		if (slide.type !== "quiz") continue;
+		const opened = await authed(
+			`/api/presentations/${pres.id}/timer`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: slide.id }) },
+		);
+		expect(opened.status).toBe(200);
+	}
 	return pres;
 }
 

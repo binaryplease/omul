@@ -62,6 +62,7 @@ import { ExportDialog, exportButtonLabel } from "../components/ExportDialog";
 import {
 	PresenterSlideView,
 	presenterSlideWidthClass,
+	quizTimerControlFor,
 } from "../components/PresenterSlideView";
 import { quizAnswerKeyGoLiveWarning } from "../components/QuizAnswerKeyWarning";
 import { useQuizQuestionRunning } from "../components/QuizTimer";
@@ -115,6 +116,7 @@ import {
 	audienceViewBlanked,
 	callerCanEditDeck,
 	canReadDeckComments,
+	quizAwaitingStart,
 	slideAcceptsSubmissions,
 	slideHasResults,
 	steppedSlideIndex,
@@ -600,12 +602,17 @@ export function PresenterPage({
 	 * Hand the room a fresh window on the question on screen (REQ057) — the way
 	 * back from a mis-navigation that burned it, or from a room that was not
 	 * ready when the clock started. Answers already given stand; clearing those
-	 * is what Reset is for.
+	 * is what Reset is for. The same call opens a question that has been waiting
+	 * since go-live (REQ226), and the toast says which of the two it was.
 	 */
 	const handleRestartTimer = async (slideId: string) => {
+		const slide = pres?.slides.find((candidate) => candidate.id === slideId);
+		const { confirmation } = quizTimerControlFor(
+			!!slide && !!pres && quizAwaitingStart(slide, pres),
+		);
 		try {
 			await restartSlideTimer(id, slideId);
-			addToast("Question timer restarted", "success");
+			addToast(confirmation, "success");
 		} catch (timerError: unknown) {
 			setError(
 				timerError instanceof Error ? timerError.message : "Unknown error",

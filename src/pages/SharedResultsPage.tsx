@@ -293,6 +293,7 @@ export function SharedResultsPage({ id }: { id: string }) {
 											slide={slide}
 											slides={state.deck.slides as Slide[]}
 											pollTick={pollTick}
+											labels={resultLabels}
 										/>
 									</>
 								) : (

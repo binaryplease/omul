@@ -70,6 +70,7 @@ import {
 	pinImageFor,
 	POINTS_BUDGET,
 	quizAnswerModeFor,
+	quizAwaitingStart,
 	slideAcceptsSubmissions,
 	slideAppearanceFor,
 	slideMediaIsInteractionArea,
@@ -792,6 +793,7 @@ export function ParticipantSlideView({
 	const submissionErrorMessage = (thrown: unknown): string => {
 		const refused = thrown instanceof ApiError ? thrown.refused : null;
 		if (refused === "participation-closed") return participationLabels.closed;
+		if (refused === "quiz-not-started") return t.quizWaitingToStart;
 		if (refused === "quiz-window-closed") return t.quizWindowClosed;
 		if (refused === "quiz-already-answered") return t.quizAnswerLocked;
 		return (thrown as Error).message;
@@ -1080,13 +1082,20 @@ export function ParticipantSlideView({
 	// independently; this only keeps a doomed request from going out. Resolved
 	// here rather than inside either branch below because the two answer modes
 	// (REQ055) are locked by exactly the same two rules.
+	//
+	// A third reason comes first (REQ226): the question is on screen but has not
+	// been started — it was the slide on screen when the deck went live, and its
+	// window opens when the presenter starts its timer. Its cards are shown and
+	// locked, so the room can read the question while it waits.
 	const quizLockReason = !isQuizSlide
 		? null
-		: answeredQuiz
-			? t.quizAnswerLocked
-			: quizCountdown.expired
-				? t.quizWindowClosed
-				: null;
+		: quizAwaitingStart(slide, pres)
+			? t.quizWaitingToStart
+			: answeredQuiz
+				? t.quizAnswerLocked
+				: quizCountdown.expired
+					? t.quizWindowClosed
+					: null;
 	/** Whether the typed answer field takes no more input right now. */
 	const typedAnswerLocked = submitting || quizLockReason !== null;
 

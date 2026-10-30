@@ -168,7 +168,11 @@ const DECK: AnyJson[] = [
 ];
 
 /** Cast one full room's worth of answers across the deck above. */
-async function runSession(presentationId: string): Promise<void> {
+async function runSession(pres: {
+	id: string;
+	creatorToken: string;
+}): Promise<void> {
+	const presentationId = pres.id;
 	await castVote(presentationId, {
 		slideId: "mc",
 		value: "mc-a",
@@ -197,6 +201,13 @@ async function runSession(presentationId: string): Promise<void> {
 		statementId: "st-2",
 		skip: true,
 	});
+	// A quiz question takes answers once the presenter has opened it (REQ226).
+	const opened = await authed(
+		`/api/presentations/${presentationId}/timer`,
+		pres.creatorToken,
+		{ method: "POST", body: JSON.stringify({ slideId: "qz" }) },
+	);
+	expect(opened.status).toBe(200);
 	await castVote(presentationId, {
 		slideId: "qz",
 		value: "qz-a",
@@ -287,7 +298,7 @@ describe("Results & Export (REQ095, REQ101)", () => {
 		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
 			method: "POST",
 		});
-		await runSession(pres.id);
+		await runSession(pres);
 
 		const { workbook } = await downloadWorkbook(pres.id, pres.creatorToken);
 		const responses = rowsOf(workbook, "Responses");
@@ -320,7 +331,7 @@ describe("Results & Export (REQ095, REQ101)", () => {
 		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
 			method: "POST",
 		});
-		await runSession(pres.id);
+		await runSession(pres);
 
 		const { workbook } = await downloadWorkbook(pres.id, pres.creatorToken);
 		const participants = rowsOf(workbook, "Participants");
@@ -349,7 +360,7 @@ describe("Results & Export (REQ095, REQ101)", () => {
 		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
 			method: "POST",
 		});
-		await runSession(pres.id);
+		await runSession(pres);
 
 		const liveRes = await authed(
 			`/api/presentations/${pres.id}/results`,
@@ -428,7 +439,7 @@ describe("Results & Export (REQ095, REQ101)", () => {
 		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
 			method: "POST",
 		});
-		await runSession(pres.id);
+		await runSession(pres);
 
 		const { workbook } = await downloadWorkbook(pres.id, pres.creatorToken);
 		const summary = summaryOf(workbook);
@@ -462,7 +473,7 @@ describe("Results & Export (REQ095, REQ101)", () => {
 		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
 			method: "POST",
 		});
-		await runSession(pres.id);
+		await runSession(pres);
 
 		const beforeRes = await authed(
 			`/api/presentations/${pres.id}/results`,
@@ -502,7 +513,7 @@ describe("Results & Export (REQ095, REQ101)", () => {
 		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
 			method: "POST",
 		});
-		await runSession(pres.id);
+		await runSession(pres);
 		await authed(`/api/presentations/${pres.id}/reset`, pres.creatorToken, {
 			method: "POST",
 		});

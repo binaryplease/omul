@@ -82,6 +82,24 @@ async function create(slides: AnyJson[]): Promise<AnyJson> {
 	return await res.json();
 }
 
+/**
+ * Open every quiz question on the deck, as the presenter's timer control does.
+ * A board ranks answers given across the deck, and a question takes answers
+ * only once it has been opened — going live opens none of a timed first
+ * question (REQ226) and nothing ahead of the slide on screen.
+ */
+async function openEveryQuestion(pres: AnyJson, slides: AnyJson[]): Promise<void> {
+	for (const slide of slides) {
+		if (slide.type !== "quiz") continue;
+		const opened = await authed(
+			`/api/presentations/${pres.id}/timer`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: slide.id }) },
+		);
+		expect(opened.status).toBe(200);
+	}
+}
+
 async function createAndStart(slides: AnyJson[]): Promise<AnyJson> {
 	const pres = await create(slides);
 	const startRes = await authed(
@@ -90,6 +108,7 @@ async function createAndStart(slides: AnyJson[]): Promise<AnyJson> {
 		{ method: "POST" },
 	);
 	expect(startRes.status).toBe(200);
+	await openEveryQuestion(pres, slides);
 	return pres;
 }
 
@@ -112,6 +131,7 @@ async function createAndStartNamed(slides: AnyJson[]): Promise<AnyJson> {
 		{ method: "POST" },
 	);
 	expect(startRes.status).toBe(200);
+	await openEveryQuestion(pres, slides);
 	return pres;
 }
 

@@ -16,7 +16,12 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PresentationSchema } from "../../server/schemas";
 import type { Presentation, Slide } from "../types";
-import { PresenterSlideView, RESTART_TIMER_HINT } from "./PresenterSlideView";
+import {
+	PresenterSlideView,
+	quizTimerControlFor,
+	RESTART_TIMER_HINT,
+	START_TIMER_HINT,
+} from "./PresenterSlideView";
 
 const SELECT_QUIZ: Slide = {
 	id: "q1",
@@ -273,6 +278,58 @@ describe("restarting a quiz question's timer (REQ217)", () => {
 		);
 		expect(RESTART_TIMER_HINT).toContain("answers already given keep their points");
 		expect(RESTART_TIMER_HINT).toContain("who have not answered");
+	});
+});
+
+describe("a quiz question waiting at go-live (REQ226)", () => {
+	/** The deck has just gone live on the quiz; nobody has started its timer. */
+	const waiting = (overrides: Record<string, unknown> = {}) =>
+		liveDeck(SELECT_QUIZ, RUNNING, { slideStartedAt: {}, ...overrides });
+
+	test("offers Start timer, not Restart timer, and says so to the room", () => {
+		const markup = sharedScreen(SELECT_QUIZ, waiting(), SELECT_TALLY);
+		expect(markup).toContain("Start timer");
+		expect(markup).not.toContain("Restart timer");
+		expect(markup).toContain(`title="${START_TIMER_HINT}"`);
+		expect(markup).toContain(
+			`<span id="restart-timer-hint-q1" class="sr-only">${START_TIMER_HINT}</span>`,
+		);
+		expect(markup).toContain("Waiting for the presenter to start this question");
+		// No countdown runs before the window does.
+		expect(markup).not.toContain("s left");
+		expect(markup).not.toContain("Time&#x27;s up");
+	});
+
+	test("shows nothing of the result while it waits", () => {
+		// "Not opened" must not read as "over": that would put the key on the
+		// projector before anybody had been asked.
+		const markup = sharedScreen(SELECT_QUIZ, waiting(), SELECT_TALLY);
+		expect(markup).not.toContain("correct</span>");
+		expect(markup).toContain("Results appear when the time is up.");
+	});
+
+	test("the room's line is in the deck's language; the control stays the app's", () => {
+		const markup = sharedScreen(
+			SELECT_QUIZ,
+			waiting({ language: "de" }),
+			SELECT_TALLY,
+		);
+		expect(markup).toContain("Warten, bis diese Frage gestartet wird");
+		expect(markup).toContain("Start timer");
+	});
+
+	test("once started, the control is a restart again", () => {
+		const markup = sharedScreen(
+			SELECT_QUIZ,
+			liveDeck(SELECT_QUIZ, RUNNING),
+			SELECT_TALLY,
+		);
+		expect(markup).toContain("Restart timer");
+		expect(markup).not.toContain("Start timer<");
+		expect(quizTimerControlFor(true).confirmation).toBe("Question timer started");
+		expect(quizTimerControlFor(false).confirmation).toBe(
+			"Question timer restarted",
+		);
 	});
 });
 

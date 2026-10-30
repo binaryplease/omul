@@ -13,6 +13,8 @@
  *     that closing an opened question ends it for the audience's payload too,
  *     while closing one before it opened ends nothing
  *   - REQ217 — that an answer is timed against the window it was given in
+ *   - REQ226 — that a timed question on screen at go-live waits, closed to
+ *     answers and with its result withheld, until the presenter starts it
  */
 
 import { describe, expect, test } from "bun:test";
@@ -24,6 +26,7 @@ import {
 	QUIZ_MAX_POINTS,
 	QUIZ_SPEED_POINTS,
 	QUIZ_SUBMISSION_GRACE_MS,
+	quizAwaitingStart,
 	quizClosedAfterOpening,
 	quizDeadlineFor,
 	quizHasAnswerKey,
@@ -31,6 +34,7 @@ import {
 	quizSlidesWithoutAnswerKey,
 	quizRemainingMs,
 	quizTimeLimitFor,
+	quizWindowNotYetOpened,
 	scoreQuizAnswer,
 	solutionVisibleToAudience,
 	withSlideClosedAt,
@@ -463,6 +467,84 @@ describe("quizQuestionIsRunning (REQ214)", () => {
 				{ id: "qz", type: "multiple-choice", timeLimit: 10 },
 				opened,
 				OPENED_MS,
+			),
+		).toBe(false);
+	});
+});
+
+describe("a quiz question waiting at go-live (REQ226)", () => {
+	const quiz = { id: "qz", type: "quiz" as const, timeLimit: 30 };
+	/** A deck that has just gone live on the quiz, which nobody has started. */
+	const waiting = {
+		status: "live",
+		mode: "live",
+		activeSlideIndex: 0,
+		slides: [{ id: "qz" }, { id: "next" }],
+		slideStartedAt: {},
+		revealedSlideIds: [],
+		closedSlideIds: [],
+	};
+
+	test("is not open: an answer to it is refused rather than scored as instant", () => {
+		expect(quizWindowNotYetOpened(quiz, waiting)).toBe(true);
+		// Read as "no deadline" it would score the most a question awards.
+		expect(
+			scoreQuizAnswer({ isCorrect: true, elapsedMs: null, timeLimitSeconds: 30 }),
+		).toBe(QUIZ_MAX_POINTS);
+	});
+
+	test("is the one the room is waiting on, while it is on screen", () => {
+		expect(quizAwaitingStart(quiz, waiting)).toBe(true);
+		// A question further on has not been shown to anybody; it opens on arrival.
+		expect(quizAwaitingStart(quiz, { ...waiting, activeSlideIndex: 1 })).toBe(
+			false,
+		);
+		// Absent the deck's position, nothing is on screen to wait on.
+		expect(
+			quizAwaitingStart(quiz, {
+				status: "live",
+				slideStartedAt: {},
+			}),
+		).toBe(false);
+	});
+
+	test("stops waiting the moment the presenter starts its timer", () => {
+		const started = { ...waiting, slideStartedAt: { qz: OPENED_AT } };
+		expect(quizWindowNotYetOpened(quiz, started)).toBe(false);
+		expect(quizAwaitingStart(quiz, started)).toBe(false);
+	});
+
+	test("counts as running, so nothing of its result is shown while it waits", () => {
+		// "Not opened" read as "over" would put the key on the projector before
+		// anybody had been asked.
+		expect(quizQuestionIsRunning(quiz, waiting, OPENED_MS)).toBe(true);
+		// A reveal or the end of the deck still ends it, as for any question.
+		expect(
+			quizQuestionIsRunning(
+				quiz,
+				{ ...waiting, revealedSlideIds: ["qz"] },
+				OPENED_MS,
+			),
+		).toBe(false);
+		expect(
+			quizQuestionIsRunning(quiz, { ...waiting, status: "ended" }, OPENED_MS),
+		).toBe(false);
+	});
+
+	test("an untimed question, a survey and a deck not yet live wait for nothing", () => {
+		const untimed = { ...quiz, timeLimit: 0 };
+		expect(quizWindowNotYetOpened(untimed, waiting)).toBe(false);
+		expect(quizAwaitingStart(untimed, waiting)).toBe(false);
+		expect(quizWindowNotYetOpened(quiz, { ...waiting, mode: "survey" })).toBe(
+			false,
+		);
+		expect(quizWindowNotYetOpened(quiz, { ...waiting, status: "draft" })).toBe(
+			false,
+		);
+		expect(
+			quizWindowNotYetOpened(
+				{ id: "qz", type: "multiple-choice", timeLimit: 30 },
+				waiting,
 			),
 		).toBe(false);
 	});

@@ -78,7 +78,8 @@ async function create(slides: AnyJson[]): Promise<AnyJson> {
 	return await res.json();
 }
 
-async function createAndStart(slides: AnyJson[] = [quizSlide()]): Promise<AnyJson> {
+/** Take a deck live without opening anything the presenter opens by hand. */
+async function createAndGoLive(slides: AnyJson[]): Promise<AnyJson> {
 	const pres = await create(slides);
 	const startRes = await authed(
 		`/api/presentations/${pres.id}/start`,
@@ -86,6 +87,23 @@ async function createAndStart(slides: AnyJson[] = [quizSlide()]): Promise<AnyJso
 		{ method: "POST" },
 	);
 	expect(startRes.status).toBe(200);
+	return pres;
+}
+
+/**
+ * Take a deck live and open the question on screen — going live leaves a
+ * timed quiz on the first slide waiting for the presenter's "Start timer"
+ * (REQ226), and almost every test here is about a question the room is
+ * already answering.
+ */
+async function createAndStart(slides: AnyJson[] = [quizSlide()]): Promise<AnyJson> {
+	const pres = await createAndGoLive(slides);
+	const startTimer = await authed(
+		`/api/presentations/${pres.id}/timer`,
+		pres.creatorToken,
+		{ method: "POST", body: JSON.stringify({ slideId: slides[0].id }) },
+	);
+	expect(startTimer.status).toBe(200);
 	return pres;
 }
 
@@ -623,6 +641,11 @@ describe("quiz competition integration", () => {
 			{ id: "mc", type: "multiple-choice", question: "Not a quiz", options: [] },
 		]);
 		await answer(pres.id, "p1", "mercury", "qz");
+		// A question is answered once the presenter has brought it up (REQ226).
+		await authed(`/api/presentations/${pres.id}/slide`, pres.creatorToken, {
+			method: "POST",
+			body: JSON.stringify({ index: 1 }),
+		});
 		await answer(pres.id, "p1", "venus", "qz2");
 
 		const card = await scorecard(pres.id, "p1");
@@ -661,7 +684,98 @@ describe("quiz competition integration", () => {
 
 	// ── REQ057 — the question's window ─────────────────────────
 
-	test("going live opens the first question and publishes its deadline", async () => {
+	test("going live leaves a timed first question waiting for the presenter (REQ226)", async () => {
+		// The protocol's m3: a deck whose first slide was a quiz started its
+		// countdown with "Start Presentation", and the room lost a third of the
+		// window to typing in the code.
+		const pres = await createAndGoLive([quizSlide()]);
+		const fetched = await fetchPresentation(pres.id);
+		expect(fetched.status).toBe("live");
+		expect(fetched.slideStartedAt.qz).toBeUndefined();
+
+		const payload = await results(pres.id);
+		expect(payload.scoring.startedAt).toBeNull();
+		expect(payload.scoring.deadline).toBeNull();
+	});
+
+	test("an answer to a question that has not started is refused, not scored as instant (REQ226)", async () => {
+		// With no opening instant the window reads as having no deadline, and an
+		// answer measured against no instant scores the most a question awards.
+		const pres = await createAndGoLive([quizSlide()]);
+		const early = await answer(pres.id, "early", "mercury");
+		expect(early.status).toBe(400);
+		const body = await early.json();
+		expect(body.refused).toBe("quiz-not-started");
+		expect(body.error).toContain("not started");
+		expect((await results(pres.id)).totalVotes).toBe(0);
+	});
+
+	test("starting the timer opens the waiting question, and it then scores by speed (REQ226)", async () => {
+		const pres = await createAndGoLive([quizSlide({ timeLimit: 30 })]);
+		await wait(50);
+		const start = await authed(
+			`/api/presentations/${pres.id}/timer`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz" }) },
+		);
+		expect(start.status).toBe(200);
+		const startedAt = (await fetchPresentation(pres.id)).slideStartedAt.qz;
+		expect(typeof startedAt).toBe("string");
+
+		expect((await answer(pres.id, "p1", "mercury")).status).toBe(200);
+		const card = await scorecard(pres.id, "p1");
+		expect(card.totalPoints).toBeGreaterThan(QUIZ_CORRECT_POINTS);
+		expect(card.totalPoints).toBeLessThanOrEqual(QUIZ_MAX_POINTS);
+	});
+
+	test("an untimed first question and a non-quiz first slide still open with the deck (REQ226)", async () => {
+		// Only a countdown is worth waiting for: an untimed question has no time
+		// to lose to the room still joining.
+		const untimed = await createAndGoLive([quizSlide({ timeLimit: 0 })]);
+		expect(
+			typeof (await fetchPresentation(untimed.id)).slideStartedAt.qz,
+		).toBe("string");
+		expect((await answer(untimed.id, "p1", "mercury")).status).toBe(200);
+
+		const poll = await createAndGoLive([
+			{
+				id: "poll",
+				type: "multiple-choice",
+				question: "Ready?",
+				options: [{ id: "yes", text: "Yes" }],
+			},
+			quizSlide(),
+		]);
+		expect(
+			typeof (await fetchPresentation(poll.id)).slideStartedAt.poll,
+		).toBe("string");
+	});
+
+	test("navigating to a quiz question still opens it on arrival (REQ226)", async () => {
+		// Only the slide on screen at go-live waits; a question reached later is
+		// the presenter actively bringing it up, which is what opens it.
+		const pres = await createAndGoLive([
+			{
+				id: "intro",
+				type: "multiple-choice",
+				question: "Ready?",
+				options: [{ id: "yes", text: "Yes" }],
+			},
+			quizSlide(),
+		]);
+		const goTo = await authed(
+			`/api/presentations/${pres.id}/slide`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ index: 1 }) },
+		);
+		expect(goTo.status).toBe(200);
+		expect(
+			typeof (await fetchPresentation(pres.id)).slideStartedAt.qz,
+		).toBe("string");
+		expect((await answer(pres.id, "p1", "mercury")).status).toBe(200);
+	});
+
+	test("starting the timer publishes the question's deadline", async () => {
 		const pres = await createAndStart();
 		const fetched = await fetchPresentation(pres.id);
 		const startedAt = fetched.slideStartedAt.qz;

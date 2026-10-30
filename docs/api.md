@@ -148,7 +148,7 @@ omul** below).
 | POST | `/api/presentations/:id/results-visibility` | ✅ owner, token or `edit` grant | Set the deck's reveal mode and apply it to every question slide, in one operation `{ resultsVisibility }` (REQ018) — see **The deck's reveal mode** below |
 | POST | `/api/presentations/:id/participation` | ✅ owner, token or `edit` grant | Open or close one slide to submissions `{ slideId, open }` (REQ111) — see **The live room** below |
 | POST | `/api/presentations/:id/blank` | ✅ owner, token or `edit` grant | Blank the shared screen, or bring it back `{ blanked }` (REQ109) — see **The live room** below |
-| POST | `/api/presentations/:id/timer` | ✅ owner, token or `edit` grant | Reopen a slide's question, restarting its countdown `{ slideId }` (REQ057) |
+| POST | `/api/presentations/:id/timer` | ✅ owner, token or `edit` grant | Open a slide's question, starting or restarting its countdown `{ slideId }` (REQ057, REQ226) |
 | POST | `/api/presentations/:id/countdown` | ✅ owner, token or `edit` grant | Start, pause, resume or reset a countdown slide's clock `{ slideId, action }` (REQ107) — see **Running a countdown slide** below |
 | POST | `/api/presentations/:id/claim` | ✅ session + control | Claim an ownerless deck for the account (409 if owned by another account, or by a workspace) |
 | POST | `/api/presentations/:id/workspace` | ✅ deck owner + role at the other end | Move the deck into a workspace `{ workspaceId }`, or back into the caller's account `{ workspaceId: null }` (REQ128) — see **Workspaces** below |
@@ -1848,7 +1848,7 @@ and, unlike them, applies to **every slide type**.
 
 **Every stated refusal carries its machine-readable `refused` code** beside the
 prose — one of `VOTE_REFUSAL_CODES` in `server/schemas.ts`
-(`quiz-window-closed`, `quiz-already-answered`, `participation-closed`, and
+(`quiz-not-started`, `quiz-window-closed`, `quiz-already-answered`, `participation-closed`, and
 `repeat-passes-off`, which only the request to start another pass through a deck
 answers with — REQ083). The prose is for a bare API caller; the code is for a
 client that wants to say the same thing in its own words.
@@ -2384,7 +2384,20 @@ again, since the question is running once more (REQ216).
 Two cases have **no deadline at all**, and they must not read as one already
 past: a question the presenter has not reached, and a survey (REQ003/REQ082),
 where nobody paces the room so there is no shared instant a question started. A
-survey quiz is therefore untimed by construction.
+survey quiz is therefore untimed by construction. On a live deck the first of
+them is **not open either** (REQ226): a timed question with no opening instant
+refuses answers with the stated refusal `quiz-not-started` rather than taking
+them with no deadline, because an answer given before its window opened would
+otherwise score as instant.
+
+**Going live does not open a timed quiz question** (REQ226). Every other slide
+is opened by `start` as by any arrival, but a quiz question with a time limit on
+the first slide would start its countdown at the instant the room is told the
+code. It waits instead — on screen, closed to answers (`quizAwaitingStart` in
+`server/schemas.ts`) — until the presenter opens it with
+`POST /presentations/:id/timer`, which the shared screen offers as **Start
+timer** in that state and as **Restart timer** once the question has run.
+Reaching a quiz slide later by navigation still opens it on arrival.
 
 Submissions are accepted for `QUIZ_SUBMISSION_GRACE_MS` (1.5 s) past the
 deadline, because a tap made at half a second left still has to reach the

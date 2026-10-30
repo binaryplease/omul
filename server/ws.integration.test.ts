@@ -223,6 +223,29 @@ async function answerQuiz(
 	expect(res.status).toBe(200);
 }
 
+/**
+ * Open the quiz question on screen, as the presenter's "Start timer" does:
+ * going live leaves a timed first question waiting (REQ226). The frames the
+ * start sends the room are let through and dropped, so a test reads only what
+ * its own actions cause.
+ */
+async function startQuizTimer(
+	pres: { id: string; creatorToken: string },
+	viewer: ReturnType<typeof openWs>,
+	slideId = "qz",
+): Promise<void> {
+	const started = await authed(
+		`/api/presentations/${pres.id}/timer`,
+		pres.creatorToken,
+		{ method: "POST", body: JSON.stringify({ slideId }) },
+	);
+	expect(started.status).toBe(200);
+	await viewer.waitFor("slide.started");
+	// Past the tally's coalescing window, so the next frame is a leading run.
+	await new Promise((resolve) => setTimeout(resolve, 150));
+	viewer.received.length = 0;
+}
+
 /** One answer on a slide of the default deck (REQ150's tally tests). */
 async function castVote(
 	presentationId: string,
@@ -664,6 +687,7 @@ describe("WebSocket integration", () => {
 			method: "POST",
 		});
 		await viewer.waitFor("presentation.started");
+		await startQuizTimer(pres, viewer);
 
 		await answerQuiz(pres.id, "participant-1", "mercury");
 
@@ -697,6 +721,7 @@ describe("WebSocket integration", () => {
 			method: "POST",
 		});
 		await viewer.waitFor("presentation.started");
+		await startQuizTimer(pres, viewer);
 
 		await answerQuiz(pres.id, "participant-1", "venus");
 		// The wrong answer's board first, so the re-marked one is a fresh frame.
@@ -847,6 +872,7 @@ describe("WebSocket integration", () => {
 			method: "POST",
 		});
 		await viewer.waitFor("presentation.started");
+		await startQuizTimer(pres, viewer);
 
 		const stateName = (name: string) =>
 			fetch(`${baseUrl}/api/presentations/${pres.id}/participant-name`, {
@@ -914,6 +940,7 @@ describe("WebSocket integration", () => {
 			method: "POST",
 		});
 		await viewer.waitFor("presentation.started");
+		await startQuizTimer(pres, viewer);
 
 		const named = await fetch(
 			`${baseUrl}/api/presentations/${pres.id}/participant-name`,
@@ -965,6 +992,7 @@ describe("WebSocket integration", () => {
 			method: "POST",
 		});
 		await viewer.waitFor("presentation.started");
+		await startQuizTimer(pres, viewer);
 		viewer.received.length = 0;
 
 		// A room answering the question at once. Concurrent rather than sequential,
@@ -1182,6 +1210,7 @@ describe("WebSocket integration", () => {
 			method: "POST",
 		});
 		await viewer.waitFor("presentation.started");
+		await startQuizTimer(pres, viewer);
 		return { pres, viewer };
 	}
 

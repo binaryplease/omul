@@ -35,12 +35,16 @@ export const NO_LEGAL_LINKS: LegalLinks = {
 	termsUrl: null,
 };
 
-/** The three texts, in the order they are listed, and their names. */
+/**
+ * The three texts, in the order they are listed. Their names are not here: a
+ * surface words them in its reader's language (REQ225), and the English names
+ * live in the English dictionary with the rest — one source, not two.
+ */
 export const LEGAL_TEXT_DESCRIPTORS = [
-	{ field: "imprintUrl", label: "Imprint" },
-	{ field: "privacyUrl", label: "Privacy Policy" },
-	{ field: "termsUrl", label: "Terms of Service" },
-] as const satisfies readonly { field: keyof LegalLinks; label: string }[];
+	{ field: "imprintUrl" },
+	{ field: "privacyUrl" },
+	{ field: "termsUrl" },
+] as const satisfies readonly { field: keyof LegalLinks }[];
 
 /** The style a legal link wears inside a sentence (a notice). */
 export const LEGAL_LINK_CLASS =
@@ -48,15 +52,15 @@ export const LEGAL_LINK_CLASS =
 
 /**
  * The texts this deployment configured, in descriptor order, unset ones
- * dropped. `field` names which text it is, for a surface that words the names
- * in another language (REQ225); `label` is the English one.
+ * dropped. `field` names which text it is, for the surface to word in its
+ * reader's language (REQ225).
  */
 export function configuredLegalLinks(
 	links: LegalLinks,
-): { field: keyof LegalLinks; label: string; href: string }[] {
-	return LEGAL_TEXT_DESCRIPTORS.flatMap(({ field, label }) => {
+): { field: keyof LegalLinks; href: string }[] {
+	return LEGAL_TEXT_DESCRIPTORS.flatMap(({ field }) => {
 		const href = links[field];
-		return href ? [{ field, label, href }] : [];
+		return href ? [{ field, href }] : [];
 	});
 }
 

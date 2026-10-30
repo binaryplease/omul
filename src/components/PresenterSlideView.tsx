@@ -1,3 +1,4 @@
+import { Play } from "lucide-react";
 import { Segmented } from "./EditorControls";
 import { ContentSlideView } from "./ContentSlideView";
 import { CountdownRunControls, countdownRunFor } from "./CountdownFace";
@@ -39,6 +40,7 @@ import {
 	effectiveResultsVisibility,
 	isInteractiveSlideType,
 	quizAnswerModeFor,
+	quizAwaitingStart,
 	slideAppearanceFor,
 	slideAcceptsSubmissions,
 	slideMediaIsInteractionArea,
@@ -85,6 +87,39 @@ export const SHARED_SCREEN_LABEL = "Shared screen";
  */
 export const RESTART_TIMER_HINT =
 	"Reopens this question for participants who have not answered yet — answers already given keep their points";
+
+/**
+ * What starting a waiting quiz question's timer does (REQ226). Going live
+ * leaves a timed quiz on the first slide unopened so the room can join first;
+ * this is the control that opens it.
+ */
+export const START_TIMER_HINT =
+	"Opens this question to the room — the countdown starts now";
+
+/**
+ * The quiz timer control in its two states — one control, because both call
+ * the same endpoint, but named for what it does in each: a question waiting at
+ * go-live is *started*, one that has already run is *restarted* (REQ226).
+ * Shared by the button on the shared screen and the toast that confirms it, so
+ * the two never describe the same click differently.
+ */
+export function quizTimerControlFor(awaitingStart: boolean): {
+	label: string;
+	hint: string;
+	confirmation: string;
+} {
+	return awaitingStart
+		? {
+				label: "Start timer",
+				hint: START_TIMER_HINT,
+				confirmation: "Question timer started",
+			}
+		: {
+				label: "Restart timer",
+				hint: RESTART_TIMER_HINT,
+				confirmation: "Question timer restarted",
+			};
+}
 
 /**
  * How the shared screen draws a slide. Three renderings, because three kinds of
@@ -289,6 +324,11 @@ export function PresenterSlideView({
 	 * reveal setting decides as it does for every other slide.
 	 */
 	const quizRunning = useQuizQuestionRunning(slide, pres, serverClockOffsetMs);
+	// A timed quiz that was on screen when the deck went live, not opened yet
+	// (REQ226): it counts as running above, so nothing of its result shows, and
+	// the timer control below starts it rather than restarting it.
+	const awaitingStart = quizAwaitingStart(slide, pres);
+	const timerControl = quizTimerControlFor(awaitingStart);
 
 	const {
 		canControl,
@@ -450,35 +490,51 @@ export function PresenterSlideView({
 				results={results}
 				labels={resultLabels}
 			>
-				{/* The question's countdown and the control that reopens it, on the
-				    question they govern rather than in the page chrome.
+				{/* The question's countdown and the control that starts or reopens
+				    it, on the question they govern rather than in the page chrome.
 				    Both surfaces show the same window (REQ057). The audio cue's
 				    switch joins them (REQ058): the cue plays for that same window,
 				    so muting it is a decision about this question too. */}
 				{slide.type === "quiz" && (
 					<div className={`mt-4 flex flex-col gap-2 ${placement.items}`}>
-						<QuizTimer
-							countdown={quizCountdown}
-							label={dict.quizSecondsLeft}
-							spokenLabel={dict.quizSecondsLeftSpoken}
-							expiredLabel={dict.quizTimesUp}
-						/>
+						{/* A question waiting at go-live has no countdown yet
+						    (REQ226); the room is told whose move it is instead. */}
+						{awaitingStart ? (
+							<p className="text-sm font-semibold text-text-muted">
+								{dict.quizWaitingToStart}
+							</p>
+						) : (
+							<QuizTimer
+								countdown={quizCountdown}
+								label={dict.quizSecondsLeft}
+								spokenLabel={dict.quizSecondsLeftSpoken}
+								expiredLabel={dict.quizTimesUp}
+							/>
+						)}
 						{canControl && onRestartTimer && (
 							<>
 								<button
 									type="button"
-									className="text-xs text-text-muted hover:text-text underline"
+									// Starting is the one thing left to do on a waiting
+									// question, so it wears the primary action; a restart
+									// is a correction and stays the quiet link it was.
+									className={
+										awaitingStart
+											? "btn-primary inline-flex items-center gap-2"
+											: "text-xs text-text-muted hover:text-text underline"
+									}
 									onClick={() => onRestartTimer(slide.id)}
-									title={RESTART_TIMER_HINT}
+									title={timerControl.hint}
 									aria-describedby={`restart-timer-hint-${slide.id}`}
 								>
-									Restart timer
+									{awaitingStart && <Play size={16} aria-hidden="true" />}
+									{timerControl.label}
 								</button>
 								{/* Described as well as tooltipped: a title alone reaches
 								    neither every screen reader nor a touch screen. Outside
-								    the button, so the name stays "Restart timer". */}
+								    the button, so the name stays the label. */}
 								<span id={`restart-timer-hint-${slide.id}`} className="sr-only">
-									{RESTART_TIMER_HINT}
+									{timerControl.hint}
 								</span>
 							</>
 						)}
@@ -532,7 +588,7 @@ export function PresenterSlideView({
 				</div>
 			) : quizRunning ? (
 				<div className="text-center text-text-dim py-16">
-					{quizCountdown.timed
+					{quizCountdown.timed || awaitingStart
 						? dict.resultsAppearWhenTimeUp
 						: dict.resultsAppearWhenClosed}
 				</div>

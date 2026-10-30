@@ -181,6 +181,14 @@ export type Dict = {
 	quizAnswerLocked: string;
 	quizWindowClosed: string;
 	/**
+	 * Why the options cannot be picked *yet* (REQ226): the question is on
+	 * screen but its window has not opened, because it was the slide on screen
+	 * when the deck went live and the presenter starts its timer by hand. Said
+	 * on the phone under the question and on the shared screen where the
+	 * results will appear, so the room knows the wait is the presenter's call.
+	 */
+	quizWaitingToStart: string;
+	/**
 	 * Why the answer control is dead on a slide the presenter has closed to
 	 * submissions (REQ111). Distinct from the two quiz reasons above and from
 	 * "the presentation has ended": nothing about this participant, this answer
@@ -488,6 +496,7 @@ const en: Dict = {
 	answerSending: "Sending…",
 	quizAnswerLocked: "Your answer is locked in",
 	quizWindowClosed: "The time for this question is over",
+	quizWaitingToStart: "Waiting for the presenter to start this question",
 	participationClosed: "The presenter has closed this question",
 	quizTypeAnswer: "Type your answer...",
 	quizSubmitAnswer: "Submit answer",
@@ -697,6 +706,7 @@ const de: Dict = {
 	answerSending: "Wird gesendet …",
 	quizAnswerLocked: "Deine Antwort steht fest",
 	quizWindowClosed: "Die Zeit für diese Frage ist vorbei",
+	quizWaitingToStart: "Warten, bis diese Frage gestartet wird",
 	participationClosed: "Der Präsentator hat diese Frage geschlossen",
 	quizTypeAnswer: "Antwort eingeben...",
 	quizSubmitAnswer: "Antwort absenden",
@@ -908,6 +918,7 @@ const fr: Dict = {
 	answerSending: "Envoi…",
 	quizAnswerLocked: "Votre réponse est définitive",
 	quizWindowClosed: "Le temps pour cette question est écoulé",
+	quizWaitingToStart: "En attente du lancement de cette question",
 	participationClosed: "Le présentateur a fermé cette question",
 	quizTypeAnswer: "Tapez votre réponse...",
 	quizSubmitAnswer: "Envoyer la réponse",
@@ -1119,6 +1130,7 @@ const es: Dict = {
 	answerSending: "Enviando…",
 	quizAnswerLocked: "Tu respuesta es definitiva",
 	quizWindowClosed: "El tiempo para esta pregunta ha terminado",
+	quizWaitingToStart: "Esperando a que empiece esta pregunta",
 	participationClosed: "El presentador ha cerrado esta pregunta",
 	quizTypeAnswer: "Escribe tu respuesta...",
 	quizSubmitAnswer: "Enviar respuesta",
@@ -1329,6 +1341,7 @@ const it: Dict = {
 	answerSending: "Invio in corso…",
 	quizAnswerLocked: "La tua risposta è definitiva",
 	quizWindowClosed: "Il tempo per questa domanda è finito",
+	quizWaitingToStart: "In attesa che questa domanda inizi",
 	participationClosed: "Il relatore ha chiuso questa domanda",
 	quizTypeAnswer: "Scrivi la tua risposta...",
 	quizSubmitAnswer: "Invia risposta",
@@ -1539,6 +1552,7 @@ const pt: Dict = {
 	answerSending: "A enviar…",
 	quizAnswerLocked: "A tua resposta é definitiva",
 	quizWindowClosed: "O tempo para esta pergunta acabou",
+	quizWaitingToStart: "Aguardando o início desta pergunta",
 	participationClosed: "O apresentador fechou esta pergunta",
 	quizTypeAnswer: "Escreve a tua resposta...",
 	quizSubmitAnswer: "Enviar resposta",
@@ -1749,6 +1763,7 @@ const nl: Dict = {
 	answerSending: "Wordt verzonden…",
 	quizAnswerLocked: "Je antwoord staat vast",
 	quizWindowClosed: "De tijd voor deze vraag is voorbij",
+	quizWaitingToStart: "Wachten tot deze vraag begint",
 	participationClosed: "De presentator heeft deze vraag gesloten",
 	quizTypeAnswer: "Typ je antwoord...",
 	quizSubmitAnswer: "Antwoord verzenden",

@@ -4,7 +4,7 @@ import { api } from "../api";
 import type { Slide } from "../types";
 import { segmentSourcesFor, SLIDE_TYPE_LABELS } from "../types";
 import { type ChoiceOption, ChoiceCards } from "./EditorControls";
-import { ResultsDisplay } from "./Results";
+import { RESULT_LABELS_EN, type ResultLabels, ResultsDisplay } from "./Results";
 
 // ── Segmented results (REQ020, REQ116) ────────────────────────
 //
@@ -182,12 +182,19 @@ export function SegmentedResults({
 	slide,
 	slides,
 	pollTick = 0,
+	labels = RESULT_LABELS_EN,
 }: {
 	presentationId: string;
 	slide: Slide;
 	/** The whole deck, in order — what "an earlier slide" is resolved against. */
 	slides: Slide[];
 	pollTick?: number;
+	/**
+	 * The words each group's chart is drawn in — the deck's language (REQ225),
+	 * the same labels the chart above the breakdown wears, so one page does not
+	 * read "richtig" over "correct".
+	 */
+	labels?: ResultLabels;
 }) {
 	const [segmentBy, setSegmentBy] = useState<string>(NO_SEGMENT);
 	const [view, setView] = useState<SegmentedView | null>(null);
@@ -271,7 +278,11 @@ export function SegmentedResults({
 									{segmentSuppressedReason(view.minRespondents)}
 								</p>
 							) : (
-								<ResultsDisplay slide={slide} results={segment.results} />
+								<ResultsDisplay
+									slide={slide}
+									results={segment.results}
+									labels={labels}
+								/>
 							)}
 						</section>
 					))}

@@ -135,6 +135,7 @@ import {
 	quizAnswerModeFor,
 	quizDeadlineFor,
 	quizTimeLimitFor,
+	quizWindowNotYetOpened,
 	scoreQuizAnswer,
 	type Slide,
 	type SlideType,
@@ -1425,6 +1426,16 @@ function withSlideOpenedOnce(
 	return { ...stamps, [slideId]: openedAt };
 }
 
+/**
+ * Whether a slide that is on screen when the deck goes live is left for the
+ * presenter to open (REQ226) — a quiz question with a countdown. A question
+ * with no window has no time to lose to the room still joining, so it opens
+ * with the deck as every other slide does.
+ */
+function opensByHandAtGoLive(slide: Slide): boolean {
+	return slide.type === "quiz" && quizTimeLimitFor(slide) !== null;
+}
+
 export async function setActiveSlide(
 	presentationId: string,
 	slideIndex: number,
@@ -1477,7 +1488,10 @@ export async function setActiveSlide(
 /**
  * Reopen one slide's question, restarting its countdown (REQ057) — the
  * presenter's way back from a mis-navigation that burned a quiz question's
- * window, and from a room that was not ready when the clock started.
+ * window, and from a room that was not ready when the clock started. It is
+ * also how a timed quiz question that was on screen at go-live is opened in
+ * the first place (REQ226): going live leaves that one waiting, and the same
+ * control, labelled "Start timer" there, starts it.
  *
  * Deliberately not automatic: see {@link withSlideOpenedOnce} for why arriving
  * at a slide a second time leaves the original instant standing. Answers
@@ -1627,13 +1641,17 @@ export async function startPresentation(presentationId: string) {
 	if (!pres) return null;
 
 	// Going live lands on the first slide, which opens its question the same way
-	// navigating to any other slide does (REQ057).
+	// navigating to any other slide does (REQ057) — unless it is a timed quiz
+	// question (REQ226). Its countdown would then start at the instant the room
+	// is told the code, and run out on everybody still typing it in; so it waits,
+	// on screen but closed to answers, until the presenter starts its timer.
 	const slides = pres.slides as Slide[];
 	const first = slides[0];
 	const openedAt = new Date().toISOString();
-	const stamps = first
-		? withSlideOpenedOnce(slideStartedAtIn(pres), first.id, openedAt)
-		: null;
+	const stamps =
+		first && !opensByHandAtGoLive(first)
+			? withSlideOpenedOnce(slideStartedAtIn(pres), first.id, openedAt)
+			: null;
 
 	// The session clock (REQ108) runs from the moment the deck goes live. A start
 	// on a deck that is already live keeps the clock it has — a second click must
@@ -2754,6 +2772,18 @@ export async function submitVote(
 				if (standing.length > 0) return { refused: "quiz-already-answered" };
 
 				const windowOpenedAt = slideStartedAtIn(pres)[slideId] ?? null;
+				// A timed question the presenter has not opened yet (REQ226) has no
+				// window to be inside: read as "no deadline" it would take the
+				// answer and score it as instant.
+				if (
+					quizWindowNotYetOpened(slide, {
+						mode: pres.mode as string | undefined,
+						status: pres.status as string | undefined,
+						slideStartedAt: slideStartedAtIn(pres),
+					})
+				) {
+					return { refused: "quiz-not-started" };
+				}
 				const deadline = quizDeadlineFor(
 					windowOpenedAt,
 					quizTimeLimitFor(slide),
