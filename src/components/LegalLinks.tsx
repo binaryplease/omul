@@ -46,13 +46,17 @@ export const LEGAL_TEXT_DESCRIPTORS = [
 export const LEGAL_LINK_CLASS =
 	"underline underline-offset-2 hover:text-text transition-colors";
 
-/** The texts this deployment configured, in descriptor order, unset ones dropped. */
+/**
+ * The texts this deployment configured, in descriptor order, unset ones
+ * dropped. `field` names which text it is, for a surface that words the names
+ * in another language (REQ225); `label` is the English one.
+ */
 export function configuredLegalLinks(
 	links: LegalLinks,
-): { label: string; href: string }[] {
+): { field: keyof LegalLinks; label: string; href: string }[] {
 	return LEGAL_TEXT_DESCRIPTORS.flatMap(({ field, label }) => {
 		const href = links[field];
-		return href ? [{ label, href }] : [];
+		return href ? [{ field, label, href }] : [];
 	});
 }
 

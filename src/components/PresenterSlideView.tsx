@@ -2,7 +2,7 @@ import { Segmented } from "./EditorControls";
 import { ContentSlideView } from "./ContentSlideView";
 import { CountdownRunControls, countdownRunFor } from "./CountdownFace";
 import {
-	LEADERBOARD_LABELS_EN,
+	leaderboardCaption,
 	LeaderboardHeading,
 	leaderboardHeadingText,
 	readLeaderboard,
@@ -20,11 +20,14 @@ import {
 	describeResponses,
 	MC_VALUE_DISPLAY_OPTIONS,
 	ResultsDisplay,
+	type ResultLabels,
+	resultLabelsFor,
 } from "./Results";
 import { SLIDE_PLACEMENT_CLASSES } from "./SlideAppearance";
 import { SlideText } from "./SlideText";
 import { SlideTypeIcon } from "./SlideTypeIcon";
 import { type ReactNode, useState } from "react";
+import { getDict } from "../i18n";
 import type {
 	CountdownAction,
 	McValueDisplay,
@@ -56,12 +59,18 @@ import {
 // presenter reveals results on the deck (and the room sees it), while a preview
 // reveals them on a deck state the store never sees. So the reveal and the timer
 // restart arrive as callbacks rather than being reached for here.
+//
+// Two languages meet on this screen (REQ225). What the room reads — the slide's
+// results, its response count, its countdown and what stands in for a tally
+// not yet shown — is in the deck's language, like every phone in front of it.
+// What only the presenter acts on — reveal, hide, restart, the count/percentage
+// switch and the hints beside them — is the app's chrome and stays in English.
 
 /**
  * What this surface is called wherever another one names it: the
  * dry run's presenter pane and the editor's canvas are both pictures of *this*
  * screen, and two spellings of it would be two names for one thing. Not a
- * participant-facing string — the shared screen is not translated.
+ * participant-facing string — it names the screen in the presenter's chrome.
  */
 export const SHARED_SCREEN_LABEL = "Shared screen";
 
@@ -113,10 +122,13 @@ export function presenterSlideWidthClass(type: SlideType): string {
 function PresenterSlideHeading({
 	slide,
 	results,
+	labels,
 	children,
 }: {
 	slide: Slide;
 	results: any;
+	/** The room's words, in the deck's language (REQ225). */
+	labels: ResultLabels;
 	children?: ReactNode;
 }) {
 	// This slide's own appearance over the deck's theme (REQ087) — where its
@@ -155,7 +167,7 @@ function PresenterSlideHeading({
 			)}
 			{results && (
 				<p className="text-text-muted mt-3">
-					{describeResponses(slide, results)}
+					{describeResponses(slide, results, labels)}
 				</p>
 			)}
 			{children}
@@ -170,9 +182,12 @@ function PresenterSlideHeading({
 function PresenterStandingsHeading({
 	slide,
 	results,
+	labels,
 }: {
 	slide: Slide;
 	results: any;
+	/** The room's words, in the deck's language (REQ225). */
+	labels: ResultLabels;
 }) {
 	// The board behind the slide, read once for the caption; the board itself is
 	// drawn from the same payload by ResultsDisplay.
@@ -181,20 +196,13 @@ function PresenterStandingsHeading({
 		<LeaderboardHeading
 			title={
 				<SlideText
-					text={leaderboardHeadingText(slide.question, LEADERBOARD_LABELS_EN)}
+					text={leaderboardHeadingText(slide.question, labels.leaderboard)}
 					size={slideTextSizeFor(slide)}
 					variant="inline"
 				/>
 			}
 			subtitle={
-				standings
-					? `Top ${Math.min(
-							standings.size,
-							standings.entries.length,
-						)} across ${standings.quizCount} quiz question${
-							standings.quizCount === 1 ? "" : "s"
-						}`
-					: undefined
+				standings ? leaderboardCaption(standings, labels.leaderboard) : undefined
 			}
 		/>
 	);
@@ -326,6 +334,9 @@ export function PresenterSlideView({
 	// Where this slide's elements sit (REQ087), for the controls under its
 	// heading — the heading itself reads the same resolver.
 	const placement = SLIDE_PLACEMENT_CLASSES[slideAppearanceFor(slide).placement];
+	// The room's words, in the deck's language (REQ084, REQ225).
+	const dict = getDict(pres.language);
+	const resultLabels = resultLabelsFor(dict);
 
 	if (kind === "content") {
 		// A countdown slide runs on the room's clock (REQ107): the run the server
@@ -370,17 +381,19 @@ export function PresenterSlideView({
 		   never show anything. */
 		return (
 			<div className="slide-in py-4 space-y-6">
-				<PresenterStandingsHeading slide={slide} results={results} />
+				<PresenterStandingsHeading
+					slide={slide}
+					results={results}
+					labels={resultLabels}
+				/>
 				{visibility === "private" ? (
 					<div className="text-center text-text-dim py-16">
-						Standings are private — not shown on the shared screen.
+						{dict.resultsPrivate}
 					</div>
 				) : !tallyPublished ? (
 					<div className="text-center py-16">
-						<p className="text-text-dim mb-4">
-							Standings are hidden.
-							{canControl ? " Reveal when you're ready." : ""}
-						</p>
+						{/* The room reads the state; only the presenter is told to act. */}
+						<p className="text-text-dim mb-4">{dict.resultsHidden}</p>
 						{canControl && (
 							<button
 								type="button"
@@ -394,12 +407,16 @@ export function PresenterSlideView({
 				) : !results ? (
 					<div className="text-center text-text-dim py-16">
 						{pres.status === "live"
-							? "Waiting for scores..."
+							? dict.waitingForScores
 							: "Start the presentation to rank the room"}
 					</div>
 				) : (
 					<>
-						<ResultsDisplay slide={slide} results={results} />
+						<ResultsDisplay
+							slide={slide}
+							results={results}
+							labels={resultLabels}
+						/>
 						{visibility === "on-click" && isRevealed && canControl && (
 							<div className="text-center mt-4">
 								<button
@@ -428,7 +445,11 @@ export function PresenterSlideView({
 
 	return (
 		<>
-			<PresenterSlideHeading slide={slide} results={results}>
+			<PresenterSlideHeading
+				slide={slide}
+				results={results}
+				labels={resultLabels}
+			>
 				{/* The question's countdown and the control that reopens it, on the
 				    question they govern rather than in the page chrome.
 				    Both surfaces show the same window (REQ057). The audio cue's
@@ -438,9 +459,9 @@ export function PresenterSlideView({
 					<div className={`mt-4 flex flex-col gap-2 ${placement.items}`}>
 						<QuizTimer
 							countdown={quizCountdown}
-							label="s left"
-							spokenLabel="{seconds} seconds left"
-							expiredLabel="Time's up"
+							label={dict.quizSecondsLeft}
+							spokenLabel={dict.quizSecondsLeftSpoken}
+							expiredLabel={dict.quizTimesUp}
 						/>
 						{canControl && onRestartTimer && (
 							<>
@@ -493,14 +514,12 @@ export function PresenterSlideView({
 			    end of the window, never while the room is still answering. */}
 			{visibility === "private" ? (
 				<div className="text-center text-text-dim py-16">
-					Results are private — not shown on the shared screen.
+					{dict.resultsPrivate}
 				</div>
 			) : !tallyPublished ? (
 				<div className="text-center py-16">
-					<p className="text-text-dim mb-4">
-						Results are hidden.
-						{canControl ? " Reveal when you're ready." : ""}
-					</p>
+					{/* The room reads the state; only the presenter is told to act. */}
+					<p className="text-text-dim mb-4">{dict.resultsHidden}</p>
 					{canControl && (
 						<button
 							type="button"
@@ -514,8 +533,8 @@ export function PresenterSlideView({
 			) : quizRunning ? (
 				<div className="text-center text-text-dim py-16">
 					{quizCountdown.timed
-						? "Results appear when the time is up."
-						: "Results appear once the question is closed to answers."}
+						? dict.resultsAppearWhenTimeUp
+						: dict.resultsAppearWhenClosed}
 				</div>
 			) : results ? (
 				<>
@@ -541,6 +560,7 @@ export function PresenterSlideView({
 						results={results}
 						valueDisplay={isChoiceSlide ? valueDisplay : undefined}
 						moderation={answerModeration}
+						labels={resultLabels}
 					/>
 					{visibility === "on-click" && isRevealed && canControl && (
 						<div className="text-center mt-4">
@@ -557,7 +577,7 @@ export function PresenterSlideView({
 			) : (
 				<div className="text-center text-text-dim py-16">
 					{pres.status === "live"
-						? "Waiting for responses..."
+						? dict.waitingForResponses
 						: "Start the presentation to collect responses"}
 				</div>
 			)}

@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { POLL_COLORS } from "../constants";
-import { getDict } from "../i18n";
+import { countPhrase, type Dict, fillTemplate, getDict } from "../i18n";
 import type {
 	FormFieldType,
 	GridAxis,
@@ -32,8 +32,8 @@ import {
 } from "./PinImage";
 import {
 	Leaderboard,
-	LEADERBOARD_LABELS_EN,
 	type LeaderboardLabels,
+	leaderboardLabelsFor,
 	readLeaderboard,
 } from "./Leaderboard";
 
@@ -316,6 +316,72 @@ export function AnswerFilterNotice({
 		</div>
 	);
 }
+// ── What the results say, in the deck's language (REQ225) ─────
+//
+// Results are drawn on three surfaces the room reads — the phone, the shared
+// screen and the shared results page — and every one of them speaks the deck's
+// language (REQ084). So the words arrive as one descriptor mapped from the
+// deck's dictionary, rather than being written into the renderers below, where
+// the shared screen once said "correct" and "Accepted:" in English over a
+// German question. The editor's own previews keep the English default.
+
+/** The words a slide's results wear. */
+export type ResultLabels = {
+	/** "12 responses" — the count over a slide's results. */
+	responseCount: (count: number) => string;
+	/** "from 9 participants", after the count on an "all that apply" slide. */
+	fromParticipants: (count: number) => string;
+	/** The solution mark beside a correct option (REQ013). */
+	correctMark: string;
+	/** The same mark's name where it is drawn as an icon alone. */
+	correctAnswer: string;
+	/** A dot cluster's accessible name: "Mars: 3 votes". */
+	voteCount: (count: number) => string;
+	pieChart: string;
+	donutChart: string;
+	/** A typed quiz question nobody has answered (REQ055). */
+	noAnswersYet: string;
+	/** How many typed answers are in while they are withheld. */
+	answersPending: (count: number) => string;
+	/** A typed question's key, once it may be shown. */
+	accepted: (answers: string[]) => string;
+	/** The room's score under a quiz question (REQ056), in its three parts. */
+	scoreCorrect: (correct: number, answered: number) => string;
+	scoreAnsweredCorrectly: (correct: number) => string;
+	scoreAverage: (average: number, max: number) => string;
+	/** The leaderboard's own words (REQ059). */
+	leaderboard: LeaderboardLabels;
+};
+
+/** The results' words out of a language's dictionary, mapped in one place. */
+export function resultLabelsFor(dict: Dict): ResultLabels {
+	return {
+		responseCount: (count) =>
+			countPhrase(dict, dict.resultsResponseCount, count),
+		fromParticipants: (count) =>
+			countPhrase(dict, dict.resultsFromParticipants, count),
+		correctMark: dict.resultsCorrectMark,
+		correctAnswer: dict.resultsCorrectAnswer,
+		voteCount: (count) => countPhrase(dict, dict.resultsVoteCount, count),
+		pieChart: dict.resultsPieChart,
+		donutChart: dict.resultsDonutChart,
+		noAnswersYet: dict.quizNoAnswersYet,
+		answersPending: (count) =>
+			countPhrase(dict, dict.quizAnswersPending, count),
+		accepted: (answers) =>
+			fillTemplate(dict.quizAccepted, { answers: answers.join(" · ") }),
+		scoreCorrect: (correct, answered) =>
+			fillTemplate(dict.quizScoreCorrect, { correct, answered }),
+		scoreAnsweredCorrectly: (correct) =>
+			countPhrase(dict, dict.quizScoreAnsweredCorrectly, correct),
+		scoreAverage: (average, max) =>
+			fillTemplate(dict.quizScoreAverage, { average, max }),
+		leaderboard: leaderboardLabelsFor(dict),
+	};
+}
+
+/** The results in English: the editor's previews, and the default. */
+export const RESULT_LABELS_EN: ResultLabels = resultLabelsFor(getDict("en"));
 
 // ── Results display ──────────────────────────────────────────
 
@@ -326,7 +392,7 @@ export function ResultsDisplay({
 	upvotedIds,
 	moderation,
 	valueDisplay,
-	leaderboardLabels = LEADERBOARD_LABELS_EN,
+	labels = RESULT_LABELS_EN,
 	highlightEntryId = null,
 	answerFilterLabel = ANSWER_FILTER_LABEL_EN,
 }: {
@@ -350,10 +416,10 @@ export function ResultsDisplay({
 	 */
 	valueDisplay?: McValueDisplay;
 	/**
-	 * The leaderboard's wording (REQ059). The shared screen keeps the English
-	 * default; a participant's phone passes the deck's language (REQ084).
+	 * The results' wording (REQ225). Every surface the room reads passes the
+	 * deck's language (REQ084); the editor's previews keep the English default.
 	 */
-	leaderboardLabels?: LeaderboardLabels;
+	labels?: ResultLabels;
 	/**
 	 * The reader's own row on the leaderboard, when they have one. `null` on the
 	 * shared screen, which has nobody to pick out.
@@ -381,7 +447,11 @@ export function ResultsDisplay({
 			if (quizAnswerModeFor(slide) === "type") {
 				return (
 					<>
-						<TypedQuizResults results={results} withheldCount={withheldCount} />
+						<TypedQuizResults
+							results={results}
+							withheldCount={withheldCount}
+							labels={labels}
+						/>
 						{filterNotice}
 					</>
 				);
@@ -392,6 +462,7 @@ export function ResultsDisplay({
 					results={results}
 					valueDisplay={valueDisplay ?? slide.mcValueDisplay ?? "both"}
 					authoredOptions={slide.options}
+					labels={labels}
 				/>
 			);
 		case "word-cloud":
@@ -449,7 +520,7 @@ export function ResultsDisplay({
 			return (
 				<Leaderboard
 					board={readLeaderboard(results)}
-					labels={leaderboardLabels}
+					labels={labels.leaderboard}
 					highlightEntryId={highlightEntryId}
 				/>
 			);
@@ -602,10 +673,16 @@ export function formatChoiceValue(
 }
 
 /** The solution mark a correct option wears once results are on screen (REQ013). */
-function CorrectMark({ compact = false }: { compact?: boolean }) {
+function CorrectMark({
+	labels,
+	compact = false,
+}: {
+	labels: ResultLabels;
+	compact?: boolean;
+}) {
 	if (compact) {
 		return (
-			<span className="text-success" title="Correct answer">
+			<span className="text-success" title={labels.correctAnswer}>
 				<Check size={12} />
 			</span>
 		);
@@ -613,7 +690,7 @@ function CorrectMark({ compact = false }: { compact?: boolean }) {
 	return (
 		<span className="inline-flex items-center gap-1 text-xs text-success font-mono">
 			<Check size={12} />
-			correct
+			{labels.correctMark}
 		</span>
 	);
 }
@@ -644,7 +721,13 @@ function MultiSelectNote({ tally }: { tally: ChoiceTally }) {
  * (REQ054) separates two rooms that both answered correctly. Nobody is named;
  * a participant's own result is theirs alone, on their own screen.
  */
-function QuizScoreNote({ scoring }: { scoring: ChoiceScoring | null }) {
+function QuizScoreNote({
+	scoring,
+	labels,
+}: {
+	scoring: ChoiceScoring | null;
+	labels: ResultLabels;
+}) {
 	if (!scoring) return null;
 	// Before anyone has answered there is nothing to report — and an "0 of 0
 	// correct" would read as a room that answered and got everything wrong.
@@ -653,10 +736,10 @@ function QuizScoreNote({ scoring }: { scoring: ChoiceScoring | null }) {
 	return (
 		<p className="mt-4 text-center text-sm text-text-muted">
 			<span className="text-success font-semibold">
-				{scoring.correctCount} of {scoring.answeredCount}
+				{labels.scoreCorrect(scoring.correctCount, scoring.answeredCount)}
 			</span>{" "}
-			answered correctly · {Math.round(average)} of {scoring.maxPoints} points
-			on average
+			{labels.scoreAnsweredCorrectly(scoring.correctCount)} ·{" "}
+			{labels.scoreAverage(Math.round(average), scoring.maxPoints)}
 		</p>
 	);
 }
@@ -669,16 +752,16 @@ function QuizScoreNote({ scoring }: { scoring: ChoiceScoring | null }) {
 export function describeResponses(
 	slide: Slide,
 	results: ChoiceTallyPayload,
+	labels: ResultLabels = RESULT_LABELS_EN,
 ): string {
 	const total = results?.totalVotes ?? 0;
-	const responses = `${total} response${total === 1 ? "" : "s"}`;
+	const responses = labels.responseCount(total);
 	if (slide.type !== "multiple-choice" && slide.type !== "quiz") {
 		return responses;
 	}
 	const tally = readChoiceTally(results);
 	if (tally.maxSelections === 1) return responses;
-	const people = tally.respondentCount;
-	return `${responses} from ${people} participant${people === 1 ? "" : "s"}`;
+	return `${responses} ${labels.fromParticipants(tally.respondentCount)}`;
 }
 
 /** Pick a visualization for the tally and render it (REQ010). */
@@ -687,25 +770,36 @@ export function ChoiceResults({
 	results,
 	valueDisplay,
 	authoredOptions,
+	labels = RESULT_LABELS_EN,
 }: {
 	style: NonNullable<Slide["mcDisplayStyle"]>;
 	results: ChoiceTallyPayload;
 	valueDisplay: McValueDisplay;
 	/** The slide's own options — the fallback for a withheld solution (REQ056). */
 	authoredOptions?: { id: string; isCorrect?: boolean | null | undefined }[];
+	labels?: ResultLabels;
 }) {
 	const tally = readChoiceTally(results, authoredOptions);
 	return (
 		<div>
 			{style === "dots" ? (
-				<DotsResults tally={tally} valueDisplay={valueDisplay} />
+				<DotsResults tally={tally} valueDisplay={valueDisplay} labels={labels} />
 			) : style === "pie" || style === "donut" ? (
-				<SliceResults tally={tally} valueDisplay={valueDisplay} shape={style} />
+				<SliceResults
+					tally={tally}
+					valueDisplay={valueDisplay}
+					shape={style}
+					labels={labels}
+				/>
 			) : (
-				<BarChartResults tally={tally} valueDisplay={valueDisplay} />
+				<BarChartResults
+					tally={tally}
+					valueDisplay={valueDisplay}
+					labels={labels}
+				/>
 			)}
 			<MultiSelectNote tally={tally} />
-			<QuizScoreNote scoring={tally.scoring} />
+			<QuizScoreNote scoring={tally.scoring} labels={labels} />
 		</div>
 	);
 }
@@ -748,6 +842,7 @@ type TypedQuizTally = {
 function TypedQuizResults({
 	results,
 	withheldCount = 0,
+	labels,
 }: {
 	results: any;
 	/**
@@ -756,6 +851,7 @@ function TypedQuizResults({
 	 * would be untrue — the filter's line under it says what happened instead.
 	 */
 	withheldCount?: number;
+	labels: ResultLabels;
 }) {
 	const tally: TypedQuizTally = results?.typedAnswers ?? {
 		accepted: null,
@@ -770,10 +866,10 @@ function TypedQuizResults({
 			<div>
 				<p className="py-10 text-center text-text-muted">
 					{answeredCount === 0
-						? "No answers yet"
-						: `${answeredCount} answer${answeredCount === 1 ? "" : "s"} in — they appear once the question is over.`}
+						? labels.noAnswersYet
+						: labels.answersPending(answeredCount)}
 				</p>
-				<QuizScoreNote scoring={scoring} />
+				<QuizScoreNote scoring={scoring} labels={labels} />
 			</div>
 		);
 	}
@@ -783,7 +879,9 @@ function TypedQuizResults({
 		<div>
 			{tally.entries.length === 0 ? (
 				withheldCount === 0 && (
-					<p className="py-10 text-center text-text-dim">No answers yet</p>
+					<p className="py-10 text-center text-text-dim">
+						{labels.noAnswersYet}
+					</p>
 				)
 			) : (
 				<div className="space-y-3">
@@ -792,7 +890,7 @@ function TypedQuizResults({
 							<div className="mb-1 flex items-center justify-between gap-3">
 								<span className="flex min-w-0 items-center gap-2">
 									<span className="truncate font-medium">{entry.text}</span>
-									{entry.isCorrect && <CorrectMark />}
+									{entry.isCorrect && <CorrectMark labels={labels} />}
 								</span>
 								<span className="flex-shrink-0 font-mono text-sm text-text-muted">
 									{entry.count}
@@ -818,10 +916,10 @@ function TypedQuizResults({
 			    that clears 4.5:1 rather than the dim one built for 3:1 (REQ222). */}
 			{tally.accepted && tally.accepted.length > 0 && (
 				<p className="mt-4 text-center text-xs text-text-muted">
-					Accepted: {tally.accepted.join(" · ")}
+					{labels.accepted(tally.accepted)}
 				</p>
 			)}
-			<QuizScoreNote scoring={scoring} />
+			<QuizScoreNote scoring={scoring} labels={labels} />
 		</div>
 	);
 }
@@ -831,9 +929,11 @@ function TypedQuizResults({
 export function BarChartResults({
 	tally,
 	valueDisplay,
+	labels = RESULT_LABELS_EN,
 }: {
 	tally: ChoiceTally;
 	valueDisplay: McValueDisplay;
+	labels?: ResultLabels;
 }) {
 	return (
 		<div className="space-y-3">
@@ -849,7 +949,7 @@ export function BarChartResults({
 						<div className="flex items-center justify-between mb-1">
 							<span className="font-medium flex items-center gap-2">
 								{opt.text}
-								{opt.isCorrect && <CorrectMark />}
+								{opt.isCorrect && <CorrectMark labels={labels} />}
 							</span>
 							<span className="font-mono text-sm text-text-muted">
 								{formatChoiceValue(opt.count, share, valueDisplay)}
@@ -891,10 +991,12 @@ export function SliceResults({
 	tally,
 	valueDisplay,
 	shape,
+	labels = RESULT_LABELS_EN,
 }: {
 	tally: ChoiceTally;
 	valueDisplay: McValueDisplay;
 	shape: "pie" | "donut";
+	labels?: ResultLabels;
 }) {
 	const { radius, width } = SLICE_GEOMETRY[shape];
 	// Slices are drawn clockwise from twelve o'clock; each one starts where the
@@ -920,7 +1022,7 @@ export function SliceResults({
 				className="w-full max-w-[16rem] shrink-0"
 				style={{ aspectRatio: "1 / 1" }}
 				role="img"
-				aria-label={`${shape === "pie" ? "Pie" : "Donut"} chart of results`}
+				aria-label={shape === "pie" ? labels.pieChart : labels.donutChart}
 			>
 				<title>
 					{tally.options
@@ -991,7 +1093,9 @@ export function SliceResults({
 								aria-hidden
 							/>
 							<span className="truncate font-medium">{slice.option.text}</span>
-							{slice.option.isCorrect && <CorrectMark compact />}
+							{slice.option.isCorrect && (
+								<CorrectMark labels={labels} compact />
+							)}
 						</span>
 						<span className="shrink-0 font-mono text-sm text-text-muted">
 							{formatChoiceValue(
@@ -1035,9 +1139,11 @@ function clusterRadius(count: number) {
 export function DotsResults({
 	tally,
 	valueDisplay,
+	labels = RESULT_LABELS_EN,
 }: {
 	tally: ChoiceTally;
 	valueDisplay: McValueDisplay;
+	labels?: ResultLabels;
 }) {
 	const options = tally.options;
 	// Track previous per-option counts. Read BEFORE the effect overwrites the
@@ -1084,7 +1190,7 @@ export function DotsResults({
 							className="w-full max-w-[14rem] dots-cluster"
 							style={{ aspectRatio: "1 / 1" }}
 							role="img"
-							aria-label={`${opt.text}: ${opt.count} votes`}
+							aria-label={`${opt.text}: ${labels.voteCount(opt.count)}`}
 						>
 							{/* Soft halo behind the cluster — gives the dots something to
 							    sit on and reinforces the "they belong together" feel. */}
@@ -1158,7 +1264,7 @@ export function DotsResults({
 									aria-hidden
 								/>
 								<span className="truncate">{opt.text}</span>
-								{opt.isCorrect && <CorrectMark compact />}
+								{opt.isCorrect && <CorrectMark labels={labels} compact />}
 							</div>
 							<div className="font-mono text-xs text-text-muted mt-1">
 								{formatChoiceValue(opt.count, share, valueDisplay)}

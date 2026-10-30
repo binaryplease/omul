@@ -40,8 +40,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 			    through, or why it was turned away. Clear of the presenter's phone
 			    dock (REQ199), which sets `--bottom-dock-height` while it is drawn;
 			    unset everywhere else. */}
+			{/* Not atomic: a new toast is read alone, not with every one still
+			    on screen. */}
 			<div
 				role="status"
+				aria-atomic="false"
 				className="fixed bottom-[calc(1.5rem+var(--bottom-dock-height,0px))] right-6 z-50 flex flex-col gap-2"
 			>
 				{toasts.map((toast) => (

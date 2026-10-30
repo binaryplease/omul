@@ -274,6 +274,24 @@ describe("choiceCardState (REQ221, REQ223, REQ224)", () => {
 		});
 	});
 
+	test("a changed single-choice vote shows one chosen card while it is sent, not two", () => {
+		const changing = {
+			...base,
+			selectedIds: ["mars"],
+			pendingOptionId: "mercury",
+			submitting: true,
+		};
+		expect(choiceCardState({ ...changing, optionId: "mercury" }).selected).toBe(
+			true,
+		);
+		expect(choiceCardState({ ...changing, optionId: "mars" })).toEqual({
+			selected: false,
+			pending: false,
+			unavailable: true,
+			dimmed: true,
+		});
+	});
+
 	test("an open card answers a tap; a locked one does not, and the chosen one stands out", () => {
 		expect(choiceCardState({ ...base, optionId: "mars" }).unavailable).toBe(false);
 		const locked = { ...base, selectedIds: ["mercury"], locked: true };
@@ -296,6 +314,16 @@ describe("an option card under the pointer (REQ223)", () => {
 		expect(hoverRules.length).toBeGreaterThan(0);
 		for (const rule of hoverRules) {
 			expect(rule).toContain(':not(:disabled, [aria-disabled="true"])');
+		}
+	});
+
+	test("the hover guard adds no specificity, so a selected card keeps its tint under the pointer", () => {
+		// `.option-card:hover:not(...)` outranks `.option-card.selected`, and a
+		// phone keeps hover on the card just tapped.
+		const css = readFileSync(join(import.meta.dir, "..", "index.css"), "utf8");
+		const hoverRules = css.match(/\.option-card:hover[^{]*\{/g) ?? [];
+		for (const rule of hoverRules) {
+			expect(rule).toContain(":where(:not(");
 		}
 	});
 });

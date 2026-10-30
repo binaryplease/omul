@@ -2,11 +2,8 @@ import { Eye, Link2Off } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api, clearResultsToken, getResultsToken } from "../api";
 import { DeckMark, DeckThemeScope } from "../components/DeckTheme";
-import {
-	LEADERBOARD_LABELS_EN,
-	leaderboardHeadingText,
-} from "../components/Leaderboard";
-import { ResultsDisplay } from "../components/Results";
+import { leaderboardHeadingText } from "../components/Leaderboard";
+import { ResultsDisplay, resultLabelsFor } from "../components/Results";
 import { SegmentedResults } from "../components/SegmentedResults";
 import { SlideAppearanceScope } from "../components/SlideAppearance";
 import { SlideText } from "../components/SlideText";
@@ -14,6 +11,7 @@ import { SlideTypeIcon } from "../components/SlideTypeIcon";
 import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
+import { getDict } from "../i18n";
 import { usePageTitle } from "../router";
 import { clockOffsetFrom } from "../store/session";
 import type { Presentation, Slide } from "../types";
@@ -197,6 +195,10 @@ export function SharedResultsPage({ id }: { id: string }) {
 
 	const slides = sharedResultsSlides(state.deck);
 	const tallies = new Map(state.rows.map((row) => [row.slideId, row.results]));
+	// The slides' results read as the room read them, in the deck's language
+	// (REQ225) — a German deck's board is not a "Leaderboard" here and a
+	// "Bestenliste" on every phone. The page around them is the app's chrome.
+	const resultLabels = resultLabelsFor(getDict(state.deck.language));
 
 	return themed(
 		<div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12 flex flex-col gap-8">
@@ -249,7 +251,7 @@ export function SharedResultsPage({ id }: { id: string }) {
 												slide.type === "leaderboard"
 													? leaderboardHeadingText(
 															slide.question,
-															LEADERBOARD_LABELS_EN,
+															resultLabels.leaderboard,
 														)
 													: (slide.question ?? "")
 											}
@@ -275,7 +277,11 @@ export function SharedResultsPage({ id }: { id: string }) {
 									</p>
 								) : results ? (
 									<>
-										<ResultsDisplay slide={slide} results={results} />
+										<ResultsDisplay
+											slide={slide}
+											results={results}
+											labels={resultLabels}
+										/>
 										{/* REQ020/REQ116 — the same tally, split by what these
 										    people answered earlier in the deck. Under the chart
 										    it re-draws, because that is what it changes,

@@ -881,8 +881,10 @@ body {
    card under a pointer the layout moved there otherwise wore the accent border
    — which reads as "selected" — on an option nobody chose. `aria-disabled`
    counts the same as `disabled`: a card that keeps focus after its answer is
-   sent (REQ221) is exactly as unavailable as one that does not. */
-.option-card:hover:not(:disabled, [aria-disabled="true"]) {
+   sent (REQ221) is exactly as unavailable as one that does not. The guard sits
+   in `:where()` so it adds no specificity: a selected card under the pointer
+   (a phone keeps hover after the tap) still wears `.selected` below. */
+.option-card:hover:where(:not(:disabled, [aria-disabled="true"])) {
 	border-color: var(--color-accent);
 	background: var(--color-surface-hover);
 }

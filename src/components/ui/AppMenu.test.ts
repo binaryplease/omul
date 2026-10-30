@@ -8,7 +8,17 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { appMenuPlacement, appMenuTriggerLabel } from "./AppMenu";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { getDict } from "../../i18n";
+import {
+	type AppMenuLabels,
+	AppMenuPanel,
+	appMenuLabelsFor,
+	appMenuName,
+	appMenuPlacement,
+	appMenuTriggerLabel,
+} from "./AppMenu";
 
 const PANEL = { width: 248, height: 260 };
 const PHONE = { width: 390, height: 844 };
@@ -70,5 +80,79 @@ describe("app menu trigger name (REQ199)", () => {
 		expect(appMenuTriggerLabel(true, "More — preview, export")).toBe(
 			"More — preview, export, appearance, feedback and legal",
 		);
+	});
+});
+
+describe("the app menu in the screen's language (REQ225)", () => {
+	const ALL_LINKS = {
+		imprintUrl: "https://example.com/imprint",
+		privacyUrl: "https://example.com/privacy",
+		termsUrl: "/terms",
+	};
+
+	function panel(labels?: AppMenuLabels): string {
+		return renderToStaticMarkup(
+			createElement(AppMenuPanel, {
+				id: "app-menu",
+				links: ALL_LINKS,
+				theme: "dark",
+				onThemeChange: () => {},
+				feedbackEnabled: true,
+				labels,
+			}),
+		).replace(/<[^>]+>/g, " ");
+	}
+
+	test("the trigger is named in the deck's language on a participant's screen", () => {
+		const german = appMenuLabelsFor(getDict("de"));
+		expect(appMenuName(true, german)).toBe(
+			"Darstellung, Feedback und Rechtliches",
+		);
+		expect(appMenuName(false, german)).toBe("Darstellung und Rechtliches");
+	});
+
+	test("and in English on the app's own screens, as before", () => {
+		expect(appMenuName(true)).toBe("Appearance, feedback and legal");
+		expect(appMenuName(false)).toBe("Appearance and legal");
+	});
+
+	test("everything the panel says follows the labels it is given", () => {
+		const text = panel(appMenuLabelsFor(getDict("de")));
+		for (const word of [
+			"Darstellung",
+			"Hell",
+			"Dunkel",
+			"Feedback senden",
+			"Rechtliches",
+			"Impressum",
+			"Datenschutzerklärung",
+			"Nutzungsbedingungen",
+			"(öffnet in einem neuen Tab)",
+		]) {
+			expect(text).toContain(word);
+		}
+		for (const word of ["Appearance", "Light", "Send feedback", "Imprint"]) {
+			expect(text).not.toContain(word);
+		}
+	});
+
+	test("every language words every part of the menu", () => {
+		for (const language of ["en", "de", "fr", "es", "it", "pt", "nl"]) {
+			const labels = appMenuLabelsFor(getDict(language));
+			const words = [
+				labels.name,
+				labels.nameWithFeedback,
+				labels.close,
+				labels.closeWithFeedback,
+				labels.appearance,
+				...Object.values(labels.themes),
+				labels.sendFeedback,
+				labels.legal,
+				...Object.values(labels.legalTexts),
+				labels.opensInNewTab,
+				labels.closeFeedback,
+			];
+			for (const word of words) expect(word, language).toBeTruthy();
+		}
 	});
 });

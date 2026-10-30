@@ -11,13 +11,15 @@
 
 import { describe, expect, test } from "bun:test";
 import { getDict } from "../i18n";
-import { LEADERBOARD_DEFAULT_SIZE } from "../types";
+import { LEADERBOARD_DEFAULT_SIZE, leaderboardEntryLabel } from "../types";
 import {
 	LEADERBOARD_LABELS_EN,
 	leaderboardBarWidth,
+	leaderboardCaption,
 	leaderboardHeadingText,
 	leaderboardLabelsFor,
 	leaderboardRankSurface,
+	leaderboardRowLabel,
 	readLeaderboard,
 } from "./Leaderboard";
 
@@ -150,6 +152,54 @@ describe("leaderboardHeadingText (REQ220)", () => {
 	test("an authored heading is kept as written", () => {
 		expect(leaderboardHeadingText("Final standings", LEADERBOARD_LABELS_EN)).toBe(
 			"Final standings",
+		);
+	});
+});
+
+describe("a board in the deck's language (REQ225)", () => {
+	const ENTRY_ID = "db5452aa0123456789";
+
+	test("a row named after its handle is worded in the deck's language", () => {
+		// The wire carries the English "Player DB5452"; a German board reads it as
+		// its own word for a player, with the same handle.
+		const row = { entryId: ENTRY_ID, label: leaderboardEntryLabel(ENTRY_ID) };
+		expect(row.label).toBe("Player DB5452");
+		expect(leaderboardRowLabel(row, leaderboardLabelsFor(getDict("de")))).toBe(
+			"Spieler DB5452",
+		);
+		expect(leaderboardRowLabel(row, leaderboardLabelsFor(getDict("fr")))).toBe(
+			"Joueur DB5452",
+		);
+		expect(leaderboardRowLabel(row, LEADERBOARD_LABELS_EN)).toBe(
+			"Player DB5452",
+		);
+	});
+
+	test("a stated name is drawn as stated, in every language", () => {
+		const row = {
+			entryId: ENTRY_ID,
+			label: leaderboardEntryLabel(ENTRY_ID, "Jürgen 🦊 Müller-Lüdenscheidt"),
+		};
+		for (const language of ["en", "de", "fr", "es", "it", "pt", "nl"]) {
+			expect(
+				leaderboardRowLabel(row, leaderboardLabelsFor(getDict(language))),
+			).toBe("Jürgen 🦊 Müller-Lüdenscheidt");
+		}
+	});
+
+	test("the caption counts the rows shown and the quiz questions, with plurals", () => {
+		const de = leaderboardLabelsFor(getDict("de"));
+		const oneRow = readLeaderboard({
+			quizCount: 1,
+			size: 5,
+			entries: [row("a", 1, 0)],
+		});
+		expect(leaderboardCaption(oneRow, de)).toBe("Top 1 aus 1 Quizfrage");
+		expect(leaderboardCaption({ ...oneRow, quizCount: 3 }, de)).toBe(
+			"Top 1 aus 3 Quizfragen",
+		);
+		expect(leaderboardCaption(oneRow, LEADERBOARD_LABELS_EN)).toBe(
+			"Top 1 across 1 quiz question",
 		);
 	});
 });

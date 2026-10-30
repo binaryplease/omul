@@ -275,3 +275,94 @@ describe("restarting a quiz question's timer (REQ217)", () => {
 		expect(RESTART_TIMER_HINT).toContain("who have not answered");
 	});
 });
+
+describe("the shared screen in the deck's language (REQ225)", () => {
+	const GERMAN = { language: "de" };
+
+	test("a running question's countdown, count and waiting line are the deck's", () => {
+		const markup = sharedScreen(
+			SELECT_QUIZ,
+			liveDeck(SELECT_QUIZ, RUNNING, GERMAN),
+			SELECT_TALLY,
+		);
+		expect(markup).toContain("s übrig");
+		expect(markup).toContain("2 Antworten");
+		expect(markup).toContain(
+			"Die Ergebnisse erscheinen, wenn die Zeit abgelaufen ist.",
+		);
+		expect(markup).not.toContain("s left");
+		expect(markup).not.toContain("2 responses");
+	});
+
+	test("a finished choice question's solution mark and score note are the deck's", () => {
+		const markup = sharedScreen(
+			SELECT_QUIZ,
+			liveDeck(SELECT_QUIZ, OVER, GERMAN),
+			SELECT_TALLY,
+		);
+		expect(markup).toContain("Zeit abgelaufen");
+		expect(markup).toContain("richtig</span>");
+		expect(markup).toContain("1 von 2");
+		expect(markup).toContain("richtig beantwortet");
+		expect(markup).toContain("im Schnitt 418 von 1000 Punkten");
+		expect(markup).not.toContain("correct</span>");
+		expect(markup).not.toContain("answered correctly");
+		expect(markup).not.toContain("on average");
+	});
+
+	test("a finished typed question's key is the deck's", () => {
+		const markup = sharedScreen(
+			TYPED_QUIZ,
+			liveDeck(TYPED_QUIZ, OVER, GERMAN),
+			TYPED_TALLY,
+		);
+		expect(markup).toContain("Akzeptiert: Pacific · Pacific Ocean");
+		expect(markup).not.toContain("Accepted:");
+	});
+
+	test("the presenter's own controls stay in the app's language", () => {
+		const markup = sharedScreen(
+			SELECT_QUIZ,
+			liveDeck(SELECT_QUIZ, OVER, GERMAN),
+			SELECT_TALLY,
+		);
+		expect(markup).toContain("Restart timer");
+		expect(markup).toContain(`title="${RESTART_TIMER_HINT}"`);
+		expect(markup).toContain("Show results as counts or percentages");
+		const onClick = sharedScreen(
+			SELECT_QUIZ,
+			liveDeck(SELECT_QUIZ, OVER, { ...GERMAN, resultsVisibility: "on-click" }),
+			SELECT_TALLY,
+		);
+		expect(onClick).toContain("Ergebnisse ausgeblendet");
+		expect(onClick).toContain("Reveal results");
+	});
+
+	test("a leaderboard's caption and nameless rows are the deck's", () => {
+		const board: Slide = { id: "lb", type: "leaderboard", question: "" };
+		const markup = sharedScreen(board, liveDeck(board, OVER, GERMAN), {
+			type: "leaderboard",
+			quizCount: 1,
+			maxPoints: 1000,
+			rankedCount: 1,
+			size: 5,
+			entries: [
+				{
+					rank: 1,
+					entryId: "db5452aa01",
+					label: "Player DB5452",
+					totalPoints: 0,
+					correctCount: 0,
+					answeredCount: 1,
+				},
+			],
+		});
+		expect(markup).toContain("Bestenliste");
+		expect(markup).toContain("Top 1 aus 1 Quizfrage");
+		expect(markup).toContain("Spieler DB5452");
+		expect(markup).toContain("0 / 1 richtig");
+		expect(markup).toContain(">Punkte<");
+		expect(markup).not.toContain("Player DB5452");
+		expect(markup).not.toContain("across");
+	});
+});

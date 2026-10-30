@@ -796,7 +796,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<AppMenu />
+					<AppMenu language={pres?.language} />
 				</div>
 				<div className="relative z-10 text-center">
 					<p className="text-error mb-4">{error}</p>
@@ -824,7 +824,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<AppMenu />
+					<AppMenu language={pres.language} />
 				</div>
 				<div className="relative z-10 flex flex-col items-center text-center">
 					{/* REQ136 — the organizer's mark on the last screen the room sees,
@@ -886,7 +886,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<AppMenu />
+					<AppMenu language={pres.language} />
 				</div>
 				<div className="relative z-10 flex flex-col items-center px-4">
 					<DeckMark deck={pres} className="mb-6" />
@@ -935,7 +935,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<AppMenu />
+					<AppMenu language={pres.language} />
 				</div>
 				<div className="relative z-10 flex flex-col items-center text-center">
 					{/* REQ136 — the join screen's mark: the organizer's logo when the
@@ -984,7 +984,7 @@ export function ParticipantPage({
 				    cannot swallow a tap meant for the answer below it. */}
 				<ReactionStream reactions={liveReactions} />
 				<div className="absolute top-4 right-4 z-20">
-					<AppMenu />
+					<AppMenu language={pres.language} />
 				</div>
 				<div
 					className={`relative z-10 w-full ${

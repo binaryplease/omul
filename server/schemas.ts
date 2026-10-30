@@ -3856,8 +3856,19 @@ export function leaderboardEntryLabel(
 	statedName: string | null = null,
 ): string {
 	if (statedName) return statedName;
-	const handle = entryId.slice(0, 6).toUpperCase();
+	const handle = leaderboardEntryHandle(entryId);
 	return handle ? `Player ${handle}` : "Player";
+}
+
+/**
+ * The six characters a nameless row is called by (REQ059) — what a client
+ * words in the deck's language in place of the English "Player …" the wire
+ * carries (REQ225). A row whose label is not
+ * `leaderboardEntryLabel(entryId)` carries a stated name, which is never
+ * reworded.
+ */
+export function leaderboardEntryHandle(entryId: string): string {
+	return entryId.slice(0, 6).toUpperCase();
 }
 
 /**

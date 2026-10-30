@@ -24,7 +24,6 @@ import {
 	LeaderboardHeading,
 	LeaderboardStandingView,
 	leaderboardHeadingText,
-	leaderboardLabelsFor,
 } from "./Leaderboard";
 import { ParticipationGate, participationLabelsFor } from "./LiveRoom";
 import {
@@ -33,7 +32,7 @@ import {
 	useQuizCountdown,
 	useQuizQuestionRunning,
 } from "./QuizTimer";
-import { ResultsDisplay } from "./Results";
+import { ResultsDisplay, resultLabelsFor } from "./Results";
 import { SLIDE_PLACEMENT_CLASSES } from "./SlideAppearance";
 import { SlideText } from "./SlideText";
 import { useToast } from "./ui/Toast";
@@ -161,7 +160,8 @@ function QuizVerdict({
  * - **`pending`**: the card just tapped on a single-choice slide, while its
  *   answer is on its way. It is drawn as the choice at once: a slow network is
  *   not a reason to leave somebody wondering whether the tap registered.
- * - **`selected`**: what the server holds, or the pending choice.
+ * - **`selected`**: what the server holds, or — while one is pending — the
+ *   pending choice alone.
  * - **`unavailable`**: the tap would do nothing — an answer in flight, the
  *   selection cap, or a locked quiz question. Stated with `aria-disabled`
  *   rather than `disabled` by the caller, so the card the participant just
@@ -185,7 +185,11 @@ export function choiceCardState({
 	locked: boolean;
 }): { selected: boolean; pending: boolean; unavailable: boolean; dimmed: boolean } {
 	const pending = pendingOptionId === optionId;
-	const selected = pending || selectedIds.includes(optionId);
+	// Only single choices go pending, and a single choice is one card: while a
+	// changed vote is on its way the card it replaces is no longer the choice,
+	// so two cards never look chosen at once.
+	const selected =
+		pendingOptionId !== null ? pending : selectedIds.includes(optionId);
 	const unavailable = submitting || blockedByCap || locked;
 	return {
 		selected,
@@ -685,9 +689,10 @@ export function ParticipantSlideView({
 	const { addToast } = useToast();
 
 	const t = getDict(pres.language);
-	// The board's wording in the deck's language (REQ059/REQ084), mapped in the
-	// one place that mapping lives.
-	const leaderboardLabels = leaderboardLabelsFor(t);
+	// The results' and the board's wording in the deck's language
+	// (REQ059/REQ084/REQ225), mapped in the one place that mapping lives.
+	const resultLabels = resultLabelsFor(t);
+	const leaderboardLabels = resultLabels.leaderboard;
 	// Which of the three things this screen is, read through the one descriptor
 	// the preview reads too — so "does every slide type render?" is a question
 	// about one function rather than about a ternary chain in two components.
@@ -1187,7 +1192,7 @@ export function ParticipantSlideView({
 							<ResultsDisplay
 								slide={slide}
 								results={results}
-								leaderboardLabels={leaderboardLabels}
+								labels={resultLabels}
 								highlightEntryId={scorecard?.entryId ?? null}
 							/>
 						) : (
@@ -2690,6 +2695,7 @@ export function ParticipantSlideView({
 									onUpvote={handleUpvote}
 									upvotedIds={upvoted}
 									answerFilterLabel={t.answersFiltered}
+									labels={resultLabels}
 								/>
 							</div>
 						);

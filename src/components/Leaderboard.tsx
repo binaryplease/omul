@@ -1,7 +1,11 @@
 import { Trophy } from "lucide-react";
 import type { ReactNode } from "react";
-import type { getDict } from "../i18n";
-import { LEADERBOARD_DEFAULT_SIZE, leaderboardEntryLabel } from "../types";
+import { countPhrase, type Dict, fillTemplate, getDict } from "../i18n";
+import {
+	LEADERBOARD_DEFAULT_SIZE,
+	leaderboardEntryHandle,
+	leaderboardEntryLabel,
+} from "../types";
 
 // ── Leaderboard (REQ059) ──────────────────────────────────────────────
 //
@@ -21,7 +25,9 @@ import { LEADERBOARD_DEFAULT_SIZE, leaderboardEntryLabel } from "../types";
 // row is *called* is the server's too: on a deck that asks for a name on joining
 // (REQ076) it is the name its holder stated, latest spelling (REQ218); a
 // participant who stated none, and every row of a deck that never asks, keeps the
-// derived "Player 3F9A2C" a room can still read out loud. A stated name is up to
+// derived "Player 3F9A2C" a room can still read out loud — worded here in the
+// deck's language from the handle (REQ225), since the wire carries it in
+// English. A stated name is up to
 // 80 characters of anything, emoji included, so the label is drawn to truncate
 // on a phone and on the projector alike rather than push the score off the row.
 
@@ -53,10 +59,10 @@ export type LeaderboardBoard = {
 };
 
 /**
- * The words the board wears. Both surfaces draw the same leaderboard, and only
- * one of them is translated (the participant's, REQ084), so the strings arrive
- * as a parameter rather than being reached for inside — the same shape
- * `QuizTimer` takes its countdown labels in.
+ * The words the board wears. Every surface the room reads draws it in the
+ * deck's language (REQ084, REQ225) and the editor's own previews in English,
+ * so the strings arrive as a parameter rather than being reached for inside —
+ * the same shape `QuizTimer` takes its countdown labels in.
  */
 export type LeaderboardLabels = {
 	title: string;
@@ -76,19 +82,10 @@ export type LeaderboardLabels = {
 	moreRanked: string;
 	/** What a participant with no answers yet is told instead of a place. */
 	notRanked: string;
-};
-
-/** The shared screen's wording — the presenter's surface is not translated. */
-export const LEADERBOARD_LABELS_EN: LeaderboardLabels = {
-	title: "Leaderboard",
-	empty: "No scores yet — the standings fill in as quiz questions are answered.",
-	points: "points",
-	you: "You",
-	yourPosition: "Your position",
-	outOf: "of",
-	correct: "correct",
-	moreRanked: "more ranked",
-	notRanked: "Answer a quiz question to join the leaderboard",
+	/** What a row whose holder stated no name is called, from its handle. */
+	player: (handle: string) => string;
+	/** The caption under the heading: "Top 5 across 3 quiz questions". */
+	topAcross: (shown: number, quizCount: number) => string;
 };
 
 /**
@@ -97,9 +94,7 @@ export const LEADERBOARD_LABELS_EN: LeaderboardLabels = {
  * phone and the shared screen wear the same wording in two languages rather
  * than two wordings.
  */
-export function leaderboardLabelsFor(
-	dict: ReturnType<typeof getDict>,
-): LeaderboardLabels {
+export function leaderboardLabelsFor(dict: Dict): LeaderboardLabels {
 	return {
 		title: dict.leaderboardTitle,
 		empty: dict.leaderboardEmpty,
@@ -112,7 +107,46 @@ export function leaderboardLabelsFor(
 		correct: dict.leaderboardCorrect,
 		moreRanked: dict.leaderboardMoreRanked,
 		notRanked: dict.leaderboardNotRanked,
+		player: (handle) => fillTemplate(dict.leaderboardPlayer, { handle }).trim(),
+		topAcross: (shown, quizCount) =>
+			countPhrase(dict, dict.leaderboardTopAcross, quizCount, { shown }),
 	};
+}
+
+/**
+ * The board in English — what the editor's own previews of a leaderboard
+ * slide draw, and the default for a caller that passes no language.
+ */
+export const LEADERBOARD_LABELS_EN: LeaderboardLabels = leaderboardLabelsFor(
+	getDict("en"),
+);
+
+/**
+ * What a row is called on screen: the name its holder stated, as it arrived,
+ * or — for a row the server named after its handle — that handle in the
+ * board's language (REQ225). The wire's label is compared against the very
+ * function that derived it, so a stated name is never reworded.
+ */
+export function leaderboardRowLabel(
+	row: Pick<LeaderboardRow, "entryId" | "label">,
+	labels: Pick<LeaderboardLabels, "player">,
+): string {
+	if (row.label !== leaderboardEntryLabel(row.entryId)) return row.label;
+	return labels.player(leaderboardEntryHandle(row.entryId));
+}
+
+/**
+ * The caption under a board's heading on the shared screen: how many rows it
+ * shows, out of how many quiz questions they were summed over.
+ */
+export function leaderboardCaption(
+	board: Pick<LeaderboardBoard, "size" | "entries" | "quizCount">,
+	labels: Pick<LeaderboardLabels, "topAcross">,
+): string {
+	return labels.topAcross(
+		Math.min(board.size, board.entries.length),
+		board.quizCount,
+	);
 }
 
 /**
@@ -209,6 +243,7 @@ function LeaderboardRowView({
 	isYou: boolean;
 	compact: boolean;
 }) {
+	const name = leaderboardRowLabel(row, labels);
 	return (
 		<li
 			className={`relative overflow-hidden rounded-xl border px-3 py-2.5 transition-colors ${
@@ -241,8 +276,8 @@ function LeaderboardRowView({
 						{/* `min-w-0` because a flex item will not shrink below its content
 						    otherwise, and an 80-character name would then never truncate.
 						    The full name rides `title` for the one reader who can hover. */}
-						<span className="min-w-0 truncate" title={row.label}>
-							{row.label}
+						<span className="min-w-0 truncate" title={name}>
+							{name}
 						</span>
 						{isYou && (
 							<span className="flex-shrink-0 rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-void">
