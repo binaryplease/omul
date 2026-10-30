@@ -4096,6 +4096,19 @@ type SolutionRevealState = {
 	 * deck still type-checks; absent reads as the schema's own default.
 	 */
 	resultsVisibility?: ResultsVisibility | undefined;
+	/**
+	 * The slides closed to submissions (REQ111). A quiz question the presenter
+	 * has closed after opening it is over, exactly as one whose window ran out is
+	 * (REQ216). Optional for the same reason as above; absent reads as "nothing
+	 * closed", which withholds.
+	 */
+	closedSlideIds?: string[] | undefined;
+	/**
+	 * Who paces the deck (REQ003). Read only by {@link quizQuestionIsRunning}: an
+	 * audience-paced deck collects before it is started and stamps no opening
+	 * instant, so "not asked yet" means something different there.
+	 */
+	mode?: string | undefined;
 };
 
 /**
@@ -4108,6 +4121,11 @@ type SolutionRevealState = {
  * its answer key back until the question is over, which is any of:
  *
  *  - its window has closed (grace included) — the ordinary live case;
+ *  - the presenter closed it to submissions after it opened (REQ111, REQ216):
+ *    once nobody can answer, there is nothing left to give away, and the room
+ *    is shown the result on the shared screen at that moment (REQ214) — so a
+ *    phone has to be sent the same. A question closed before it was ever
+ *    opened stays withheld: closing a slide ahead of time is no reveal;
  *  - the presenter deliberately revealed that slide's results (REQ102) — which
  *    is the reveal signal an untimed question has instead of a deadline;
  *  - the presentation has ended, after which there is no question left to game.
@@ -4155,10 +4173,9 @@ export function solutionVisibleToAudience(
 	if (slide.type !== "quiz") return true;
 	if (deck.status === "ended") return true;
 	if ((deck.revealedSlideIds ?? []).includes(slide.id)) return true;
-	const deadline = quizDeadlineFor(
-		deck.slideStartedAt?.[slide.id],
-		quizTimeLimitFor(slide),
-	);
+	const openedAt = deck.slideStartedAt?.[slide.id];
+	if (openedAt && !slideAcceptsSubmissions(deck, slide.id)) return true;
+	const deadline = quizDeadlineFor(openedAt, quizTimeLimitFor(slide));
 	return deadline !== null && !isQuizWindowOpen(deadline, now);
 }
 
@@ -4175,10 +4192,20 @@ export function solutionVisibleToAudience(
  *
  * The question is over — and the slide's reveal setting takes over again — when
  * {@link solutionVisibleToAudience} says the audience may have its key (window
- * closed with its grace, results revealed, deck ended), **or** when the
- * presenter has closed the slide to submissions (REQ111): once nobody can
- * answer, there is nothing left to copy. An untimed question, and one not yet
- * opened, have no window to close, so they run until one of those happens.
+ * closed with its grace, closed to submissions after opening, results
+ * revealed, deck ended), **or** when the slide is closed to submissions at all
+ * (REQ111) — which on an audience-paced deck, where nothing is ever opened,
+ * hands the room no key but still leaves nothing to copy. An untimed question
+ * has no window to close, so it runs until one of those happens.
+ *
+ * It only runs while somebody can be answering it (REQ216). A live-paced deck
+ * that is not live yet — a draft, or one reset back to draft — is collecting
+ * nothing, and a question on a live deck that the presenter has not reached
+ * has no opening instant and no answers: neither is "being answered", and a
+ * screen that said so would describe a room that has not been asked anything.
+ * An audience-paced deck (REQ003) collects from before it is started and
+ * stamps no opening instant, so there a question runs from the start until it
+ * is closed or the deck ends.
  *
  * Never true for any other slide type: a plain choice slide with a marked
  * option keeps scoring nobody and reveals as it always has (REQ013).
@@ -4193,6 +4220,12 @@ export function quizQuestionIsRunning(
 	now: number,
 ): boolean {
 	if (slide.type !== "quiz") return false;
+	if (deck.mode === "survey") {
+		if (deck.status === "ended") return false;
+	} else {
+		if (deck.status !== "live") return false;
+		if (!deck.slideStartedAt?.[slide.id]) return false;
+	}
 	if (solutionVisibleToAudience(slide, deck, now)) return false;
 	return slideAcceptsSubmissions(deck, slide.id);
 }

@@ -11,6 +11,7 @@ import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { usePageTitle } from "../router";
+import { clockOffsetFrom } from "../store/session";
 import type { Presentation, Slide } from "../types";
 import {
 	quizQuestionIsRunning,
@@ -56,7 +57,18 @@ export type SharedResultsState =
 	| { kind: "revoked" }
 	| { kind: "missing" }
 	| { kind: "failed"; message: string }
-	| { kind: "ready"; deck: Presentation; rows: ResultsRow[] };
+	| {
+			kind: "ready";
+			deck: Presentation;
+			rows: ResultsRow[];
+			/**
+			 * How far the server's clock is ahead of this browser's, read off the
+			 * deck response (REQ057) — what a quiz question's window is measured on
+			 * here, as on every other surface, rather than on a visitor's clock
+			 * that may run ahead of it.
+			 */
+			serverClockOffsetMs: number;
+	  };
 
 /**
  * Read a failed results fetch into the state the page draws.
@@ -107,7 +119,12 @@ export function SharedResultsPage({ id }: { id: string }) {
 				api.getPresentation(id),
 				api.getSharedResults(id),
 			]);
-			setState({ kind: "ready", deck, rows });
+			setState({
+				kind: "ready",
+				deck,
+				rows,
+				serverClockOffsetMs: clockOffsetFrom(deck.serverNow, Date.now(), 0),
+			});
 			setPollTick((tick) => tick + 1);
 		} catch (loadError: unknown) {
 			const failure = readSharedResultsFailure(loadError);
@@ -230,7 +247,11 @@ export function SharedResultsPage({ id }: { id: string }) {
 										/>
 									</h2>
 								</div>
-								{quizQuestionIsRunning(slide, state.deck, Date.now()) ? (
+								{quizQuestionIsRunning(
+									slide,
+									state.deck,
+									Date.now() + state.serverClockOffsetMs,
+								) ? (
 									/* A quiz question the room is still answering. A link
 									   holder's tally (and an owner's, reading their own
 									   page) carries the per-option counts even now, and this

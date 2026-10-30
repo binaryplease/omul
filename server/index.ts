@@ -21,6 +21,7 @@ import { folderRoutes } from "./routes/folders";
 import { legalRoutes } from "./routes/legal";
 import { rateLimitStartupReport } from "./rate-limit";
 import { presentationRoutes } from "./routes/presentations";
+import { rearmQuizWindowCloses } from "./services/presentations";
 import { staticRoutes } from "./routes/static";
 import { templateRoutes } from "./routes/templates";
 import { websiteRoutes } from "./routes/website";
@@ -49,6 +50,11 @@ await connectDb();
 // apikey) in-process so a fresh deploy self-provisions without a separate CLI
 // migrate step (single-binary model). Idempotent — safe on every boot.
 await ensureAuthSchema();
+
+// A quiz question's window is closed by a timer held in memory (REQ216), so a
+// restart in the middle of one would leave the room under "Time's up" with the
+// running question's withheld tally. Re-arm every open window from the store.
+await rearmQuizWindowCloses();
 
 const app = new Elysia()
 	// ── OpenAPI docs (Scalar UI at /api/docs, spec at /api/docs/json) ─

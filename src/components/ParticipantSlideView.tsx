@@ -25,7 +25,12 @@ import {
 	leaderboardLabelsFor,
 } from "./Leaderboard";
 import { ParticipationGate, participationLabelsFor } from "./LiveRoom";
-import { QuizTimer, quizWindowFor, useQuizCountdown } from "./QuizTimer";
+import {
+	QuizTimer,
+	quizWindowFor,
+	useQuizCountdown,
+	useQuizQuestionRunning,
+} from "./QuizTimer";
 import { ResultsDisplay } from "./Results";
 import { SLIDE_PLACEMENT_CLASSES } from "./SlideAppearance";
 import { SlideText } from "./SlideText";
@@ -636,6 +641,18 @@ export function ParticipantSlideView({
 	// the control that takes the answer differs.
 	const isTypedQuizSlide = isQuizSlide && quizAnswerModeFor(slide) === "type";
 	const answeredQuiz = Boolean(isQuizSlide && slide.id in voted);
+	/**
+	 * Whether this quiz question is over (REQ216): its window has run out with
+	 * its grace, or the presenter closed it to answers, or its results were
+	 * revealed, or the deck ended — the same reading the shared screen holds its
+	 * results back on (REQ214), so the phone and the projector change over
+	 * together. Not the countdown's own `expired`: that is the deadline, and an
+	 * answer in flight is still accepted for the grace after it, so the room's
+	 * result is not out yet there. At that instant the server sends the room its
+	 * tally with the key in it; this re-reads at the same instant by itself.
+	 */
+	const quizRunning = useQuizQuestionRunning(slide, pres, serverClockOffsetMs);
+	const quizOver = isQuizSlide && !quizRunning;
 
 	// ── Participation (REQ111) ──────────────────────────────────
 	//
@@ -716,7 +733,7 @@ export function ParticipantSlideView({
 	const quizResultReady =
 		isQuizSlide &&
 		resultsVisibleHere &&
-		(quizCountdown.expired || (!quizCountdown.timed && answeredQuiz));
+		(quizOver || (!quizCountdown.timed && answeredQuiz));
 
 	/**
 	 * Whether the room's aggregated tally may be shown here. On every other slide
@@ -2476,11 +2493,11 @@ export function ParticipantSlideView({
 		    interactive slides have been answered or skipped, so
 		    participants cannot peek at results mid-survey. */}
 				{(hasVoted ||
-					// Quiz: once the question closes the tally is shown to
+					// Quiz: once the question is over the tally is shown to
 					// everyone in the room, including whoever did not answer in
 					// time — being late is not a reason to be kept from the
 					// solution the rest of the room is now looking at.
-					(isQuizSlide && quizCountdown.expired) ||
+					quizOver ||
 					(slide.type === "scale" &&
 						(slide.scaleStatements ?? []).length > 0 &&
 						(slide.scaleStatements ?? []).every(

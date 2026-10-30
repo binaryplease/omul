@@ -9,6 +9,8 @@
  *   - REQ054 — what an answer scores, by correctness and by speed
  *   - REQ214 — when a question is still being answered, so the shared screen
  *     draws nothing of what the room answered until it is over
+ *   - REQ216 — that only a question somebody can be answering is running, and
+ *     that closing an opened question ends it for the audience's payload too
  */
 
 import { describe, expect, test } from "bun:test";
@@ -25,6 +27,7 @@ import {
 	quizRemainingMs,
 	quizTimeLimitFor,
 	scoreQuizAnswer,
+	solutionVisibleToAudience,
 } from "./schemas";
 
 const OPENED_AT = "2026-01-01T12:00:00.000Z";
@@ -309,10 +312,45 @@ describe("quizQuestionIsRunning (REQ214)", () => {
 		).toBe(false);
 	});
 
-	test("a question not opened yet has nothing of its own to show", () => {
+	test("a question the presenter has not reached is not being answered (REQ216)", () => {
+		// Nobody has been asked it, so nobody can have answered: a screen must not
+		// call it "still being answered".
 		expect(
 			quizQuestionIsRunning(quiz, { ...opened, slideStartedAt: {} }, OPENED_MS),
-		).toBe(true);
+		).toBe(false);
+	});
+
+	test("a deck that is not live is collecting nothing (REQ216)", () => {
+		// A draft — never started, or reset back to draft — has no question running,
+		// so the shared screen says to start the presentation, not to wait for it.
+		expect(
+			quizQuestionIsRunning(quiz, { ...opened, status: "draft" }, OPENED_MS),
+		).toBe(false);
+		expect(
+			quizQuestionIsRunning(
+				quiz,
+				{ ...opened, status: "draft", slideStartedAt: {} },
+				OPENED_MS,
+			),
+		).toBe(false);
+	});
+
+	test("an audience-paced deck runs its questions with no opening instant (REQ216)", () => {
+		// A survey collects from before it starts and stamps nothing, so its
+		// questions run until they are closed or the deck ends.
+		const survey = {
+			...opened,
+			mode: "survey",
+			status: "draft",
+			slideStartedAt: {},
+		};
+		expect(quizQuestionIsRunning(quiz, survey, OPENED_MS)).toBe(true);
+		expect(
+			quizQuestionIsRunning(quiz, { ...survey, closedSlideIds: ["qz"] }, OPENED_MS),
+		).toBe(false);
+		expect(
+			quizQuestionIsRunning(quiz, { ...survey, status: "ended" }, OPENED_MS),
+		).toBe(false);
 	});
 
 	test("a plain choice slide with a marked option is not a quiz", () => {
@@ -320,6 +358,45 @@ describe("quizQuestionIsRunning (REQ214)", () => {
 			quizQuestionIsRunning(
 				{ id: "qz", type: "multiple-choice", timeLimit: 10 },
 				opened,
+				OPENED_MS,
+			),
+		).toBe(false);
+	});
+});
+
+describe("solutionVisibleToAudience on a closed quiz question (REQ216)", () => {
+	const quiz = { id: "qz", type: "quiz" as const, timeLimit: 10 };
+	const opened = {
+		status: "live",
+		slideStartedAt: { qz: OPENED_AT },
+		revealedSlideIds: [],
+		closedSlideIds: [],
+	};
+
+	test("closing an opened question hands the room its key, with time still left", () => {
+		expect(solutionVisibleToAudience(quiz, opened, OPENED_MS)).toBe(false);
+		expect(
+			solutionVisibleToAudience(
+				quiz,
+				{ ...opened, closedSlideIds: ["qz"] },
+				OPENED_MS,
+			),
+		).toBe(true);
+	});
+
+	test("reopening it inside its window withholds the key again", () => {
+		expect(
+			solutionVisibleToAudience(quiz, { ...opened, closedSlideIds: [] }, OPENED_MS),
+		).toBe(false);
+	});
+
+	test("a question closed before it was ever opened stays withheld", () => {
+		// Closing a slide ahead of time is not a reveal: the deck a participant
+		// joins with would otherwise carry that question answered.
+		expect(
+			solutionVisibleToAudience(
+				quiz,
+				{ ...opened, slideStartedAt: {}, closedSlideIds: ["qz"] },
 				OPENED_MS,
 			),
 		).toBe(false);

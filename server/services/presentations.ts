@@ -2,6 +2,7 @@ import { resolveUserId } from "../accounts";
 import { createCoalescer } from "../coalesce";
 import { createStore } from "../db";
 import { createKeyedLock } from "../keyed-lock";
+import { createKeyedTimers } from "../keyed-timers";
 import {
 	emptyTestVoteSet,
 	generateDeckTestVotes,
@@ -128,6 +129,7 @@ import {
 	QUIZ_CORRECT_POINTS,
 	QUIZ_MAX_POINTS,
 	QUIZ_SPEED_POINTS,
+	QUIZ_SUBMISSION_GRACE_MS,
 	type QuizAnswerMode,
 	quizAnswerModeFor,
 	quizDeadlineFor,
@@ -1182,6 +1184,9 @@ export async function updatePresentation(
 	const filterBefore = movesFilter
 		? profanityFilterLanguageFor(outcome.before as ProfanityFilterState)
 		: null;
+	// REQ216 — a saved time limit moves the window of a question that is open
+	// now, so its close is re-armed on the deck as saved.
+	armQuizWindowCloses(id, updated);
 	// REQ059 — quiz scores are derived from the slide *as it stands now*, so
 	// re-marking a correct option re-orders the deck's standings without a single
 	// new vote. The board is a different slide from the one that was edited, so
@@ -1449,6 +1454,8 @@ export async function setActiveSlide(
 			slideId: slide.id,
 			startedAt: openedAt,
 		});
+		// REQ216 — and tell the room when that window runs out.
+		if (updated) armQuizWindowCloses(presentationId, updated);
 	}
 	return updated;
 }
@@ -1485,6 +1492,9 @@ export async function restartSlideTimer(
 			slideId,
 			startedAt: openedAt,
 		});
+		// The close scheduled for the old window is replaced by this one's
+		// (REQ216), so the room is not told the question is over while it runs.
+		armQuizWindowCloses(presentationId, updated);
 		// A fresh window re-measures every answer already given against it
 		// (REQ057's speed half), so the standings move here too — see
 		// {@link broadcastStandings} for why the board cannot hear it any other way.
@@ -1642,6 +1652,7 @@ export async function startPresentation(presentationId: string) {
 				startedAt: openedAt,
 			});
 		}
+		armQuizWindowCloses(presentationId, updated);
 	}
 	return updated;
 }
@@ -1829,6 +1840,15 @@ export async function setSlideParticipation(
 			slideId,
 			open,
 		});
+		// REQ216 — closing a quiz question that has opened ends it, so its key
+		// and typed answers become the room's (`solutionVisibleToAudience`), and
+		// reopening one still inside its window withholds them again. Either way
+		// the room's copy of the tally changed without a row changing, so it is
+		// re-sent here rather than left for the next answer to carry.
+		const slide = (updated.slides as Slide[]).find(
+			(candidate) => candidate.id === slideId,
+		);
+		if (slide?.type === "quiz") await broadcastResults(presentationId, slideId);
 	}
 	return updated;
 }
@@ -2197,6 +2217,108 @@ export function resetTallyBroadcasts(): void {
  */
 async function broadcastResults(presentationId: string, slideId: string) {
 	await tallyBroadcasts.run(tallyKey(presentationId, slideId));
+}
+
+// ── A quiz question's window running out (REQ216) ────────────
+//
+// The room's tally is re-sent whenever something changes it — and the one
+// change that matters most to a quiz question changes no row at all. While the
+// window runs, every frame the room receives withholds the key and the typed
+// answers (REQ056); at the end of the window they become the room's to see, and
+// nothing happens at that instant on its own: the last answers arrived before
+// it, the presenter has nothing to click. So a phone kept the last withheld
+// frame under "Time's up" until it was reloaded.
+//
+// The server says when the question is over, because it is the server's window
+// — the same `slideStartedAt`, limit and grace the boundary refuses a late
+// answer on. One broadcast at that instant is one frame per room, where a phone
+// re-fetching on its own clock would be the whole room hitting the results
+// endpoint in the same millisecond, each guessing the instant from an offset
+// that can be wrong in either direction.
+
+/**
+ * The first instant a quiz question's window is past, grace included — the
+ * moment the room may be shown its result — or `null` for a question with no
+ * window (untimed, or never opened).
+ */
+function quizWindowClosesAt(
+	slide: Slide,
+	stamps: Record<string, string>,
+): number | null {
+	const deadline = quizDeadlineFor(stamps[slide.id], quizTimeLimitFor(slide));
+	// One past the grace: its last instant still counts as open (`isQuizWindowOpen`).
+	return deadline === null ? null : deadline + QUIZ_SUBMISSION_GRACE_MS + 1;
+}
+
+/**
+ * Re-send one quiz question's tally because its window has run out.
+ *
+ * Decided from what is stored, not from when the timer was set: a deck that has
+ * since ended, been reset or deleted, or moved off quiz, sends nothing; a window
+ * that has moved later (a timer restarted, a time limit lengthened) is waited
+ * for again. What goes out is the ordinary room frame through the ordinary
+ * coalesced path, so it carries exactly what the audience may now see — the key
+ * and the typed answers on `instant`, the withheld marker on `on-click` or
+ * `private`, which a client ignores.
+ */
+async function sendQuizWindowClosed(key: string): Promise<void> {
+	const { presentationId, slideId } = parseTallyKey(key);
+	const pres = await presentations.findOne(presentationId);
+	if (!pres || pres.status !== "live") return;
+	const slide = (pres.slides as Slide[]).find(
+		(candidate) => candidate.id === slideId,
+	);
+	if (slide?.type !== "quiz") return;
+	const closesAt = quizWindowClosesAt(slide, slideStartedAtIn(pres));
+	if (closesAt === null) return;
+	const remainingMs = closesAt - Date.now();
+	if (remainingMs > 0) {
+		quizWindowCloses.schedule(key, remainingMs);
+		return;
+	}
+	await broadcastResults(presentationId, slideId);
+}
+
+/** One pending close per quiz question, replaced when its window moves. */
+const quizWindowCloses = createKeyedTimers({
+	work: sendQuizWindowClosed,
+	onError: (key, cause) =>
+		console.error(`[quiz] window close failed for ${key}:`, cause),
+});
+
+/** Drop every pending window close. For tests that need a clean slate. */
+export function resetQuizWindowCloses(): void {
+	quizWindowCloses.reset();
+}
+
+/**
+ * Arrange for the room to be told when each of a live deck's open quiz windows
+ * runs out. Called wherever a window starts or moves — a question opened, its
+ * timer restarted, the deck saved — and for every live deck at boot, since the
+ * timers are held in memory and a restart would otherwise leave the questions
+ * open at that moment closing in silence. A window already past is left alone:
+ * the room was told when it closed, or will read it fresh on reconnect.
+ */
+function armQuizWindowCloses(
+	presentationId: string,
+	pres: Record<string, unknown>,
+): void {
+	if (pres.status !== "live") return;
+	const stamps = slideStartedAtIn(pres);
+	const now = Date.now();
+	for (const slide of pres.slides as Slide[]) {
+		if (slide.type !== "quiz") continue;
+		const closesAt = quizWindowClosesAt(slide, stamps);
+		if (closesAt === null || closesAt <= now) continue;
+		quizWindowCloses.schedule(tallyKey(presentationId, slide.id), closesAt - now);
+	}
+}
+
+/** Re-arm every live deck's open quiz windows (REQ216) — once, at boot. */
+export async function rearmQuizWindowCloses(): Promise<void> {
+	for (const pres of await presentations.find({ status: "live" })) {
+		armQuizWindowCloses(pres.id as string, pres);
+	}
 }
 
 /**

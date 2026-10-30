@@ -158,6 +158,22 @@ describe("the shared screen while a quiz question runs (REQ214)", () => {
 	});
 });
 
+describe("the shared screen before a quiz question is asked (REQ216)", () => {
+	test("a draft deck says to start the presentation, not that the question is being answered", () => {
+		const draft = PresentationSchema.parse({
+			id: "deck",
+			code: "123456",
+			title: "Quiz round",
+			slides: [SELECT_QUIZ],
+			status: "draft",
+			createdAt: "2026-10-30T09:00:00.000Z",
+		}) as Presentation;
+		const markup = sharedScreen(SELECT_QUIZ, draft, null);
+		expect(markup).toContain("Start the presentation to collect responses");
+		expect(markup).not.toContain("Results appear");
+	});
+});
+
 describe("the shared screen once a quiz question is over (REQ214)", () => {
 	test("Instant shows the results and the solution when the window has closed", () => {
 		const markup = sharedScreen(

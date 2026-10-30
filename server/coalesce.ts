@@ -53,7 +53,10 @@ export type TimerFactory = (callback: () => void, delayMs: number) => () => void
  * from one last board update, and a timer that kept either alive would be a
  * hang rather than a feature.
  */
-function scheduleWithTimeout(callback: () => void, delayMs: number): () => void {
+export function scheduleWithTimeout(
+	callback: () => void,
+	delayMs: number,
+): () => void {
 	const handle = setTimeout(callback, delayMs);
 	handle.unref();
 	return () => clearTimeout(handle);

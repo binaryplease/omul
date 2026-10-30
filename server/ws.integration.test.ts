@@ -330,13 +330,18 @@ describe("WebSocket integration", () => {
 		// last board this suite moved. Dropped rather than left to fire into a
 		// stopped server, where it would log a failure that is this teardown's
 		// doing rather than the code's.
-		const { resetStandingsBroadcasts, resetTallyBroadcasts } = await import(
-			"./services/presentations"
-		);
+		const {
+			resetQuizWindowCloses,
+			resetStandingsBroadcasts,
+			resetTallyBroadcasts,
+		} = await import("./services/presentations");
 		resetStandingsBroadcasts();
 		// And the same for a slide's own tally (REQ150), which is folded the same
 		// way and can be holding a window of its own behind the last answer.
 		resetTallyBroadcasts();
+		// And every quiz window still waiting to close (REQ216): the leaderboard
+		// deck's 30-second question is still open when this suite finishes.
+		resetQuizWindowCloses();
 	});
 
 	// ── Tests ──────────────────────────────────────────────
@@ -1088,6 +1093,160 @@ describe("WebSocket integration", () => {
 			expect(results.withheld).toBe(true);
 			expect(results.totalVotes).toBeUndefined();
 			expect(results.options).toBeUndefined();
+		}
+
+		await viewer.close();
+	});
+
+	// ── A quiz question's window running out (REQ216) ──────────
+	//
+	// While a question runs, every frame the room is sent withholds its key and
+	// its typed answers (REQ056). The end of the window changes what the room may
+	// see without changing a single row, so nothing but the server's own timer
+	// can say so: these tests cast no answer after the window and expect the
+	// revealed tally to arrive anyway.
+
+	/** A live deck whose first slide is `slide`, with a participant socket joined. */
+	async function liveQuizRoom(slide: Record<string, unknown>) {
+		const created = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ title: "WS Quiz close", slides: [slide] }),
+		});
+		expect(created.status).toBe(201);
+		const pres = (await created.json()) as { id: string; creatorToken: string };
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		await viewer.waitFor("presentation.started");
+		return { pres, viewer };
+	}
+
+	/** A select question whose window (with its grace) is over in under two seconds. */
+	const SHORT_SELECT_QUIZ = {
+		id: "qz",
+		type: "quiz",
+		question: "Closest to the sun?",
+		timeLimit: 0.2,
+		options: [
+			{ id: "venus", text: "Venus" },
+			{ id: "mercury", text: "Mercury", isCorrect: true },
+		],
+	};
+
+	type ChoiceFrame = { options?: { id: string; isCorrect: boolean | null }[] };
+	const markedCorrect = (frame: Envelope, optionId: string) =>
+		(frame.data.results as ChoiceFrame).options?.find(
+			(option) => option.id === optionId,
+		)?.isCorrect;
+
+	test("a select question's window running out re-sends the room its tally with the key (REQ216)", async () => {
+		const { pres, viewer } = await liveQuizRoom(SHORT_SELECT_QUIZ);
+		await answerQuiz(pres.id, "late-thinker", "venus");
+		// The answer's own frame is the running question's: no key.
+		const answered = await viewer.waitFor("results.updated");
+		expect(markedCorrect(answered, "mercury")).toBeNull();
+
+		const closed = await viewer.waitForCount(
+			"results.updated",
+			(frame) => markedCorrect(frame, "mercury") === true,
+			4000,
+		);
+		expect(closed.data.slideId).toBe("qz");
+		expect(markedCorrect(closed, "venus")).toBe(false);
+
+		await viewer.close();
+	});
+
+	test("a typed question's window running out re-sends the grouped answers and the accepted ones (REQ216)", async () => {
+		const { pres, viewer } = await liveQuizRoom({
+			id: "qz",
+			type: "quiz",
+			question: "Largest ocean?",
+			timeLimit: 0.2,
+			quizAnswerMode: "type",
+			quizAnswers: [{ id: "pacific", text: "Pacific" }],
+		});
+		await answerQuiz(pres.id, "typist", "pacific");
+
+		const closed = await viewer.waitForCount(
+			"results.updated",
+			(frame) =>
+				(frame.data.results as { typedAnswers?: { entries: unknown } })
+					.typedAnswers?.entries != null,
+			4000,
+		);
+		const typed = (
+			closed.data.results as {
+				typedAnswers: {
+					accepted: string[];
+					entries: { text: string; isCorrect: boolean }[];
+				};
+			}
+		).typedAnswers;
+		expect(typed.accepted).toEqual(["Pacific"]);
+		expect(typed.entries).toEqual([
+			expect.objectContaining({ text: "pacific", isCorrect: true }),
+		]);
+
+		await viewer.close();
+	});
+
+	test("closing a question to answers with time left re-sends the key, and reopening withholds it (REQ216)", async () => {
+		const { pres, viewer } = await liveQuizRoom({
+			...SHORT_SELECT_QUIZ,
+			timeLimit: 30,
+		});
+		await answerQuiz(pres.id, "early-bird", "venus");
+		await viewer.waitFor("results.updated");
+		viewer.received.length = 0;
+
+		const close = await authed(
+			`/api/presentations/${pres.id}/participation`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz", open: false }) },
+		);
+		expect(close.status).toBe(200);
+		await viewer.waitForCount(
+			"results.updated",
+			(frame) => markedCorrect(frame, "mercury") === true,
+		);
+
+		viewer.received.length = 0;
+		// Past the coalescing window, so the reopen's frame is a leading run.
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		const reopen = await authed(
+			`/api/presentations/${pres.id}/participation`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz", open: true }) },
+		);
+		expect(reopen.status).toBe(200);
+		const reopened = await viewer.waitFor("results.updated");
+		expect(markedCorrect(reopened, "mercury")).toBeNull();
+
+		await viewer.close();
+	});
+
+	test("on an on-click question the window running out sends the withheld marker, never the key (REQ216)", async () => {
+		const { pres, viewer } = await liveQuizRoom({
+			...SHORT_SELECT_QUIZ,
+			resultsVisibility: "on-click",
+		});
+		await answerQuiz(pres.id, "patient", "mercury");
+		// Well past the window and its grace.
+		await new Promise((resolve) => setTimeout(resolve, 2200));
+
+		const frames = viewer.received.filter(
+			(candidate) =>
+				candidate.event === "results.updated" &&
+				candidate.data.slideId === "qz",
+		);
+		expect(frames.length).toBeGreaterThan(1);
+		for (const frame of frames) {
+			expect((frame.data.results as { withheld?: boolean }).withheld).toBe(true);
 		}
 
 		await viewer.close();
