@@ -443,6 +443,37 @@ describe("session slice — WebSocket reducers", () => {
 		});
 	});
 
+	test("applyStarted takes the deck's stamps whole, clearing a draft's leftovers (REQ227)", () => {
+		// A phone that loaded a draft carrying a stamp: going live dropped it on
+		// the server, and the frame saying so must drop it here too, or the phone
+		// counts down a window every tap of which the server refuses.
+		const store = seededStore({
+			status: "draft",
+			slideStartedAt: { "slide-a": FIRST_OPENED, "slide-b": FIRST_OPENED },
+		});
+		store
+			.getState()
+			.applyStarted({ startedAt: SECOND_OPENED, slideStartedAt: {} });
+		expect(store.getState().presentation?.status).toBe("live");
+		expect(store.getState().presentation?.slideStartedAt).toEqual({});
+
+		store.getState().applyStarted({
+			startedAt: SECOND_OPENED,
+			slideStartedAt: { "slide-b": SECOND_OPENED },
+		});
+		expect(store.getState().presentation?.slideStartedAt).toEqual({
+			"slide-b": SECOND_OPENED,
+		});
+	});
+
+	test("a start frame without stamps leaves the ones held (an older server)", () => {
+		const store = seededStore({ slideStartedAt: { "slide-a": FIRST_OPENED } });
+		store.getState().applyStarted({ startedAt: SECOND_OPENED });
+		expect(store.getState().presentation?.slideStartedAt).toEqual({
+			"slide-a": FIRST_OPENED,
+		});
+	});
+
 	test("applyReset clears the windows along with the votes they timed", () => {
 		const store = seededStore({ slideStartedAt: { "slide-a": FIRST_OPENED } });
 		store.getState().setResultsFor("slide-a", { totalVotes: 3 });

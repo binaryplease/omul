@@ -148,7 +148,7 @@ omul** below).
 | POST | `/api/presentations/:id/results-visibility` | ✅ owner, token or `edit` grant | Set the deck's reveal mode and apply it to every question slide, in one operation `{ resultsVisibility }` (REQ018) — see **The deck's reveal mode** below |
 | POST | `/api/presentations/:id/participation` | ✅ owner, token or `edit` grant | Open or close one slide to submissions `{ slideId, open }` (REQ111) — see **The live room** below |
 | POST | `/api/presentations/:id/blank` | ✅ owner, token or `edit` grant | Blank the shared screen, or bring it back `{ blanked }` (REQ109) — see **The live room** below |
-| POST | `/api/presentations/:id/timer` | ✅ owner, token or `edit` grant | Open a slide's question, starting or restarting its countdown `{ slideId }` (REQ057, REQ226) |
+| POST | `/api/presentations/:id/timer` | ✅ owner, token or `edit` grant | Open a slide's question, starting or restarting its countdown `{ slideId }` (REQ057, REQ226) — `409` `presentation-not-live` on a presenter-paced deck that is not live (REQ227) |
 | POST | `/api/presentations/:id/countdown` | ✅ owner, token or `edit` grant | Start, pause, resume or reset a countdown slide's clock `{ slideId, action }` (REQ107) — see **Running a countdown slide** below |
 | POST | `/api/presentations/:id/claim` | ✅ session + control | Claim an ownerless deck for the account (409 if owned by another account, or by a workspace) |
 | POST | `/api/presentations/:id/workspace` | ✅ deck owner + role at the other end | Move the deck into a workspace `{ workspaceId }`, or back into the caller's account `{ workspaceId: null }` (REQ128) — see **Workspaces** below |
@@ -2401,6 +2401,20 @@ timer** in that state and as **Restart timer** once the question has run.
 Reaching a quiz slide later by navigation still opens it on arrival. On a
 presenter-paced deck, going live from `draft` first drops any stamps the draft
 still carries (REQ227), so no question starts the session already running.
+The `presentation.started` frame carries the stamps the deck went live with,
+whole, and every client takes them in place of the ones it held — a phone or a
+second screen that loaded the draft would otherwise go on counting down a window
+the server dropped.
+
+**The timer is refused before a presenter-paced deck is live** (REQ227).
+`POST /presentations/:id/timer` on a `live`-mode deck whose status is `draft` or
+`ended` answers `409` with `{ error, refused: "presentation-not-live" }` and opens
+nothing: a window opened in a draft would be dropped again at go-live, and one
+opened on an ended deck would come back already running when the deck resumes,
+because resuming keeps its stamps. The shared screen draws the control disabled
+with the same reason (`quizTimerUnavailableReason` in `server/schemas.ts`). A
+survey deck is unaffected — it collects in draft (REQ003), and its timer behaves
+as it always has.
 
 Submissions are accepted for `QUIZ_SUBMISSION_GRACE_MS` (1.5 s) past the
 deadline, because a tap made at half a second left still has to reach the
@@ -4032,7 +4046,7 @@ foreground or the network comes back. Each new socket joins again.
 | `pong` | server → the pinging client | `{}`, the answer to a `ping` |
 | `slide.changed` | server → clients | `{ presentationId, slideIndex, slide }` — the slide as the audience may see it: answer key withheld while the question runs (REQ056), presenter notes and a quiz's audio cue empty (REQ090/REQ058) |
 | `results.updated` | server → clients | `{ presentationId, slideId, results }` — the tally as the **audience** may read it, so a slide whose mode withholds it broadcasts `{ type, withheld: true }` and no numbers (REQ016/REQ017), and an editor-only block on it (a word cloud's `answers`, a form's `submissions`) is `null`. An answer the deck's profanity filter withholds is in no frame at all, only counted in `filteredCount` (REQ085). Sent when an answer *lands* and when one is *taken down* (REQ027) — a tally moves both ways — for every free-text slide when the filter is switched or its list moves, and on a quiz question when the room's copy changes with no answer at all (REQ216): at the instant its window runs out (deadline plus the submission grace, on the server's own timer), and when the presenter closes or reopens it to submissions. That is the frame that first carries the key and, on a typed question, the grouped answers. **Frames may merge, values never do** (REQ150): a slide broadcasts at most once per 100 ms, so a room answering faster than that is folded into one frame carrying the settled tally rather than one frame per answer. A client that reads each frame as the current state is right; one that counted frames to count answers never was |
-| `presentation.started` | server → clients | `{ presentationId, startedAt, slideIndex, slideId }`. `startedAt` is when the session clock began (REQ108), the deck's `sessionStartedAt`. A start on a deck already live keeps its clock, so the frame repeats the instant it already had. `slideIndex` is the slide the start landed on, always the first (REQ208), and `slideId` its id (`null` on a deck with no slides): a phone whose copy was read before the deck's first slide was deleted holds another slide at that index, and re-reads the deck instead of drawing it |
+| `presentation.started` | server → clients | `{ presentationId, startedAt, slideIndex, slideId, slideStartedAt }`. `startedAt` is when the session clock began (REQ108), the deck's `sessionStartedAt`. A start on a deck already live keeps its clock, so the frame repeats the instant it already had. `slideIndex` is the slide the start landed on, always the first (REQ208), and `slideId` its id (`null` on a deck with no slides): a phone whose copy was read before the deck's first slide was deleted holds another slide at that index, and re-reads the deck instead of drawing it. `slideStartedAt` is the deck's question-opening stamps after going live (REQ227), whole: a client replaces the ones it holds with them, so stamps a draft carried and going live dropped do not survive on a screen that loaded the draft |
 | `presentation.ended` | server → clients | `{ presentationId, endedAt }` — `endedAt` is where the session clock stopped (REQ108), the deck's `sessionEndedAt`; `null` for a deck that ended without ever going live |
 | `presentation.reset` | server → clients | `{ presentationId }` |
 | `slide.revealed` | server → clients | `{ presentationId, slideId, revealed }` (REQ016/REQ102) |

@@ -4397,6 +4397,35 @@ export function quizAwaitingStart(
 }
 
 /**
+ * Why a slide's question timer cannot be started or restarted right now — the
+ * English `error` the timer endpoint refuses with, and the explanation the
+ * shared screen's disabled timer control carries (REQ227).
+ */
+export const QUIZ_TIMER_NOT_LIVE_REASON =
+	"Start the presentation first — question timers run only while the deck is live";
+
+/**
+ * Whether a slide's question timer may be started or restarted (REQ057,
+ * REQ226) — `null` when it may, the reason it may not otherwise. One answer
+ * read by the endpoint that refuses and by the control that is drawn disabled,
+ * so the button never offers a start the server turns away.
+ *
+ * A presenter-paced deck opens questions only while it is live (REQ227): a
+ * window opened in a draft would be dropped again at go-live, and every client
+ * that had been told about it would go on counting down a question the server
+ * treats as waiting. An ended deck takes no answers either, and resuming it
+ * keeps its stamps, so a window opened there would be already running when the
+ * room came back. A survey deck is unaffected (REQ003): it collects in draft,
+ * and its timer behaves as it always has.
+ */
+export function quizTimerUnavailableReason(
+	deck: Pick<SolutionRevealState, "status" | "mode">,
+): string | null {
+	if (deck.mode === "survey") return null;
+	return deck.status === "live" ? null : QUIZ_TIMER_NOT_LIVE_REASON;
+}
+
+/**
  * Whether a quiz question is still being answered — the state in which a
  * room-facing surface draws its question, its countdown and how many have
  * answered, and **nothing of what they answered**.

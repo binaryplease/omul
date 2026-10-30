@@ -23,6 +23,7 @@ import {
 	QUIZ_CORRECT_POINTS,
 	QUIZ_MAX_POINTS,
 	QUIZ_SUBMISSION_GRACE_MS,
+	QUIZ_TIMER_NOT_LIVE_REASON,
 } from "./schemas";
 
 let connectDb: () => Promise<void>;
@@ -849,6 +850,72 @@ describe("quiz competition integration", () => {
 		});
 		expect((await fetchPresentation(pres.id)).slideStartedAt).toEqual({});
 		expect((await answer(pres.id, "early", "mercury")).status).toBe(400);
+	});
+
+	test("the timer is refused on a draft, and opens nothing (REQ227)", async () => {
+		// The second-round review: "Restart timer" was offered in a draft and the
+		// server stamped the question anyway, broadcasting a window every phone
+		// went on counting down after go-live dropped it.
+		const pres = await create([quizSlide()]);
+		const res = await authed(
+			`/api/presentations/${pres.id}/timer`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz" }) },
+		);
+		expect(res.status).toBe(409);
+		const body = await res.json();
+		expect(body.refused).toBe("presentation-not-live");
+		expect(body.error).toBe(QUIZ_TIMER_NOT_LIVE_REASON);
+		expect((await fetchPresentation(pres.id)).slideStartedAt).toEqual({});
+
+		// Going live still leaves the question waiting for its start (REQ226).
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		const early = await answer(pres.id, "early", "mercury");
+		expect(early.status).toBe(400);
+		expect((await early.json()).refused).toBe("quiz-not-started");
+	});
+
+	test("the timer is refused on an ended deck (REQ227)", async () => {
+		// Resuming an ended deck keeps its stamps, so a window opened while it was
+		// over would come back already running.
+		const pres = await createAndStart();
+		const opened = (await fetchPresentation(pres.id)).slideStartedAt.qz;
+		await authed(`/api/presentations/${pres.id}/end`, pres.creatorToken, {
+			method: "POST",
+		});
+		const res = await authed(
+			`/api/presentations/${pres.id}/timer`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz" }) },
+		);
+		expect(res.status).toBe(409);
+		expect((await res.json()).refused).toBe("presentation-not-live");
+		expect((await fetchPresentation(pres.id)).slideStartedAt.qz).toBe(opened);
+	});
+
+	test("a survey draft's timer is unchanged (REQ227)", async () => {
+		// A survey deck collects in draft (REQ003); the refusal is for decks the
+		// presenter paces.
+		const res = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Survey timer",
+				mode: "survey",
+				slides: [quizSlide()],
+			}),
+		});
+		expect(res.status).toBe(201);
+		const pres = await res.json();
+		const timer = await authed(
+			`/api/presentations/${pres.id}/timer`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz" }) },
+		);
+		expect(timer.status).toBe(200);
+		expect(typeof (await timer.json()).slideStartedAt.qz).toBe("string");
 	});
 
 	test("starting the timer publishes the question's deadline", async () => {

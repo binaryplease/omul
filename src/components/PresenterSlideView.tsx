@@ -41,6 +41,7 @@ import {
 	isInteractiveSlideType,
 	quizAnswerModeFor,
 	quizAwaitingStart,
+	quizTimerUnavailableReason,
 	slideAppearanceFor,
 	slideAcceptsSubmissions,
 	slideMediaIsInteractionArea,
@@ -329,6 +330,12 @@ export function PresenterSlideView({
 	// the timer control below starts it rather than restarting it.
 	const awaitingStart = quizAwaitingStart(slide, pres);
 	const timerControl = quizTimerControlFor(awaitingStart);
+	// Why the timer control cannot be used right now, through the same answer
+	// the endpoint refuses with (REQ227): a presenter-paced deck opens questions
+	// only while live, so the control is drawn disabled with that reason rather
+	// than offering a start the server turns away.
+	const timerUnavailable = quizTimerUnavailableReason(pres);
+	const timerHint = timerUnavailable ?? timerControl.hint;
 
 	const {
 		canControl,
@@ -498,10 +505,15 @@ export function PresenterSlideView({
 				{slide.type === "quiz" && (
 					<div className={`mt-4 flex flex-col gap-2 ${placement.items}`}>
 						{/* A question waiting at go-live has no countdown yet
-						    (REQ226); the room is told whose move it is instead. */}
+						    (REQ226); the room is told whose move it is instead —
+						    unless the presenter has also closed it, where starting
+						    the timer would not reopen it, so the room reads what
+						    every phone reads: that it is closed. */}
 						{awaitingStart ? (
 							<p className="text-sm font-semibold text-text-muted">
-								{dict.quizWaitingToStart}
+								{participationOpen
+									? dict.quizWaitingToStart
+									: dict.participationClosed}
 							</p>
 						) : (
 							<QuizTimer
@@ -517,14 +529,22 @@ export function PresenterSlideView({
 									type="button"
 									// Starting is the one thing left to do on a waiting
 									// question, so it wears the primary action; a restart
-									// is a correction and stays the quiet link it was.
+									// is a correction and stays the quiet link it was. A
+									// waiting question the presenter has closed is not
+									// waiting on this, so it goes quiet too.
 									className={
-										awaitingStart
+										awaitingStart && participationOpen
 											? "btn-primary inline-flex items-center gap-2"
-											: "text-xs text-text-muted hover:text-text underline"
+											: "text-xs text-text-muted hover:text-text underline aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:text-text-muted"
 									}
-									onClick={() => onRestartTimer(slide.id)}
-									title={timerControl.hint}
+									// Disabled with its reason, never hidden (ADR-0025) —
+									// and `aria-disabled` rather than `disabled`, so the
+									// control keeps focus and the reason stays reachable.
+									aria-disabled={timerUnavailable !== null}
+									onClick={() => {
+										if (timerUnavailable === null) onRestartTimer(slide.id);
+									}}
+									title={timerHint}
 									aria-describedby={`restart-timer-hint-${slide.id}`}
 								>
 									{awaitingStart && <Play size={16} aria-hidden="true" />}
@@ -534,7 +554,7 @@ export function PresenterSlideView({
 								    neither every screen reader nor a touch screen. Outside
 								    the button, so the name stays the label. */}
 								<span id={`restart-timer-hint-${slide.id}`} className="sr-only">
-									{timerControl.hint}
+									{timerHint}
 								</span>
 							</>
 						)}

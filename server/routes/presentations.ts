@@ -110,6 +110,7 @@ import {
 	getSlideResults,
 	isAnswerDeletionRefusal,
 	isSegmentRefusal,
+	isTimerRefusal,
 	isVoteRefusal,
 	listPresentations,
 	listPresentationsSharedWith,
@@ -1187,6 +1188,11 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 			const auth = await requireEdit(request, params.id);
 			if (auth instanceof Response) return auth;
 			const updated = await restartSlideTimer(params.id, body.slideId);
+			// A presenter-paced deck opens questions only while live (REQ227).
+			if (isTimerRefusal(updated)) {
+				set.status = 409;
+				return { error: updated.reason, refused: updated.refused };
+			}
 			if (!updated) {
 				set.status = 404;
 				return { error: "Not found" };
@@ -1201,7 +1207,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Slides"],
 				summary: "Start or restart a slide's question timer",
 				description:
-					"Opens the slide's question, starting or restarting the countdown a quiz slide runs on (REQ057). A timed quiz question that is on screen when the deck goes live is not opened by going live — it waits for this call, which the shared screen offers as Start timer (REQ226). Arriving at a slide opens its question automatically and *keeps* that instant however often the presenter pages back, so this is the deliberate way to hand the room a fresh window after a mis-navigation. The fresh window is for participants who have not answered yet: every answer already given stands **with the points it earned**, because each is timed against the window it was given in (REQ217), and the one-answer rule still refuses a second answer. Use `reset` to clear votes. Requires `Authorization: Bearer <creatorToken>`.",
+					"Opens the slide's question, starting or restarting the countdown a quiz slide runs on (REQ057). A timed quiz question that is on screen when the deck goes live is not opened by going live — it waits for this call, which the shared screen offers as Start timer (REQ226). Arriving at a slide opens its question automatically and *keeps* that instant however often the presenter pages back, so this is the deliberate way to hand the room a fresh window after a mis-navigation. The fresh window is for participants who have not answered yet: every answer already given stands **with the points it earned**, because each is timed against the window it was given in (REQ217), and the one-answer rule still refuses a second answer. Use `reset` to clear votes. On a presenter-paced deck that is not live — a draft, or an ended deck — the call is refused with `409` and `refused: \"presentation-not-live\"` and opens nothing (REQ227): a window opened then would be dropped at go-live while every connected phone went on counting it down. A survey deck is unaffected. Requires `Authorization: Bearer <creatorToken>`.",
 				security: [{ bearerAuth: [] }],
 			},
 		},

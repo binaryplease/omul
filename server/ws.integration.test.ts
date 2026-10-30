@@ -482,6 +482,8 @@ describe("WebSocket integration", () => {
 			startedAt: started.sessionStartedAt,
 			slideIndex: 0,
 			slideId: "s1",
+			// And the opening stamps the deck went live with (REQ227).
+			slideStartedAt: started.slideStartedAt,
 		});
 		expect(typeof env.data.startedAt).toBe("string");
 
@@ -607,6 +609,51 @@ describe("WebSocket integration", () => {
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
+	});
+
+	test("presentation.started tells the room a draft's leftover stamps were dropped (REQ227)", async () => {
+		// A deck stored with stamps from a draft — navigation before REQ227, or a
+		// timer started in a draft — and a phone that loaded it: the frame must
+		// carry the server's stamps whole, or the phone keeps counting down a
+		// window the server dropped at go-live.
+		const created = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "WS stale stamps",
+				slides: [
+					{
+						id: "qz",
+						type: "quiz",
+						question: "Closest to the sun?",
+						timeLimit: 30,
+						options: [
+							{ id: "mercury", text: "Mercury", isCorrect: true },
+							{ id: "mars", text: "Mars" },
+						],
+					},
+				],
+			}),
+		});
+		expect(created.status).toBe(201);
+		const pres = (await created.json()) as { id: string; creatorToken: string };
+		const { createStore } = await import("./db");
+		const { StoredPresentationSchema } = await import("./schemas");
+		const store = createStore("presentations", StoredPresentationSchema);
+		await store.update(pres.id, {
+			slideStartedAt: { qz: new Date(Date.now() - 10_000).toISOString() },
+		});
+
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		const env = await viewer.waitFor("presentation.started");
+		expect(env.data.slideStartedAt).toEqual({});
+
+		await viewer.close();
 	});
 
 	test("slide.changed carries the new slide payload", async () => {

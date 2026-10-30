@@ -16,6 +16,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PresentationSchema } from "../../server/schemas";
 import type { Presentation, Slide } from "../types";
+import { QUIZ_TIMER_NOT_LIVE_REASON, quizTimerUnavailableReason } from "../types";
 import {
 	PresenterSlideView,
 	quizTimerControlFor,
@@ -330,6 +331,69 @@ describe("a quiz question waiting at go-live (REQ226)", () => {
 		expect(quizTimerControlFor(false).confirmation).toBe(
 			"Question timer restarted",
 		);
+	});
+
+	test("one the presenter has also closed says closed, as the phones do", () => {
+		// Starting the timer does not reopen a closed slide, so "waiting" would
+		// promise the room something that will not come.
+		const markup = sharedScreen(
+			SELECT_QUIZ,
+			waiting({ closedSlideIds: ["q1"] }),
+			SELECT_TALLY,
+		);
+		expect(markup).toContain("The presenter has closed this question");
+		expect(markup).not.toContain("Waiting for the presenter to start");
+		expect(markup).not.toContain("btn-primary inline-flex");
+	});
+});
+
+describe("the timer control before the deck is live (REQ227)", () => {
+	const draft = (overrides: Record<string, unknown> = {}) =>
+		PresentationSchema.parse({
+			id: "deck",
+			code: "123456",
+			title: "Quiz round",
+			slides: [SELECT_QUIZ],
+			status: "draft",
+			createdAt: "2026-10-30T09:00:00.000Z",
+			...overrides,
+		}) as Presentation;
+
+	test("is drawn disabled with its reason on a draft, never hidden", () => {
+		const markup = sharedScreen(SELECT_QUIZ, draft(), null);
+		expect(markup).toContain("Restart timer");
+		expect(markup).toContain('aria-disabled="true"');
+		expect(markup).toContain(`title="${QUIZ_TIMER_NOT_LIVE_REASON}"`);
+		expect(markup).toContain(
+			`<span id="restart-timer-hint-q1" class="sr-only">${QUIZ_TIMER_NOT_LIVE_REASON}</span>`,
+		);
+	});
+
+	test("is disabled on an ended deck too", () => {
+		const markup = sharedScreen(
+			SELECT_QUIZ,
+			liveDeck(SELECT_QUIZ, OVER, { status: "ended" }),
+			SELECT_TALLY,
+		);
+		expect(markup).toContain('aria-disabled="true"');
+	});
+
+	test("stays usable on a live deck and on a survey draft", () => {
+		const live = sharedScreen(SELECT_QUIZ, liveDeck(SELECT_QUIZ, OVER), SELECT_TALLY);
+		expect(live).toContain('aria-disabled="false"');
+		const survey = sharedScreen(SELECT_QUIZ, draft({ mode: "survey" }), null);
+		expect(survey).toContain('aria-disabled="false"');
+		expect(survey).not.toContain(QUIZ_TIMER_NOT_LIVE_REASON);
+	});
+
+	test("the reason is the one the endpoint refuses with", () => {
+		expect(quizTimerUnavailableReason({ status: "draft", mode: "live" })).toBe(
+			QUIZ_TIMER_NOT_LIVE_REASON,
+		);
+		expect(quizTimerUnavailableReason({ status: "live", mode: "live" })).toBeNull();
+		expect(
+			quizTimerUnavailableReason({ status: "draft", mode: "survey" }),
+		).toBeNull();
 	});
 });
 

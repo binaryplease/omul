@@ -119,6 +119,15 @@ function mutations(deckId: string, slideId: string) {
 				method: "POST",
 				headers,
 			}),
+		// Right after `start`: the timer opens questions only on a live deck
+		// (REQ227), and the calls run in this order, so `end` and `reset` below
+		// would otherwise leave it a draft to be refused on.
+		timer: (headers: Record<string, string>) =>
+			fetch(`${baseUrl}/api/presentations/${deckId}/timer`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json", ...headers },
+				body: JSON.stringify({ slideId }),
+			}),
 		end: (headers: Record<string, string>) =>
 			fetch(`${baseUrl}/api/presentations/${deckId}/end`, {
 				method: "POST",
@@ -158,12 +167,6 @@ function mutations(deckId: string, slideId: string) {
 				method: "POST",
 				headers: { "Content-Type": "application/json", ...headers },
 				body: JSON.stringify({ blanked: true }),
-			}),
-		timer: (headers: Record<string, string>) =>
-			fetch(`${baseUrl}/api/presentations/${deckId}/timer`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json", ...headers },
-				body: JSON.stringify({ slideId }),
 			}),
 		countdown: (headers: Record<string, string>) =>
 			fetch(`${baseUrl}/api/presentations/${deckId}/countdown`, {

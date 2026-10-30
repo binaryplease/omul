@@ -135,6 +135,7 @@ import {
 	quizAnswerModeFor,
 	quizDeadlineFor,
 	quizTimeLimitFor,
+	quizTimerUnavailableReason,
 	quizWindowNotYetOpened,
 	scoreQuizAnswer,
 	type Slide,
@@ -1491,6 +1492,22 @@ export async function setActiveSlide(
 }
 
 /**
+ * A timer start the deck's state turns away, and the sentence that explains it
+ * (REQ227) — shaped like {@link SegmentedRefusal}: a code the caller can branch
+ * on beside the words a person reads.
+ */
+export type TimerRefusal = { refused: "presentation-not-live"; reason: string };
+
+/** Whether a timer start answered with a stated refusal rather than a deck. */
+export function isTimerRefusal(result: unknown): result is TimerRefusal {
+	return (
+		typeof result === "object" &&
+		result !== null &&
+		(result as TimerRefusal).refused === "presentation-not-live"
+	);
+}
+
+/**
  * Reopen one slide's question, restarting its countdown (REQ057) — the
  * presenter's way back from a mis-navigation that burned a quiz question's
  * window, and from a room that was not ready when the clock started. It is
@@ -1506,6 +1523,12 @@ export async function setActiveSlide(
  * the vote), so moving the slide's stamp re-times nobody, and the one-answer
  * rule keeps whoever already answered from answering again. Clearing the
  * room's answers is what `reset` is for.
+ *
+ * Refused on a presenter-paced deck that is not live (REQ227), with the reason
+ * {@link quizTimerUnavailableReason} states: a window opened in a draft would
+ * be dropped at go-live, and every phone that was told about it would go on
+ * counting down a question the server treats as waiting. A survey deck keeps
+ * the timer it has always had (REQ003).
  */
 export async function restartSlideTimer(
 	presentationId: string,
@@ -1516,6 +1539,17 @@ export async function restartSlideTimer(
 
 	const slides = pres.slides as Slide[];
 	if (!slides.some((slide) => slide.id === slideId)) return null;
+
+	const unavailable = quizTimerUnavailableReason({
+		status: pres.status as string | undefined,
+		mode: pres.mode as string | undefined,
+	});
+	if (unavailable) {
+		return {
+			refused: "presentation-not-live",
+			reason: unavailable,
+		} satisfies TimerRefusal;
+	}
 
 	// Unconditional, unlike arriving at a slide: reopening *is* the decision, so
 	// there is no already-opened case to leave standing.
@@ -1694,12 +1728,18 @@ export async function startPresentation(presentationId: string) {
 		// on the first one. It names that slide by id as well: a phone's copy of
 		// the deck was read before any edit made while the deck was not live, so
 		// after the old first slide was deleted the index alone pointed it at a
-		// slide the deck no longer has.
+		// slide the deck no longer has. The deck's opening stamps travel with it
+		// too (REQ227), whole: going live from a draft drops any it carried, and a
+		// phone or second screen that loaded the draft would otherwise go on
+		// counting down a window the server no longer holds — showing a countdown
+		// every tap of which is refused, or "Time's up" on a question that is
+		// waiting to be started.
 		broadcastToPresentation(presentationId, "presentation.started", {
 			presentationId,
 			startedAt: sessionStartedAt,
 			slideIndex: 0,
 			slideId: first?.id ?? null,
+			slideStartedAt: slideStartedAtIn(updated),
 		});
 		if (opened && first) {
 			broadcastToPresentation(presentationId, "slide.started", {
