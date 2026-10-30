@@ -2535,7 +2535,7 @@ the endpoint hands out nobody else's.
 | `slides[].optionId` / `answer` | what they picked, or what they typed (REQ055). Both keys are always emitted and only one is ever filled: an option id is not a typed answer, and a client rendering "you answered X" must not have to guess which it holds |
 | `slides[].isCorrect` / `elapsedMs` | whether it was right, and how long they took — explicit `null` when they did not answer; a `false` for `isCorrect` would claim they answered and got it wrong |
 | `slides[].points` | what that answer scored (`0` when unanswered) |
-| `entryId` / `label` | the one-way handle their row is named by on the deck's leaderboard (REQ059), and what that row is called on screen. Always present, even before they have scored, so a client can match its own row the moment they do |
+| `entryId` / `label` | the one-way handle their row is keyed by on the deck's leaderboard (REQ059), and what that row is called on screen — their stated name on a deck that asks for one (REQ218), the derived `Player …` otherwise. Always present, even before they have scored, so a client can match its own row the moment they do |
 | `rank` / `rankedCount` | their place on that board and how many participants are ranked — `rank` is an explicit `null` until they have answered something, because unranked is a standing too and a `0` would read as a place they hold |
 
 Both surfaces render the countdown from the same descriptor
@@ -2567,7 +2567,9 @@ an answer lands.
 Because scores are **derived from the deck as it stands now**, two different
 things move a board, and both re-broadcast every leaderboard slide in the deck
 (`broadcastStandings`): an **answer** landing on a quiz question, and a **PATCH**
-that changes what counts as correct. Each is a change to a *different* slide from
+that changes what counts as correct. Two more re-broadcast it because they change
+what a row is *called* (REQ218): a participant **stating or correcting a name**,
+and a PATCH that flips `requireParticipantName`. Each is a change to a *different* slide from
 the board that reports it, so neither would reach a participant's phone
 otherwise. A **restarted question window** (`POST /:id/timer`) moves no score —
 every answer is timed against the window it was given in (REQ217) — so it
@@ -2592,8 +2594,8 @@ board on.
 | `totalVotes` | always `0` — a board collects nothing, and says so rather than omitting the key |
 | `entries[]` | the top `size` rows, each `{ rank, entryId, label, totalPoints, correctCount, answeredCount }` |
 
-**Nobody is named, and the size caps the view, not the ranking.** Two decisions
-carry the slice:
+**No participant id is on it, and the size caps the view, not the ranking.** Two
+decisions carry the slice:
 
 - A row is named by `entryId`, a truncated SHA-256 of `presentationId:participantId`
   — never the participant id itself. That id *is* the participant's credential
@@ -2601,9 +2603,16 @@ carry the slice:
   payload is the most-watched surface in the product; publishing the room's ids
   would hand anyone the means to answer as anyone. The digest is scoped by
   presentation, so two boards cannot be joined to follow one person between
-  decks. `label` is derived from the handle (`Player 3F9A2C`) so a room has
-  something to read out loud — no participant is asked to register or pick a
-  nickname, because no requirement asks for one.
+  decks. `label` is what the row is called. On a deck that asks for a name on
+  joining (REQ076) it is the name the row's holder stated, latest spelling
+  (REQ218); for a participant who stated none, and on every deck that does not
+  ask, it is derived from the handle (`Player 3F9A2C`) so a room has something
+  to read out loud. The name rides `label` and nothing else — no participant id,
+  no stated-at time — only on the `size` rows the payload carries, and only while
+  `requireParticipantName` is on: turning the switch off takes the names off the
+  board even though the deck still holds them for its exports. This is the one
+  place a stated name reaches the audience, and it is a ranking rather than a
+  roster: a room that plays under names is shown the standings under them.
 - Everybody who gave a standing answer is ranked, including a participant who
   scored nothing; only the *display* is cut at `size`. That is what lets a
   participant outside the top five be told "4th of 31" on their own screen —
@@ -3283,9 +3292,10 @@ wrote the thing: the room stated these names, and the deck's authors wrote those
 comments.
 
 Two things the roster is explicitly **not**: it does not re-point the leaderboard
-(REQ059 names its rows by a one-way derived handle on purpose, and that stays),
-and it does not name the author of a Q&A question or a chat message — both of
-those channels stay anonymous to the room.
+(REQ059 keys its rows by a one-way derived handle on purpose, and that stays —
+REQ218 only *labels* a projected row with its holder's stated name, see
+**Leaderboard slide**), and it does not name the author of a Q&A question or a
+chat message — both of those channels stay anonymous to the room.
 
 ## Signed-in participants (REQ134)
 

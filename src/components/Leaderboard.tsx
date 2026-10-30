@@ -15,12 +15,15 @@ import { LEADERBOARD_DEFAULT_SIZE, leaderboardEntryLabel } from "../types";
 // on nothing that file owns: only on the board payload and the label helper
 // from the schema.
 //
-// **Nobody is named.** Every row carries a one-way handle the server derived
-// from a participant id, never the id itself — no catalog entry asks
-// participants to register or pick a nickname, so the board ranks the identity
-// the system already has and calls it something a room can read out loud. The
-// one person who learns which row is theirs is the person holding that id, and
-// they learn it from their own scorecard.
+// **No participant id is on it.** Every row carries a one-way handle the server
+// derived from a participant id, never the id itself, and the reader's own row
+// is matched by that handle, which they learn from their own scorecard. What a
+// row is *called* is the server's too: on a deck that asks for a name on joining
+// (REQ076) it is the name its holder stated, latest spelling (REQ218); a
+// participant who stated none, and every row of a deck that never asks, keeps the
+// derived "Player 3F9A2C" a room can still read out loud. A stated name is up to
+// 80 characters of anything, emoji included, so the label is drawn to truncate
+// on a phone and on the projector alike rather than push the score off the row.
 
 /** One row of the standings, as the results endpoint reports it. */
 export type LeaderboardRow = {
@@ -28,6 +31,7 @@ export type LeaderboardRow = {
 	rank: number;
 	/** The row's anonymous handle: what a client matches its own row against. */
 	entryId: string;
+	/** What the row is called — a stated name, or the handle's derived one. */
 	label: string;
 	totalPoints: number;
 	correctCount: number;
@@ -221,7 +225,12 @@ function LeaderboardRowView({
 							compact ? "text-sm" : "text-lg"
 						}`}
 					>
-						<span className="truncate">{row.label}</span>
+						{/* `min-w-0` because a flex item will not shrink below its content
+						    otherwise, and an 80-character name would then never truncate.
+						    The full name rides `title` for the one reader who can hover. */}
+						<span className="min-w-0 truncate" title={row.label}>
+							{row.label}
+						</span>
 						{isYou && (
 							<span className="flex-shrink-0 rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-void">
 								{labels.you}
@@ -339,8 +348,9 @@ export type LeaderboardStanding = {
 /**
  * Where the reader stands, on their own screen.
  *
- * The board is anonymous, so this is the only place a participant is told which
- * race they are in — and it is told to them wherever they sit in it, not only
+ * The board names rows by a label the reader may not recognise as theirs (a
+ * derived handle, or a name somebody else also typed), so this is the only place
+ * a participant is told which race they are in — and it is told to them wherever they sit in it, not only
  * when they make the projected top five. "14th of 31" is the whole point of
  * showing somebody a leaderboard they are not winning.
  *

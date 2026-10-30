@@ -93,6 +93,44 @@ async function createAndStart(slides: AnyJson[]): Promise<AnyJson> {
 	return pres;
 }
 
+/** The same, on a deck that asks the room for a name on joining (REQ076). */
+async function createAndStartNamed(slides: AnyJson[]): Promise<AnyJson> {
+	const res = await fetch(`${baseUrl}/api/presentations`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			title: "Named Leaderboard Test",
+			slides,
+			requireParticipantName: true,
+		}),
+	});
+	expect(res.status).toBe(201);
+	const pres = await res.json();
+	const startRes = await authed(
+		`/api/presentations/${pres.id}/start`,
+		pres.creatorToken,
+		{ method: "POST" },
+	);
+	expect(startRes.status).toBe(200);
+	return pres;
+}
+
+async function stateName(
+	presentationId: string,
+	participantId: string,
+	name: string,
+): Promise<void> {
+	const res = await fetch(
+		`${baseUrl}/api/presentations/${presentationId}/participant-name`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ participantId, name }),
+		},
+	);
+	expect(res.status).toBe(200);
+}
+
 async function answer(
 	presentationId: string,
 	participantId: string,
@@ -425,6 +463,95 @@ describe("leaderboard slide integration (REQ059)", () => {
 		expect(payload.quizCount).toBe(0);
 		expect(payload.maxPoints).toBe(0);
 		expect(payload.entries).toEqual([]);
+	});
+
+	// ── Stated names (REQ218) ──────────────────────────────────
+
+	test("on a deck that asks for names, a row is called what its holder stated", async () => {
+		const pres = await createAndStartNamed(quizDeck());
+		await stateName(pres.id, "named", "Jürgen 🦊 Müller-Lüdenscheidt");
+		await answer(pres.id, "named", "q1", "q1-right");
+		await answer(pres.id, "unnamed", "q1", "q1-wrong");
+
+		const entries = (await board(pres.id)).entries;
+		expect(entries[0].label).toBe("Jürgen 🦊 Müller-Lüdenscheidt");
+		// Somebody who stated nothing keeps the derived handle name.
+		expect(entries[1].label).toBe(
+			`Player ${entries[1].entryId.slice(0, 6).toUpperCase()}`,
+		);
+		// The phone's own card names the same row the same way, and the "You"
+		// match still runs on the handle, which a name does not move.
+		const card = await scorecard(pres.id, "named");
+		expect(card.entryId).toBe(entries[0].entryId);
+		expect(card.label).toBe("Jürgen 🦊 Müller-Lüdenscheidt");
+	});
+
+	test("a corrected name replaces the first one on the board", async () => {
+		const pres = await createAndStartNamed(quizDeck());
+		await stateName(pres.id, "typo", "Jurgen");
+		await answer(pres.id, "typo", "q1", "q1-right");
+		await stateName(pres.id, "typo", "Jürgen");
+		expect((await board(pres.id)).entries[0].label).toBe("Jürgen");
+	});
+
+	test("the name is the only thing about its holder the board gains", async () => {
+		const pres = await createAndStartNamed(quizDeck());
+		await stateName(pres.id, "secret-participant", "Ada");
+		await answer(pres.id, "secret-participant", "q1", "q1-right");
+
+		const payload = await board(pres.id);
+		const serialized = JSON.stringify(payload);
+		expect(serialized).not.toContain("secret-participant");
+		expect(serialized).not.toContain("participantId");
+		expect(Object.keys(payload.entries[0]).sort()).toEqual(
+			["answeredCount", "correctCount", "entryId", "label", "rank", "totalPoints"],
+		);
+	});
+
+	test("rows below the cut carry no name onto the public payload", async () => {
+		const pres = await createAndStartNamed(quizDeck({ leaderboardSize: 1 }));
+		await stateName(pres.id, "first", "Winner");
+		await stateName(pres.id, "second", "Runner-up");
+		await answer(pres.id, "first", "q1", "q1-right");
+		await answer(pres.id, "second", "q1", "q1-wrong");
+
+		const serialized = JSON.stringify(await board(pres.id));
+		expect(serialized).toContain("Winner");
+		expect(serialized).not.toContain("Runner-up");
+	});
+
+	test("turning names off takes them off the board, though the deck still holds them", async () => {
+		const pres = await createAndStartNamed(quizDeck());
+		await stateName(pres.id, "named", "Ada");
+		await answer(pres.id, "named", "q1", "q1-right");
+		expect((await board(pres.id)).entries[0].label).toBe("Ada");
+
+		const off = await authed(`/api/presentations/${pres.id}`, pres.creatorToken, {
+			method: "PATCH",
+			body: JSON.stringify({ requireParticipantName: false }),
+		});
+		expect(off.status).toBe(200);
+
+		const entry = (await board(pres.id)).entries[0];
+		expect(entry.label).toBe(`Player ${entry.entryId.slice(0, 6).toUpperCase()}`);
+		expect((await scorecard(pres.id, "named")).label).toBe(entry.label);
+	});
+
+	test("a deck that never asks for names keeps every row anonymous", async () => {
+		const pres = await createAndStart(quizDeck());
+		// Refused at the door, so there is nothing stored to leak.
+		const refused = await fetch(
+			`${baseUrl}/api/presentations/${pres.id}/participant-name`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ participantId: "somebody", name: "Ada" }),
+			},
+		);
+		expect(refused.status).toBe(400);
+		await answer(pres.id, "somebody", "q1", "q1-right");
+		const entry = (await board(pres.id)).entries[0];
+		expect(entry.label).toBe(`Player ${entry.entryId.slice(0, 6).toUpperCase()}`);
 	});
 
 	test("the board rides the all-results export like every other slide", async () => {

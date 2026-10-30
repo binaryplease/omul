@@ -179,7 +179,9 @@ async function authed(
 }
 
 /** One scored question and the board that reports on it (REQ059). */
-async function createLeaderboardDeck(): Promise<{
+async function createLeaderboardDeck(
+	settings: Record<string, unknown> = {},
+): Promise<{
 	id: string;
 	creatorToken: string;
 }> {
@@ -187,6 +189,7 @@ async function createLeaderboardDeck(): Promise<{
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
+			...settings,
 			title: "WS Leaderboard",
 			slides: [
 				{
@@ -828,6 +831,48 @@ describe("WebSocket integration", () => {
 			run: null,
 		});
 		expect(frames().length).toBe(framesBefore + 2);
+
+		await viewer.close();
+	});
+
+	test("a corrected name re-broadcasts the leaderboard (REQ218)", async () => {
+		// A row on a deck that asks for names is labelled with the stated one, so
+		// a participant fixing a typo after answering has to reach a board already
+		// on screen — nothing about the quiz moved, so nothing else would send it.
+		const pres = await createLeaderboardDeck({ requireParticipantName: true });
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		await viewer.waitFor("presentation.started");
+
+		const stateName = (name: string) =>
+			fetch(`${baseUrl}/api/presentations/${pres.id}/participant-name`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ participantId: "participant-1", name }),
+			});
+		expect((await stateName("Jurgen")).status).toBe(200);
+		await answerQuiz(pres.id, "participant-1", "mercury");
+		const before = await viewer.waitForCount(
+			"results.updated",
+			(candidate) =>
+				(candidate.data as { slideId: string }).slideId === "board" &&
+				(candidate.data.results as { entries: { label: string }[] }).entries[0]
+					?.label === "Jurgen",
+		);
+		expect(before).toBeTruthy();
+		viewer.received.length = 0;
+
+		expect((await stateName("Jürgen")).status).toBe(200);
+		const env = await viewer.waitForCount(
+			"results.updated",
+			(candidate) => (candidate.data as { slideId: string }).slideId === "board",
+		);
+		const board = env.data.results as { entries: { label: string }[] };
+		expect(board.entries[0].label).toBe("Jürgen");
 
 		await viewer.close();
 	});

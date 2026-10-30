@@ -128,7 +128,7 @@ Prose outside the markers is preserved.
 | [REQ108.md](requirements/REQ108.md) | Session timer | Live Session | P2 | done | BR108 |
 | [REQ109.md](requirements/REQ109.md) | Blank the audience view | Live Session | P3 | done | BR109 |
 | [REQ110.md](requirements/REQ110.md) | Skip a slide | Deck & Slides | P3 | done | BR110 |
-| [REQ111.md](requirements/REQ111.md) | Description | — | — | — | — |
+| [REQ111.md](requirements/REQ111.md) | Open and close participation per slide | Live Session | P2 | done | BR111 |
 | [REQ112.md](requirements/REQ112.md) | Join code lifetime | Access & Sharing | P3 | deferred | BR112 |
 | [REQ113.md](requirements/REQ113.md) | Insights over collected answers | Results & Export | P2 | pending | BR113 |
 | [REQ114.md](requirements/REQ114.md) | Group free-text answers | Results & Export | P2 | in-progress | BR114 |
@@ -225,8 +225,9 @@ Prose outside the markers is preserved.
 | [REQ215.md](requirements/REQ215.md) | A running quiz question's per-option counts must not reach a client that cannot edit the deck, on the results endpoints or the results broadcast | Quiz & Scoring | P2 | pending | internal |
 | [REQ216.md](requirements/REQ216.md) | When a quiz question's window ends, every connected participant's phone must switch to the revealed results without a reload | Quiz & Scoring | P1 | done | internal |
 | [REQ217.md](requirements/REQ217.md) | Restarting a quiz question's timer must leave every answer already given with the points it earned in its own window | Quiz & Scoring | P1 | done | internal |
+| [REQ218.md](requirements/REQ218.md) | A leaderboard row must be called by its holder's stated name on a deck that asks for names | Quiz & Scoring | P1 | done | internal |
 | [REQ245.md](requirements/REQ245.md) | A slide's body text can be edited directly on the editor canvas, as its question already can | Deck & Slides | P2 | pending | internal |
 | [REQ246.md](requirements/REQ246.md) | Account deletion requires the account's password whatever the session's age | Accounts & Workspaces | P1 | done | internal |
 
-_209 entries — one row per file in `requirements/`._
+_210 entries — one row per file in `requirements/`._
 <!-- index:end -->

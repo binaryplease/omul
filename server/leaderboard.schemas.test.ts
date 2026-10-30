@@ -138,6 +138,47 @@ describe("leaderboardEntryLabel (REQ059)", () => {
 	test("a handle that never arrived still reads as a row, not as a blank", () => {
 		expect(leaderboardEntryLabel("")).toBe("Player");
 	});
+
+	test("a stated name is what the row is called (REQ218)", () => {
+		expect(
+			leaderboardEntryLabel("3f9a2c7b1d4e6f08", "Jürgen 🦊 Müller-Lüdenscheidt"),
+		).toBe("Jürgen 🦊 Müller-Lüdenscheidt");
+	});
+
+	test("no stated name keeps the derived one (REQ218)", () => {
+		expect(leaderboardEntryLabel("3f9a2c7b1d4e6f08", null)).toBe("Player 3F9A2C");
+		expect(leaderboardEntryLabel("3f9a2c7b1d4e6f08", "")).toBe("Player 3F9A2C");
+	});
+});
+
+describe("rankLeaderboardEntries with stated names (REQ218)", () => {
+	test("labels the rows that have a name and leaves the others derived", () => {
+		const ranked = rankLeaderboardEntries(
+			[totals("aaaa", 900), totals("bbbb", 400)],
+			new Map([["bbbb", "Ada"]]),
+		);
+		expect(ranked.map((entry) => entry.label)).toEqual([
+			leaderboardEntryLabel("aaaa"),
+			"Ada",
+		]);
+	});
+
+	test("a name changes the label and nothing else — not the handle, not the order", () => {
+		// Two level rows keep their handle order whatever their holders typed, so
+		// a name corrected mid-session does not reshuffle the projected board.
+		const ranked = rankLeaderboardEntries(
+			[totals("bbbb", 500), totals("aaaa", 500)],
+			new Map([
+				["aaaa", "Zoe"],
+				["bbbb", "Adam"],
+			]),
+		);
+		expect(ranked.map((entry) => entry.entryId)).toEqual(["aaaa", "bbbb"]);
+		expect(ranked.map((entry) => entry.label)).toEqual(["Zoe", "Adam"]);
+		expect(Object.keys(ranked[0]).sort()).toEqual(
+			["answeredCount", "correctCount", "entryId", "label", "rank", "totalPoints"],
+		);
+	});
 });
 
 describe("leaderboardSizeFor (REQ059)", () => {

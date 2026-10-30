@@ -3757,7 +3757,9 @@ export function scoreQuizAnswer(answer: {
 //    a digest of the id (see the service's `leaderboardEntryIdFor`), and this
 //    module turns that digest into something a room can read out loud. Nobody
 //    is asked to register or pick a nickname to compete: the system ranks the
-//    identity it already has.
+//    identity it already has. On a deck that asks for names (REQ076) the row
+//    wears the name its holder stated instead (REQ218) — a label on the same
+//    handle, so the handle, the order and the "You" match do not move.
 //  - **Everyone is ranked; only the top is shown.** The slide's size caps the
 //    projected board, not the standings behind it, so a participant outside the
 //    top five still learns they are 14th of 31 on their own phone. Cutting the
@@ -3777,25 +3779,35 @@ export type LeaderboardTotals = {
 export type LeaderboardEntry = LeaderboardTotals & {
 	/** 1-based, with ties sharing a place — see {@link rankLeaderboardEntries}. */
 	rank: number;
-	/** What the row is called on screen, derived from {@link entryId}. */
+	/**
+	 * What the row is called on screen: the stated name on a deck that asks for
+	 * one, the name derived from {@link entryId} otherwise — see
+	 * {@link leaderboardEntryLabel}.
+	 */
 	label: string;
 };
 
 /**
- * What a leaderboard row is called (REQ059).
+ * What a leaderboard row is called (REQ059, REQ218).
  *
- * Derived from the row's own handle so it is stable for as long as the handle
- * is — the same participant keeps the same name across every refresh of the
- * board, and across the leaderboard slides of one deck — while naming nothing
- * about the person behind it. No catalog entry asks participants to register or
- * type a nickname, so inventing one here would be inventing a product; a
- * derived name is what an anonymous competition can honestly show.
+ * The name its holder stated, when the deck asked for one (REQ076) and they
+ * gave it — the name the room already called them by in the organizer's
+ * roster, and the one somebody reading the board looks for. The caller decides
+ * whether there is a name to pass: only a deck whose switch is on hands one in,
+ * so a name stored before the switch was turned off stays off the board.
  *
- * Six hex characters, upper-cased: enough that two rows on a projected board
- * are not called the same thing, short enough to be read out ("Player 3F9A2C
- * takes it").
+ * Otherwise the label is derived from the row's own handle so it is stable for
+ * as long as the handle is — the same participant keeps the same name across
+ * every refresh of the board, and across the leaderboard slides of one deck —
+ * while naming nothing about the person behind it. Six hex characters,
+ * upper-cased: enough that two rows on a projected board are not called the
+ * same thing, short enough to be read out ("Player 3F9A2C takes it").
  */
-export function leaderboardEntryLabel(entryId: string): string {
+export function leaderboardEntryLabel(
+	entryId: string,
+	statedName: string | null = null,
+): string {
+	if (statedName) return statedName;
 	const handle = entryId.slice(0, 6).toUpperCase();
 	return handle ? `Player ${handle}` : "Player";
 }
@@ -3815,9 +3827,14 @@ export function leaderboardEntryLabel(entryId: string): string {
  * row takes the place its position implies (1, 2, 2, 4). Two people who scored
  * the same thing are equal — a board that broke that tie by arrival order would
  * be reporting a race that did not happen.
+ *
+ * `statedNames` maps a row's handle to the name its holder stated (REQ218) and
+ * changes the label and nothing else: the order stays the handle's, so a name
+ * corrected mid-session does not reshuffle two level rows on the projector.
  */
 export function rankLeaderboardEntries(
 	totals: LeaderboardTotals[],
+	statedNames: ReadonlyMap<string, string> = new Map(),
 ): LeaderboardEntry[] {
 	const ordered = [...totals].sort(
 		(left, right) =>
@@ -3834,7 +3851,10 @@ export function rankLeaderboardEntries(
 		return {
 			...standing,
 			rank: placedRank,
-			label: leaderboardEntryLabel(standing.entryId),
+			label: leaderboardEntryLabel(
+				standing.entryId,
+				statedNames.get(standing.entryId) ?? null,
+			),
 		};
 	});
 }
@@ -4824,6 +4844,11 @@ export function recentChatMessages<EntryShape extends ChatMessageEntry>(
 //    tally, and a list of names is not one. The deck's **results link** (REQ098)
 //    does not lift that — it is a delegation of the *numbers*, and handing over
 //    a roster of who was in the room is a decision nobody made by minting it.
+//    **One exception, and it is a ranking rather than a roster** (REQ218): a
+//    leaderboard slide's projected rows wear their holders' stated names, so a
+//    competition the room plays under names is shown under them. Only the rows
+//    the slide puts on the board, only the name (never the participant id or
+//    when it was stated), and only while the deck's switch is on.
 
 /**
  * The longest a stated name may be, in characters.
@@ -8001,10 +8026,12 @@ export type StoredChatMessage = z.infer<typeof StoredChatMessageSchema>;
  * nobody, or to nobody's session. One row per pair — stating a name again
  * corrects it in place.
  *
- * The name never leaves the server except to a caller who can edit the deck:
- * neither {@link PresentationSchema} nor any tally declares it, so there is no
- * projection for a future read site to forget, exactly as with the comment
- * threads next door.
+ * The name never leaves the server except to a caller who can edit the deck,
+ * and as the label of a projected leaderboard row while the deck asks for names
+ * (REQ218, see {@link leaderboardEntryLabel}): {@link PresentationSchema}
+ * does not declare it, and no tally carries it as a field of its own, so there
+ * is no projection for a future read site to forget, exactly as with the
+ * comment threads next door.
  */
 export const StoredParticipantNameSchema = z.object({
 	id: z.string(),

@@ -1233,6 +1233,9 @@ export async function updatePresentation(
 	// is the only place the frame goes out from.
 	if ("requireParticipantName" in changes) {
 		broadcastParticipantNameSetting(id, updated);
+		// The switch also decides what a leaderboard row is called (REQ218), so a
+		// board on screen has to drop or pick up the names with it.
+		await broadcastStandings(id);
 	}
 	// REQ083 — whether a phone offers another pass at the end of the deck is
 	// drawn from the deck it holds, so the switch has to reach the room for the
@@ -4020,7 +4023,12 @@ export async function stateParticipantName(
 	if (!participantId) return null;
 
 	const stored = await setParticipantName(presentationId, participantId, name);
-	return stored ? { name: stored.name } : null;
+	if (!stored) return null;
+	// A leaderboard row is labelled with this name (REQ218), so a correction has
+	// to reach a board already on screen. Coalesced like an answer, so a room
+	// stating its names together costs one recount per window.
+	await broadcastStandings(presentationId);
+	return { name: stored.name };
 }
 
 /**
@@ -4097,6 +4105,11 @@ type ScoredQuizAnswer = {
 	 * (REQ083) — which on a deck without repeat passes is the participant id.
 	 */
 	respondentId: string;
+	/**
+	 * The device that answered, whatever the pass — the key a stated name is
+	 * held under (REQ076), which the leaderboard labels a row with (REQ218).
+	 */
+	participantId: string;
 	/**
 	 * What they submitted, as it is stored: an option id on a select-answer
 	 * question, the text they wrote on a typed one (REQ055).
@@ -4224,6 +4237,7 @@ function scoreQuizSlide(
 		const isCorrect = isCorrectQuizAnswer(slide, submitted);
 		answers.push({
 			respondentId: respondentIdOf(quizVote),
+			participantId: String(quizVote.participantId ?? ""),
 			submitted,
 			answerMode,
 			isCorrect,
@@ -4490,8 +4504,10 @@ function leaderboardEntryIdFor(
 function rankQuizDeck(
 	presentationId: string,
 	deck: ScoredQuizDeck,
+	statedNames: Record<string, string>,
 ): LeaderboardEntry[] {
 	const totals = new Map<string, LeaderboardTotals>();
+	const namesByEntry = new Map<string, string>();
 	for (const { scored } of deck) {
 		for (const answer of scored.answers) {
 			if (!answer.respondentId) continue;
@@ -4499,6 +4515,8 @@ function rankQuizDeck(
 				presentationId,
 				answer.respondentId,
 			);
+			const statedName = statedNames[answer.participantId];
+			if (statedName) namesByEntry.set(entryId, statedName);
 			const running = totals.get(entryId) ?? {
 				entryId,
 				totalPoints: 0,
@@ -4511,7 +4529,26 @@ function rankQuizDeck(
 			totals.set(entryId, running);
 		}
 	}
-	return rankLeaderboardEntries([...totals.values()]);
+	return rankLeaderboardEntries([...totals.values()], namesByEntry);
+}
+
+/**
+ * The names a deck's leaderboard rows may wear, `participantId` → name
+ * (REQ218) — empty unless the deck asks the room for names (REQ076).
+ *
+ * Behind the switch rather than behind "is anything stored", which is the
+ * difference from the exports: a deck whose organizer turned names off still
+ * holds the ones it collected, and the export keeps them because it is the
+ * organizer's record of the session. The board is public and projected, so
+ * turning the switch off has to take the names off it, and a deck that never
+ * asked does not even read the collection.
+ */
+async function leaderboardNamesFor(
+	presentationId: string,
+	pres: Record<string, unknown>,
+): Promise<Record<string, string>> {
+	if (!deckRequiresParticipantName(pres as ParticipantNameSettings)) return {};
+	return participantNameLookup(presentationId);
 }
 
 /**
@@ -4520,8 +4557,12 @@ function rankQuizDeck(
  * shows is a prefix of this ({@link leaderboardSizeFor}); what a participant is
  * told about themselves is their row in it, wherever it sits.
  */
-function leaderboardFrom(presentationId: string, deck: ScoredQuizDeck) {
-	const entries = rankQuizDeck(presentationId, deck);
+function leaderboardFrom(
+	presentationId: string,
+	deck: ScoredQuizDeck,
+	statedNames: Record<string, string>,
+) {
+	const entries = rankQuizDeck(presentationId, deck, statedNames);
 	return {
 		/** Quiz questions the standings are summed over. */
 		quizCount: deck.length,
@@ -4567,7 +4608,8 @@ export async function getParticipantScorecard(
 		pres,
 		storedResultsSource(presentationId),
 	);
-	const board = leaderboardFrom(presentationId, deck);
+	const statedNames = await leaderboardNamesFor(presentationId, pres);
+	const board = leaderboardFrom(presentationId, deck, statedNames);
 	const entryId = leaderboardEntryIdFor(presentationId, respondentId);
 	const standing = board.entries.find((entry) => entry.entryId === entryId);
 
@@ -4616,7 +4658,7 @@ export async function getParticipantScorecard(
 		 * a place they hold.
 		 */
 		entryId,
-		label: leaderboardEntryLabel(entryId),
+		label: leaderboardEntryLabel(entryId, statedNames[participantId] ?? null),
 		rank: standing?.rank ?? null,
 		rankedCount: board.rankedCount,
 		quizCount: slides.length,
@@ -4967,14 +5009,17 @@ async function aggregateSlideResults(
 		// after an answer lands — so the board updates by the same route
 		// everything else does.
 		//
-		// Anonymous by construction, and it has to be: this payload is public and
-		// unauthenticated. Every row is named by a one-way handle, so the board
-		// can be read from the back row without handing anybody the id that would
-		// let them answer as somebody else.
+		// No participant id reaches it, and it has to be so: this payload is
+		// public and unauthenticated. Every row is keyed by a one-way handle, so
+		// the board can be read from the back row without handing anybody the id
+		// that would let them answer as somebody else. On a deck that asks for
+		// names a row is *labelled* with the one its holder stated (REQ218) — the
+		// label and nothing more, and only on the rows the cut below keeps.
 		case "leaderboard": {
 			const board = leaderboardFrom(
 				presentationId,
 				await scoreQuizDeck(presentationId, pres, source),
+				await leaderboardNamesFor(presentationId, pres),
 			);
 			const size = leaderboardSizeFor(slide);
 			return {
