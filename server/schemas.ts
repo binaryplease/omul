@@ -4493,6 +4493,60 @@ export function quizQuestionIsRunning(
 }
 
 /**
+ * Whether **this caller** may be sent what a quiz question's room answered —
+ * its per-option counts and the correctness half of its scoring — rather than
+ * only how many answered (REQ215).
+ *
+ * The same gate the answer key passes (REQ056), on purpose and for the same
+ * reason: while a question is being scored, the answer most of the room picked
+ * *is* the answer, and a correct-answer count that moves when one more vote
+ * lands says whether that vote was right. A participant who answers under a
+ * fresh id and reads the next frame would otherwise have the key. So the result
+ * is withheld exactly while the key is — whenever {@link
+ * solutionVisibleToAudience} says no, which covers the running question
+ * ({@link quizQuestionIsRunning} implies it) and the one not opened yet alike.
+ *
+ * Only `canEdit` lifts it. The results link (REQ098) is a delegation of the
+ * tallies under every reveal mode, and authorizes no running question's answer
+ * key; this is that key by another route, so the link does not lift it either.
+ * Every other slide type is unaffected: nothing is scored on it.
+ */
+export function quizResultVisibleToCaller(
+	slide: {
+		id: string;
+		type?: SlideType | undefined;
+		timeLimit?: number | undefined;
+		resultsVisibility?: SlideResultsVisibility | undefined;
+	},
+	deck: SolutionRevealState,
+	caller: ResultsCaller,
+	now: number,
+): boolean {
+	if (slide.type !== "quiz") return true;
+	if (caller.canEdit) return true;
+	return solutionVisibleToAudience(slide, deck, now);
+}
+
+/**
+ * Whether a results payload is a quiz tally whose result is withheld from its
+ * reader (REQ215): it still says how many answered, and every option's `count`
+ * and the correctness half of `scoring` are an explicit `null`.
+ *
+ * Read off `scoring.correctCount`, which a quiz tally that is not withheld always
+ * carries as a number. Its own predicate rather than the whole-tally `withheld`
+ * marker ({@link isWithheldTally}): this tally *is* published — its answered
+ * count is the room's to watch — and every client that drops a withheld frame
+ * would otherwise drop the count with it.
+ */
+export function quizResultWithheld(results: unknown): boolean {
+	if (typeof results !== "object" || results === null) return false;
+	const tally = results as { type?: unknown; scoring?: unknown };
+	if (tally.type !== "quiz") return false;
+	if (typeof tally.scoring !== "object" || tally.scoring === null) return false;
+	return (tally.scoring as { correctCount?: unknown }).correctCount === null;
+}
+
+/**
  * The deck's slides as an audience may see them: every quiz question that is
  * not yet over loses the `isCorrect` marks on its options and, on a typed
  * question (REQ055), the accepted answers themselves — which are the answer

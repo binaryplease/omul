@@ -15,6 +15,8 @@
  *   - REQ217 — that an answer is timed against the window it was given in
  *   - REQ226 — that a timed question on screen at go-live waits, closed to
  *     answers and with its result withheld, until the presenter starts it
+ *   - REQ215 — who may be sent what the room answered while the question is
+ *     not over, and the one reading of the shape everyone else is sent
  */
 
 import { describe, expect, test } from "bun:test";
@@ -31,6 +33,8 @@ import {
 	quizDeadlineFor,
 	quizHasAnswerKey,
 	quizQuestionIsRunning,
+	quizResultVisibleToCaller,
+	quizResultWithheld,
 	quizSlidesWithoutAnswerKey,
 	quizRemainingMs,
 	quizTimeLimitFor,
@@ -646,5 +650,128 @@ describe("withSlideClosedAt (REQ111, REQ216)", () => {
 			qz: AT,
 		});
 		expect(stamps).toEqual({ other: AT });
+	});
+});
+
+describe("quizResultVisibleToCaller (REQ215)", () => {
+	const quiz = { id: "qz", type: "quiz" as const, timeLimit: 10 };
+	const running = {
+		status: "live",
+		mode: "presenter",
+		slideStartedAt: { qz: OPENED_AT },
+		revealedSlideIds: [],
+		closedSlideIds: [],
+	};
+	const during = OPENED_MS + 2_000;
+	const after = OPENED_MS + 10_000 + QUIZ_SUBMISSION_GRACE_MS + 1;
+
+	test("withholds from the audience while the question runs", () => {
+		expect(quizResultVisibleToCaller(quiz, running, {}, during)).toBe(false);
+	});
+
+	test("the editor reads it whenever", () => {
+		expect(
+			quizResultVisibleToCaller(quiz, running, { canEdit: true }, during),
+		).toBe(true);
+	});
+
+	test("the results link does not lift it", () => {
+		// The link delegates the tallies under every reveal mode, and authorizes no
+		// running question's answer key; the counts are that key by another route.
+		expect(
+			quizResultVisibleToCaller(quiz, running, { hasResultsLink: true }, during),
+		).toBe(false);
+	});
+
+	test("it is the room's once the window is over, revealed, or the deck ended", () => {
+		expect(quizResultVisibleToCaller(quiz, running, {}, after)).toBe(true);
+		expect(
+			quizResultVisibleToCaller(
+				quiz,
+				{ ...running, revealedSlideIds: ["qz"] },
+				{},
+				during,
+			),
+		).toBe(true);
+		expect(
+			quizResultVisibleToCaller(quiz, { ...running, status: "ended" }, {}, during),
+		).toBe(true);
+	});
+
+	test("a question not opened yet is withheld, like its key", () => {
+		expect(
+			quizResultVisibleToCaller(quiz, { ...running, slideStartedAt: {} }, {}, during),
+		).toBe(false);
+	});
+
+	test("withholds whenever quizQuestionIsRunning holds", () => {
+		// The gate is the solution's, which the running question implies; a check
+		// that the two cannot drift apart into a running question with a result.
+		for (const now of [OPENED_MS, during, OPENED_MS + 9_999]) {
+			expect(quizQuestionIsRunning(quiz, running, now)).toBe(true);
+			expect(quizResultVisibleToCaller(quiz, running, {}, now)).toBe(false);
+		}
+	});
+
+	test("every other slide type is unaffected", () => {
+		expect(
+			quizResultVisibleToCaller(
+				{ id: "mc", type: "multiple-choice" },
+				running,
+				{},
+				during,
+			),
+		).toBe(true);
+	});
+});
+
+describe("quizResultWithheld (REQ215)", () => {
+	const scoring = {
+		answeredCount: 2,
+		correctCount: 1,
+		totalPoints: 1500,
+		averagePoints: 750,
+		correctShare: 50,
+	};
+
+	test("reads the withheld quiz tally", () => {
+		expect(
+			quizResultWithheld({
+				type: "quiz",
+				options: [{ id: "a", count: null }],
+				scoring: {
+					...scoring,
+					correctCount: null,
+					totalPoints: null,
+					averagePoints: null,
+					correctShare: null,
+				},
+			}),
+		).toBe(true);
+	});
+
+	test("a published quiz tally is not withheld, nobody answering included", () => {
+		expect(quizResultWithheld({ type: "quiz", scoring })).toBe(false);
+		expect(
+			quizResultWithheld({
+				type: "quiz",
+				scoring: {
+					answeredCount: 0,
+					correctCount: 0,
+					totalPoints: 0,
+					averagePoints: null,
+					correctShare: null,
+				},
+			}),
+		).toBe(false);
+	});
+
+	test("the whole-tally marker, other slide types and non-tallies are not it", () => {
+		expect(quizResultWithheld({ type: "quiz", withheld: true })).toBe(false);
+		expect(
+			quizResultWithheld({ type: "multiple-choice", scoring: null }),
+		).toBe(false);
+		expect(quizResultWithheld(null)).toBe(false);
+		expect(quizResultWithheld("quiz")).toBe(false);
 	});
 });

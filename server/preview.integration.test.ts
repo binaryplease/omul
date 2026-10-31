@@ -408,6 +408,21 @@ describe("Preview mode and test votes integration (REQ103, REQ104)", () => {
 		expect(
 			audienceQuiz.options.every((option: AnyJson) => option.isCorrect === null),
 		).toBe(true);
+		// Nor what the room picked, nor how it scored (REQ215): the counts and the
+		// correctness half of the score are the key read off the room.
+		expect(
+			audienceQuiz.options.every((option: AnyJson) => option.count === null),
+		).toBe(true);
+		expect(audienceQuiz.scoring.correctCount).toBeNull();
+		expect(audienceQuiz.scoring.correctShare).toBeNull();
+		expect(audienceQuiz.scoring.answeredCount).toBe(
+			slideOf(payload, "qz").presenterResults.scoring.answeredCount,
+		);
+		expect(
+			slideOf(payload, "qz").presenterResults.options.every(
+				(option: AnyJson) => typeof option.count === "number",
+			),
+		).toBe(true);
 		const audienceTyped = slideOf(payload, "qz-typed").audienceResults;
 		expect(audienceTyped.typedAnswers.accepted).toBeNull();
 		expect(audienceTyped.typedAnswers.entries).toBeNull();

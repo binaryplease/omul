@@ -93,8 +93,8 @@ export type SegmentRow = {
 export type SegmentedView = {
 	/** The whole breakdown is kept from this reader. */
 	withheld: boolean;
-	/** Which of the two reasons it is, or `null` when it is not withheld. */
-	withheldReason: "reveal-mode" | "identifiable" | null;
+	/** Which of the reasons it is, or `null` when it is not withheld. */
+	withheldReason: "reveal-mode" | "identifiable" | "quiz-not-over" | null;
 	/** How many people a group needs before its answers are published. */
 	minRespondents: number;
 	segments: SegmentRow[];
@@ -113,7 +113,8 @@ export function readSegments(payload: any): SegmentedView {
 		withheld: payload?.withheld === true,
 		withheldReason:
 			payload?.withheldReason === "reveal-mode" ||
-			payload?.withheldReason === "identifiable"
+			payload?.withheldReason === "identifiable" ||
+			payload?.withheldReason === "quiz-not-over"
 				? payload.withheldReason
 				: null,
 		minRespondents:
@@ -165,6 +166,12 @@ export function segmentedWithheldReason(
 		// a list of what individual people wrote anonymous, so this breakdown is the
 		// organizer's alone whatever the deck publishes.
 		return "This slide's results list what each person answered, and no group is small enough — or large enough — to make that anonymous. Only the organizer can break these results down.";
+	}
+	if (withheldReason === "quiz-not-over") {
+		// Not the organizer's reveal setting either (REQ215): each group is one of
+		// the grouping question's options, counted, so it is that question's
+		// answer — and it waits for the question to end like the answer does.
+		return "This breakdown groups people by a quiz question that is not over yet, and how many picked each answer would give that answer away. It appears once the question is over.";
 	}
 	return "This breakdown is not published — the organizer has kept one of the two slides' results back.";
 }

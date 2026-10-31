@@ -337,7 +337,9 @@ describe("quiz competition integration", () => {
 
 	test("an empty results payload is well-formed before any answer lands", async () => {
 		const pres = await createAndStart();
-		const payload = await results(pres.id);
+		// The editor's read: the room's own withholds the score while the question
+		// runs (REQ215), which is pinned on its own below.
+		const payload = await results(pres.id, "qz", pres.creatorToken);
 		expect(payload.type).toBe("quiz");
 		expect(payload.totalVotes).toBe(0);
 		expect(payload.scoring.answeredCount).toBe(0);
@@ -358,10 +360,24 @@ describe("quiz competition integration", () => {
 		expect((await answer(pres.id, "p1", "mercury")).status).toBe(200);
 		expect((await answer(pres.id, "p2", "venus")).status).toBe(200);
 
-		const payload = await results(pres.id);
+		// The editor reads the score while the question runs…
+		const payload = await results(pres.id, "qz", pres.creatorToken);
 		expect(payload.scoring.answeredCount).toBe(2);
 		expect(payload.scoring.correctCount).toBe(1);
 		expect(payload.scoring.correctShare).toBe(50);
+		// …and the room reads how many answered and nothing of how they did
+		// (REQ215): a correct count read beside a vote of one's own is the key.
+		const audience = await results(pres.id);
+		expect(audience.scoring.answeredCount).toBe(2);
+		expect(audience.scoring.correctCount).toBe(null);
+		expect(audience.scoring.totalPoints).toBe(null);
+		expect(audience.scoring.averagePoints).toBe(null);
+		expect(audience.scoring.correctShare).toBe(null);
+		expect(audience.options.map((option: AnyJson) => option.count)).toEqual([
+			null,
+			null,
+			null,
+		]);
 
 		expect((await scorecard(pres.id, "p1")).totalPoints).toBeGreaterThanOrEqual(
 			QUIZ_CORRECT_POINTS,
@@ -406,7 +422,7 @@ describe("quiz competition integration", () => {
 		]);
 		await answer(pres.id, "p1", "mercury");
 
-		const payload = await results(pres.id);
+		const payload = await results(pres.id, "qz", pres.creatorToken);
 		expect(payload.scoring.answeredCount).toBe(1);
 		expect(payload.scoring.correctCount).toBe(0);
 		expect(payload.scoring.totalPoints).toBe(0);
@@ -442,7 +458,9 @@ describe("quiz competition integration", () => {
 		expect(
 			(await scorecard(pres.id, "p1")).totalPoints,
 		).toBeGreaterThanOrEqual(QUIZ_CORRECT_POINTS);
-		expect((await results(pres.id)).scoring.correctCount).toBe(1);
+		expect(
+			(await results(pres.id, "qz", pres.creatorToken)).scoring.correctCount,
+		).toBe(1);
 	});
 
 	test("an answer to an option the slide does not have is refused", async () => {
@@ -460,7 +478,7 @@ describe("quiz competition integration", () => {
 		expect((await answer(pres.id, "p1", "venus")).status).toBe(200);
 		expect((await answer(pres.id, "p1", "mercury")).status).toBe(400);
 
-		const payload = await results(pres.id);
+		const payload = await results(pres.id, "qz", pres.creatorToken);
 		expect(payload.totalVotes).toBe(1);
 		expect(payload.scoring.correctCount).toBe(0);
 		expect(
@@ -624,7 +642,7 @@ describe("quiz competition integration", () => {
 		expect(patch.status).toBe(200);
 
 		expect((await answer(pres.id, "p1", "mercury")).status).toBe(200);
-		const payload = await results(pres.id);
+		const payload = await results(pres.id, "qz", pres.creatorToken);
 		// The stale row is gone rather than sitting alongside the new one.
 		expect(payload.totalVotes).toBe(1);
 		expect(payload.scoring.answeredCount).toBe(1);

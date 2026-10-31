@@ -251,7 +251,7 @@ describe("typed quiz answers integration (REQ055)", () => {
 		expect((await answer(pres.id, "p3", "  ZURICH.  ")).status).toBe(200);
 		expect((await answer(pres.id, "p4", "Zurich, Switzerland")).status).toBe(200);
 
-		const payload = await results(pres.id);
+		const payload = await results(pres.id, "tq", pres.creatorToken);
 		expect(payload.scoring.answeredCount).toBe(4);
 		expect(payload.scoring.correctCount).toBe(4);
 	});
@@ -263,7 +263,7 @@ describe("typed quiz answers integration (REQ055)", () => {
 		// that awarded this would award the wrong year on the next question too.
 		expect((await answer(pres.id, "p2", "Zuric")).status).toBe(200);
 
-		const payload = await results(pres.id);
+		const payload = await results(pres.id, "tq", pres.creatorToken);
 		expect(payload.scoring.answeredCount).toBe(2);
 		expect(payload.scoring.correctCount).toBe(0);
 		expect((await scorecard(pres.id, "p1")).totalPoints).toBe(0);
@@ -277,7 +277,7 @@ describe("typed quiz answers integration (REQ055)", () => {
 			typedQuizSlide({ id: "tq", quizAnswers: [] }),
 		]);
 		expect((await answer(pres.id, "p1", "anything")).status).toBe(200);
-		const payload = await results(pres.id);
+		const payload = await results(pres.id, "tq", pres.creatorToken);
 		expect(payload.scoring.answeredCount).toBe(1);
 		expect(payload.scoring.correctCount).toBe(0);
 	});
@@ -527,11 +527,20 @@ describe("typed quiz answers integration (REQ055)", () => {
 		const audience = await results(pres.id);
 		expect(audience.typedAnswers.entries).toBe(null);
 		expect(audience.typedAnswers.accepted).toBe(null);
-		// The head count still reads, which is what a presenter watches for.
-		expect(audience.typedAnswers.distinctCount).toBe(1);
+		// The head count still reads, which is what a presenter watches for…
 		expect(audience.scoring.answeredCount).toBe(1);
+		// …and nothing that moves with what was typed (REQ215): a guess under a
+		// fresh id that leaves the distinct count alone is one somebody gave, and
+		// a correct count that rises says the guess was right.
+		expect(audience.typedAnswers.distinctCount).toBe(null);
+		expect(audience.scoring.correctCount).toBe(null);
+		expect(audience.scoring.totalPoints).toBe(null);
+		expect(audience.scoring.averagePoints).toBe(null);
+		expect(audience.scoring.correctShare).toBe(null);
 
 		const presenter = await results(pres.id, "tq", pres.creatorToken);
+		expect(presenter.typedAnswers.distinctCount).toBe(1);
+		expect(presenter.scoring.correctCount).toBe(1);
 		expect(presenter.typedAnswers.entries).toEqual([
 			{ text: "Zürich", count: 1, isCorrect: true },
 		]);

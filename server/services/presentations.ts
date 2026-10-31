@@ -134,6 +134,7 @@ import {
 	type QuizAnswerMode,
 	quizAnswerModeFor,
 	quizDeadlineFor,
+	quizResultVisibleToCaller,
 	quizTimeLimitFor,
 	quizTimerUnavailableReason,
 	quizWindowNotYetOpened,
@@ -4415,9 +4416,12 @@ function tallyTypedQuizAnswers(
 		accepted: revealsCorrect ? acceptedQuizAnswers(slide) : null,
 		/**
 		 * Distinct answers the room gave, however many may be shown — not counting
-		 * the answers the profanity filter withheld, which `filteredCount` reports.
+		 * the answers the profanity filter withheld, which `filteredCount` reports
+		 * — and `null` while the rows are (REQ215). A guess typed under a fresh id
+		 * that leaves this unchanged is one somebody already gave, so the number
+		 * alone lets the room's answers be probed one guess at a time.
 		 */
-		distinctCount: entries.length,
+		distinctCount: revealsCorrect ? entries.length : null,
 		entries: revealsCorrect
 			? entries.map((entry) => ({
 					text: entry.text,
@@ -4443,11 +4447,15 @@ function tallyTypedQuizAnswers(
  * participant's own card is served separately, to whoever already holds that id
  * ({@link getParticipantScorecard}).
  */
-function summarizeQuizScores(scored: ScoredQuizSlide, now: number) {
+function summarizeQuizScores(
+	scored: ScoredQuizSlide,
+	now: number,
+	revealsResult: boolean,
+) {
 	const { answers } = scored;
 	const correctCount = answers.filter((answer) => answer.isCorrect).length;
 	const totalPoints = answers.reduce((sum, answer) => sum + answer.points, 0);
-	return {
+	const window = {
 		/** What one correct answer is worth before and with the speed bonus. */
 		correctPoints: QUIZ_CORRECT_POINTS,
 		speedPoints: QUIZ_SPEED_POINTS,
@@ -4466,6 +4474,23 @@ function summarizeQuizScores(scored: ScoredQuizSlide, now: number) {
 			!isQuizWindowOpen(Date.parse(scored.deadline), now),
 		/** Answers the tally scored — the denominator behind the averages. */
 		answeredCount: answers.length,
+	};
+	// REQ215 — the correctness half, withheld while the answer key is. Each of
+	// these moves when one right answer lands and stands still for a wrong one,
+	// so any of them read beside a vote of one's own is the key. An explicit
+	// `null` for all four, and the reader tells it from "nobody answered yet" by
+	// `correctCount`, which is never `null` otherwise (`quizResultWithheld`).
+	if (!revealsResult) {
+		return {
+			...window,
+			correctCount: null,
+			totalPoints: null,
+			averagePoints: null,
+			correctShare: null,
+		};
+	}
+	return {
+		...window,
 		correctCount,
 		totalPoints,
 		// Emit both keys either way. A question nobody has answered has
@@ -5006,11 +5031,19 @@ async function aggregateSlideResults(
 			// it is the answer to a question the room is being scored on, so the
 			// tally carries it only for an editor or once the question is over —
 			// the same gate the deck payload passes through (REQ056).
+			//
+			// What the room answered is withheld on that same gate (REQ215): the
+			// per-option counts and the correctness half of the score are the key
+			// read off the room, so they go out only when the key itself would.
+			// Not `tallyVisibleToCaller`, which also lets the results link through.
+			const revealsResult = quizResultVisibleToCaller(
+				slide,
+				pres,
+				opts,
+				Date.now(),
+			);
 			const revealsCorrect =
-				slide.type === "quiz"
-					? Boolean(opts.canEdit) ||
-						solutionVisibleToAudience(slide, pres, Date.now())
-					: slideHasCorrectAnswers(slide);
+				slide.type === "quiz" ? revealsResult : slideHasCorrectAnswers(slide);
 			return {
 				type: slide.type,
 				/**
@@ -5054,6 +5087,7 @@ async function aggregateSlideResults(
 									slideStartedAtIn(pres)[slideId] ?? null,
 								),
 								Date.now(),
+								revealsResult,
 							)
 						: null,
 				// A typed question offers no options to anyone, so its tally carries
@@ -5077,7 +5111,9 @@ async function aggregateSlideResults(
 						: (slide.options || []).map((opt) => ({
 								id: opt.id,
 								text: opt.text,
-								count: counts[opt.id] || 0,
+								// REQ215 — an explicit `null` while the room's answer is
+								// withheld, never a `0` that would read as nobody picking it.
+								count: revealsResult ? counts[opt.id] || 0 : null,
 								// Emit the key for every option. A slide with no
 								// correct answer to reveal has no notion of correctness, so
 								// the value is an explicit `null` (a key dropped via
@@ -5985,8 +6021,12 @@ export type SegmentedResults = {
 	 *  - `identifiable` — this slide's tally lists one entry per respondent, which
 	 *    no group size makes anonymous (see {@link segmentedTallyIsAggregate}).
 	 *    Only an editor reads it.
+	 *  - `quiz-not-over` — the grouping slide is a quiz question the audience may
+	 *    not see the result of yet (REQ215). Each group *is* one of its options,
+	 *    counted, so the breakdown is that question's withheld tally. It lifts
+	 *    when the question is over; a results link does not lift it.
 	 */
-	withheldReason: "reveal-mode" | "identifiable" | null;
+	withheldReason: "reveal-mode" | "identifiable" | "quiz-not-over" | null;
 	/** The floor a group must clear to be published to a non-editor. */
 	minRespondents: number;
 	segments: ResultsSegment[];
@@ -6069,6 +6109,14 @@ export async function getSegmentedResults(
 		!tallyVisibleToCaller(sourceSlide, revealState, opts)
 	) {
 		return withheldBreakdown("reveal-mode");
+	}
+	// REQ215 — grouping *by* a quiz question whose result the caller may not see
+	// yet. The groups are labelled with its options and sized by who picked each,
+	// which is its per-option count under another name. Breaking a running quiz
+	// *down* needs nothing here: every group's tally goes through the same
+	// aggregation, which withholds it there.
+	if (!quizResultVisibleToCaller(sourceSlide, pres, opts, Date.now())) {
+		return withheldBreakdown("quiz-not-over");
 	}
 	// A tally that lists one entry per respondent cannot be made anonymous by
 	// grouping it, however many people a group holds: the entries are matchable
@@ -6160,7 +6208,7 @@ export async function getSegmentedResults(
 
 	/** The whole breakdown kept back, saying which of the two reasons it was. */
 	function withheldBreakdown(
-		reason: "reveal-mode" | "identifiable",
+		reason: NonNullable<SegmentedResults["withheldReason"]>,
 	): SegmentedResults {
 		return {
 			...head,

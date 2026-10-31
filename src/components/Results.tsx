@@ -19,7 +19,11 @@ import type {
 	Slide,
 	SlideType,
 } from "../types";
-import { quizAnswerModeFor, slideAnswersAreDeletable } from "../types";
+import {
+	quizAnswerModeFor,
+	quizResultWithheld,
+	slideAnswersAreDeletable,
+} from "../types";
 import type { ChoiceOption } from "./EditorControls";
 import { type GridMark, GridPlot } from "./GridPlot";
 import { type GuessColumn, GuessDistribution } from "./GuessDistribution";
@@ -566,10 +570,14 @@ export type ChoiceResultOption = {
  */
 export type ChoiceScoring = {
 	answeredCount: number;
-	correctCount: number;
-	totalPoints: number;
+	/**
+	 * `null`, with the three below, while the question's result is withheld
+	 * from this reader (REQ215) — `quizResultWithheld` reads exactly this.
+	 */
+	correctCount: number | null;
+	totalPoints: number | null;
 	maxPoints: number;
-	/** Both `null` until somebody has answered. */
+	/** Both `null` until somebody has answered, and while withheld. */
 	averagePoints: number | null;
 	correctShare: number | null;
 };
@@ -732,6 +740,9 @@ function QuizScoreNote({
 	// Before anyone has answered there is nothing to report — and an "0 of 0
 	// correct" would read as a room that answered and got everything wrong.
 	if (scoring.answeredCount === 0) return null;
+	// Nor while the result is withheld (REQ215): the server sent no score, and a
+	// line drawn from the missing numbers would invent one.
+	if (scoring.correctCount === null) return null;
 	const average = scoring.averagePoints ?? 0;
 	return (
 		<p className="mt-4 text-center text-sm text-text-muted">
@@ -779,6 +790,18 @@ export function ChoiceResults({
 	authoredOptions?: { id: string; isCorrect?: boolean | null | undefined }[];
 	labels?: ResultLabels;
 }) {
+	// REQ215 — a quiz question whose result this reader may not see yet carries
+	// no counts at all, so there is no chart to draw: bars at zero would report a
+	// room that answered nothing. Said in words instead, from the one number that
+	// is the reader's — how many have answered.
+	if (quizResultWithheld(results)) {
+		return (
+			<QuizAnswersPending
+				answeredCount={results?.scoring?.answeredCount ?? 0}
+				labels={labels}
+			/>
+		);
+	}
 	const tally = readChoiceTally(results, authoredOptions);
 	return (
 		<div>
@@ -804,6 +827,27 @@ export function ChoiceResults({
 	);
 }
 
+/**
+ * A quiz question's result while it is not the reader's yet (REQ055, REQ215):
+ * how many have answered, and that the answers follow once the question is
+ * over. Both answer modes draw it, because both withhold the same thing.
+ */
+function QuizAnswersPending({
+	answeredCount,
+	labels,
+}: {
+	answeredCount: number;
+	labels: ResultLabels;
+}) {
+	return (
+		<p className="py-10 text-center text-text-muted">
+			{answeredCount === 0
+				? labels.noAnswersYet
+				: labels.answersPending(answeredCount)}
+		</p>
+	);
+}
+
 // ── Typed quiz answers (REQ055) ───────────────────────────────
 
 /** One answer the room typed, as the results endpoint groups them. */
@@ -826,7 +870,8 @@ type TypedQuizEntry = {
 type TypedQuizTally = {
 	accepted: string[] | null;
 	entries: TypedQuizEntry[] | null;
-	distinctCount: number;
+	/** `null` with `entries` (REQ215): it is a count of what the room typed. */
+	distinctCount: number | null;
 };
 
 /**
@@ -864,11 +909,7 @@ function TypedQuizResults({
 	if (!tally.entries) {
 		return (
 			<div>
-				<p className="py-10 text-center text-text-muted">
-					{answeredCount === 0
-						? labels.noAnswersYet
-						: labels.answersPending(answeredCount)}
-				</p>
+				<QuizAnswersPending answeredCount={answeredCount} labels={labels} />
 				<QuizScoreNote scoring={scoring} labels={labels} />
 			</div>
 		);
