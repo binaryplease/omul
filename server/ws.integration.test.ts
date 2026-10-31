@@ -1958,4 +1958,179 @@ describe("WebSocket integration", () => {
 		expect(env.data).toEqual({});
 		await client.close();
 	});
+
+	// ── A deck save reaches the room (REQ229) ─────────────────
+
+	/** A quiz question with notes, a key and a 30-second window: the one edited below. */
+	const EDITED_QUIZ = {
+		id: "qz",
+		type: "quiz",
+		question: "Closest to the sun?",
+		timeLimit: 30,
+		notes: "Say: Mercury, every time",
+		options: [
+			{ id: "venus", text: "Venus" },
+			{ id: "mercury", text: "Mercury", isCorrect: true },
+		],
+	};
+
+	async function saveSlides(
+		pres: { id: string; creatorToken: string },
+		slides: Record<string, unknown>[],
+	): Promise<void> {
+		const patch = await authed(`/api/presentations/${pres.id}`, pres.creatorToken, {
+			method: "PATCH",
+			body: JSON.stringify({ slides }),
+		});
+		expect(patch.status).toBe(200);
+	}
+
+	test("saving slides sends the room the slides as saved, as the audience may see them (REQ229)", async () => {
+		// The failure this guards: phones loaded the question under the deck's
+		// `instant`, the presenter switched it to "On click" and saved, and the
+		// phones went on judging it as it was loaded.
+		const { pres, viewer } = await liveQuizRoom(EDITED_QUIZ);
+		const created = (await (
+			await authed(`/api/presentations/${pres.id}`, pres.creatorToken)
+		).json()) as { code: string };
+
+		await saveSlides(pres, [
+			{
+				...EDITED_QUIZ,
+				question: "Which planet is closest to the sun?",
+				timeLimit: 45,
+				resultsVisibility: "on-click",
+				options: [
+					...EDITED_QUIZ.options,
+					{ id: "mars", text: "Mars" },
+				],
+			},
+		]);
+
+		const frame = await viewer.waitFor("presentation.slides");
+		expect(frame.data.presentationId).toBe(pres.id);
+		const [slide] = frame.data.slides as Record<string, unknown>[];
+		expect(slide.resultsVisibility).toBe("on-click");
+		expect(slide.question).toBe("Which planet is closest to the sun?");
+		expect(slide.timeLimit).toBe(45);
+		// The question is running, so the key stays off the wire, and the
+		// presenter's script never travels at all.
+		expect(slide.options).toEqual([
+			{ id: "venus", text: "Venus" },
+			{ id: "mercury", text: "Mercury" },
+			{ id: "mars", text: "Mars" },
+		]);
+		expect(slide.quizAnswers).toEqual([]);
+		expect(slide.notes).toBe("");
+		// Exactly what a phone joining now would be handed.
+		const joined = (await (
+			await fetch(`${baseUrl}/api/join/${created.code}`)
+		).json()) as { slides: unknown };
+		expect(frame.data.slides).toEqual(joined.slides);
+		// Nothing from the deck but its slides.
+		expect(Object.keys(frame.data).sort()).toEqual(["presentationId", "slides"]);
+		const wire = JSON.stringify(frame.data);
+		expect(wire).not.toContain("isCorrect");
+		expect(wire).not.toContain("creatorTokenHash");
+		expect(wire).not.toContain("creatorId");
+		expect(wire).not.toContain("Say: Mercury");
+
+		await viewer.close();
+	});
+
+	test("a typed question's accepted answers stay off the frame while it runs (REQ229)", async () => {
+		const { pres, viewer } = await liveQuizRoom(EDITED_QUIZ);
+
+		await saveSlides(pres, [
+			{
+				...EDITED_QUIZ,
+				quizAnswerMode: "type",
+				quizAnswers: [
+					{ id: "a1", text: "Mercury" },
+					{ id: "a2", text: "Merkur" },
+				],
+			},
+		]);
+
+		const frame = await viewer.waitFor("presentation.slides");
+		const [slide] = frame.data.slides as Record<string, unknown>[];
+		expect(slide.quizAnswerMode).toBe("type");
+		expect(slide.quizAnswers).toEqual([]);
+		expect(slide.options).toEqual([]);
+		expect(JSON.stringify(frame.data)).not.toContain("Merkur");
+
+		await viewer.close();
+	});
+
+	test("a reordered deck reaches the room in its new order (REQ229)", async () => {
+		// Moved before going live, while a phone waited: the slide at position 0
+		// is the one the presenter starts, so it is the one the phone must hold
+		// there.
+		const pres = await createPresentation();
+		const client = openWs();
+		await client.ready;
+		await join(client, pres.id);
+
+		await saveSlides(pres, [
+			{ id: "s2", type: "open-text", question: "Anything?" },
+			{
+				id: "s1",
+				type: "multiple-choice",
+				question: "Pick one",
+				options: [
+					{ id: "a", text: "A" },
+					{ id: "b", text: "B" },
+				],
+			},
+		]);
+
+		const frame = await client.waitFor("presentation.slides");
+		expect(
+			(frame.data.slides as { id: string }[]).map((slide) => slide.id),
+		).toEqual(["s2", "s1"]);
+
+		await client.close();
+	});
+
+	test("a PATCH that names no slides sends no slides (REQ229)", async () => {
+		const pres = await createPresentation();
+		const client = openWs();
+		await client.ready;
+		await join(client, pres.id);
+
+		const patch = await authed(`/api/presentations/${pres.id}`, pres.creatorToken, {
+			method: "PATCH",
+			body: JSON.stringify({ title: "Renamed" }),
+		});
+		expect(patch.status).toBe(200);
+
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(
+			client.received.some((env) => env.event === "presentation.slides"),
+		).toBe(false);
+
+		await client.close();
+	});
+
+	test("the deck-wide reveal mode sends the slides with their overrides cleared (REQ018, REQ229)", async () => {
+		const { pres, viewer } = await liveQuizRoom({
+			...EDITED_QUIZ,
+			resultsVisibility: "instant",
+		});
+
+		const set = await authed(
+			`/api/presentations/${pres.id}/results-visibility`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ resultsVisibility: "on-click" }) },
+		);
+		expect(set.status).toBe(200);
+
+		const frame = await viewer.waitFor("presentation.slides");
+		const [slide] = frame.data.slides as Record<string, unknown>[];
+		expect(slide.resultsVisibility).toBe("inherit");
+		expect(JSON.stringify(frame.data)).not.toContain("isCorrect");
+		expect(slide.notes).toBe("");
+
+		await viewer.close();
+	});
 });

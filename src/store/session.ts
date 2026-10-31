@@ -158,6 +158,16 @@ export interface SessionSlice {
 	 * (REQ209).
 	 */
 	refreshDeckSlides: (code: string) => Promise<boolean>;
+	/**
+	 * Re-read the deck's slides on this browser's own credentials, patching only
+	 * the slides (REQ229) — what a presenter screen does when the deck is saved.
+	 *
+	 * The frame announcing a save carries the audience's copy, which has no
+	 * presenter notes and, while a question runs, no answer key; a screen that
+	 * can edit the deck reads both, so it asks for its own copy rather than
+	 * taking the room's.
+	 */
+	refreshPresentationSlides: (id: string) => Promise<void>;
 
 	// — lifecycle mutations (REST + optimistic update; throw on failure) —
 	startPresentation: (id: string) => Promise<void>;
@@ -210,6 +220,11 @@ export interface SessionSlice {
 		slideIndex: number;
 		slide?: { id?: unknown } | null;
 	}) => void;
+	/**
+	 * The deck's slides were saved (REQ229): the frame's slides replace the ones
+	 * held, as the audience may see them.
+	 */
+	applyDeckSlides: (payload: { slides?: unknown }) => void;
 	applyResultsUpdated: (payload: {
 		slideId: string;
 		results: SlideResults;
@@ -420,6 +435,13 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		set({ presentation: { ...current, ...changes } });
 	};
 
+	/**
+	 * How many times a save has replaced the slides held here (REQ229). A re-read
+	 * asked before one landed answers with the slides as they stood before the
+	 * save, so it is discarded rather than allowed to put them back.
+	 */
+	let savedSlidesRevision = 0;
+
 	return {
 		...initialSessionState,
 
@@ -522,16 +544,40 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 			};
 			if (!get().presentation) return false;
 			const askedAgainst = projectionKey();
+			const askedAtRevision = savedSlidesRevision;
 			try {
 				const data = await api.joinByCode(code);
 				if (!Array.isArray(data?.slides)) return false;
 				if (projectionKey() !== askedAgainst) return false;
+				if (savedSlidesRevision !== askedAtRevision) return false;
 				patchPresentation({ slides: data.slides });
 				return true;
 			} catch {
 				// Nothing to report: the deck the participant holds is still usable,
 				// and the next change will try again.
 				return false;
+			}
+		},
+
+		/**
+		 * See {@link SessionSlice.refreshPresentationSlides}. Shaped like
+		 * `refreshDeckSlides` above and for its reasons: no `loading` (the screen
+		 * is mid-session), only `slides` patched (the socket owns the runtime
+		 * fields), a failure leaves the deck as it was, and a response that a
+		 * later save has moved past is discarded — two saves in quick succession
+		 * put two re-reads in flight, and the first must not land last.
+		 */
+		refreshPresentationSlides: async (id) => {
+			if (!get().presentation) return;
+			savedSlidesRevision += 1;
+			const askedAtRevision = savedSlidesRevision;
+			try {
+				const data = await api.getPresentation(id);
+				if (!Array.isArray(data?.slides)) return;
+				if (savedSlidesRevision !== askedAtRevision) return;
+				patchPresentation({ slides: data.slides });
+			} catch {
+				// The screen keeps the slides it has; the next save tries again.
 			}
 		},
 
@@ -666,6 +712,27 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		applySlideChanged: ({ slideIndex, slide }) => {
 			set({ liveSlideId: typeof slide?.id === "string" ? slide.id : null });
 			patchPresentation({ activeSlideIndex: slideIndex });
+		},
+
+		/**
+		 * The deck was saved (REQ229), and the frame carries its slides as the
+		 * audience may see them — projected on the server exactly as the join
+		 * fetch is, so taking them whole is taking what a reload would have read.
+		 *
+		 * **Replaced, never merged.** A slide's reveal setting, its question, its
+		 * options, its accepted answers, its time limit and its position are all
+		 * judged off this copy: a phone that kept the slide it loaded would go on
+		 * reading a question the presenter has switched to "On click" as one whose
+		 * verdict is out the moment it closes, and a phone that kept the old order
+		 * would show a different slide from the one the presenter starts. A merge
+		 * could also keep a mark the save has taken off. The runtime fields beside
+		 * the slides — the active index, the status, the stamps — are the other
+		 * frames' to move, and are left alone.
+		 */
+		applyDeckSlides: ({ slides }) => {
+			if (!Array.isArray(slides)) return;
+			savedSlidesRevision += 1;
+			patchPresentation({ slides: slides as Presentation["slides"] });
 		},
 
 		/**

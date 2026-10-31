@@ -158,6 +158,7 @@ import {
 	StoredVoteSchema,
 	slideHasCorrectAnswers,
 	PresentationSchema,
+	type StoredPresentation,
 	type StoredResponseVote,
 	type StoredVote,
 } from "../schemas";
@@ -1193,6 +1194,10 @@ export async function updatePresentation(
 	// REQ216 — a saved time limit moves the window of a question that is open
 	// now, so its close is re-armed on the deck as saved.
 	armQuizWindowCloses(id, updated);
+	// REQ229 — and the slides themselves reach the room. Sent before the
+	// settings frames below, so a phone re-reading the deck off one of those asks
+	// after it already holds the slides as saved.
+	if ("slides" in changes) broadcastDeckSlides(id, updated);
 	// REQ059 — quiz scores are derived from the slide *as it stands now*, so
 	// re-marking a correct option re-orders the deck's standings without a single
 	// new vote. The board is a different slide from the one that was edited, so
@@ -2037,6 +2042,37 @@ function broadcastDeckResultsVisibility(
 }
 
 /**
+ * Tell the room the deck's slides were saved (REQ229), with the slides.
+ *
+ * A phone and a second presenter screen hold the slides they loaded, and every
+ * judgement they make about a question is read off that copy: whether its
+ * verdict may be shown (the slide's own reveal setting), what it asks, what it
+ * offers, how long it runs, and which slide is at which position. Without this
+ * an edit saved while they stay connected changes none of it, so a question
+ * switched to "On click" goes on being judged as it was loaded, and a slide
+ * moved to the front is not the one a phone shows when the presenter starts it.
+ *
+ * The slides travel **as the audience may see them**, projected exactly as the
+ * join fetch projects them ({@link withAudienceSlides}): no answer key while a
+ * question runs, no presenter notes. A room is broadcast to by presentation and
+ * the `role` a socket claims proves nothing, so every connected client reads
+ * this frame whatever it said it was. Only `slides` is read off the deck, so
+ * nothing else on it — `creatorTokenHash`, `creatorId` — can ride along. A
+ * presenter screen does not take its slides from this frame: it re-reads its own
+ * credentialed copy on it, which is where it gets the solutions and notes from.
+ */
+function broadcastDeckSlides(
+	presentationId: string,
+	pres: Record<string, unknown>,
+): void {
+	const deck = pres as StoredPresentation;
+	broadcastToPresentation(presentationId, "presentation.slides", {
+		presentationId,
+		slides: withAudienceSlides(deck.slides as Slide[], deck, Date.now()),
+	});
+}
+
+/**
  * Set the deck's reveal mode and apply it to every question slide in it, in one
  * operation (REQ018).
  *
@@ -2059,6 +2095,9 @@ export async function setDeckResultsVisibility(
 	}));
 	const updated = outcome.status === "written" ? outcome.deck : null;
 	if (updated) {
+		// REQ229 — the overrides it cleared are on the slides, which a presenter
+		// screen holds as its editor's copy and so cannot re-derive from the mode.
+		broadcastDeckSlides(presentationId, updated);
 		broadcastDeckResultsVisibility(presentationId, updated);
 		// REQ228 — the mode decides which verdicts the standings count.
 		await broadcastStandings(presentationId);

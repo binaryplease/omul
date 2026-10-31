@@ -23,6 +23,8 @@ export function useSessionSocket(
 		// and keeps the effect from re-subscribing on every state change.
 		const {
 			applySlideChanged,
+			applyDeckSlides,
+			refreshPresentationSlides,
 			applyResultsUpdated,
 			applyParticipantCount,
 			applyStarted,
@@ -54,6 +56,14 @@ export function useSessionSocket(
 			onWsEvent("results.updated", (data) => applyResultsUpdated(data)),
 			onWsEvent("participants.count", (data) => applyParticipantCount(data)),
 			onWsEvent("slide.changed", (data) => applySlideChanged(data)),
+			// The deck's slides as saved (REQ229). A phone takes them off the frame,
+			// which is the audience's copy; a presenter screen re-reads its own,
+			// which is the one with the solutions and the notes in it.
+			onWsEvent("presentation.slides", (data) =>
+				role === "participant"
+					? applyDeckSlides(data)
+					: refreshPresentationSlides(presentationId),
+			),
 			onWsEvent("presentation.started", (data) => applyStarted(data)),
 			onWsEvent("presentation.ended", (data) => applyEnded(data)),
 			onWsEvent("presentation.reset", () => applyReset()),

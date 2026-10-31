@@ -4,6 +4,9 @@
  * Clients are organized into rooms (by presentationId).
  * Events:
  *   slide.changed     – presenter moved to a new slide
+ *   presentation.slides
+ *                     – the deck's slides were saved; carries them as the
+ *                       audience may see them (REQ229)
  *   presentation.started
  *                     – the deck went live, or live again after End; carries
  *                       the session clock's start (REQ108) and the slide it
@@ -41,12 +44,12 @@
  * Every frame here is read by **every** client in the room: a room is broadcast
  * to by presentation, and the `role` below is whatever the connecting client
  * said it was. So a broadcast carries only what the audience may see — the
- * `slide.changed` slide is projected through `withAudienceSlides` before it is
- * sent (REQ056 answer keys, REQ090 presenter notes, REQ058 quiz audio cues),
- * the `results.updated` tally through the deck's reveal mode
- * (`tallyVisibleToAudience`, REQ015–REQ017) so a slide collecting silently
- * broadcasts a `withheld` marker and not its numbers, and the Q&A frames below
- * carry no question text at all.
+ * `slide.changed` slide and the `presentation.slides` deck are projected through
+ * `withAudienceSlides` before they are sent (REQ056 answer keys, REQ090
+ * presenter notes, REQ058 quiz audio cues), the `results.updated` tally through
+ * the deck's reveal mode (`tallyVisibleToAudience`, REQ015–REQ017) so a slide
+ * collecting silently broadcasts a `withheld` marker and not its numbers, and
+ * the Q&A frames below carry no question text at all.
  *
  * `qa.updated` carries the presentation id and **nothing else** — no text, no
  * counts. A room is broadcast to by presentation, and the `role` below is

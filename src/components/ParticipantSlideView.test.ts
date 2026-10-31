@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PresentationSchema, QUIZ_SUBMISSION_GRACE_MS } from "../../server/schemas";
+import { createAppStore } from "../store/store";
 import type { Presentation, Slide } from "../types";
 import {
 	choiceCardState,
@@ -427,5 +428,101 @@ describe("a participant's own verdict while the server withholds it (REQ228)", (
 	test("no card, or no entry for this question, is no verdict", () => {
 		expect(ownQuizResultFor(null, "q1")).toBe(null);
 		expect(ownQuizResultFor({ slides: [WITHHELD] }, "q2")).toBe(null);
+	});
+});
+
+describe("a connected phone after the presenter edits and saves the deck (REQ229)", () => {
+	/**
+	 * A phone that joined while the deck ran on `instant` with this question on
+	 * `inherit`, and stays connected through everything below — no reload.
+	 */
+	function connectedPhone(slides: Slide[]) {
+		const store = createAppStore();
+		store.getState().setPresentation(
+			PresentationSchema.parse({
+				id: "deck",
+				code: "123456",
+				title: "Quiz round",
+				slides,
+				status: "live",
+				resultsVisibility: "instant",
+				createdAt: "2026-10-30T09:00:00.000Z",
+			}) as Presentation,
+		);
+		return store;
+	}
+
+	/** What the phone draws for whichever slide the presenter has on screen. */
+	function onScreen(store: ReturnType<typeof createAppStore>, results: unknown) {
+		const pres = store.getState().presentation as Presentation;
+		return phone(pres.slides[pres.activeSlideIndex], pres, results);
+	}
+
+	test("reset, switched to On click and saved: no result before the reveal", () => {
+		const store = connectedPhone([SELECT_QUIZ]);
+		// Reset → Edit → "On click" → Save → Start, the phone connected all along.
+		store.getState().applyReset();
+		store.getState().applyDeckSlides({
+			slides: [{ ...SELECT_QUIZ, resultsVisibility: "on-click" }],
+		});
+		store.getState().applyStarted({ slideStartedAt: {} });
+		store.getState().applySlideStarted({
+			slideId: "q1",
+			startedAt: new Date(Date.now() - OVER).toISOString(),
+		});
+
+		// The window and its grace are over. The tally is drawn behind the same
+		// gate the participant's own verdict and points are (`quizResultReady`),
+		// so neither the room's results nor the solution is on this screen.
+		const markup = onScreen(store, SELECT_TALLY_OVER);
+		expect(markup).toContain("Time&#x27;s up");
+		expect(markup).not.toContain("Live results");
+		expect(markup).not.toContain("correct</span>");
+		expect(markup).not.toContain("answered correctly");
+
+		// And the reveal still brings them, without a reload.
+		store.getState().applyRevealed({ slideId: "q1", revealed: true });
+		const revealed = onScreen(store, SELECT_TALLY_OVER);
+		expect(revealed).toContain("Live results");
+		expect(revealed).toContain("correct</span>");
+	});
+
+	test("a slide moved to the front is the one shown when its question starts", () => {
+		const intro: Slide = {
+			id: "intro",
+			type: "instruction",
+			question: "Join the quiz",
+		};
+		const store = connectedPhone([intro, SELECT_QUIZ]);
+		store.getState().applyReset();
+		// "Move slide up" on the quiz, Save, Start, Start timer.
+		store.getState().applyDeckSlides({ slides: [SELECT_QUIZ, intro] });
+		store.getState().applyStarted({ slideStartedAt: {} });
+		store.getState().applySlideStarted({
+			slideId: "q1",
+			startedAt: new Date(Date.now() - RUNNING).toISOString(),
+		});
+
+		const markup = onScreen(store, null);
+		expect(markup).toContain("Which planet is closest to the sun?");
+		expect(markup).toContain("s left");
+		expect(markup).not.toContain("Join the quiz");
+	});
+
+	test("a saved time limit is the one the phone counts down", () => {
+		const store = connectedPhone([SELECT_QUIZ]);
+		store.getState().applyDeckSlides({
+			slides: [{ ...SELECT_QUIZ, timeLimit: 120 }],
+		});
+		store.getState().applySlideStarted({
+			slideId: "q1",
+			startedAt: new Date(Date.now() - 60_000).toISOString(),
+		});
+
+		// A minute in: over on the 30 seconds the phone loaded, running on the
+		// 120 the presenter saved.
+		const markup = onScreen(store, null);
+		expect(markup).toContain("s left");
+		expect(markup).not.toContain("Time&#x27;s up");
 	});
 });

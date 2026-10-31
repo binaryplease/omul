@@ -728,6 +728,229 @@ describe("session slice — refreshDeckSlides (REQ053)", () => {
 	});
 });
 
+// ── A deck save reaching a connected screen (REQ229) ──────────
+//
+// The regression this suite exists for: the presenter edited a question to
+// "On click" (or moved a slide) and saved while phones stayed connected, and the
+// phones went on judging the question off the slide they had loaded.
+
+/** The deck a phone loaded: one inherit question on an `instant` deck. */
+function loadedQuizDeck(overrides: Partial<Presentation> = {}) {
+	return seededStore({
+		resultsVisibility: "instant",
+		slides: [
+			{ id: "intro", type: "instruction", question: "Join the quiz" },
+			{
+				id: "qz",
+				type: "quiz",
+				question: "Closest to the sun?",
+				timeLimit: 30,
+				resultsVisibility: "inherit",
+				options: [
+					{ id: "venus", text: "Venus" },
+					{ id: "mercury", text: "Mercury" },
+				],
+			},
+		],
+		...overrides,
+	});
+}
+
+describe("session slice — applyDeckSlides (REQ229)", () => {
+	const originalFetch = globalThis.fetch;
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	test("a saved slide replaces the one held, its reveal setting included", () => {
+		const store = loadedQuizDeck();
+		const loaded = store.getState().presentation?.slides ?? [];
+		store.getState().applyDeckSlides({
+			slides: [
+				loaded[0],
+				{
+					...loaded[1],
+					question: "Which planet is closest to the sun?",
+					timeLimit: 45,
+					resultsVisibility: "on-click",
+					options: [
+						{ id: "venus", text: "Venus" },
+						{ id: "mercury", text: "Mercury" },
+						{ id: "mars", text: "Mars" },
+					],
+				},
+			],
+		});
+		const saved = store.getState().presentation?.slides[1];
+		expect(saved?.resultsVisibility).toBe("on-click");
+		expect(saved?.question).toBe("Which planet is closest to the sun?");
+		expect(saved?.timeLimit).toBe(45);
+		expect(saved?.options?.map((option) => option.id)).toEqual([
+			"venus",
+			"mercury",
+			"mars",
+		]);
+	});
+
+	test("a reordered save moves the slide at the active position", () => {
+		const store = loadedQuizDeck({ activeSlideIndex: 0 });
+		const [intro, quiz] = store.getState().presentation?.slides ?? [];
+		store.getState().applyDeckSlides({ slides: [quiz, intro] });
+		const deck = store.getState().presentation;
+		expect(deck?.slides[deck.activeSlideIndex].id).toBe("qz");
+	});
+
+	test("the slides are replaced, not merged: a mark the save took off is gone", () => {
+		const store = loadedQuizDeck({
+			slides: [
+				{
+					id: "qz",
+					type: "quiz",
+					question: "Closest to the sun?",
+					options: [
+						{ id: "venus", text: "Venus" },
+						{ id: "mercury", text: "Mercury", isCorrect: true },
+					],
+				},
+			],
+		});
+		store.getState().applyDeckSlides({
+			slides: [
+				{
+					id: "qz",
+					type: "quiz",
+					question: "Closest to the sun?",
+					options: [
+						{ id: "venus", text: "Venus" },
+						{ id: "mercury", text: "Mercury" },
+					],
+				},
+			],
+		});
+		expect(
+			store.getState().presentation?.slides[0].options?.[1].isCorrect,
+		).toBeUndefined();
+	});
+
+	test("only the slides move — the runtime state the socket owns is untouched", () => {
+		const store = loadedQuizDeck({
+			status: "live",
+			activeSlideIndex: 1,
+			revealedSlideIds: ["qz"],
+			slideStartedAt: { qz: FIRST_OPENED },
+		});
+		const slides = store.getState().presentation?.slides ?? [];
+		store.getState().applyDeckSlides({ slides });
+		const deck = store.getState().presentation;
+		expect(deck?.status).toBe("live");
+		expect(deck?.activeSlideIndex).toBe(1);
+		expect(deck?.revealedSlideIds).toEqual(["qz"]);
+		expect(deck?.slideStartedAt).toEqual({ qz: FIRST_OPENED });
+		expect(deck?.resultsVisibility).toBe("instant");
+	});
+
+	test("a frame without slides leaves the deck as it is", () => {
+		const store = loadedQuizDeck();
+		const before = store.getState().presentation?.slides;
+		store.getState().applyDeckSlides({});
+		store.getState().applyDeckSlides({ slides: "nope" });
+		expect(store.getState().presentation?.slides).toBe(before);
+	});
+
+	test("a deck re-read asked before a save is discarded, not landed over it", async () => {
+		// The reveal re-read and the save frame race: the re-read answers with the
+		// slides as they stood when it was asked, before the save.
+		const store = loadedQuizDeck();
+		let release: () => void = () => {};
+		globalThis.fetch = (async () => {
+			await new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			return new Response(
+				JSON.stringify({
+					slides: [{ id: "qz", type: "quiz", resultsVisibility: "inherit" }],
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			);
+		}) as unknown as typeof fetch;
+
+		const inFlight = store.getState().refreshDeckSlides("123456");
+		store.getState().applyDeckSlides({
+			slides: [{ id: "qz", type: "quiz", resultsVisibility: "on-click" }],
+		});
+		release();
+		await inFlight;
+
+		expect(store.getState().presentation?.slides[0].resultsVisibility).toBe(
+			"on-click",
+		);
+	});
+});
+
+describe("session slice — refreshPresentationSlides (REQ229)", () => {
+	const originalFetch = globalThis.fetch;
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	test("a presenter screen takes its slides from its own credentialed read", async () => {
+		const store = loadedQuizDeck({ activeSlideIndex: 1 });
+		const deck = stubJoinFetch({
+			activeSlideIndex: 0,
+			slides: [
+				{
+					id: "qz",
+					type: "quiz",
+					question: "Closest to the sun?",
+					notes: "Say: Mercury",
+					options: [{ id: "mercury", text: "Mercury", isCorrect: true }],
+				},
+			],
+		});
+		await store.getState().refreshPresentationSlides("pres-1");
+		expect(deck.calls()).toBe(1);
+		const held = store.getState().presentation;
+		expect(held?.slides[0].notes).toBe("Say: Mercury");
+		expect(held?.slides[0].options?.[0].isCorrect).toBe(true);
+		// Only the slides: the active position is the socket's to move.
+		expect(held?.activeSlideIndex).toBe(1);
+	});
+
+	test("the first of two re-reads in flight does not land last", async () => {
+		const store = loadedQuizDeck();
+		const releases: Array<() => void> = [];
+		const answers = ["first", "second"];
+		globalThis.fetch = (async () => {
+			const question = answers.shift();
+			await new Promise<void>((resolve) => {
+				releases.push(resolve);
+			});
+			return new Response(
+				JSON.stringify({ slides: [{ id: "qz", type: "quiz", question }] }),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			);
+		}) as unknown as typeof fetch;
+
+		const first = store.getState().refreshPresentationSlides("pres-1");
+		const second = store.getState().refreshPresentationSlides("pres-1");
+		releases[1]?.();
+		await second;
+		releases[0]?.();
+		await first;
+
+		expect(store.getState().presentation?.slides[0].question).toBe("second");
+	});
+
+	test("a failed re-read leaves the deck as it was", async () => {
+		const store = loadedQuizDeck();
+		const before = store.getState().presentation?.slides;
+		globalThis.fetch = (async () =>
+			new Response("{}", { status: 500 })) as unknown as typeof fetch;
+		await store.getState().refreshPresentationSlides("pres-1");
+		expect(store.getState().presentation?.slides).toBe(before);
+	});
+});
+
 describe("session slice — server clock offset (REQ057)", () => {
 	test("reads the offset a fetch response's serverNow implies", () => {
 		// A quiz deadline is written on the server's clock, so a browser two
