@@ -180,7 +180,7 @@ omul** below).
 | POST | `/api/presentations/:id/chat` | — | Post a chat message `{ text, participantId }` (REQ078) |
 | POST | `/api/presentations/:id/participant-name` | — | State what this participant is called on the deck `{ participantId, name }` (REQ076) — see **Participant names** below |
 | GET | `/api/presentations/:id/participants` | ✅ owner, token or `edit` grant | The deck's roster: who took part, by name (REQ076). The results link does **not** open it |
-| GET | `/api/presentations/:id/scorecard?participantId=&pass=` | — | One participant's quiz scores across the deck (REQ056), and their place on its leaderboard (REQ059) — for one pass through it (REQ083, default the first) |
+| GET | `/api/presentations/:id/scorecard?participantId=&pass=` | — | One participant's quiz scores across the deck (REQ056), and their place on its leaderboard (REQ059) — for one pass through it (REQ083, default the first). A question's verdict reads `null` and counts in no total until the audience may see its solution (REQ228) |
 | GET | `/api/presentations/:id/preview` | ✅ owner, token or `edit` grant | A dry run of the whole deck with generated test votes (REQ103/REQ104) — see **Preview and test votes** below. Writes nothing |
 | GET | `/api/presentations/:id/results` | — | All slide results, each behind the deck's reveal mode (REQ015–REQ017) — see **The deck's reveal mode** below. Also reads the **results token** (REQ098), which lifts that mode. Free-text answers the deck's profanity filter withholds are left out for every caller; `?filtered=include` adds them for the deck's owner, edit token or collaborators (REQ085) — see **The profanity filter on free text** below |
 | GET | `/api/presentations/:id/results/:slideId` | — | Results for one slide, behind the deck's reveal mode (REQ015–REQ017), and behind the results token the same way. On a `leaderboard` slide this is the deck's standings across its quiz questions — see **Leaderboard slide** below. Takes `?filtered=` like the whole-deck read (REQ085). |
@@ -2604,16 +2604,39 @@ the endpoint hands out nobody else's.
 | `slides[].answerMode` | how that question was answered (`select` / `type`) |
 | `slides[].optionId` / `answer` | what they picked, or what they typed (REQ055). Both keys are always emitted and only one is ever filled: an option id is not a typed answer, and a client rendering "you answered X" must not have to guess which it holds |
 | `slides[].isCorrect` / `elapsedMs` | whether it was right, and how long they took — explicit `null` when they did not answer; a `false` for `isCorrect` would claim they answered and got it wrong |
-| `slides[].points` | what that answer scored (`0` when unanswered) |
+| `slides[].points` | what that answer scored (`0` when unanswered) — explicit `null` while the verdict is withheld (below) |
 | `entryId` / `label` | the one-way handle their row is keyed by on the deck's leaderboard (REQ059), and what that row is called on screen — their stated name on a deck that asks for one (REQ218), the derived `Player …` otherwise. Always present, even before they have scored, so a client can match its own row the moment they do |
 | `rank` / `rankedCount` | their place on that board and how many participants are ranked — `rank` is an explicit `null` until they have answered something, because unranked is a standing too and a `0` would read as a place they hold |
 
+**A verdict is withheld until the audience may see the solution (REQ228).** A
+verdict is the answer key read one answer at a time: "Correct!" beside the
+option a participant picked names it, and since the participant id is minted in
+the browser, anybody can answer under a fresh id per option and read each card
+back. So the card withholds a question's verdict on the gate the key passes
+(`solutionVisibleToAudience`: window over with its grace, closed after opening,
+revealed, deck ended) **and** its reveal setting (`tallyVisibleToAudience`:
+`instant` always, `on-click` once the presenter reveals that slide, `private`
+never — not even once the deck has ended). Both together are
+`quizVerdictVisibleToAudience()` in `server/schemas.ts`. Until then:
+
+| Field | While withheld |
+|---|---|
+| `slides[].isCorrect` / `slides[].points` | `null`, both — answered or not |
+| `correctCount` / `totalPoints` | summed over the released questions only |
+| `rank` / `rankedCount` | their place on the board as the room may see it — a withheld question moves nobody's place, so `rank` stays `null` until a question they answered is released |
+| `slides[].answered` / `optionId` / `answer` / `elapsedMs` | still read: what they answered is theirs, and it is the lock a reloaded phone needs |
+
+A released entry always carries `points` as a number, `0` when unanswered, so
+`points: null` is the reading of a withheld entry (`scorecardVerdictWithheld()`)
+— never "scored nothing". The card is the audience's reading for every caller:
+the participant id is the credential, and no edit token lifts it.
+
 Both surfaces render the countdown from the same descriptor
 (`quizWindowFor` / `useQuizCountdown` in `src/components/QuizTimer.tsx`).
-The participant's verdict waits for the question to close — a verdict on screen
-mid-question is the answer itself, one whispered row away from the people still
-deciding — and rides the existing results-visibility gate (REQ102), so it can
-never outrun a presenter's deliberate reveal.
+The participant's screen asks for its verdict once the question is over and the
+results-visibility gate (REQ102) allows, draws nothing for a withheld entry, and
+re-reads the card when the question ends or its tally comes out, so the verdict
+lands without a reload — and can never outrun a presenter's deliberate reveal.
 
 
 ## Leaderboard slide (REQ059)
@@ -2646,6 +2669,22 @@ every answer is timed against the window it was given in (REQ217) — so it
 re-broadcasts no board. A deck with no board
 broadcasts nothing extra.
 
+**What the room is sent counts only released verdicts (REQ228).** A board is
+verdicts summed: a row's points move when one right answer to a running question
+is scored and stand still for a wrong one, so a participant watching their own row
+— or answering under a fresh id and watching for a new one — would read the key
+off it exactly as off their own card. A caller who cannot edit the deck therefore
+reads standings summed only over the questions `quizVerdictVisibleToAudience()`
+releases: a running, not-yet-opened or unrevealed question moves nobody's
+`totalPoints`, `correctCount`, `answeredCount` or place, and somebody who has
+answered only such questions is not ranked yet. That covers the public results
+reads and the `results.updated` board frame alike; the results link does not lift
+it, and an editor reads every question's points. The question counts from the
+instant it is released, so the board is also re-broadcast then: when its window
+runs out or it is closed (the quiz frame's own re-send carries the board with it),
+when the presenter reveals or un-reveals a slide, when the deck ends, and when the
+deck's reveal mode changes.
+
 A leaderboard **is** an aggregated result, so it sits behind the ordinary
 results-visibility gate (REQ102) on both screens — the shared one and every
 participant's — and carries the same per-slide `resultsVisibility` override every
@@ -2658,7 +2697,7 @@ board on.
 
 | Field on the payload | Meaning |
 |---|---|
-| `quizCount` / `maxPoints` | quiz questions the standings are summed over, and what they are worth at best |
+| `quizCount` / `maxPoints` | quiz questions in the deck, and what they are worth at best — the whole deck, whichever of them a reader's standings count so far |
 | `rankedCount` | **everyone** ranked, including the rows below the cut |
 | `size` | how many rows this slide asked for |
 | `totalVotes` | always `0` — a board collects nothing, and says so rather than omitting the key |

@@ -53,6 +53,33 @@ async function authed(
 	});
 }
 
+/** Each deck's creator token, by presentation id — see {@link revealEveryQuestion}. */
+const creatorTokens = new Map<string, string>();
+
+/**
+ * Reveal every quiz question the deck holds now, as the presenter's reveal does
+ * (REQ102). A participant's verdict — on their own card and on the board the
+ * room is sent — is withheld until the question is over and its reveal setting
+ * allows (REQ228); the tests here are about how answers score and rank, not
+ * about when that is released (`quiz-verdict-withheld.integration.test.ts`
+ * pins that), so they read once it has been. Revealing closes nothing: the
+ * question keeps taking answers inside its window.
+ */
+async function revealEveryQuestion(presentationId: string): Promise<void> {
+	const token = creatorTokens.get(presentationId);
+	if (!token) throw new Error(`no creator token recorded for ${presentationId}`);
+	const deck = await authed(`/api/presentations/${presentationId}`, token);
+	expect(deck.status).toBe(200);
+	for (const slide of (await deck.json()).slides as AnyJson[]) {
+		if (slide.type !== "quiz") continue;
+		const revealed = await authed(`/api/presentations/${presentationId}/reveal`, token, {
+			method: "POST",
+			body: JSON.stringify({ slideId: slide.id }),
+		});
+		expect(revealed.status).toBe(200);
+	}
+}
+
 /** A two-option quiz slide whose second option is the marked solution. */
 function quizSlide(overrides: Record<string, unknown> = {}) {
 	return {
@@ -76,7 +103,9 @@ async function create(slides: AnyJson[]): Promise<AnyJson> {
 		body: JSON.stringify({ title: "Quiz Test", slides }),
 	});
 	expect(res.status).toBe(201);
-	return await res.json();
+	const pres = await res.json();
+	creatorTokens.set(pres.id, pres.creatorToken);
+	return pres;
 }
 
 /** Take a deck live without opening anything the presenter opens by hand. */
@@ -140,10 +169,12 @@ async function results(
 	return await res.json();
 }
 
+/** One participant's card, read once their verdicts are out (REQ228). */
 async function scorecard(
 	presentationId: string,
 	participantId: string,
 ): Promise<AnyJson> {
+	await revealEveryQuestion(presentationId);
 	const res = await fetch(
 		`${baseUrl}/api/presentations/${presentationId}/scorecard?participantId=${participantId}`,
 	);
@@ -1184,6 +1215,7 @@ describe("quiz competition integration", () => {
 		});
 		expect(res.status).toBe(201);
 		const pres = await res.json();
+		creatorTokens.set(pres.id, pres.creatorToken);
 		await wait(1_100 + QUIZ_SUBMISSION_GRACE_MS);
 
 		const payload = await results(pres.id);
@@ -1208,6 +1240,7 @@ describe("quiz competition integration", () => {
 		});
 		expect(res.status).toBe(201);
 		const pres = await res.json();
+		creatorTokens.set(pres.id, pres.creatorToken);
 		const start = await authed(
 			`/api/presentations/${pres.id}/start`,
 			pres.creatorToken,

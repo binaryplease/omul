@@ -136,6 +136,8 @@ import {
 	quizDeadlineFor,
 	quizResultVisibleToCaller,
 	quizTimeLimitFor,
+	quizVerdictVisibleToAudience,
+	quizVerdictVisibleToCaller,
 	quizTimerUnavailableReason,
 	quizWindowNotYetOpened,
 	scoreQuizAnswer,
@@ -1775,6 +1777,9 @@ export async function endPresentation(presentationId: string) {
 			presentationId,
 			endedAt: sessionEndedAt,
 		});
+		// REQ228 — an ended deck has no question left to game, so every verdict
+		// its reveal setting allows now counts towards the room's standings.
+		await broadcastStandings(presentationId);
 	}
 	return updated;
 }
@@ -1871,6 +1876,9 @@ export async function setSlideRevealed(
 			slideId,
 			revealed: reveal,
 		});
+		// REQ228 — revealing a quiz question releases its verdicts, so the
+		// standings the room holds now count it (and hiding it again stops them).
+		await broadcastStandings(presentationId);
 	}
 	return updated;
 }
@@ -2052,6 +2060,8 @@ export async function setDeckResultsVisibility(
 	const updated = outcome.status === "written" ? outcome.deck : null;
 	if (updated) {
 		broadcastDeckResultsVisibility(presentationId, updated);
+		// REQ228 — the mode decides which verdicts the standings count.
+		await broadcastStandings(presentationId);
 	}
 	return updated;
 }
@@ -4666,19 +4676,48 @@ async function leaderboardNamesFor(
 }
 
 /**
+ * The scored questions whose verdicts this caller may read — every one for an
+ * editor, and for everybody else only those {@link quizVerdictVisibleToAudience}
+ * releases (REQ228).
+ *
+ * The standings are verdicts summed: a row's points and correct count move when
+ * one right answer to a running question is scored and stand still for a wrong
+ * one, so a participant watching their own row — or answering under a fresh id
+ * and watching for a new one — reads the key off the board exactly as off their
+ * own card. A question therefore counts towards a non-editor's standings from
+ * the moment its verdict is theirs to see, and not before.
+ */
+function quizDeckCountedFor(
+	deck: ScoredQuizDeck,
+	pres: Record<string, unknown>,
+	caller: ResultsCaller,
+	now: number,
+): ScoredQuizDeck {
+	return deck.filter(({ slide }) =>
+		quizVerdictVisibleToCaller(slide, pres, caller, now),
+	);
+}
+
+/**
  * The whole board behind a leaderboard slide (REQ059) — every ranked
  * participant, plus what the deck's quiz questions are worth. What a *slide*
  * shows is a prefix of this ({@link leaderboardSizeFor}); what a participant is
  * told about themselves is their row in it, wherever it sits.
+ *
+ * Ranked over `counted` — the questions whose verdicts the reader may see
+ * ({@link quizDeckCountedFor}) — while what the deck is worth is read off the
+ * whole of `deck`, so the board's "top 5 across 4 questions" does not shrink and
+ * grow as questions are revealed.
  */
 function leaderboardFrom(
 	presentationId: string,
 	deck: ScoredQuizDeck,
+	counted: ScoredQuizDeck,
 	statedNames: Record<string, string>,
 ) {
-	const entries = rankQuizDeck(presentationId, deck, statedNames);
+	const entries = rankQuizDeck(presentationId, counted, statedNames);
 	return {
-		/** Quiz questions the standings are summed over. */
+		/** Quiz questions in the deck — what the standings can be summed over. */
 		quizCount: deck.length,
 		/** What the whole deck's quiz questions are worth at best. */
 		maxPoints: deck.length * QUIZ_MAX_POINTS,
@@ -4706,6 +4745,15 @@ function leaderboardFrom(
  * exactly as an answer naming it would be. That is what lets a device going
  * through the deck again answer its quiz questions again: the card of its new
  * pass is blank, so nothing on it locks the cards a previous pass has spent.
+ *
+ * **A verdict is the answer key, so it waits for the key** (REQ228). Until
+ * {@link quizVerdictVisibleToAudience} releases a question — its window over and
+ * its reveal setting allowing — its entry carries `isCorrect` and `points` as an
+ * explicit `null`, and it counts towards none of `correctCount`, `totalPoints`
+ * and `rank`. Served to an id the browser mints, not to a proven editor, so it
+ * is always the audience's reading: anybody can answer under a fresh id per
+ * option and read each card back. What they answered still reads — it is theirs,
+ * and it is the lock that keeps a reloaded phone from answering twice.
  */
 export async function getParticipantScorecard(
 	presentationId: string,
@@ -4723,13 +4771,20 @@ export async function getParticipantScorecard(
 		storedResultsSource(presentationId),
 	);
 	const statedNames = await leaderboardNamesFor(presentationId, pres);
-	const board = leaderboardFrom(presentationId, deck, statedNames);
+	const now = Date.now();
+	const board = leaderboardFrom(
+		presentationId,
+		deck,
+		quizDeckCountedFor(deck, pres, {}, now),
+		statedNames,
+	);
 	const entryId = leaderboardEntryIdFor(presentationId, respondentId);
 	const standing = board.entries.find((entry) => entry.entryId === entryId);
 
 	const slides = deck.map(({ slide, scored }) => {
 		const answer = answerOf(scored, respondentId);
 		const answerMode = quizAnswerModeFor(slide);
+		const verdictVisible = quizVerdictVisibleToAudience(slide, pres, now);
 		return {
 			slideId: slide.id,
 			question: slide.question,
@@ -4748,9 +4803,11 @@ export async function getParticipantScorecard(
 			// answered X" must not have to guess which of the two it holds.
 			optionId: answer && answerMode === "select" ? answer.submitted : null,
 			answer: answer && answerMode === "type" ? answer.submitted : null,
-			isCorrect: answer ? answer.isCorrect : null,
+			// REQ228 — both `null` while the verdict is withheld, answered or not:
+			// `points` is otherwise always a number (`scorecardVerdictWithheld`).
+			isCorrect: answer && verdictVisible ? answer.isCorrect : null,
 			elapsedMs: answer ? answer.elapsedMs : null,
-			points: answer ? answer.points : 0,
+			points: verdictVisible ? (answer?.points ?? 0) : null,
 		};
 	});
 
@@ -4769,7 +4826,8 @@ export async function getParticipantScorecard(
 		 * scored yet, so a client can match itself against the board the moment
 		 * they do; the place is an explicit `null` until they have answered
 		 * something, because "unranked" is a standing too and a `0` would read as
-		 * a place they hold.
+		 * a place they hold. Placed on the board as the room may see it (REQ228):
+		 * a question whose verdict is withheld moves nobody's place yet.
 		 */
 		entryId,
 		label: leaderboardEntryLabel(entryId, statedNames[participantId] ?? null),
@@ -4778,7 +4836,8 @@ export async function getParticipantScorecard(
 		quizCount: slides.length,
 		answeredCount: answered.length,
 		correctCount: answered.filter((slide) => slide.isCorrect === true).length,
-		totalPoints: slides.reduce((sum, slide) => sum + slide.points, 0),
+		// A withheld entry's `null` adds nothing (REQ228).
+		totalPoints: slides.reduce((sum, slide) => sum + (slide.points ?? 0), 0),
 		/** What the whole deck's quiz questions are worth at best. */
 		maxPoints: slides.length * QUIZ_MAX_POINTS,
 		slides,
@@ -5141,9 +5200,15 @@ async function aggregateSlideResults(
 		// names a row is *labelled* with the one its holder stated (REQ218) — the
 		// label and nothing more, and only on the rows the cut below keeps.
 		case "leaderboard": {
+			// REQ228 — summed only over the questions whose verdicts this caller
+			// may read. The board goes to the whole room after every quiz answer
+			// (`sendStandings`, read without `canEdit`), so a running question's
+			// points on it would name the key to anybody watching their own row.
+			const scoredDeck = await scoreQuizDeck(presentationId, pres, source);
 			const board = leaderboardFrom(
 				presentationId,
-				await scoreQuizDeck(presentationId, pres, source),
+				scoredDeck,
+				quizDeckCountedFor(scoredDeck, pres, opts, Date.now()),
 				await leaderboardNamesFor(presentationId, pres),
 			);
 			const size = leaderboardSizeFor(slide);

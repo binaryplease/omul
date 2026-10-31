@@ -71,6 +71,8 @@ import {
 	POINTS_BUDGET,
 	quizAnswerModeFor,
 	quizAwaitingStart,
+	quizResultWithheld,
+	scorecardVerdictWithheld,
 	slideAcceptsSubmissions,
 	slideAppearanceFor,
 	slideMediaIsInteractionArea,
@@ -151,6 +153,36 @@ function QuizVerdict({
 			)}
 		</div>
 	);
+}
+
+/** One question's entry on a participant's scorecard, as {@link QuizVerdict} reads it. */
+type ScorecardEntry = {
+	slideId: string;
+	answered: boolean;
+	isCorrect: boolean | null;
+	points: number | null;
+};
+
+/**
+ * This participant's own verdict on one quiz question, read off their scorecard
+ * — or `null` while there is none to show (REQ228).
+ *
+ * The server sends a question's verdict only once its window is over and its
+ * reveal setting allows, and until then its entry reads `isCorrect` and
+ * `points` as an explicit `null` ({@link scorecardVerdictWithheld}). Read as an
+ * ordinary entry, that `null` would draw "Not quite, +null points" over an
+ * answer that may well be right, so a withheld entry is no verdict at all and
+ * the phone keeps saying the answer is in.
+ */
+export function ownQuizResultFor(
+	scorecard: { slides?: ScorecardEntry[] } | null,
+	slideId: string,
+): (ScorecardEntry & { points: number }) | null {
+	const entry =
+		(scorecard?.slides ?? []).find((candidate) => candidate.slideId === slideId) ??
+		null;
+	if (!entry || scorecardVerdictWithheld(entry)) return null;
+	return entry as ScorecardEntry & { points: number };
 }
 
 /**
@@ -821,10 +853,14 @@ export function ParticipantSlideView({
 	 * itself, one whispered row away from the people still deciding.
 	 *
 	 * A question with no window — untimed, or a survey nobody paces — has no
-	 * "over" to wait for, so its verdict lands as soon as this participant has
-	 * answered. Not before: with no deadline there is nothing to have missed, and
-	 * a "no answer in time" under a question that is still open would be a
-	 * verdict on somebody who is still reading it.
+	 * deadline to wait for, so its verdict is asked for as soon as this
+	 * participant has answered. Not before: with no deadline there is nothing to
+	 * have missed, and a "no answer in time" under a question that is still open
+	 * would be a verdict on somebody who is still reading it. What comes back is
+	 * the server's decision (REQ228): an untimed question's verdict is the key
+	 * as much as a timed one's, so it stays withheld until the question is
+	 * revealed, closed or the deck ends — and `ownQuizResultFor` draws nothing
+	 * meanwhile.
 	 */
 	const quizResultReady =
 		isQuizSlide &&
@@ -840,6 +876,16 @@ export function ParticipantSlideView({
 	 */
 	const resultsReadyHere = isQuizSlide ? quizResultReady : resultsVisibleHere;
 
+	/**
+	 * Whether the room's tally of this quiz question is out (REQ215) — the frame
+	 * the server sends the room at the instant the question is over. It is what
+	 * re-reads the scorecard below at that same instant (REQ228): a card fetched
+	 * on this phone's own clock can reach the server a moment before its window
+	 * closes and come back withheld, and nothing else would ask again.
+	 */
+	const quizTallyPublished =
+		isQuizSlide && results != null && !quizResultWithheld(results);
+
 	// The scorecard is fetched as soon as a quiz question is on screen, not only
 	// once its verdict may be shown. It is the record of what this participant
 	// answered, and it is the only thing that survives a reload: `voted` is
@@ -853,6 +899,10 @@ export function ParticipantSlideView({
 	// standings move (`standingsRevision` below), because the board beside this
 	// number is redrawn live by `results.updated` and a place fetched on arrival
 	// would sit still under a race that has not.
+	// The verdict on it is withheld by the server until the question is over and
+	// its reveal setting allows (REQ228), so the card is also re-read when that
+	// happens — the question ending (`quizOver`), or its tally coming out
+	// (`quizTallyPublished`) — and a verdict lands without a reload.
 	useEffect(() => {
 		if (slide.type !== "quiz" && slide.type !== "leaderboard") return;
 		const slideId = slide.id;
@@ -879,7 +929,15 @@ export function ParticipantSlideView({
 		// leaderboard slide: a quiz slide's tally changes on every answer in the
 		// room, and depending on it there would re-fetch this card once per vote
 		// cast by anybody.
-	}, [slide, transport, answeredQuiz, quizResultReady, standingsRevision]);
+	}, [
+		slide,
+		transport,
+		answeredQuiz,
+		quizResultReady,
+		quizOver,
+		quizTallyPublished,
+		standingsRevision,
+	]);
 
 	const handleVote = async (
 		value: string,
@@ -1104,13 +1162,12 @@ export function ParticipantSlideView({
 
 	/**
 	 * This participant's own verdict on this question, once the question is over
-	 * and the deck's results visibility allows it (REQ056). Absent on a plain
+	 * and the deck's results visibility allows it (REQ056) — and once the server
+	 * has released it (REQ228), which it does on the same terms. Absent on a plain
 	 * choice slide, which reveals a solution but keeps no score.
 	 */
 	const ownQuizResult = quizResultReady
-		? ((scorecard?.slides ?? []).find(
-				(entry: { slideId: string }) => entry.slideId === slide.id,
-			) ?? null)
+		? ownQuizResultFor(scorecard, slide.id)
 		: null;
 
 	/**

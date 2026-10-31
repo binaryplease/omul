@@ -48,6 +48,33 @@ async function authed(
 	});
 }
 
+/** Each deck's creator token, by presentation id — see {@link revealEveryQuestion}. */
+const creatorTokens = new Map<string, string>();
+
+/**
+ * Reveal every quiz question the deck holds now, as the presenter's reveal does
+ * (REQ102). A participant's verdict — on their own card and on the board the
+ * room is sent — is withheld until the question is over and its reveal setting
+ * allows (REQ228); the tests here are about how answers score and rank, not
+ * about when that is released (`quiz-verdict-withheld.integration.test.ts`
+ * pins that), so they read once it has been. Revealing closes nothing: the
+ * question keeps taking answers inside its window.
+ */
+async function revealEveryQuestion(presentationId: string): Promise<void> {
+	const token = creatorTokens.get(presentationId);
+	if (!token) throw new Error(`no creator token recorded for ${presentationId}`);
+	const deck = await authed(`/api/presentations/${presentationId}`, token);
+	expect(deck.status).toBe(200);
+	for (const slide of (await deck.json()).slides as AnyJson[]) {
+		if (slide.type !== "quiz") continue;
+		const revealed = await authed(`/api/presentations/${presentationId}/reveal`, token, {
+			method: "POST",
+			body: JSON.stringify({ slideId: slide.id }),
+		});
+		expect(revealed.status).toBe(200);
+	}
+}
+
 /** One quiz question whose second option is the marked solution. */
 function quizSlide(id: string, overrides: Record<string, unknown> = {}) {
 	return {
@@ -79,7 +106,9 @@ async function create(slides: AnyJson[]): Promise<AnyJson> {
 		body: JSON.stringify({ title: "Leaderboard Test", slides }),
 	});
 	expect(res.status).toBe(201);
-	return await res.json();
+	const pres = await res.json();
+	creatorTokens.set(pres.id, pres.creatorToken);
+	return pres;
 }
 
 /**
@@ -125,6 +154,7 @@ async function createAndStartNamed(slides: AnyJson[]): Promise<AnyJson> {
 	});
 	expect(res.status).toBe(201);
 	const pres = await res.json();
+	creatorTokens.set(pres.id, pres.creatorToken);
 	const startRes = await authed(
 		`/api/presentations/${pres.id}/start`,
 		pres.creatorToken,
@@ -164,11 +194,15 @@ async function answer(
 	});
 }
 
-/** The board as a participant's browser reads it — public, unauthenticated. */
+/**
+ * The board as a participant's browser reads it — public, unauthenticated —
+ * once the deck's questions are revealed (REQ228).
+ */
 async function board(
 	presentationId: string,
 	slideId = "board",
 ): Promise<AnyJson> {
+	await revealEveryQuestion(presentationId);
 	const res = await fetch(
 		`${baseUrl}/api/presentations/${presentationId}/results/${slideId}`,
 	);
@@ -176,10 +210,12 @@ async function board(
 	return await res.json();
 }
 
+/** One participant's card, read once their verdicts are out (REQ228). */
 async function scorecard(
 	presentationId: string,
 	participantId: string,
 ): Promise<AnyJson> {
+	await revealEveryQuestion(presentationId);
 	const res = await fetch(
 		`${baseUrl}/api/presentations/${presentationId}/scorecard?participantId=${participantId}`,
 	);
@@ -577,6 +613,7 @@ describe("leaderboard slide integration (REQ059)", () => {
 	test("the board rides the all-results export like every other slide", async () => {
 		const pres = await createAndStart(quizDeck());
 		await answer(pres.id, "p1", "q1", "q1-right");
+		await revealEveryQuestion(pres.id);
 
 		const res = await fetch(`${baseUrl}/api/presentations/${pres.id}/results`);
 		expect(res.status).toBe(200);

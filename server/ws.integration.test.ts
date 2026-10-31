@@ -246,6 +246,32 @@ async function startQuizTimer(
 	viewer.received.length = 0;
 }
 
+/**
+ * Reveal a quiz question's results (REQ102), and let the standings frame the
+ * reveal sends go by. The board the room is sent counts a question only once
+ * its verdicts are the room's (REQ228); the tests that call this are about
+ * *when the board is re-sent*, not about that gate
+ * (`quiz-verdict-withheld.integration.test.ts` pins it), so they reveal first
+ * and every answer they cast counts at once. Revealing closes nothing: the
+ * question keeps taking answers inside its window.
+ */
+async function revealQuiz(
+	pres: { id: string; creatorToken: string },
+	viewer: ReturnType<typeof openWs>,
+	slideId = "qz",
+): Promise<void> {
+	const revealed = await authed(
+		`/api/presentations/${pres.id}/reveal`,
+		pres.creatorToken,
+		{ method: "POST", body: JSON.stringify({ slideId }) },
+	);
+	expect(revealed.status).toBe(200);
+	await viewer.waitFor("slide.revealed");
+	// Past the standings' coalescing window, so the next board is a leading run.
+	await new Promise((resolve) => setTimeout(resolve, 600));
+	viewer.received.length = 0;
+}
+
 /** One answer on a slide of the default deck (REQ150's tally tests). */
 async function castVote(
 	presentationId: string,
@@ -735,6 +761,7 @@ describe("WebSocket integration", () => {
 		});
 		await viewer.waitFor("presentation.started");
 		await startQuizTimer(pres, viewer);
+		await revealQuiz(pres, viewer);
 
 		await answerQuiz(pres.id, "participant-1", "mercury");
 
@@ -769,6 +796,7 @@ describe("WebSocket integration", () => {
 		});
 		await viewer.waitFor("presentation.started");
 		await startQuizTimer(pres, viewer);
+		await revealQuiz(pres, viewer);
 
 		await answerQuiz(pres.id, "participant-1", "venus");
 		// The wrong answer's board first, so the re-marked one is a fresh frame.
@@ -920,6 +948,7 @@ describe("WebSocket integration", () => {
 		});
 		await viewer.waitFor("presentation.started");
 		await startQuizTimer(pres, viewer);
+		await revealQuiz(pres, viewer);
 
 		const stateName = (name: string) =>
 			fetch(`${baseUrl}/api/presentations/${pres.id}/participant-name`, {
@@ -988,6 +1017,7 @@ describe("WebSocket integration", () => {
 		});
 		await viewer.waitFor("presentation.started");
 		await startQuizTimer(pres, viewer);
+		await revealQuiz(pres, viewer);
 
 		const named = await fetch(
 			`${baseUrl}/api/presentations/${pres.id}/participant-name`,
@@ -1040,6 +1070,7 @@ describe("WebSocket integration", () => {
 		});
 		await viewer.waitFor("presentation.started");
 		await startQuizTimer(pres, viewer);
+		await revealQuiz(pres, viewer);
 		viewer.received.length = 0;
 
 		// A room answering the question at once. Concurrent rather than sequential,

@@ -4547,6 +4547,74 @@ export function quizResultWithheld(results: unknown): boolean {
 }
 
 /**
+ * Whether a participant may be told how they did on a quiz question — their
+ * verdict, the points it earned, and any total or place that counts it
+ * (REQ228).
+ *
+ * Two gates, and a verdict needs both. The answer key's
+ * ({@link solutionVisibleToAudience}): "you were right" beside the option you
+ * picked *is* the key, so while a question runs — or before it has been opened —
+ * a verdict is the key handed to whoever reads it, and a participant id is
+ * minted by the browser, so anybody can answer under a fresh one per option and
+ * read each verdict back. And the slide's reveal setting's
+ * ({@link tallyVisibleToAudience}): under "On click" the organizer decides when
+ * the room learns the solution, and under "Private" the room never does, so a
+ * phone that said "Correct!" there would publish what the shared screen keeps
+ * hidden.
+ *
+ * Every other slide type is unaffected: nothing is scored on it.
+ */
+export function quizVerdictVisibleToAudience(
+	slide: {
+		id: string;
+		type?: SlideType | undefined;
+		timeLimit?: number | undefined;
+		resultsVisibility?: SlideResultsVisibility | undefined;
+	},
+	deck: SolutionRevealState & TallyRevealState,
+	now: number,
+): boolean {
+	if (slide.type !== "quiz") return true;
+	return (
+		solutionVisibleToAudience(slide, deck, now) &&
+		tallyVisibleToAudience(slide, deck)
+	);
+}
+
+/**
+ * {@link quizVerdictVisibleToAudience} for one caller: an editor reads every
+ * verdict, whatever the window and the reveal setting say. The results link
+ * (REQ098) does not lift it — it delegates the tallies, not a running
+ * question's key, which is what a verdict read early is.
+ */
+export function quizVerdictVisibleToCaller(
+	slide: {
+		id: string;
+		type?: SlideType | undefined;
+		timeLimit?: number | undefined;
+		resultsVisibility?: SlideResultsVisibility | undefined;
+	},
+	deck: SolutionRevealState & TallyRevealState,
+	caller: ResultsCaller,
+	now: number,
+): boolean {
+	if (caller.canEdit) return true;
+	return quizVerdictVisibleToAudience(slide, deck, now);
+}
+
+/**
+ * Whether one entry of a participant's scorecard has its verdict withheld
+ * ({@link quizVerdictVisibleToAudience}): `isCorrect` and `points` are both an
+ * explicit `null`. Read off `points`, which a published entry always carries as
+ * a number — `0` for a question left unanswered — so `null` there means "not
+ * yet yours to see", never "scored nothing".
+ */
+export function scorecardVerdictWithheld(entry: unknown): boolean {
+	if (typeof entry !== "object" || entry === null) return false;
+	return (entry as { points?: unknown }).points === null;
+}
+
+/**
  * The deck's slides as an audience may see them: every quiz question that is
  * not yet over loses the `isCorrect` marks on its options and, on a typed
  * question (REQ055), the accepted answers themselves — which are the answer

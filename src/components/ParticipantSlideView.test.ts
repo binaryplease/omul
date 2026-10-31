@@ -20,7 +20,11 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PresentationSchema, QUIZ_SUBMISSION_GRACE_MS } from "../../server/schemas";
 import type { Presentation, Slide } from "../types";
-import { choiceCardState, ParticipantSlideView } from "./ParticipantSlideView";
+import {
+	choiceCardState,
+	ownQuizResultFor,
+	ParticipantSlideView,
+} from "./ParticipantSlideView";
 
 const TIME_LIMIT_SECONDS = 30;
 
@@ -387,5 +391,41 @@ describe("an option card under the pointer (REQ223)", () => {
 		for (const rule of hoverRules) {
 			expect(rule).toContain(":where(:not(");
 		}
+	});
+});
+
+describe("a participant's own verdict while the server withholds it (REQ228)", () => {
+	/** One question's entry as the scorecard sends it before the solution is out. */
+	const WITHHELD = {
+		slideId: "q1",
+		answered: true,
+		optionId: "mercury",
+		answer: null,
+		isCorrect: null,
+		points: null,
+	};
+
+	test("a withheld entry is no verdict, so nothing reads 'Not quite'", () => {
+		expect(ownQuizResultFor({ slides: [WITHHELD] }, "q1")).toBe(null);
+	});
+
+	test("the entry released after the question reads as the verdict", () => {
+		const released = { ...WITHHELD, isCorrect: true, points: 943 };
+		expect(ownQuizResultFor({ slides: [released] }, "q1")).toEqual(released);
+	});
+
+	test("a released question left unanswered still reads, as zero points", () => {
+		const unanswered = {
+			...WITHHELD,
+			answered: false,
+			optionId: null,
+			points: 0,
+		};
+		expect(ownQuizResultFor({ slides: [unanswered] }, "q1")).toEqual(unanswered);
+	});
+
+	test("no card, or no entry for this question, is no verdict", () => {
+		expect(ownQuizResultFor(null, "q1")).toBe(null);
+		expect(ownQuizResultFor({ slides: [WITHHELD] }, "q2")).toBe(null);
 	});
 });
