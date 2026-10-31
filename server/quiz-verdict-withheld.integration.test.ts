@@ -572,4 +572,115 @@ describe("a participant's quiz verdict while it is not theirs yet (REQ228)", () 
 		expect(editor.rankedCount).toBe(1);
 		expect(editor.entries[0].correctCount).toBe(1);
 	});
+
+	// ── The answer key on the deck payload, under each reveal setting ──
+	//
+	// A phone holding the key beside the option it picked has its verdict, so the
+	// deck the audience is sent keeps the key back on the verdict's terms: not
+	// merely once the question is over, but once its reveal setting allows.
+
+	/** The audience's copy of the question, as a joining phone reads it. */
+	async function joinedQuestion(pres: AnyJson): Promise<AnyJson> {
+		const deck = await read(`/api/join/${pres.code}`);
+		return deck.slides.find((slide: AnyJson) => slide.id === "qz");
+	}
+
+	/** The same, off the public deck read. */
+	async function publicQuestion(pres: AnyJson): Promise<AnyJson> {
+		const deck = await read(`/api/presentations/${pres.id}`);
+		return deck.slides.find((slide: AnyJson) => slide.id === "qz");
+	}
+
+	function expectNoKey(slide: AnyJson) {
+		for (const option of slide.options) {
+			expect(option).not.toHaveProperty("isCorrect");
+		}
+		expect(slide.quizAnswers).toEqual([]);
+	}
+
+	function expectKey(slide: AnyJson) {
+		const mercury = slide.options.find((option: AnyJson) => option.id === "mercury");
+		expect(mercury.isCorrect).toBe(true);
+	}
+
+	/** Save the slides unchanged, which sends the room a `presentation.slides` frame. */
+	async function saveSlides(pres: AnyJson, slides: AnyJson[]): Promise<void> {
+		const res = await authed(`/api/presentations/${pres.id}`, pres.creatorToken, {
+			method: "PATCH",
+			body: JSON.stringify({ slides }),
+		});
+		expect(res.status).toBe(200);
+	}
+
+	function slidesFrames(received: Envelope[]): AnyJson[] {
+		return received
+			.filter((envelope) => envelope.event === "presentation.slides")
+			.map((envelope) =>
+				envelope.data.slides.find((slide: AnyJson) => slide.id === "qz"),
+			);
+	}
+
+	test("under 'private' a closed question's key reaches no phone, not even once the deck ends", async () => {
+		const pres = await goLive([quizSlide()], { resultsVisibility: "private" });
+		await startTimer(pres);
+		await answer(pres.id, "p1", "mercury");
+		await closeQuestion(pres);
+
+		// The probe: the scorecard withholds the verdict, and the deck must not
+		// hand the participant the key to work it out.
+		expectVerdictWithheld(await scorecard(pres), SELECTED);
+		expectNoKey(await joinedQuestion(pres));
+		expectNoKey(await publicQuestion(pres));
+
+		const phone = await joinRoom(pres.id, "participant");
+		await saveSlides(pres, [quizSlide()]);
+		await wait(100);
+		const frames = slidesFrames(phone.received);
+		expect(frames.length).toBeGreaterThan(0);
+		for (const frame of frames) expectNoKey(frame);
+		await phone.close();
+
+		await endDeck(pres);
+		expectNoKey(await joinedQuestion(pres));
+	});
+
+	test("under 'on click' a closed question's key waits for the reveal", async () => {
+		const pres = await goLive([quizSlide()], { resultsVisibility: "on-click" });
+		await startTimer(pres);
+		await answer(pres.id, "p1", "mercury");
+		await closeQuestion(pres);
+		expectNoKey(await joinedQuestion(pres));
+
+		const phone = await joinRoom(pres.id, "participant");
+		await saveSlides(pres, [quizSlide()]);
+		await wait(100);
+		const frames = slidesFrames(phone.received);
+		expect(frames.length).toBeGreaterThan(0);
+		for (const frame of frames) expectNoKey(frame);
+		await phone.close();
+
+		await reveal(pres);
+		expectKey(await joinedQuestion(pres));
+	});
+
+	test("under 'on click' a typed question's accepted answers wait for the reveal", async () => {
+		const pres = await goLive([typedQuizSlide()], { resultsVisibility: "on-click" });
+		await startTimer(pres);
+		await answer(pres.id, "p1", "Mercury");
+		await closeQuestion(pres);
+		expect((await joinedQuestion(pres)).quizAnswers).toEqual([]);
+
+		await reveal(pres);
+		expect((await joinedQuestion(pres)).quizAnswers).toEqual([
+			{ id: "a1", text: "Mercury" },
+		]);
+	});
+
+	test("under 'instant' the key reaches the room once the question is over, as before", async () => {
+		const pres = await goLive([quizSlide()]);
+		await startTimer(pres);
+		expectNoKey(await joinedQuestion(pres));
+		await closeQuestion(pres);
+		expectKey(await joinedQuestion(pres));
+	});
 });

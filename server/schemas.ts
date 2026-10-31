@@ -4616,9 +4616,11 @@ export function scorecardVerdictWithheld(entry: unknown): boolean {
 
 /**
  * The deck's slides as an audience may see them: every quiz question that is
- * not yet over loses the `isCorrect` marks on its options and, on a typed
- * question (REQ055), the accepted answers themselves — which are the answer
- * key in the plainest possible form.
+ * not yet over, or whose reveal setting still keeps its results from the room
+ * ("On click" until the reveal, "Private" always — {@link
+ * quizVerdictVisibleToAudience}), loses the `isCorrect` marks on its options
+ * and, on a typed question (REQ055), the accepted answers themselves — which
+ * are the answer key in the plainest possible form.
  *
  * The marks are **dropped**, not emitted as an explicit `null` (the shape a
  * nullish value would otherwise wear), because here the absence is the point.
@@ -4650,7 +4652,15 @@ export function withAudienceSolutions<
 	},
 >(slides: SlideShape[], deck: SolutionRevealState, now: number): SlideShape[] {
 	return slides.map((slide) => {
-		if (solutionVisibleToAudience(slide, deck, now)) return slide;
+		// A quiz's key is also held to its reveal setting (REQ228): a phone holding
+		// it beside its own answer has its verdict, so it reaches the room on the
+		// verdict's terms — under "On click" with the reveal, under "Private"
+		// never — not merely once the question is over.
+		const keyVisible =
+			slide.type === "quiz"
+				? quizVerdictVisibleToAudience(slide, deck, now)
+				: solutionVisibleToAudience(slide, deck, now);
+		if (keyVisible) return slide;
 		// A typed question offers no options to anyone, so the audience is sent
 		// none. Left in, they would be a second copy of the answer key in plain
 		// text: a question switched from select to type keeps the options it was
