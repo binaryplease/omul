@@ -526,3 +526,39 @@ describe("a connected phone after the presenter edits and saves the deck (REQ229
 		expect(markup).not.toContain("Time&#x27;s up");
 	});
 });
+
+describe("a phone that followed the draft when the deck goes live (REQ230)", () => {
+	test("is on the slide the deck went live on, not the quiz picked in the draft", () => {
+		const warmUp: Slide = {
+			id: "warm-up",
+			type: "multiple-choice",
+			question: "Ready to play?",
+			options: [
+				{ id: "yes", text: "Yes" },
+				{ id: "no", text: "No" },
+			],
+		};
+		const store = createAppStore();
+		store.getState().setPresentation(
+			PresentationSchema.parse({
+				id: "deck",
+				code: "123456",
+				title: "Quiz round",
+				slides: [warmUp, SELECT_QUIZ],
+				status: "draft",
+				createdAt: "2026-10-30T09:00:00.000Z",
+			}) as Presentation,
+		);
+		// The presenter looks at the quiz question in the draft, the phone follows.
+		store.getState().applySlideChanged({ slideIndex: 1 });
+		// Start: the server and the presenter are on the first slide.
+		store
+			.getState()
+			.applyStarted({ slideStartedAt: {}, activeSlideIndex: 0 });
+
+		const pres = store.getState().presentation as Presentation;
+		const markup = phone(pres.slides[pres.activeSlideIndex], pres, null);
+		expect(markup).toContain("Ready to play?");
+		expect(markup).not.toContain("Which planet is closest to the sun?");
+	});
+});

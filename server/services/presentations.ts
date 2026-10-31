@@ -1742,12 +1742,17 @@ export async function startPresentation(presentationId: string) {
 		// counting down a window the server no longer holds — showing a countdown
 		// every tap of which is refused, or "Time's up" on a question that is
 		// waiting to be started.
+		//
+		// And `activeSlideIndex`, the slide it went live on (REQ230): a draft is
+		// navigated, so a phone or second screen that followed it sits on whatever
+		// slide was last picked there. It carries the same slide as `slideIndex`.
 		broadcastToPresentation(presentationId, "presentation.started", {
 			presentationId,
 			startedAt: sessionStartedAt,
 			slideIndex: 0,
 			slideId: first?.id ?? null,
 			slideStartedAt: slideStartedAtIn(updated),
+			activeSlideIndex: updated.activeSlideIndex,
 		});
 		if (opened && first) {
 			broadcastToPresentation(presentationId, "slide.started", {

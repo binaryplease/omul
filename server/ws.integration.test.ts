@@ -510,6 +510,8 @@ describe("WebSocket integration", () => {
 			slideId: "s1",
 			// And the opening stamps the deck went live with (REQ227).
 			slideStartedAt: started.slideStartedAt,
+			// And the slide it went live on (REQ230).
+			activeSlideIndex: started.activeSlideIndex,
 		});
 		expect(typeof env.data.startedAt).toBe("string");
 
@@ -635,6 +637,35 @@ describe("WebSocket integration", () => {
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
+	});
+
+	test("presentation.started puts a screen that followed the draft on the server's slide (REQ230)", async () => {
+		// The presenter pages to the second slide in the draft and every screen
+		// in the room follows; going live puts the deck back on the first, and the
+		// frame has to say so, or those screens stay on the second.
+		const pres = await createPresentation();
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+
+		await authed(`/api/presentations/${pres.id}/slide`, pres.creatorToken, {
+			method: "POST",
+			body: JSON.stringify({ index: 1 }),
+		});
+		const changed = await viewer.waitFor("slide.changed");
+		expect(changed.data.slideIndex).toBe(1);
+
+		const res = await authed(
+			`/api/presentations/${pres.id}/start`,
+			pres.creatorToken,
+			{ method: "POST" },
+		);
+		const started = await res.json();
+		expect(started.activeSlideIndex).toBe(0);
+		const env = await viewer.waitFor("presentation.started");
+		expect(env.data.activeSlideIndex).toBe(0);
+
+		await viewer.close();
 	});
 
 	test("presentation.started tells the room a draft's leftover stamps were dropped (REQ227)", async () => {

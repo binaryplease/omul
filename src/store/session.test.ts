@@ -466,6 +466,26 @@ describe("session slice — WebSocket reducers", () => {
 		});
 	});
 
+	test("applyStarted moves a screen that followed the draft to the server's slide (REQ230)", () => {
+		// A phone or second screen that followed the draft's navigation to the
+		// second slide: going live put the server and the presenter on the first,
+		// and the frame saying so must put this screen there too.
+		const store = seededStore({ status: "draft", activeSlideIndex: 1 });
+		store.getState().applyStarted({
+			startedAt: SECOND_OPENED,
+			slideStartedAt: {},
+			activeSlideIndex: 0,
+		});
+		expect(store.getState().presentation?.status).toBe("live");
+		expect(store.getState().presentation?.activeSlideIndex).toBe(0);
+	});
+
+	test("a start frame without a slide index leaves the one held (an older server)", () => {
+		const store = seededStore({ status: "draft", activeSlideIndex: 1 });
+		store.getState().applyStarted({ startedAt: SECOND_OPENED });
+		expect(store.getState().presentation?.activeSlideIndex).toBe(1);
+	});
+
 	test("a start frame without stamps leaves the ones held (an older server)", () => {
 		const store = seededStore({ slideStartedAt: { "slide-a": FIRST_OPENED } });
 		store.getState().applyStarted({ startedAt: SECOND_OPENED });

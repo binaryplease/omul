@@ -232,14 +232,16 @@ export interface SessionSlice {
 	applyParticipantCount: (payload: { count: number }) => void;
 	/**
 	 * The deck went live; `startedAt` is when its session clock began (REQ108),
-	 * `slideIndex` / `slideId` the slide the start landed on, and
-	 * `slideStartedAt` the opening stamps it went live with (REQ227).
+	 * `slideIndex` / `slideId` the slide the start landed on,
+	 * `slideStartedAt` the opening stamps it went live with (REQ227), and
+	 * `activeSlideIndex` the slide it went live on (REQ230).
 	 */
 	applyStarted: (payload?: {
 		startedAt?: string | null;
 		slideIndex?: number | null;
 		slideId?: string | null;
 		slideStartedAt?: unknown;
+		activeSlideIndex?: unknown;
 	}) => void;
 	/** The deck ended; `endedAt` is where its session clock stopped (REQ108). */
 	applyEnded: (payload?: { endedAt?: string | null }) => void;
@@ -774,6 +776,12 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		// otherwise keep counting down a window the server no longer holds. Taken
 		// rather than merged, the way the presenter takes them off the start
 		// response; a frame without them (an older server) leaves what is held.
+		//
+		// And the slide the deck went live on (REQ230), which is the server's and
+		// not this screen's: a draft is navigated, so a phone or second screen that
+		// followed it holds whatever slide was last picked there, and would go on
+		// showing it — a quiz question ahead of its time — while the presenter who
+		// clicked is on the first. A frame without one leaves the index held.
 		applyStarted: (payload) => {
 			if (typeof payload?.slideIndex === "number") {
 				set({
@@ -790,6 +798,9 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 					? { activeSlideIndex: payload.slideIndex }
 					: {}),
 				...startedStampsIn(payload),
+				...(typeof payload?.activeSlideIndex === "number"
+					? { activeSlideIndex: payload.activeSlideIndex }
+					: {}),
 			});
 		},
 
