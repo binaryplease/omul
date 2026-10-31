@@ -239,8 +239,9 @@ Prose outside the markers is preserved.
 | [REQ229.md](requirements/REQ229.md) | When the presenter saves the deck, every connected participant and presenter screen must apply the saved slides without a reload — reveal setting, question, options, accepted answers, time limit and order — projected as on joining | Live Session | P1 | done | internal |
 | [REQ230.md](requirements/REQ230.md) | When a deck goes live, every connected participant and presenter screen must move to the slide the server went live on, not keep the slide last selected in the draft | Live Session | P1 | done | internal |
 | [REQ231.md](requirements/REQ231.md) | The quiz slide editor's time-limit number box must be programmatically named by its visible caption "Time limit (seconds)" | Quiz & Scoring | P2 | done | internal |
+| [REQ232.md](requirements/REQ232.md) | A quiz answer the server refuses must keep the participant on the slide, with the reason inline in the deck's language | Quiz & Scoring | P1 | done | internal |
 | [REQ245.md](requirements/REQ245.md) | A slide's body text can be edited directly on the editor canvas, as its question already can | Deck & Slides | P2 | pending | internal |
 | [REQ246.md](requirements/REQ246.md) | Account deletion requires the account's password whatever the session's age | Accounts & Workspaces | P1 | done | internal |
 
-_223 entries — one row per file in `requirements/`._
+_224 entries — one row per file in `requirements/`._
 <!-- index:end -->

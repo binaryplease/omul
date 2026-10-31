@@ -1031,6 +1031,9 @@ export function ParticipantPage({
 						serverClockOffsetMs={serverClockOffsetMs}
 						isSurvey={!!isSurvey}
 						transport={transport}
+						// A refused answer stays on the slide with its reason
+						// (REQ232); only a failure without a stated refusal — the
+						// deck no longer live, the slide gone — replaces the screen.
 						onError={setError}
 					/>
 

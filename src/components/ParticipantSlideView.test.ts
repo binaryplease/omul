@@ -13,18 +13,26 @@
  * is decided by the deck and the tally alone.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { PresentationSchema, QUIZ_SUBMISSION_GRACE_MS } from "../../server/schemas";
+import {
+	PresentationSchema,
+	QUIZ_SUBMISSION_GRACE_MS,
+	VOTE_REFUSAL_CODES,
+	type VoteRefusalCode,
+} from "../../server/schemas";
+import { getDict } from "../i18n";
 import { createAppStore } from "../store/store";
 import type { Presentation, Slide } from "../types";
 import {
 	choiceCardState,
+	liveVoteTransport,
 	ownQuizResultFor,
 	ParticipantSlideView,
+	routeSubmissionFailure,
 } from "./ParticipantSlideView";
 
 const TIME_LIMIT_SECONDS = 30;
@@ -560,5 +568,98 @@ describe("a phone that followed the draft when the deck goes live (REQ230)", () 
 		const markup = phone(pres.slides[pres.activeSlideIndex], pres, null);
 		expect(markup).toContain("Ready to play?");
 		expect(markup).not.toContain("Which planet is closest to the sun?");
+	});
+});
+
+describe("a refused quiz answer keeps the participant on the slide (REQ232)", () => {
+	const realFetch = globalThis.fetch;
+	afterEach(() => {
+		globalThis.fetch = realFetch;
+	});
+
+	/** The English the vote route sends beside each code — never what is shown. */
+	const ROUTE_ERROR: Record<VoteRefusalCode, string> = {
+		"quiz-not-started": "This quiz question has not started yet",
+		"quiz-window-closed": "The time for this quiz question is over",
+		"quiz-already-answered": "Your answer to this quiz question is final",
+		"participation-closed": "The presenter has closed this slide to submissions",
+	};
+
+	/** What a German deck's participant reads for each of them. */
+	const GERMAN_REASON: Record<VoteRefusalCode, string> = {
+		"quiz-not-started": "Warten, bis diese Frage gestartet wird",
+		"quiz-window-closed": "Die Zeit für diese Frage ist vorbei",
+		"quiz-already-answered": "Deine Antwort steht fest",
+		"participation-closed": "Der Präsentator hat diese Frage geschlossen",
+	};
+
+	/** The vote route answering every request with `status` and `body`. */
+	function voteRouteAnswers(status: number, body: unknown) {
+		globalThis.fetch = (async () =>
+			new Response(JSON.stringify(body), {
+				status,
+				headers: { "Content-Type": "application/json" },
+			})) as unknown as typeof fetch;
+	}
+
+	/**
+	 * Send `value` as this phone's answer through the live transport, and report
+	 * a failure the way the live page does: a stated refusal to the slide's own
+	 * line, anything else to the store's `setError` — the one value the page's
+	 * error screen is drawn from.
+	 */
+	async function answerOnLivePage(slideId: string, value: string) {
+		const store = createAppStore();
+		const shownOnSlide: string[] = [];
+		await liveVoteTransport("deck", "phone")
+			.vote({ slideId, value })
+			.catch((thrown: unknown) =>
+				routeSubmissionFailure(thrown, getDict("de"), {
+					refused: (message) => shownOnSlide.push(message),
+					failed: store.getState().setError,
+				}),
+			);
+		return { pageError: store.getState().error, shownOnSlide };
+	}
+
+	const ANSWERS = [
+		{ mode: "select", slide: SELECT_QUIZ, value: "mars" },
+		{ mode: "typed", slide: TYPED_QUIZ, value: "Atlantic" },
+	];
+
+	for (const refused of VOTE_REFUSAL_CODES) {
+		for (const answer of ANSWERS) {
+			test(`${refused}, ${answer.mode} answer: no error screen, the reason in the deck's language`, async () => {
+				voteRouteAnswers(400, { error: ROUTE_ERROR[refused], refused });
+				const outcome = await answerOnLivePage(answer.slide.id, answer.value);
+				expect(outcome.pageError).toBe("");
+				expect(outcome.shownOnSlide).toEqual([GERMAN_REASON[refused]]);
+			});
+		}
+	}
+
+	test("a failure without a stated refusal still replaces the page", async () => {
+		// The deck ended or the slide is gone: there is no slide left to stay on.
+		voteRouteAnswers(400, {
+			error: "Cannot vote – presentation not live or slide not found",
+		});
+		const outcome = await answerOnLivePage("q1", "mars");
+		expect(outcome.pageError).toBe(
+			"Cannot vote – presentation not live or slide not found",
+		);
+		expect(outcome.shownOnSlide).toEqual([]);
+	});
+
+	test("every path in the slide view reaches the page's error callback through the router", () => {
+		// The live page passes the store's `setError` as `onError`, and that is
+		// what swaps the slide for the error screen. A second call site — a catch
+		// block or the local closed-slide guard calling it directly — would send a
+		// stated refusal there again, which is the defect this pins.
+		const source = readFileSync(join(import.meta.dir, "ParticipantSlideView.tsx"), "utf8");
+		const calls = source.match(/\bonError\(/g) ?? [];
+		expect(calls).toHaveLength(1);
+		expect(source).toMatch(/const reportFailure = \(message: string\) => \{\s*onError\(message\);/);
+		const page = readFileSync(join(import.meta.dir, "..", "pages", "ParticipantPage.tsx"), "utf8");
+		expect(page).toContain("onError={setError}");
 	});
 });

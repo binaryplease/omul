@@ -37,7 +37,7 @@ import { SLIDE_PLACEMENT_CLASSES } from "./SlideAppearance";
 import { SlideText } from "./SlideText";
 import { useToast } from "./ui/Toast";
 import { POLL_COLORS } from "../constants";
-import { getDict } from "../i18n";
+import { type Dict, getDict } from "../i18n";
 import type {
 	FormField,
 	GridAxis,
@@ -45,6 +45,7 @@ import type {
 	Presentation,
 	Slide,
 	SlideType,
+	VoteRefusalCode,
 } from "../types";
 import {
 	effectiveResultsVisibility,
@@ -266,6 +267,47 @@ function AnswerStatus({
 			{children}
 		</div>
 	);
+}
+
+/**
+ * What each stated vote refusal (REQ054/REQ057/REQ111/REQ226) reads as on a
+ * participant's screen, in the deck's own language (REQ084/REQ225). Keyed on
+ * the wire's `refused` code rather than on local state: a tap that races a
+ * broadcast is refused for a reason this phone does not know yet. A `Record`
+ * over the code, so a code added to the vocabulary without wording here does
+ * not compile.
+ */
+const VOTE_REFUSAL_WORDING: Record<VoteRefusalCode, (dict: Dict) => string> = {
+	"participation-closed": (dict) => participationLabelsFor(dict).closed,
+	"quiz-not-started": (dict) => dict.quizWaitingToStart,
+	"quiz-window-closed": (dict) => dict.quizWindowClosed,
+	"quiz-already-answered": (dict) => dict.quizAnswerLocked,
+};
+
+/**
+ * Where a submission that did not land is reported (REQ232).
+ *
+ * - **`refused`**: the server turned *this answer* away for one of its stated
+ *   reasons — the question not started, its time over, an answer already
+ *   final, the slide closed. The session is fine and the slide is still the
+ *   right one to show, so the reason belongs beside the answer control, and
+ *   once the question is over the participant reads its result like anybody
+ *   who did not answer in time.
+ * - **`failed`**: anything without a code — the deck no longer live, the slide
+ *   gone, a value the boundary rejected. That keeps the surface's own error
+ *   path, which on the live page replaces the screen.
+ */
+export function routeSubmissionFailure(
+	thrown: unknown,
+	dict: Dict,
+	report: { refused: (message: string) => void; failed: (message: string) => void },
+): void {
+	const refused = thrown instanceof ApiError ? thrown.refused : null;
+	if (refused) {
+		report.refused(VOTE_REFUSAL_WORDING[refused](dict));
+		return;
+	}
+	report.failed(thrown instanceof Error ? thrown.message : String(thrown));
 }
 
 /**
@@ -615,7 +657,11 @@ export function ParticipantSlideView({
 	/** Survey decks gate results until the whole deck is answered (REQ003/REQ082). */
 	isSurvey: boolean;
 	transport: ParticipantVoteTransport;
-	/** Where a refused submission is reported — the page owns its own banner. */
+	/**
+	 * Where a submission that failed for a reason other than a stated refusal is
+	 * reported — the page owns its own banner. A stated refusal is this
+	 * component's to show, beside the control it refused (REQ232).
+	 */
 	onError: (message: string) => void;
 }) {
 	const [voted, setVoted] = useState<Record<string, string>>({});
@@ -717,6 +763,14 @@ export function ParticipantSlideView({
 	 * the choice the moment it is tapped, not when the server replies.
 	 */
 	const [pendingOptionId, setPendingOptionId] = useState<string | null>(null);
+	/**
+	 * Why the server turned the last answer on a slide away (REQ232), in the
+	 * deck's language — kept with the slide it was about, so paging on leaves it
+	 * behind, and cleared by the next answer sent.
+	 */
+	const [refusal, setRefusal] = useState<{ slideId: string; message: string } | null>(
+		null,
+	);
 	/** What names the answer controls: the question above them (REQ221). */
 	const questionHeadingId = useId();
 	const { addToast } = useToast();
@@ -807,29 +861,40 @@ export function ParticipantSlideView({
 	 */
 	const refusedWhileClosed = (): boolean => {
 		if (participationOpen) return false;
-		onError(participationLabels.closed);
-		addToast(participationLabels.closed, "error");
+		reportRefusal(participationLabels.closed);
 		return true;
 	};
 
 	/**
-	 * What a thrown submission error should read as on this screen. A stated
-	 * refusal carries its machine-readable `refused` code over the wire
-	 * (REQ054/REQ057/REQ111) exactly so this surface can name the reason in the
-	 * deck's own language (REQ084) instead of guessing it back out of local
-	 * state — a tap that races the `slide.participation` broadcast is refused
-	 * for a reason this phone does not know yet. An error with no code (the
-	 * deck not live, a value the boundary rejected) keeps the message it came
-	 * with.
+	 * Whether this slide draws the answer status line (REQ221) a refusal is
+	 * shown and announced in: the choice cards and the typed quiz answer. The
+	 * other answer controls have none, so a refusal there is a toast.
 	 */
-	const submissionErrorMessage = (thrown: unknown): string => {
-		const refused = thrown instanceof ApiError ? thrown.refused : null;
-		if (refused === "participation-closed") return participationLabels.closed;
-		if (refused === "quiz-not-started") return t.quizWaitingToStart;
-		if (refused === "quiz-window-closed") return t.quizWindowClosed;
-		if (refused === "quiz-already-answered") return t.quizAnswerLocked;
-		return (thrown as Error).message;
+	const answerStatusShown =
+		slide.type === "quiz" || slide.type === "multiple-choice";
+
+	/**
+	 * A stated refusal (REQ232): the participant stays on the slide and reads
+	 * why beside the control, not on a screen that has replaced it. Not also a
+	 * toast where the line is drawn — that is a live region of its own, and the
+	 * reason would be read out twice.
+	 */
+	const reportRefusal = (message: string) => {
+		setRefusal({ slideId: slide.id, message });
+		if (!answerStatusShown) addToast(message, "error");
 	};
+
+	/** Anything else goes to the surface's own error path, as before. */
+	const reportFailure = (message: string) => {
+		onError(message);
+		addToast(message, "error");
+	};
+
+	const reportSubmissionFailure = (thrown: unknown) =>
+		routeSubmissionFailure(thrown, t, {
+			refused: reportRefusal,
+			failed: reportFailure,
+		});
 
 	/**
 	 * Whether this slide's tally may be shown to the participant at all
@@ -903,6 +968,9 @@ export function ParticipantSlideView({
 	// its reveal setting allows (REQ228), so the card is also re-read when that
 	// happens — the question ending (`quizOver`), or its tally coming out
 	// (`quizTallyPublished`) — and a verdict lands without a reload.
+	// A refused answer re-reads it too (REQ232): the server knew something this
+	// phone did not, and "already answered" means an answer is on record — from
+	// another tab, say — that the cards should show as the locked choice.
 	useEffect(() => {
 		if (slide.type !== "quiz" && slide.type !== "leaderboard") return;
 		const slideId = slide.id;
@@ -937,6 +1005,7 @@ export function ParticipantSlideView({
 		quizOver,
 		quizTallyPublished,
 		standingsRevision,
+		refusal,
 	]);
 
 	const handleVote = async (
@@ -945,6 +1014,7 @@ export function ParticipantSlideView({
 	) => {
 		if (submitting) return;
 		if (refusedWhileClosed()) return;
+		setRefusal(null);
 		setSubmitting(true);
 		try {
 			await transport.vote({ slideId: slide.id, value, ...opts });
@@ -963,9 +1033,7 @@ export function ParticipantSlideView({
 			}
 			addToast(t.voteSubmitted, "success");
 		} catch (voteError: unknown) {
-			const message = submissionErrorMessage(voteError);
-			onError(message);
-			addToast(message, "error");
+			reportSubmissionFailure(voteError);
 		} finally {
 			setSubmitting(false);
 		}
@@ -1001,6 +1069,7 @@ export function ParticipantSlideView({
 			? current.filter((id) => id !== optionId)
 			: [...current, optionId];
 
+		setRefusal(null);
 		setSubmitting(true);
 		try {
 			await transport.vote({ slideId: slide.id, value: optionId });
@@ -1017,9 +1086,7 @@ export function ParticipantSlideView({
 				addToast(t.voteSubmitted, "success");
 			}
 		} catch (voteError: unknown) {
-			const message = submissionErrorMessage(voteError);
-			onError(message);
-			addToast(message, "error");
+			reportSubmissionFailure(voteError);
 		} finally {
 			setSubmitting(false);
 		}
@@ -1128,7 +1195,13 @@ export function ParticipantSlideView({
 				return next;
 			});
 		} catch (upvoteError) {
-			addToast(submissionErrorMessage(upvoteError), "error");
+			// A toast either way: an upvote is not the slide's answer, so neither
+			// its status line nor the page's error screen is the place for it.
+			const toastError = (message: string) => addToast(message, "error");
+			routeSubmissionFailure(upvoteError, t, {
+				refused: toastError,
+				failed: toastError,
+			});
 		}
 	};
 
@@ -1159,6 +1232,20 @@ export function ParticipantSlideView({
 					: null;
 	/** Whether the typed answer field takes no more input right now. */
 	const typedAnswerLocked = submitting || quizLockReason !== null;
+
+	/**
+	 * What the answer status line says (REQ221, REQ232): "Sending…" while an
+	 * answer is on its way, else why the control is locked, else why the server
+	 * turned the last answer away. The lock comes first because it is the state
+	 * the phone is in now; the refusal is news about one tap. Once the question
+	 * is over the refusal is dropped, so a participant whose late answer was
+	 * refused reads what everybody who did not answer in time reads.
+	 */
+	const refusalShown =
+		refusal?.slideId === slide.id && !quizOver ? refusal.message : null;
+	const answerStatusMessage = submitting
+		? t.answerSending
+		: (quizLockReason ?? refusalShown);
 
 	/**
 	 * This participant's own verdict on this question, once the question is over
@@ -1397,7 +1484,7 @@ export function ParticipantSlideView({
 						    to a tooltip a touch device never shows, and announced with
 						    the verdict once it is in. */}
 						<AnswerStatus
-							message={submitting ? t.answerSending : quizLockReason}
+							message={answerStatusMessage}
 							// The button already reads "Sending…" while it is.
 							spokenOnly={submitting}
 						>
@@ -1527,7 +1614,7 @@ export function ParticipantSlideView({
 									    than left to a tooltip a touch device never shows,
 									    and announced with the verdict once it is in. */}
 									<AnswerStatus
-										message={submitting ? t.answerSending : quizLockReason}
+										message={answerStatusMessage}
 										// A single choice draws its sending state on the card.
 										spokenOnly={pendingOptionId !== null}
 									>
