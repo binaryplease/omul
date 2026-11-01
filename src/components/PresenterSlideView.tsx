@@ -28,6 +28,7 @@ import { SLIDE_PLACEMENT_CLASSES } from "./SlideAppearance";
 import { SlideText } from "./SlideText";
 import { SlideTypeIcon } from "./SlideTypeIcon";
 import { type ReactNode, useState } from "react";
+import { ApiError } from "../api";
 import { getDict } from "../i18n";
 import type {
 	CountdownAction,
@@ -120,6 +121,33 @@ export function quizTimerControlFor(awaitingStart: boolean): {
 				hint: RESTART_TIMER_HINT,
 				confirmation: "Question timer restarted",
 			};
+}
+
+/**
+ * Where a timer start that did not land is reported (REQ237).
+ *
+ * - **Behind the deck**: the server refused with `presentation-not-live` — this
+ *   screen still showed the deck live after it ended or was reset (it missed
+ *   the frame). Nothing is wrong but that the screen is stale, so it catches up
+ *   and says, beside the slide rather than instead of it, why the timer did not
+ *   start — named for the state it caught up to, through the same reason the
+ *   disabled control now carries.
+ * - **Anything else** keeps the page's own error path.
+ */
+export async function routeTimerFailure(
+	thrown: unknown,
+	report: {
+		catchUp: () => Promise<Pick<Presentation, "status" | "mode"> | null>;
+		notice: (message: string) => void;
+		failed: (message: string) => void;
+	},
+): Promise<void> {
+	if (thrown instanceof ApiError && thrown.movedOn === "presentation-not-live") {
+		const deck = await report.catchUp();
+		report.notice((deck && quizTimerUnavailableReason(deck)) ?? thrown.message);
+		return;
+	}
+	report.failed(thrown instanceof Error ? thrown.message : "Unknown error");
 }
 
 /**

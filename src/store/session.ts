@@ -176,6 +176,16 @@ export interface SessionSlice {
 	 * taking the room's.
 	 */
 	refreshPresentationSlides: (id: string) => Promise<void>;
+	/**
+	 * Catch a presenter screen up with the deck's lifecycle after the server
+	 * refused an action because the deck is not live (REQ237) — the screen missed
+	 * the `ended` or `reset` frame. One re-read on this browser's own credentials;
+	 * a status that moved since this screen last heard is applied as the frame it
+	 * missed would have applied it. A frame that lands while the read is in
+	 * flight is newer news and wins. Resolves to the deck the screen holds
+	 * afterwards, which is what a notice about the refusal should describe.
+	 */
+	catchUpPresenterDeck: (id: string) => Promise<Presentation | null>;
 
 	// — lifecycle mutations (REST + optimistic update; throw on failure) —
 	startPresentation: (id: string) => Promise<void>;
@@ -636,6 +646,36 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 			} catch {
 				// The screen keeps the slides it has; the next save tries again.
 			}
+		},
+
+		/**
+		 * See {@link SessionSlice.catchUpPresenterDeck}. No `loading`, like the
+		 * re-reads above, so the screen never blanks to a spinner. Only the two
+		 * lifecycle moves a missed frame can leave behind are replayed — through
+		 * the reducers those frames drive, so a caught-up screen is the one that
+		 * heard them: an ended deck stops its clock, a reset one clears its
+		 * stamps, switches and the run's Q&A and chat.
+		 */
+		catchUpPresenterDeck: async (id) => {
+			const deck = get().presentation;
+			if (!deck) return null;
+			const askedAtStatus = deck.status;
+			try {
+				const data = await api.getPresentation(id);
+				const current = get().presentation;
+				const unmoved =
+					current?.id === deck.id && current.status === askedAtStatus;
+				if (unmoved && data?.status !== askedAtStatus) {
+					if (data?.status === "ended") {
+						get().applyEnded({ endedAt: sessionStampsIn(data).sessionEndedAt });
+					} else if (data?.status === "draft") {
+						get().applyReset();
+					}
+				}
+			} catch {
+				// The screen keeps the deck it has; the room's next frame catches it up.
+			}
+			return get().presentation;
 		},
 
 		startPresentation: async (id) => {

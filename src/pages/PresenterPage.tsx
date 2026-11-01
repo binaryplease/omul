@@ -63,6 +63,7 @@ import {
 	PresenterSlideView,
 	presenterSlideWidthClass,
 	quizTimerControlFor,
+	routeTimerFailure,
 } from "../components/PresenterSlideView";
 import { quizAnswerKeyGoLiveWarning } from "../components/QuizAnswerKeyWarning";
 import { useQuizQuestionRunning } from "../components/QuizTimer";
@@ -325,6 +326,7 @@ export function PresenterPage({
 	const revealResults = useStore((state) => state.revealResults);
 	const restartSlideTimer = useStore((state) => state.restartSlideTimer);
 	const controlCountdown = useStore((state) => state.controlCountdown);
+	const catchUpPresenterDeck = useStore((state) => state.catchUpPresenterDeck);
 	const setQASettings = useStore((state) => state.setQASettings);
 	const setParticipantChannels = useStore(
 		(state) => state.setParticipantChannels,
@@ -606,7 +608,9 @@ export function PresenterPage({
 	 * back from a mis-navigation that burned it, or from a room that was not
 	 * ready when the clock started. Answers already given stand; clearing those
 	 * is what Reset is for. The same call opens a question that has been waiting
-	 * since go-live (REQ226), and the toast says which of the two it was.
+	 * since go-live (REQ226), and the toast says which of the two it was. A
+	 * screen that missed the deck ending is told so by the refusal, catches up
+	 * and says why, rather than giving way to an error page (REQ237).
 	 */
 	const handleRestartTimer = async (slideId: string) => {
 		// A double click is one start, not a start and a restart a moment later.
@@ -622,9 +626,11 @@ export function PresenterPage({
 			await restartSlideTimer(id, slideId);
 			addToast(confirmation, "success");
 		} catch (timerError: unknown) {
-			setError(
-				timerError instanceof Error ? timerError.message : "Unknown error",
-			);
+			await routeTimerFailure(timerError, {
+				catchUp: () => catchUpPresenterDeck(id),
+				notice: (message) => addToast(message, "info"),
+				failed: setError,
+			});
 		} finally {
 			timerRequestInFlight.current = false;
 		}

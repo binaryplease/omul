@@ -2423,8 +2423,13 @@ the presenter.
 `ended` answers `409` with `{ error, refused: "presentation-not-live" }` and opens
 nothing: a window opened in a draft would be dropped again at go-live, and one
 opened on an ended deck would come back already running when the deck resumes,
-because resuming keeps its stamps. The shared screen draws the control disabled
-with the same reason (`quizTimerUnavailableReason` in `server/schemas.ts`). A
+because resuming keeps its stamps. The `error` names which of the two it is —
+"Start the presentation first …" on a draft, "The presentation has ended …" on
+an ended deck (REQ237). The shared screen draws the control disabled
+with the same reason (`quizTimerUnavailableReason` in `server/schemas.ts`), and
+a presenter screen that missed the `ended` or `reset` frame and is refused this
+way re-reads the deck, applies the lifecycle change it missed and shows that
+reason as a notice instead of an error page. A
 survey deck is unaffected — it collects in draft (REQ003), and its timer behaves
 as it always has.
 

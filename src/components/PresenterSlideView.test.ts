@@ -11,16 +11,22 @@
  * Rendered to static markup with React's server renderer, which needs no DOM.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PresentationSchema } from "../../server/schemas";
 import type { Presentation, Slide } from "../types";
-import { QUIZ_TIMER_NOT_LIVE_REASON, quizTimerUnavailableReason } from "../types";
+import { createAppStore } from "../store/store";
+import {
+	QUIZ_TIMER_DECK_ENDED_REASON,
+	QUIZ_TIMER_NOT_LIVE_REASON,
+	quizTimerUnavailableReason,
+} from "../types";
 import {
 	PresenterSlideView,
 	quizTimerControlFor,
 	RESTART_TIMER_HINT,
+	routeTimerFailure,
 	START_TIMER_HINT,
 } from "./PresenterSlideView";
 
@@ -369,13 +375,15 @@ describe("the timer control before the deck is live (REQ227)", () => {
 		);
 	});
 
-	test("is disabled on an ended deck too", () => {
+	test("is disabled on an ended deck too, saying it has ended (REQ237)", () => {
 		const markup = sharedScreen(
 			SELECT_QUIZ,
 			liveDeck(SELECT_QUIZ, OVER, { status: "ended" }),
 			SELECT_TALLY,
 		);
 		expect(markup).toContain('aria-disabled="true"');
+		expect(markup).toContain(`title="${QUIZ_TIMER_DECK_ENDED_REASON}"`);
+		expect(markup).not.toContain(QUIZ_TIMER_NOT_LIVE_REASON);
 	});
 
 	test("stays usable on a live deck and on a survey draft", () => {
@@ -390,10 +398,118 @@ describe("the timer control before the deck is live (REQ227)", () => {
 		expect(quizTimerUnavailableReason({ status: "draft", mode: "live" })).toBe(
 			QUIZ_TIMER_NOT_LIVE_REASON,
 		);
+		expect(quizTimerUnavailableReason({ status: "ended", mode: "live" })).toBe(
+			QUIZ_TIMER_DECK_ENDED_REASON,
+		);
 		expect(quizTimerUnavailableReason({ status: "live", mode: "live" })).toBeNull();
 		expect(
 			quizTimerUnavailableReason({ status: "draft", mode: "survey" }),
 		).toBeNull();
+	});
+});
+
+// ── A timer start refused on a screen that missed the deck ending (REQ237) ─
+//
+// Re-Test D: a second editor whose screen still showed the deck live after it
+// ended clicked "Restart timer", got the 409, and the whole presenter view gave
+// way to "Start the presentation first …". The failure is routed as the page
+// routes it, against a store answering the way the server does.
+
+/**
+ * Stand in for the server: the timer call refuses with `presentation-not-live`,
+ * and the deck read answers with the deck as it really stands. The refusal's
+ * prose is the draft wording the server sent before REQ237, so the notice is
+ * seen to come from the state caught up to, not from that prose.
+ */
+function stubStaleScreenServer(realDeck: Presentation) {
+	globalThis.fetch = (async (input: string | URL | Request) => {
+		const url = String(input instanceof Request ? input.url : input);
+		const refused = url.endsWith("/timer");
+		return new Response(
+			JSON.stringify(
+				refused
+					? { error: QUIZ_TIMER_NOT_LIVE_REASON, refused: "presentation-not-live" }
+					: realDeck,
+			),
+			{ status: refused ? 409 : 200, headers: { "Content-Type": "application/json" } },
+		);
+	}) as unknown as typeof fetch;
+}
+
+/** Click the timer on the store's deck and route the failure as PresenterPage does. */
+async function clickTimer(store: ReturnType<typeof createAppStore>) {
+	const notices: string[] = [];
+	try {
+		await store.getState().restartSlideTimer("deck", "q1");
+	} catch (timerError) {
+		await routeTimerFailure(timerError, {
+			catchUp: () => store.getState().catchUpPresenterDeck("deck"),
+			notice: (message) => notices.push(message),
+			failed: store.getState().setError,
+		});
+	}
+	return notices;
+}
+
+describe("a timer refused on a screen behind the deck (REQ237)", () => {
+	const originalFetch = globalThis.fetch;
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	test("a deck that ended: the view stays, catches up, and says it has ended", async () => {
+		const store = createAppStore();
+		store.getState().setPresentation(liveDeck(SELECT_QUIZ, OVER));
+		stubStaleScreenServer(
+			liveDeck(SELECT_QUIZ, OVER, {
+				status: "ended",
+				sessionEndedAt: "2026-10-30T10:00:00.000Z",
+			}),
+		);
+		const notices = await clickTimer(store);
+		const { presentation, error } = store.getState();
+		expect(error).toBe("");
+		expect(presentation?.status).toBe("ended");
+		expect(presentation?.sessionEndedAt).toBe("2026-10-30T10:00:00.000Z");
+		expect(notices).toEqual([QUIZ_TIMER_DECK_ENDED_REASON]);
+		const markup = sharedScreen(SELECT_QUIZ, presentation as Presentation, SELECT_TALLY);
+		expect(markup).toContain(`title="${QUIZ_TIMER_DECK_ENDED_REASON}"`);
+	});
+
+	test("a deck that was reset: the view catches up to the draft and keeps the draft wording", async () => {
+		const store = createAppStore();
+		store.getState().setPresentation(liveDeck(SELECT_QUIZ, OVER));
+		stubStaleScreenServer(liveDeck(SELECT_QUIZ, OVER, { status: "draft", slideStartedAt: {} }));
+		const notices = await clickTimer(store);
+		const { presentation, error } = store.getState();
+		expect(error).toBe("");
+		expect(presentation?.status).toBe("draft");
+		expect(presentation?.slideStartedAt).toEqual({});
+		expect(notices).toEqual([QUIZ_TIMER_NOT_LIVE_REASON]);
+	});
+
+	test("any other failure keeps the page's error path", async () => {
+		const store = createAppStore();
+		store.getState().setPresentation(liveDeck(SELECT_QUIZ, OVER));
+		globalThis.fetch = (async () =>
+			new Response(JSON.stringify({ error: "Not found" }), {
+				status: 404,
+			})) as unknown as typeof fetch;
+		const notices = await clickTimer(store);
+		expect(notices).toEqual([]);
+		expect(store.getState().error).toBe("Not found");
+	});
+
+	test("a frame that lands while the deck is re-read wins", async () => {
+		const store = createAppStore();
+		store.getState().setPresentation(liveDeck(SELECT_QUIZ, OVER));
+		stubStaleScreenServer(liveDeck(SELECT_QUIZ, OVER, { status: "ended" }));
+		const catchingUp = store.getState().catchUpPresenterDeck("deck");
+		// Meanwhile a reset reaches the screen: newer than the read's "ended".
+		store.getState().applyReset();
+		const deck = await catchingUp;
+		expect(deck?.status).toBe("draft");
+		expect(store.getState().presentation?.status).toBe("draft");
 	});
 });
 

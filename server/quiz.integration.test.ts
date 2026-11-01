@@ -23,6 +23,7 @@ import {
 	QUIZ_CORRECT_POINTS,
 	QUIZ_MAX_POINTS,
 	QUIZ_SUBMISSION_GRACE_MS,
+	QUIZ_TIMER_DECK_ENDED_REASON,
 	QUIZ_TIMER_NOT_LIVE_REASON,
 } from "./schemas";
 
@@ -940,7 +941,10 @@ describe("quiz competition integration", () => {
 			{ method: "POST", body: JSON.stringify({ slideId: "qz" }) },
 		);
 		expect(res.status).toBe(409);
-		expect((await res.json()).refused).toBe("presentation-not-live");
+		const body = await res.json();
+		expect(body.refused).toBe("presentation-not-live");
+		// Named for the state the deck is in, not as a draft (REQ237).
+		expect(body.error).toBe(QUIZ_TIMER_DECK_ENDED_REASON);
 		expect((await fetchPresentation(pres.id)).slideStartedAt.qz).toBe(opened);
 	});
 

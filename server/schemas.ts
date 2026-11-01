@@ -4439,6 +4439,14 @@ export const QUIZ_TIMER_NOT_LIVE_REASON =
 	"Start the presentation first — question timers run only while the deck is live";
 
 /**
+ * The same refusal on an ended deck (REQ237). "Start the presentation first"
+ * names a draft: said of a deck that has run and stopped, it sends the
+ * presenter looking for a start that is not what is missing.
+ */
+export const QUIZ_TIMER_DECK_ENDED_REASON =
+	"The presentation has ended — question timers run only while the deck is live";
+
+/**
  * Whether a slide's question timer may be started or restarted (REQ057,
  * REQ226) — `null` when it may, the reason it may not otherwise. One answer
  * read by the endpoint that refuses and by the control that is drawn disabled,
@@ -4456,7 +4464,10 @@ export function quizTimerUnavailableReason(
 	deck: Pick<SolutionRevealState, "status" | "mode">,
 ): string | null {
 	if (deck.mode === "survey") return null;
-	return deck.status === "live" ? null : QUIZ_TIMER_NOT_LIVE_REASON;
+	if (deck.status === "live") return null;
+	return deck.status === "ended"
+		? QUIZ_TIMER_DECK_ENDED_REASON
+		: QUIZ_TIMER_NOT_LIVE_REASON;
 }
 
 /**
