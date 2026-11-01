@@ -1221,15 +1221,24 @@ export function ParticipantSlideView({
 	// presenter has also closed the slide: starting the timer does not reopen
 	// it, so "waiting" would promise something that will not come, and the
 	// closed gate above the question already says what does hold it.
+	//
+	// A closed slide is a lock reason of its own, said under the controls as
+	// well as above the question (REQ234). Closing a quiz ends it (REQ216), and
+	// an ended question drops a refusal from this line — so without it, an
+	// answer refused as `participation-closed` read as an empty line, where the
+	// other three refusals each land on the lock reason they share wording with.
+	// Before the countdown, which goes on running after a close.
 	const quizLockReason = !isQuizSlide
 		? null
 		: quizAwaitingStart(slide, pres) && participationOpen
 			? t.quizWaitingToStart
 			: answeredQuiz
 				? t.quizAnswerLocked
-				: quizCountdown.expired
-					? t.quizWindowClosed
-					: null;
+				: !participationOpen
+					? participationLabels.closed
+					: quizCountdown.expired
+						? t.quizWindowClosed
+						: null;
 	/** Whether the typed answer field takes no more input right now. */
 	const typedAnswerLocked = submitting || quizLockReason !== null;
 

@@ -75,6 +75,44 @@ export type QuizCountdown = {
 	timeLimit: number | null;
 };
 
+/** One reading of the clock, and the deadline it was read against. */
+export type QuizCountdownReading = {
+	deadline: number | null;
+	remainingMs: number;
+};
+
+/**
+ * Where a countdown stands, from the last reading of the clock.
+ *
+ * The reading only counts for the deadline it was taken against. A deadline
+ * that has just changed — the question started, or restarted, or a new one
+ * arrived — is read afresh instead: the held reading belongs to the old one,
+ * and its zero rendered as "Time's up" for the instant before the clock was
+ * read again, which a status region announces (REQ235).
+ */
+export function quizCountdownFrom(
+	reading: QuizCountdownReading,
+	quizWindow: QuizWindow,
+	serverNowMs: number,
+): QuizCountdown {
+	const { deadline, timeLimit } = quizWindow;
+	const remainingMs =
+		reading.deadline === deadline
+			? reading.remainingMs
+			: quizRemainingMs(deadline, serverNowMs);
+	const windowMs = timeLimit === null ? 0 : timeLimit * 1000;
+	return {
+		remainingMs,
+		remainingSeconds: Math.ceil(remainingMs / 1000),
+		// A question with no deadline is never expired — it is open-ended, which
+		// is a different statement from "over" and must not disable anything.
+		expired: deadline !== null && remainingMs <= 0,
+		remainingShare: windowMs > 0 ? Math.min(1, remainingMs / windowMs) : 1,
+		timed: deadline !== null,
+		timeLimit,
+	};
+}
+
 /**
  * Tick a quiz question's countdown down to its deadline.
  *
@@ -92,42 +130,33 @@ export function useQuizCountdown(
 	quizWindow: QuizWindow,
 	clockOffsetMs: number,
 ): QuizCountdown {
-	const { deadline, timeLimit } = quizWindow;
+	const { deadline } = quizWindow;
 	const serverNow = () => Date.now() + clockOffsetMs;
-	const [remainingMs, setRemainingMs] = useState(() =>
-		quizRemainingMs(deadline, serverNow()),
-	);
+	const [reading, setReading] = useState<QuizCountdownReading>(() => ({
+		deadline,
+		remainingMs: quizRemainingMs(deadline, serverNow()),
+	}));
 
 	useEffect(() => {
 		if (deadline === null) {
-			setRemainingMs(0);
+			setReading({ deadline, remainingMs: 0 });
 			return;
 		}
 		const read = () => quizRemainingMs(deadline, Date.now() + clockOffsetMs);
-		setRemainingMs(read());
+		setReading({ deadline, remainingMs: read() });
 		// A question that was already over when this surface opened it — a
 		// participant joining late, a presenter paging back — has nothing left to
 		// count, so no interval is started at all.
 		if (read() <= 0) return;
 		const interval = setInterval(() => {
 			const left = read();
-			setRemainingMs(left);
+			setReading({ deadline, remainingMs: left });
 			if (left <= 0) clearInterval(interval);
 		}, TICK_MS);
 		return () => clearInterval(interval);
 	}, [deadline, clockOffsetMs]);
 
-	const windowMs = timeLimit === null ? 0 : timeLimit * 1000;
-	return {
-		remainingMs,
-		remainingSeconds: Math.ceil(remainingMs / 1000),
-		// A question with no deadline is never expired — it is open-ended, which
-		// is a different statement from "over" and must not disable anything.
-		expired: deadline !== null && remainingMs <= 0,
-		remainingShare: windowMs > 0 ? Math.min(1, remainingMs / windowMs) : 1,
-		timed: deadline !== null,
-		timeLimit,
-	};
+	return quizCountdownFrom(reading, quizWindow, serverNow());
 }
 
 /**

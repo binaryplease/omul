@@ -24,6 +24,7 @@ import {
 	VOTE_REFUSAL_CODES,
 	type VoteRefusalCode,
 } from "../../server/schemas";
+import { ApiError } from "../api";
 import { getDict } from "../i18n";
 import { createAppStore } from "../store/store";
 import type { Presentation, Slide } from "../types";
@@ -648,6 +649,72 @@ describe("a refused quiz answer keeps the participant on the slide (REQ232)", ()
 			"Cannot vote – presentation not live or slide not found",
 		);
 		expect(outcome.shownOnSlide).toEqual([]);
+	});
+
+	/**
+	 * What the answer status line under the control reads (REQ221): the text of
+	 * the first paragraph in the polite region, where a refusal is shown.
+	 */
+	function answerStatusLine(markup: string): string | null {
+		return (
+			markup.match(/<div role="status" aria-atomic="false"><p[^>]*>([^<]*)<\/p>/)?.[1] ??
+			null
+		);
+	}
+
+	/**
+	 * The phone once it has caught up with the state each refusal reports. The
+	 * refusal arrives after the broadcast that caused it — a close lands as a
+	 * `slide.participation` frame while the answer is still in flight — so this
+	 * is what the line reads when "Sending…" gives way. Not `quiz-already-answered`:
+	 * that state is the scorecard's re-read, an effect a static render runs none of.
+	 */
+	const CAUGHT_UP: Partial<Record<VoteRefusalCode, (slide: Slide) => Presentation>> = {
+		"quiz-not-started": (slide) =>
+			liveDeck(slide, RUNNING, { slideStartedAt: {}, language: "de" }),
+		"quiz-window-closed": (slide) => liveDeck(slide, OVER, { language: "de" }),
+		"participation-closed": (slide) =>
+			liveDeck(slide, RUNNING, {
+				language: "de",
+				closedSlideIds: [slide.id],
+				slideClosedAt: { [slide.id]: new Date().toISOString() },
+			}),
+	};
+
+	for (const refused of Object.keys(CAUGHT_UP) as VoteRefusalCode[]) {
+		for (const answer of ANSWERS) {
+			test(`${refused}, ${answer.mode} answer: the line under the control reads the reason (REQ234)`, () => {
+				// The refusal is dropped from the line once the question is over, and
+				// closing a quiz ends it (REQ216), so what stands there is the lock
+				// reason. For a close that was nothing: the line went from "Sending…"
+				// to empty, and the reason was only in the banner above the question.
+				const shown: string[] = [];
+				routeSubmissionFailure(
+					new ApiError(ROUTE_ERROR[refused], refused, 400),
+					getDict("de"),
+					{ refused: (message) => shown.push(message), failed: () => {} },
+				);
+				const deckFor = CAUGHT_UP[refused] as (slide: Slide) => Presentation;
+				const markup = phone(answer.slide, deckFor(answer.slide), null);
+				expect(shown).toEqual([GERMAN_REASON[refused]]);
+				expect(answerStatusLine(markup)).toBe(GERMAN_REASON[refused]);
+			});
+		}
+	}
+
+	test("a closed question keeps saying closed after its countdown runs out (REQ234)", () => {
+		// The countdown goes on after "Close submissions"; the close is what holds
+		// the answer, so the line does not switch to "time is over" under it.
+		const markup = phone(
+			SELECT_QUIZ,
+			liveDeck(SELECT_QUIZ, OVER, {
+				language: "de",
+				closedSlideIds: ["q1"],
+				slideClosedAt: { q1: new Date(Date.now() - 5_000).toISOString() },
+			}),
+			null,
+		);
+		expect(answerStatusLine(markup)).toBe("Der Präsentator hat diese Frage geschlossen");
 	});
 
 	test("every path in the slide view reaches the page's error callback through the router", () => {

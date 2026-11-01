@@ -9,6 +9,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Presentation, Slide } from "../types";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -16,6 +18,7 @@ import {
 	type QuizCountdown,
 	QuizTimer,
 	quizCountdownAnnouncement,
+	quizCountdownFrom,
 	quizWindowFor,
 } from "./QuizTimer";
 
@@ -105,6 +108,44 @@ function countdownAt(remainingSeconds: number, timeLimit: number): QuizCountdown
 		timeLimit,
 	};
 }
+
+describe("quizCountdownFrom, the instant a question starts (REQ235)", () => {
+	const NOW = Date.parse(OPENED_AT);
+	const STARTED = { timeLimit: 30, deadline: NOW + 30_000 };
+
+	test("a question just started is running, not over", () => {
+		// The reading in hand is the one taken while the question waited: no
+		// deadline, nothing left. Rendered against the new deadline it read as
+		// "Time's up", and the status lines announced it for the few milliseconds
+		// until the clock was read again.
+		const waited = { deadline: null, remainingMs: 0 };
+		const countdown = quizCountdownFrom(waited, STARTED, NOW);
+		expect(countdown.expired).toBe(false);
+		expect(countdown.remainingSeconds).toBe(30);
+		expect(quizCountdownAnnouncement(countdown)).toBe(null);
+	});
+
+	test("a restarted question is running, not over", () => {
+		// "Restart timer": the reading in hand ran out on the old deadline.
+		const ranOut = { deadline: NOW - 5_000, remainingMs: 0 };
+		const countdown = quizCountdownFrom(ranOut, STARTED, NOW);
+		expect(countdown.expired).toBe(false);
+		expect(countdown.remainingShare).toBe(1);
+	});
+
+	test("a reading taken against this deadline is the one shown", () => {
+		// The interval's own ticks: held as read, not re-read on every render.
+		const ticked = { deadline: STARTED.deadline, remainingMs: 12_400 };
+		expect(quizCountdownFrom(ticked, STARTED, NOW).remainingSeconds).toBe(13);
+		const ranOut = { deadline: STARTED.deadline, remainingMs: 0 };
+		expect(quizCountdownFrom(ranOut, STARTED, NOW).expired).toBe(true);
+	});
+
+	test("the countdown hook reads through it", () => {
+		const source = readFileSync(join(import.meta.dir, "QuizTimer.tsx"), "utf8");
+		expect(source).toContain("return quizCountdownFrom(reading, quizWindow, serverNow());");
+	});
+});
 
 describe("quizCountdownAnnouncement (REQ221)", () => {
 	test("says nothing until the first threshold, then holds it until the next", () => {

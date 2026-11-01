@@ -241,8 +241,10 @@ Prose outside the markers is preserved.
 | [REQ231.md](requirements/REQ231.md) | The quiz slide editor's time-limit number box must be programmatically named by its visible caption "Time limit (seconds)" | Quiz & Scoring | P2 | done | internal |
 | [REQ232.md](requirements/REQ232.md) | A quiz answer the server refuses must keep the participant on the slide, with the reason inline in the deck's language | Quiz & Scoring | P1 | done | internal |
 | [REQ233.md](requirements/REQ233.md) | A leaderboard drawn for the room — the presenting view, a projector or second screen — must count only the quiz questions whose verdict the audience may see, even when the screen reads with the edit token | Quiz & Scoring | P2 | done | internal |
+| [REQ234.md](requirements/REQ234.md) | A quiz answer refused because the presenter closed the question must show and announce that reason under the answer control, like the other three refusals | Quiz & Scoring | P2 | done | internal |
+| [REQ235.md](requirements/REQ235.md) | A quiz question that starts must not read as over for an instant — the countdown reads a new deadline afresh instead of the last reading taken against the old one | Quiz & Scoring | P3 | done | internal |
 | [REQ245.md](requirements/REQ245.md) | A slide's body text can be edited directly on the editor canvas, as its question already can | Deck & Slides | P2 | pending | internal |
 | [REQ246.md](requirements/REQ246.md) | Account deletion requires the account's password whatever the session's age | Accounts & Workspaces | P1 | done | internal |
 
-_225 entries — one row per file in `requirements/`._
+_227 entries — one row per file in `requirements/`._
 <!-- index:end -->
