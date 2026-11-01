@@ -6524,11 +6524,13 @@ export async function getPreviewResults(
 			question: slide.question,
 			type: slide.type,
 			/**
-			 * The tally as the shared screen reads it — solutions included. Its
-			 * leaderboard counts every question (REQ233): a dry run is the
-			 * organizer's own screen and its answers are generated, so there is no
-			 * room to keep a key from and a board that waited for releases would
-			 * preview nothing.
+			 * The tally as an editor reads it on their own surfaces — solutions
+			 * included, and a leaderboard summed over every question (REQ233). On
+			 * every other slide that is what the shared screen reads; a leaderboard
+			 * is the exception, since the shared screen reads the room's board,
+			 * which counts only released questions. A dry run is the organizer's own
+			 * screen and its answers are generated, so there is no room to keep a
+			 * key from and a board that waited for releases would preview nothing.
 			 */
 			presenterResults: await aggregateSlideResults(
 				presentationId,

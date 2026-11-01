@@ -120,20 +120,20 @@ async function goLive(
 }
 
 /** Open the question's window, as the presenter's "Start timer" does (REQ226). */
-async function startTimer(pres: AnyJson): Promise<void> {
+async function startTimer(pres: AnyJson, slideId = "qz"): Promise<void> {
 	const res = await authed(`/api/presentations/${pres.id}/timer`, pres.creatorToken, {
 		method: "POST",
-		body: JSON.stringify({ slideId: "qz" }),
+		body: JSON.stringify({ slideId }),
 	});
 	expect(res.status).toBe(200);
 }
 
 /** End the running question by closing it to answers (REQ111, REQ216). */
-async function closeQuestion(pres: AnyJson): Promise<void> {
+async function closeQuestion(pres: AnyJson, slideId = "qz"): Promise<void> {
 	const res = await authed(
 		`/api/presentations/${pres.id}/participation`,
 		pres.creatorToken,
-		{ method: "POST", body: JSON.stringify({ slideId: "qz", open: false }) },
+		{ method: "POST", body: JSON.stringify({ slideId, open: false }) },
 	);
 	expect(res.status).toBe(200);
 }
@@ -158,11 +158,12 @@ async function answer(
 	presentationId: string,
 	participantId: string,
 	value: string,
+	slideId = "qz",
 ): Promise<void> {
 	const res = await fetch(`${baseUrl}/api/presentations/${presentationId}/vote`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ slideId: "qz", value, participantId }),
+		body: JSON.stringify({ slideId, value, participantId }),
 	});
 	expect(res.status).toBe(200);
 }
@@ -654,6 +655,124 @@ describe("a participant's quiz verdict while it is not theirs yet (REQ228)", () 
 		const publicRows = await read(`/api/presentations/${pres.id}/results`);
 		const publicBoard = publicRows.find((row: AnyJson) => row.slideId === "lb");
 		expect(publicBoard.withheld).toBe(true);
+	});
+
+	// ── Who the results page's whole standings are for (REQ233) ──
+	//
+	// The results page and its breakdown ask for the whole standings, and only an
+	// editor may be given them. Under "Private" the reveal gate withholds the board
+	// from everyone else before the standings are summed at all, so these run under
+	// "Instant": the room's board is published, and the one thing standing between
+	// a caller without the edit token and a running question's points is that
+	// `wholeStandings` is honoured only beside `canEdit`.
+
+	/**
+	 * A deck whose board is published while one question still runs: "first" is
+	 * over and released, "qz" is running. Each participant got one of them right.
+	 */
+	async function boardWithARunningQuestion(): Promise<AnyJson> {
+		const pres = await goLive(
+			[quizSlide({ id: "first" }), quizSlide(), leaderboardSlide()],
+			{ resultsVisibility: "instant" },
+		);
+		await startTimer(pres, "first");
+		await answer(pres.id, "p1", "mercury", "first");
+		await answer(pres.id, "p2", "venus", "first");
+		await closeQuestion(pres, "first");
+
+		await startTimer(pres);
+		await answer(pres.id, "p1", "venus");
+		await answer(pres.id, "p2", "mercury");
+		return pres;
+	}
+
+	/** The board summed over the released question alone — the room's. */
+	function expectReleasedOnly(board: AnyJson) {
+		expect(board.type).toBe("leaderboard");
+		expect(board.withheld).not.toBe(true);
+		expect(board.quizCount).toBe(2);
+		expect(board.rankedCount).toBe(2);
+		for (const entry of board.entries) expect(entry.answeredCount).toBe(1);
+		const correct = board.entries.map((entry: AnyJson) => entry.correctCount);
+		expect(correct.sort()).toEqual([0, 1]);
+	}
+
+	/** The board summed over every question, the running one included. */
+	function expectWholeStandings(board: AnyJson) {
+		expect(board.type).toBe("leaderboard");
+		expect(board.rankedCount).toBe(2);
+		for (const entry of board.entries) {
+			expect(entry.answeredCount).toBe(2);
+			expect(entry.correctCount).toBe(1);
+		}
+	}
+
+	async function resultsLinkFor(pres: AnyJson): Promise<string> {
+		const linked = await authed(
+			`/api/presentations/${pres.id}/results-link`,
+			pres.creatorToken,
+			{ method: "POST" },
+		);
+		expect(linked.status).toBe(201);
+		return (await linked.json()).resultsToken as string;
+	}
+
+	async function resultsPageBoardAs(
+		pres: AnyJson,
+		headers: Record<string, string>,
+	): Promise<AnyJson> {
+		const rows = await read(`/api/presentations/${pres.id}/results`, headers);
+		return rows.find((row: AnyJson) => row.slideId === "lb");
+	}
+
+	test("the results page gives the whole standings to an editor and to nobody else", async () => {
+		const pres = await boardWithARunningQuestion();
+		const resultsToken = await resultsLinkFor(pres);
+
+		// Anonymous, and the results link: the room's board, which the running
+		// question has not moved.
+		expectReleasedOnly(await resultsPageBoardAs(pres, {}));
+		expectReleasedOnly(
+			await resultsPageBoardAs(pres, { [RESULTS_TOKEN_HEADER]: resultsToken }),
+		);
+
+		// The edit token: every question counted.
+		expectWholeStandings(
+			await resultsPageBoardAs(pres, {
+				Authorization: `Bearer ${pres.creatorToken}`,
+			}),
+		);
+		// And the projector's read with the same token is still the room's (REQ233).
+		expectReleasedOnly(await presentersBoard(pres));
+	});
+
+	test("the breakdown gives the whole standings to an editor and to nobody else", async () => {
+		const pres = await boardWithARunningQuestion();
+		const resultsToken = await resultsLinkFor(pres);
+		const path = `/api/presentations/${pres.id}/results/lb/segments?by=first`;
+
+		// Without the edit token a board is never broken down at all — its rows are
+		// one per respondent — so no standings reach this caller, whole or released.
+		for (const headers of [{}, { [RESULTS_TOKEN_HEADER]: resultsToken }]) {
+			const refused = await read(path, headers);
+			expect(refused.withheld).toBe(true);
+			expect(refused.withheldReason).toBe("identifiable");
+			expect(refused.segments).toEqual([]);
+		}
+
+		// The edit token: each group's board counts the running question too.
+		const segmented = await read(path, {
+			Authorization: `Bearer ${pres.creatorToken}`,
+		});
+		expect(segmented.withheld).toBe(false);
+		for (const optionId of ["mercury", "venus"]) {
+			const group = segmented.segments.find(
+				(segment: AnyJson) => segment.key === optionId,
+			);
+			expect(group.results.rankedCount).toBe(1);
+			expect(group.results.entries[0].answeredCount).toBe(2);
+			expect(group.results.entries[0].correctCount).toBe(1);
+		}
 	});
 
 	// ── The answer key on the deck payload, under each reveal setting ──

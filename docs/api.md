@@ -3658,7 +3658,7 @@ will ever get:
 
 | Field | Meaning |
 |---|---|
-| `presenterResults` | The tally as the shared screen reads it — quiz answer keys included (`canEdit: true`) |
+| `presenterResults` | The tally as an editor reads it — quiz answer keys included (`canEdit: true`), and a leaderboard summed over every quiz question rather than the released-only board the shared screen draws (`wholeStandings: true`, REQ233) |
 | `audienceResults` | The same tally as a phone reads it — the key withheld until that question is over (REQ056) |
 
 Both are the ordinary results shapes documented above, produced by the **same
