@@ -248,8 +248,9 @@ Prose outside the markers is preserved.
 | [REQ238.md](requirements/REQ238.md) | The slide editor's reveal line must say that an instant quiz question's results appear once the question is over, not as answers arrive | Quiz & Scoring | P3 | done | internal |
 | [REQ239.md](requirements/REQ239.md) | The presentation settings' audience-language select must be programmatically named by its visible caption "Audience language" | Rendering & Theming | P3 | done | internal |
 | [REQ240.md](requirements/REQ240.md) | A presentation created while signed out must not ask the account claim, which can only answer 401 and lands in the browser console | Accounts & Workspaces | P3 | done | internal |
+| [REQ241.md](requirements/REQ241.md) | The shared dialog shell behind "Share the results" must be a modal dialog that takes focus, closes on Escape from anywhere and gives focus back | Access & Sharing | P3 | done | internal |
 | [REQ245.md](requirements/REQ245.md) | A slide's body text can be edited directly on the editor canvas, as its question already can | Deck & Slides | P2 | pending | internal |
 | [REQ246.md](requirements/REQ246.md) | Account deletion requires the account's password whatever the session's age | Accounts & Workspaces | P1 | done | internal |
 
-_232 entries — one row per file in `requirements/`._
+_233 entries — one row per file in `requirements/`._
 <!-- index:end -->
