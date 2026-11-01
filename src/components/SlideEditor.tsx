@@ -215,15 +215,22 @@ export const RESULTS_VISIBILITY_LABEL: Record<ResultsVisibility, string> = {
  * like whatever the deck says, and an author reading "follow the presentation
  * default" learns nothing about what the room will see. So the sentence is
  * always about the room, and the deferral is said in front of it.
+ *
+ * A quiz question is the one exception to "instant means as answers arrive":
+ * its tally is withheld from the room while the question runs (REQ214/REQ215),
+ * so instant there means once the question is over.
  */
 export function resultsRevealConsequence(
 	authored: SlideResultsVisibility | undefined,
 	deckDefault: ResultsVisibility,
+	slideType: SlideType,
 ): string {
 	const effective = effectiveResultsVisibility(authored, deckDefault);
 	const meaning =
 		effective === "instant"
-			? "results appear as answers arrive"
+			? slideType === "quiz"
+				? "results appear once the question is over (time up or submissions closed)"
+				: "results appear as answers arrive"
 			: effective === "on-click"
 				? "results wait until you reveal them"
 				: "results never reach the shared screen";
@@ -2625,6 +2632,7 @@ function ResultsGroup({
 			consequence={resultsRevealConsequence(
 				slide.resultsVisibility,
 				deckResultsVisibility,
+				slide.type,
 			)}
 			departed={departure.departed}
 			departureLabel={overridesDeck ? "Overrides deck" : "Changed"}

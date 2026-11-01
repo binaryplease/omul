@@ -23,8 +23,14 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { DECK_THEME_APPEARANCE } from "../components/DeckTheme";
-import { editorColumnLabel } from "./CreatePage";
+import {
+	AUDIENCE_LANGUAGE_LABEL,
+	AudienceLanguageField,
+	editorColumnLabel,
+} from "./CreatePage";
 
 describe("the authoring column names what it holds (REQ152)", () => {
 	test("the deck's panel is called what the rail calls it", () => {
@@ -39,6 +45,67 @@ describe("the authoring column names what it holds (REQ152)", () => {
 
 	test("the two panels are never announced as the same region", () => {
 		expect(editorColumnLabel(0)).not.toBe(editorColumnLabel("settings"));
+	});
+});
+
+/**
+ * The accessible name of the one `<select>` in `markup`, by the three routes
+ * static markup can carry: `aria-labelledby`, then `aria-label`, then a
+ * `<label for>` naming its id. `null` is a combobox a screen reader announces
+ * by its role alone.
+ */
+function selectAccessibleName(markup: string): string | null {
+	const selects = markup.match(/<select\b[^>]*>/g) ?? [];
+	expect(selects).toHaveLength(1);
+	const select = selects[0] ?? "";
+	const attribute = (name: string) =>
+		select.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1] ?? null;
+	const textOfElementWithId = (id: string) =>
+		markup
+			.match(new RegExp(`<(\\w+)[^>]*\\sid="${id}"[^>]*>([\\s\\S]*?)</\\1>`))?.[2]
+			?.replace(/<[^>]*>/g, "")
+			.trim() ?? "";
+	const labelledBy = attribute("aria-labelledby");
+	if (labelledBy) {
+		return labelledBy.split(/\s+/).map(textOfElementWithId).join(" ").trim();
+	}
+	const ariaLabel = attribute("aria-label");
+	if (ariaLabel) return ariaLabel;
+	const id = attribute("id");
+	if (id) {
+		const labelFor = markup.match(
+			new RegExp(`<label[^>]*\\sfor="${id}"[^>]*>([\\s\\S]*?)</label>`),
+		)?.[1];
+		if (labelFor) return labelFor.replace(/<[^>]*>/g, "").trim();
+	}
+	return null;
+}
+
+describe("the audience-language select is named by its caption (REQ239)", () => {
+	// The failure this pins down (Re-Test D, D3): the caption was drawn but not
+	// bound, so a screen reader announced an unnamed combobox.
+	test("a screen reader hears the words the eye reads over it", () => {
+		const markup = renderToStaticMarkup(
+			createElement(AudienceLanguageField, {
+				language: "de",
+				onLanguageChange: () => {},
+			}),
+		);
+		const caption = markup
+			.match(/<label[^>]*>([\s\S]*?)<\/label>/)?.[1]
+			?.trim();
+		expect(caption).toBe("Audience language");
+		expect(selectAccessibleName(markup)).toBe("Audience language");
+	});
+
+	test("the name does not depend on the language chosen", () => {
+		const markup = renderToStaticMarkup(
+			createElement(AudienceLanguageField, {
+				language: "en",
+				onLanguageChange: () => {},
+			}),
+		);
+		expect(selectAccessibleName(markup)).toBe(AUDIENCE_LANGUAGE_LABEL);
 	});
 });
 

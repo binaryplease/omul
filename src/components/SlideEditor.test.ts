@@ -218,20 +218,42 @@ describe("the one gesture back puts the group back (REQ155)", () => {
 
 describe("the reveal's one line is about the room (REQ102/REQ155)", () => {
 	test("a slide following the deck says what the deck will do", () => {
-		expect(resultsRevealConsequence("inherit", "on-click")).toBe(
-			"Deck default — results wait until you reveal them.",
-		);
-		expect(resultsRevealConsequence(undefined, "instant")).toBe(
-			"Deck default — results appear as answers arrive.",
-		);
+		expect(
+			resultsRevealConsequence("inherit", "on-click", "multiple-choice"),
+		).toBe("Deck default — results wait until you reveal them.");
+		expect(
+			resultsRevealConsequence(undefined, "instant", "multiple-choice"),
+		).toBe("Deck default — results appear as answers arrive.");
 	});
 
 	test("a slide of its own says its own", () => {
-		expect(resultsRevealConsequence("private", "instant")).toBe(
-			"Results never reach the shared screen.",
-		);
-		expect(resultsRevealConsequence("instant", "private")).toBe(
+		expect(
+			resultsRevealConsequence("private", "instant", "multiple-choice"),
+		).toBe("Results never reach the shared screen.");
+		expect(resultsRevealConsequence("instant", "private", "word-cloud")).toBe(
 			"Results appear as answers arrive.",
+		);
+	});
+
+	test("an instant quiz question says its results wait for the question to end", () => {
+		// The failure this pins down (Re-Test A, N3): a quiz on "Deck (Instant)"
+		// promised results "as answers arrive", but a running question's tally is
+		// withheld from the room until time is up or submissions close (REQ214,
+		// REQ215), so the line described a slide the room never sees.
+		expect(resultsRevealConsequence("inherit", "instant", "quiz")).toBe(
+			"Deck default — results appear once the question is over (time up or submissions closed).",
+		);
+		expect(resultsRevealConsequence("instant", "on-click", "quiz")).toBe(
+			"Results appear once the question is over (time up or submissions closed).",
+		);
+	});
+
+	test("a quiz on the other modes keeps their wording", () => {
+		expect(resultsRevealConsequence("inherit", "on-click", "quiz")).toBe(
+			"Deck default — results wait until you reveal them.",
+		);
+		expect(resultsRevealConsequence("private", "instant", "quiz")).toBe(
+			"Results never reach the shared screen.",
 		);
 	});
 });

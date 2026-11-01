@@ -1217,6 +1217,39 @@ const PARTICIPANT_LANGUAGE_OPTIONS = Object.entries(
 	PARTICIPANT_LANGUAGE_LABELS,
 ) as [ParticipantLanguage, string][];
 
+/** The words over the audience-language select, and its accessible name. */
+export const AUDIENCE_LANGUAGE_LABEL = "Audience language";
+
+/**
+ * The deck's audience language (REQ084). The `Field` caption heads its control
+ * rather than binding to it, so the select carries the caption's words as its
+ * own name (REQ239) — the way the quiz time-limit box does (REQ231).
+ */
+export function AudienceLanguageField({
+	language,
+	onLanguageChange,
+}: {
+	language: string;
+	onLanguageChange: (language: string) => void;
+}) {
+	return (
+		<Field label={AUDIENCE_LANGUAGE_LABEL}>
+			<select
+				className="input"
+				aria-label={AUDIENCE_LANGUAGE_LABEL}
+				value={language}
+				onChange={(event) => onLanguageChange(event.target.value)}
+			>
+				{PARTICIPANT_LANGUAGE_OPTIONS.map(([value, label]) => (
+					<option key={value} value={value}>
+						{label}
+					</option>
+				))}
+			</select>
+		</Field>
+	);
+}
+
 function DeckSettings({
 	language,
 	mode,
@@ -1511,19 +1544,10 @@ function DeckSettings({
 				title="Language"
 				description="Participant-facing UI strings are shown in this language."
 			>
-				<Field label="Audience language">
-					<select
-						className="input"
-						value={language}
-						onChange={(event) => onLanguageChange(event.target.value)}
-					>
-						{PARTICIPANT_LANGUAGE_OPTIONS.map(([value, label]) => (
-							<option key={value} value={value}>
-								{label}
-							</option>
-						))}
-					</select>
-				</Field>
+				<AudienceLanguageField
+					language={language}
+					onLanguageChange={onLanguageChange}
+				/>
 			</Section>
 
 			{/* Pace mode (REQ003 / REQ082) */}

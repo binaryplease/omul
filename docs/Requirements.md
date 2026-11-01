@@ -245,8 +245,10 @@ Prose outside the markers is preserved.
 | [REQ235.md](requirements/REQ235.md) | A quiz question that starts must not read as over for an instant — the countdown reads a new deadline afresh instead of the last reading taken against the old one | Quiz & Scoring | P3 | done | internal |
 | [REQ236.md](requirements/REQ236.md) | An answer that arrives after the deck ended or its slide was deleted must leave the participant in the deck, with a notice in the deck's language | Quiz & Scoring | P2 | done | internal |
 | [REQ237.md](requirements/REQ237.md) | A timer start refused because the deck is no longer live must leave the presenter view on screen, catch it up, and name the deck's real state | Quiz & Scoring | P3 | done | internal |
+| [REQ238.md](requirements/REQ238.md) | The slide editor's reveal line must say that an instant quiz question's results appear once the question is over, not as answers arrive | Quiz & Scoring | P3 | done | internal |
+| [REQ239.md](requirements/REQ239.md) | The presentation settings' audience-language select must be programmatically named by its visible caption "Audience language" | Rendering & Theming | P3 | done | internal |
 | [REQ245.md](requirements/REQ245.md) | A slide's body text can be edited directly on the editor canvas, as its question already can | Deck & Slides | P2 | pending | internal |
 | [REQ246.md](requirements/REQ246.md) | Account deletion requires the account's password whatever the session's age | Accounts & Workspaces | P1 | done | internal |
 
-_229 entries — one row per file in `requirements/`._
+_231 entries — one row per file in `requirements/`._
 <!-- index:end -->
