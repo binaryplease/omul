@@ -2470,22 +2470,29 @@ maximum, outscoring everyone who answers the fresh window quickly.
 A quiz slide's `options[].isCorrect` — and, on a typed question, the
 `quizAnswers` themselves — is the answer to the question the room is being
 scored on, so it does not reach a browser that cannot edit the deck until that
-question is over. Suppressing it in the UI would not be enough: what a client
-holds, a client can read out of the network tab.
+question is over and its reveal setting lets the room see it. Suppressing it in
+the UI would not be enough: what a client holds, a client can read out of the
+network tab.
 
-Two audiences, one predicate (`solutionVisibleToAudience` in
-`server/schemas.ts`):
+Two audiences, told apart by `solutionVisibleToAudience` and, for a quiz on the
+deck payload, by `quizVerdictVisibleToAudience`, which adds the reveal setting to
+it (both in `server/schemas.ts`):
 
 - **Can edit the deck** — the owner, or the holder of the edit token: the author
   in the editor and the presenter on the shared screen. Always sees the marks.
   The browser proves this by sending the stored token on `GET /presentations/:id`
   and `GET /presentations/:id/results/:slideId`, exactly as it already does on
   mutations.
-- **Everyone else** — sees a quiz slide's marks only once the question is over:
-  its window has closed, the presenter closed it to submissions after it opened
+- **Everyone else** — sees a quiz slide's marks only once the question is over
+  (its window has closed, the presenter closed it to submissions after it opened
   (REQ111, REQ216), the presenter deliberately revealed that slide's results
   (REQ102 — the reveal signal an *untimed* question has instead of a deadline),
-  or the presentation has ended.
+  or the presentation has ended) **and** its reveal setting allows (REQ228):
+  "Instant" as soon as it is over, "On click" once the presenter has revealed
+  that slide, "Private" never, not even after the deck ends. The key beside a
+  participant's own answer is their verdict, so it waits for exactly what the
+  verdict waits for. On the `results.updated` frame the reveal setting holds back
+  the whole tally first (REQ016/REQ017), so the marks wait the same way there.
 
 This covers all three channels a competitor could read: the deck itself
 (`GET /join/:code`, which is never treated as an editor — an organizer opening
@@ -2682,7 +2689,22 @@ releases: a running, not-yet-opened or unrevealed question moves nobody's
 `totalPoints`, `correctCount`, `answeredCount` or place, and somebody who has
 answered only such questions is not ranked yet. That covers the public results
 reads and the `results.updated` board frame alike; the results link does not lift
-it, and an editor reads every question's points. The question counts from the
+it.
+
+**So does the board the presenter draws for the room (REQ233).** The presenting
+view and a second screen poll `GET /api/presentations/:id/results/:slideId` with
+the edit token, and the room reads the projector as well as its phones: counting
+a running question there would hand the same oracle to anyone answering under
+fresh ids and watching the wall, and under "Private" it would project what the
+organizer kept from the room. That read is the room's board for every caller, an
+editor included. An editor reads every question's points only on the organizer's
+own surfaces, which are never drawn for the room: the results page
+(`GET /api/presentations/:id/results`) and its breakdown (`…/segments`), the
+results export, and the preview's dry run. In code this is
+`ResultsCaller.wholeStandings`, honoured only beside `canEdit` and set only by
+those surfaces, so a surface that does not say which it is gets the room's board.
+
+The question counts from the
 instant it is released, so the board is also re-broadcast then: when its window
 runs out or it is closed (the quiz frame's own re-send carries the board with it),
 when the presenter reveals or un-reveals a slide, when the deck ends, and when the

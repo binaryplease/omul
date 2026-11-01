@@ -546,7 +546,7 @@ describe("a participant's quiz verdict while it is not theirs yet (REQ228)", () 
 		await phone.close();
 	});
 
-	test("the leaderboard read is withheld from the audience and the results link, not from an editor", async () => {
+	test("the leaderboard read is withheld from the audience and the results link", async () => {
 		const pres = await goLive([quizSlide(), leaderboardSlide()]);
 		await startTimer(pres);
 		await answer(pres.id, "p1", "mercury");
@@ -564,13 +564,96 @@ describe("a participant's quiz verdict while it is not theirs yet (REQ228)", () 
 				[RESULTS_TOKEN_HEADER]: resultsToken,
 			}),
 		);
+		// What the presenter's own read of it says is REQ233's, below.
+	});
 
-		// The presenter authored the deck and reads every score, as before.
-		const editor = await read(`/api/presentations/${pres.id}/results/lb`, {
+	// ── The board the presenter draws for the room (REQ233) ─────
+	//
+	// The presenting view and a second screen read the board with the edit
+	// token, and the room reads it off the wall. So that read counts only what the
+	// room may see too: otherwise one fresh id per option, watched on the
+	// projector, names the key the phones' board keeps back.
+
+	/** The board as the presenting view polls it — with the edit token. */
+	function presentersBoard(pres: AnyJson): Promise<AnyJson> {
+		return read(`/api/presentations/${pres.id}/results/lb`, {
 			Authorization: `Bearer ${pres.creatorToken}`,
 		});
-		expect(editor.rankedCount).toBe(1);
-		expect(editor.entries[0].correctCount).toBe(1);
+	}
+
+	/** The board on the organizer's results page — every slide, edit token. */
+	async function resultsPageBoard(pres: AnyJson): Promise<AnyJson> {
+		const rows = await read(`/api/presentations/${pres.id}/results`, {
+			Authorization: `Bearer ${pres.creatorToken}`,
+		});
+		return rows.find((row: AnyJson) => row.slideId === "lb");
+	}
+
+	test("the presenter's board counts no running question, however many fresh ids answer", async () => {
+		const pres = await goLive([quizSlide({ timeLimit: 1 }), leaderboardSlide()]);
+		await startTimer(pres);
+		// The review's probe: one fresh id per option, the projected board read
+		// after each, looking for the one row that scores.
+		for (const option of ["venus", "mercury", "mars"]) {
+			await answer(pres.id, `probe-${option}`, option);
+			expectNoTotals(await presentersBoard(pres));
+		}
+
+		// Under "Instant" the question counts once it is over.
+		await wait(1_100 + QUIZ_SUBMISSION_GRACE_MS);
+		const over = await presentersBoard(pres);
+		expect(over.rankedCount).toBe(3);
+		expect(over.entries[0].correctCount).toBe(1);
+		expect(over.entries[0].totalPoints).toBeGreaterThanOrEqual(QUIZ_CORRECT_POINTS);
+	}, 10_000);
+
+	test("under 'on click' the presenter's board waits for the reveal", async () => {
+		const pres = await goLive([quizSlide(), leaderboardSlide()], {
+			resultsVisibility: "on-click",
+		});
+		await startTimer(pres);
+		await answer(pres.id, "p1", "mercury");
+		expectNoTotals(await presentersBoard(pres));
+
+		await closeQuestion(pres);
+		expectNoTotals(await presentersBoard(pres));
+
+		await reveal(pres);
+		const revealed = await presentersBoard(pres);
+		expect(revealed.rankedCount).toBe(1);
+		expect(revealed.entries[0].correctCount).toBe(1);
+	});
+
+	test("under 'private' the presenter's board never counts the question", async () => {
+		const pres = await goLive([quizSlide(), leaderboardSlide()], {
+			resultsVisibility: "private",
+		});
+		await startTimer(pres);
+		await answer(pres.id, "p1", "mercury");
+		expectNoTotals(await presentersBoard(pres));
+
+		await closeQuestion(pres);
+		expectNoTotals(await presentersBoard(pres));
+		await endDeck(pres);
+		expectNoTotals(await presentersBoard(pres));
+	});
+
+	test("the organizer's results page still counts every question", async () => {
+		// Not drawn for the room, and already the surface that reads a running
+		// question's own tally (REQ215): its standings are the editor's whole ones.
+		const pres = await goLive([quizSlide(), leaderboardSlide()], {
+			resultsVisibility: "private",
+		});
+		await startTimer(pres);
+		await answer(pres.id, "p1", "mercury");
+
+		const board = await resultsPageBoard(pres);
+		expect(board.rankedCount).toBe(1);
+		expect(board.entries[0].correctCount).toBe(1);
+		// The same page read without the edit token is the room's board.
+		const publicRows = await read(`/api/presentations/${pres.id}/results`);
+		const publicBoard = publicRows.find((row: AnyJson) => row.slideId === "lb");
+		expect(publicBoard.withheld).toBe(true);
 	});
 
 	// ── The answer key on the deck payload, under each reveal setting ──

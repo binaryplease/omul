@@ -518,7 +518,9 @@ export function PresenterPage({
 		if (!slide) return;
 		// Content slides have no aggregate to poll; a leaderboard has one without
 		// collecting a single answer of its own (REQ059), which is why the gate is
-		// "does this slide have results" rather than "does it take votes".
+		// "does this slide have results" rather than "does it take votes". This
+		// screen is the room's, so a board read here counts only the questions the
+		// room may see (REQ233) even with the edit token riding the fetch.
 		if (!slideHasResults(slide.type)) return;
 
 		const fetchResults = () =>

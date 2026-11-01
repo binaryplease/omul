@@ -286,8 +286,18 @@ export function tallyVisibleToAudience(
  *    an editor reads. The link is a delegation of the numbers, not of the
  *    credential that authored them, and REQ099 will hand it to participants.
  *
- * Both default to the withholding value where they are read, so a surface that
- * forgets to say who is asking publishes nothing.
+ * And one thing a caller says about the surface it reads for, not about itself:
+ *
+ *  - `wholeStandings` — the reading is for one of the organizer's own surfaces
+ *    that is never drawn for the room (the results page, its breakdown, the
+ *    export, the preview's dry run), so a leaderboard may be summed over every
+ *    quiz question rather than only the released ones (REQ233). Honoured only
+ *    beside `canEdit`. Without it an editor reads the board the room reads,
+ *    because the presenting view and a second screen are editors drawing for
+ *    the room, and a credential cannot tell a projector from a laptop.
+ *
+ * All three default to the withholding value where they are read, so a surface
+ * that forgets to say who is asking publishes nothing.
  */
 export type ResultsCaller = {
 	canEdit?: boolean | undefined;
@@ -299,6 +309,7 @@ export type ResultsCaller = {
 	 * projector — so the default, like the two above, publishes nothing.
 	 */
 	includeFilteredAnswers?: boolean | undefined;
+	wholeStandings?: boolean | undefined;
 };
 
 /**

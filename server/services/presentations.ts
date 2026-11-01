@@ -4720,16 +4720,23 @@ async function leaderboardNamesFor(
 }
 
 /**
- * The scored questions whose verdicts this caller may read — every one for an
- * editor, and for everybody else only those {@link quizVerdictVisibleToAudience}
- * releases (REQ228).
+ * The scored questions this caller's standings are summed over — only those
+ * {@link quizVerdictVisibleToAudience} releases (REQ228), unless an editor reads
+ * for one of their own surfaces that is never drawn for the room (REQ233).
  *
  * The standings are verdicts summed: a row's points and correct count move when
  * one right answer to a running question is scored and stand still for a wrong
  * one, so a participant watching their own row — or answering under a fresh id
  * and watching for a new one — reads the key off the board exactly as off their
- * own card. A question therefore counts towards a non-editor's standings from
- * the moment its verdict is theirs to see, and not before.
+ * own card. A question therefore counts towards the room's standings from the
+ * moment its verdict is the room's to see, and not before.
+ *
+ * And the room watches the projector as well as its phones. The presenting view
+ * and a second screen read with the edit token, so `canEdit` alone would put a
+ * running question's points on the wall — the same oracle, one fresh id per
+ * option, read off the shared screen instead of a phone. An editor's reading
+ * therefore counts every question only when the surface asks for it with
+ * `wholeStandings` ({@link ResultsCaller}).
  */
 function quizDeckCountedFor(
 	deck: ScoredQuizDeck,
@@ -4737,8 +4744,9 @@ function quizDeckCountedFor(
 	caller: ResultsCaller,
 	now: number,
 ): ScoredQuizDeck {
+	const standingsReader = { canEdit: caller.canEdit && caller.wholeStandings };
 	return deck.filter(({ slide }) =>
-		quizVerdictVisibleToCaller(slide, pres, caller, now),
+		quizVerdictVisibleToCaller(slide, pres, standingsReader, now),
 	);
 }
 
@@ -5244,10 +5252,12 @@ async function aggregateSlideResults(
 		// names a row is *labelled* with the one its holder stated (REQ218) — the
 		// label and nothing more, and only on the rows the cut below keeps.
 		case "leaderboard": {
-			// REQ228 — summed only over the questions whose verdicts this caller
-			// may read. The board goes to the whole room after every quiz answer
+			// REQ228 — summed only over the questions whose verdicts the room may
+			// read. The board goes to the whole room after every quiz answer
 			// (`sendStandings`, read without `canEdit`), so a running question's
 			// points on it would name the key to anybody watching their own row.
+			// REQ233 — and so does the presenter's own read of it, which is what
+			// the projector draws: only `wholeStandings` lifts this for an editor.
 			const scoredDeck = await scoreQuizDeck(presentationId, pres, source);
 			const board = leaderboardFrom(
 				presentationId,
@@ -6341,7 +6351,9 @@ export async function getSegmentedResults(
  * because the export is authorized as an edit (owner or edit token): a quiz
  * answer key withheld from a running room (REQ056) is exactly what a
  * post-session analysis needs, and the caller has already proved they authored
- * it.
+ * it. For the same reason a leaderboard here is the whole standings
+ * (`wholeStandings`, REQ233), not the released-only board the shared screen
+ * drew: under "Private" that board never counted the question at all.
  *
  * Returns `null` for a presentation that does not exist, like every other read
  * here.
@@ -6359,6 +6371,7 @@ export async function getResultsExport(
 	const results = await getAllResults(presentationId, {
 		canEdit: true,
 		includeFilteredAnswers: true,
+		wholeStandings: true,
 	});
 	if (!results) return null;
 
@@ -6501,13 +6514,19 @@ export async function getPreviewResults(
 			slideId: slide.id,
 			question: slide.question,
 			type: slide.type,
-			/** The tally as the shared screen reads it — solutions included. */
+			/**
+			 * The tally as the shared screen reads it — solutions included. Its
+			 * leaderboard counts every question (REQ233): a dry run is the
+			 * organizer's own screen and its answers are generated, so there is no
+			 * room to keep a key from and a board that waited for releases would
+			 * preview nothing.
+			 */
 			presenterResults: await aggregateSlideResults(
 				presentationId,
 				deck,
 				slide.id,
 				source,
-				{ canEdit: true },
+				{ canEdit: true, wholeStandings: true },
 			),
 			/** The same tally as a participant's phone reads it (REQ056). */
 			audienceResults: await aggregateSlideResults(
