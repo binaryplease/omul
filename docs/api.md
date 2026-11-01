@@ -159,7 +159,7 @@ omul** below).
 | GET | `/api/presentations/:id/comments` | ✅ account with any grant, or owner | The deck's comment threads, oldest first (REQ074) — see **Comment threads on slides** below |
 | POST | `/api/presentations/:id/comments` | ✅ account with `comment` / `edit`, or owner | Comment on one slide `{ slideId, body }` (REQ074) |
 | DELETE | `/api/presentations/:id/comments/:commentId` | ✅ the comment's own author | Take back one of your own comments (REQ074) |
-| POST | `/api/presentations/:id/vote` | — | Submit vote `{ slideId, value, participantId, statementId?, skip?, pass? }`. Live mode: requires `status === "live"`. Survey mode (REQ003/REQ082): accepts votes at any non-ended status. `pass` names which of the device's passes through an audience-paced deck the answer belongs to (REQ083) — see **Repeat passes** below. `statementId` + `skip` support multi-statement scales (REQ029/REQ031) and 2x2 grid items (REQ047/REQ050). Choice slides: see **Choice voting** below; ranking slides: see **Ranking voting** below; 100 Points slides: see **100 Points voting** below; 2x2 grid slides: see **2x2 Grid voting** below; Guess the Number slides: see **Guess the Number voting** below; Pin on Image slides: see **Pin on Image voting** below; form slides take a whole filled-in form as one value, see **Form voting** below; quiz slides add a final-answer rule and a time window, and take either an option id or a typed answer (REQ055), see **Quiz competition** below. |
+| POST | `/api/presentations/:id/vote` | — | Submit vote `{ slideId, value, participantId, statementId?, skip?, pass? }`. Live mode: requires `status === "live"`. Survey mode (REQ003/REQ082): accepts votes at any non-ended status. A deck not accepting answers, or a slide id the deck does not have, answers `400` with `refused: "presentation-not-live"` / `"slide-not-found"` (REQ236) — see **Closing a slide refuses submissions, and says so** below. `pass` names which of the device's passes through an audience-paced deck the answer belongs to (REQ083) — see **Repeat passes** below. `statementId` + `skip` support multi-statement scales (REQ029/REQ031) and 2x2 grid items (REQ047/REQ050). Choice slides: see **Choice voting** below; ranking slides: see **Ranking voting** below; 100 Points slides: see **100 Points voting** below; 2x2 grid slides: see **2x2 Grid voting** below; Guess the Number slides: see **Guess the Number voting** below; Pin on Image slides: see **Pin on Image voting** below; form slides take a whole filled-in form as one value, see **Form voting** below; quiz slides add a final-answer rule and a time window, and take either an option id or a typed answer (REQ055), see **Quiz competition** below. |
 | POST | `/api/presentations/:id/response-vote` | — | Upvote (toggle) an open-ended response `{ slideId, responseId, participantId, pass? }` — only when slide has `allowResponseVotes: true` (REQ025). Per pass (REQ083) |
 | POST | `/api/presentations/:id/passes` | — | Start another pass through an audience-paced deck `{ participantId }` → `{ pass }`, on a deck whose `allowRepeatPasses` is on (REQ083) — see **Repeat passes** below |
 | DELETE | `/api/presentations/:id/answers/:answerId` | ✅ owner, token or `edit` grant | Delete one submitted answer from a word-cloud or open-ended slide (REQ027) — see **Removing a submitted answer** below |
@@ -1850,8 +1850,17 @@ and, unlike them, applies to **every slide type**.
 prose — one of `VOTE_REFUSAL_CODES` in `server/schemas.ts`
 (`quiz-not-started`, `quiz-window-closed`, `quiz-already-answered`, `participation-closed`, and
 `repeat-passes-off`, which only the request to start another pass through a deck
-answers with — REQ083). The prose is for a bare API caller; the code is for a
-client that wants to say the same thing in its own words.
+answers with — REQ083) — or one of `DECK_MOVED_ON_CODES` beside it (REQ236):
+`presentation-not-live` when the deck is not accepting answers (a live deck no
+longer `live`, a survey that has ended), `slide-not-found` when no slide of the
+deck has the answered id. Those two are what an answer sent a moment before the
+presenter ended the deck or deleted the slide comes back with; the participant
+surface reads them as "this screen is behind the room", catches its deck up from
+the server and says in the deck's language that the answer was not accepted,
+instead of giving way to an error page. A deck that does not exist, and a value
+that is not a valid answer for the slide, still answer `400` with the `error`
+text alone. The prose is for a bare API caller; the code is for a client that
+wants to say the same thing in its own words.
 
 **That string is the API's, not the room's.** Like the quiz refusals beside it,
 the participant surface pre-empts the round trip and shows the same fact in the

@@ -72,6 +72,31 @@ import {
 	steppedSlideIndex,
 } from "../types";
 
+/**
+ * What the participant error screen says, and where its button leads (REQ236).
+ *
+ * With a deck in hand the screen is the room's, so it speaks the deck's
+ * language (REQ084) and its button reloads that deck in place — the failure it
+ * reports was not the participant's doing, and sending them to an empty join
+ * form would lose the code they came in on. The server's `error` text is
+ * English for an API caller and is never shown here. Without a deck — the join
+ * lookup itself failed — there is no deck language to speak and nothing to
+ * reload, so the screen keeps the lookup's own message and sends them back to
+ * the join form, in English like that form.
+ */
+export function participantErrorScreen(
+	deck: Presentation | null,
+	error: string,
+): { message: string; button: string; retry: "reload" | "join" } {
+	if (!deck) return { message: error, button: "Try again", retry: "join" };
+	const dict = getDict(deck.language);
+	return {
+		message: dict.participantErrorMessage,
+		button: dict.participantErrorRetry,
+		retry: "reload",
+	};
+}
+
 // ── Participant Page ──────────────────────────────────────────
 //
 // The page around a participant's slide: joining by code, the socket that keeps
@@ -263,6 +288,7 @@ export function ParticipantPage({
 	const error = useStore((state) => state.error);
 	const loadByCode = useStore((state) => state.loadByCode);
 	const refreshDeckSlides = useStore((state) => state.refreshDeckSlides);
+	const catchUpWithRoom = useStore((state) => state.catchUpWithRoom);
 	const setResultsFor = useStore((state) => state.setResultsFor);
 	const applyRepeatPassesSetting = useStore(
 		(state) => state.applyRepeatPassesSetting,
@@ -792,24 +818,32 @@ export function ParticipantPage({
 			</div>,
 		);
 	}
-	if (error)
+	if (error) {
+		const screen = participantErrorScreen(pres, error);
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
 					<AppMenu language={pres?.language} />
 				</div>
 				<div className="relative z-10 text-center">
-					<p className="text-error mb-4">{error}</p>
+					<p className="text-error mb-4">{screen.message}</p>
 					<button
 						type="button"
 						className="btn-secondary"
-						onClick={() => go({ page: "join" })}
+						onClick={() => {
+							if (screen.retry === "join") {
+								go({ page: "join" });
+								return;
+							}
+							loadByCode(code);
+						}}
 					>
-						Try again
+						{screen.button}
 					</button>
 				</div>
 			</div>,
 		);
+	}
 	if (!pres) return null;
 
 	const t = getDict(pres.language);
@@ -1035,6 +1069,7 @@ export function ParticipantPage({
 						// (REQ232); only a failure without a stated refusal — the
 						// deck no longer live, the slide gone — replaces the screen.
 						onError={setError}
+						onDeckMovedOn={() => catchUpWithRoom(code)}
 					/>
 
 					{legalNotice}

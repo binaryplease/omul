@@ -181,6 +181,20 @@ export type Dict = {
 	quizAnswerLocked: string;
 	quizWindowClosed: string;
 	/**
+	 * Why an answer sent a moment before the room moved on was not taken
+	 * (REQ236): the presentation stopped taking answers — the presenter ended
+	 * it — or the slide it answered was removed. Said as a notice over the
+	 * screen the participant is caught up to, never as an error page.
+	 */
+	answerNotAcceptedDeckEnded: string;
+	answerNotAcceptedSlideGone: string;
+	/**
+	 * The participant error screen that is left for a failure nothing else
+	 * explains (REQ236), and its button, which reloads the deck in place.
+	 */
+	participantErrorMessage: string;
+	participantErrorRetry: string;
+	/**
 	 * Why the options cannot be picked *yet* (REQ226): the question is on
 	 * screen but its window has not opened, because it was the slide on screen
 	 * when the deck went live and the presenter starts its timer by hand. Said
@@ -496,6 +510,10 @@ const en: Dict = {
 	answerSending: "Sending…",
 	quizAnswerLocked: "Your answer is locked in",
 	quizWindowClosed: "The time for this question is over",
+	answerNotAcceptedDeckEnded: "Your answer was not accepted: the presentation is no longer taking answers",
+	answerNotAcceptedSlideGone: "Your answer was not accepted: this question was removed from the presentation",
+	participantErrorMessage: "Something went wrong.",
+	participantErrorRetry: "Try again",
 	quizWaitingToStart: "Waiting for the presenter to start this question",
 	participationClosed: "The presenter has closed this question",
 	quizTypeAnswer: "Type your answer...",
@@ -706,6 +724,10 @@ const de: Dict = {
 	answerSending: "Wird gesendet …",
 	quizAnswerLocked: "Deine Antwort steht fest",
 	quizWindowClosed: "Die Zeit für diese Frage ist vorbei",
+	answerNotAcceptedDeckEnded: "Deine Antwort wurde nicht angenommen: Die Präsentation nimmt keine Antworten mehr an",
+	answerNotAcceptedSlideGone: "Deine Antwort wurde nicht angenommen: Diese Frage wurde aus der Präsentation entfernt",
+	participantErrorMessage: "Etwas ist schiefgelaufen.",
+	participantErrorRetry: "Erneut versuchen",
 	quizWaitingToStart: "Warten, bis diese Frage gestartet wird",
 	participationClosed: "Der Präsentator hat diese Frage geschlossen",
 	quizTypeAnswer: "Antwort eingeben...",
@@ -918,6 +940,10 @@ const fr: Dict = {
 	answerSending: "Envoi…",
 	quizAnswerLocked: "Votre réponse est définitive",
 	quizWindowClosed: "Le temps pour cette question est écoulé",
+	answerNotAcceptedDeckEnded: "Votre réponse n'a pas été acceptée : la présentation n'accepte plus de réponses",
+	answerNotAcceptedSlideGone: "Votre réponse n'a pas été acceptée : cette question a été retirée de la présentation",
+	participantErrorMessage: "Une erreur s'est produite.",
+	participantErrorRetry: "Réessayer",
 	quizWaitingToStart: "En attente du lancement de cette question",
 	participationClosed: "Le présentateur a fermé cette question",
 	quizTypeAnswer: "Tapez votre réponse...",
@@ -1130,6 +1156,10 @@ const es: Dict = {
 	answerSending: "Enviando…",
 	quizAnswerLocked: "Tu respuesta es definitiva",
 	quizWindowClosed: "El tiempo para esta pregunta ha terminado",
+	answerNotAcceptedDeckEnded: "Tu respuesta no fue aceptada: la presentación ya no acepta respuestas",
+	answerNotAcceptedSlideGone: "Tu respuesta no fue aceptada: esta pregunta se eliminó de la presentación",
+	participantErrorMessage: "Algo salió mal.",
+	participantErrorRetry: "Reintentar",
 	quizWaitingToStart: "Esperando a que empiece esta pregunta",
 	participationClosed: "El presentador ha cerrado esta pregunta",
 	quizTypeAnswer: "Escribe tu respuesta...",
@@ -1341,6 +1371,10 @@ const it: Dict = {
 	answerSending: "Invio in corso…",
 	quizAnswerLocked: "La tua risposta è definitiva",
 	quizWindowClosed: "Il tempo per questa domanda è finito",
+	answerNotAcceptedDeckEnded: "La tua risposta non è stata accettata: la presentazione non accetta più risposte",
+	answerNotAcceptedSlideGone: "La tua risposta non è stata accettata: questa domanda è stata rimossa dalla presentazione",
+	participantErrorMessage: "Qualcosa è andato storto.",
+	participantErrorRetry: "Riprova",
 	quizWaitingToStart: "In attesa che questa domanda inizi",
 	participationClosed: "Il relatore ha chiuso questa domanda",
 	quizTypeAnswer: "Scrivi la tua risposta...",
@@ -1552,6 +1586,10 @@ const pt: Dict = {
 	answerSending: "A enviar…",
 	quizAnswerLocked: "A tua resposta é definitiva",
 	quizWindowClosed: "O tempo para esta pergunta acabou",
+	answerNotAcceptedDeckEnded: "A tua resposta não foi aceite: a apresentação já não aceita respostas",
+	answerNotAcceptedSlideGone: "A tua resposta não foi aceite: esta pergunta foi removida da apresentação",
+	participantErrorMessage: "Algo correu mal.",
+	participantErrorRetry: "Tentar novamente",
 	quizWaitingToStart: "Aguardando o início desta pergunta",
 	participationClosed: "O apresentador fechou esta pergunta",
 	quizTypeAnswer: "Escreve a tua resposta...",
@@ -1763,6 +1801,10 @@ const nl: Dict = {
 	answerSending: "Wordt verzonden…",
 	quizAnswerLocked: "Je antwoord staat vast",
 	quizWindowClosed: "De tijd voor deze vraag is voorbij",
+	answerNotAcceptedDeckEnded: "Je antwoord is niet aangenomen: de presentatie neemt geen antwoorden meer aan",
+	answerNotAcceptedSlideGone: "Je antwoord is niet aangenomen: deze vraag is uit de presentatie verwijderd",
+	participantErrorMessage: "Er is iets misgegaan.",
+	participantErrorRetry: "Opnieuw proberen",
 	quizWaitingToStart: "Wachten tot deze vraag begint",
 	participationClosed: "De presentator heeft deze vraag gesloten",
 	quizTypeAnswer: "Typ je antwoord...",

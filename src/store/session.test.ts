@@ -1281,3 +1281,82 @@ describe("session slice — the live room (REQ111/REQ109)", () => {
 		expect(store.getState().presentation).toBeNull();
 	});
 });
+
+// ── Catching up after an answer the deck moved on under (REQ236) ─
+//
+// The vote route says the deck ended or the slide is gone; the participant page
+// asks the server for the deck as it stands rather than giving way to an error
+// screen. A frame that lands while that read is in flight is newer than it.
+
+/** Stand in for the join endpoint, and hold its answer until released. */
+function heldJoinFetch(body: unknown): { release: () => void } {
+	let release = () => {};
+	const released = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	globalThis.fetch = (async () => {
+		await released;
+		return new Response(JSON.stringify(body), {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}) as unknown as typeof fetch;
+	return { release };
+}
+
+describe("session slice — catchUpWithRoom (REQ236)", () => {
+	const originalFetch = globalThis.fetch;
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	test("the status, the slides and the active slide come from the server's read", async () => {
+		const store = seededStore({ activeSlideIndex: 1 });
+		stubJoinFetch(
+			makePresentation({
+				status: "ended",
+				activeSlideIndex: 0,
+				slides: [{ id: "slide-b", type: "multiple-choice", question: "B" }],
+			}),
+		);
+		await store.getState().catchUpWithRoom("123456");
+		const pres = store.getState().presentation;
+		expect(pres?.status).toBe("ended");
+		expect(pres?.slides.map((slide) => slide.id)).toEqual(["slide-b"]);
+		expect(pres?.activeSlideIndex).toBe(0);
+		expect(store.getState().loading).toBe(false);
+		expect(store.getState().error).toBe("");
+	});
+
+	test("a frame that moved the deck while the read was in flight wins", async () => {
+		const store = seededStore({ activeSlideIndex: 0 });
+		const join = heldJoinFetch(
+			makePresentation({
+				status: "ended",
+				activeSlideIndex: 0,
+				slides: [{ id: "slide-a", type: "multiple-choice", question: "A" }],
+			}),
+		);
+		const catchingUp = store.getState().catchUpWithRoom("123456");
+		// Meanwhile: the presenter reset the deck, and a save moved its slides.
+		store.getState().applyReset();
+		store.getState().applyDeckSlides({
+			slides: [{ id: "slide-c", type: "multiple-choice", question: "C" }],
+		});
+		join.release();
+		await catchingUp;
+		const pres = store.getState().presentation;
+		expect(pres?.status).toBe("draft");
+		expect(pres?.slides.map((slide) => slide.id)).toEqual(["slide-c"]);
+	});
+
+	test("a failed read leaves the deck as it was", async () => {
+		const store = seededStore();
+		globalThis.fetch = (async () =>
+			new Response("{}", { status: 500 })) as unknown as typeof fetch;
+		await store.getState().catchUpWithRoom("123456");
+		expect(store.getState().presentation?.status).toBe("live");
+		expect(store.getState().presentation?.slides).toHaveLength(2);
+		expect(store.getState().error).toBe("");
+	});
+});

@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+	type DeckMovedOnCode,
 	PresentationSchema,
 	QUIZ_SUBMISSION_GRACE_MS,
 	VOTE_REFUSAL_CODES,
@@ -126,6 +127,7 @@ function phone(slide: Slide, pres: Presentation, results: unknown) {
 				scorecard: async () => null,
 			},
 			onError: () => {},
+			onDeckMovedOn: () => {},
 		}),
 	);
 }
@@ -617,6 +619,7 @@ describe("a refused quiz answer keeps the participant on the slide (REQ232)", ()
 			.catch((thrown: unknown) =>
 				routeSubmissionFailure(thrown, getDict("de"), {
 					refused: (message) => shownOnSlide.push(message),
+					movedOn: () => {},
 					failed: store.getState().setError,
 				}),
 			);
@@ -639,14 +642,15 @@ describe("a refused quiz answer keeps the participant on the slide (REQ232)", ()
 		}
 	}
 
-	test("a failure without a stated refusal still replaces the page", async () => {
-		// The deck ended or the slide is gone: there is no slide left to stay on.
+	test("a failure without any code still reaches the page's error path", async () => {
+		// A value the boundary rejected, a deck that no longer exists: nothing the
+		// participant's screen can catch up to.
 		voteRouteAnswers(400, {
-			error: "Cannot vote – presentation not live or slide not found",
+			error: "Cannot vote – presentation not found or answer not valid for this slide",
 		});
 		const outcome = await answerOnLivePage("q1", "mars");
 		expect(outcome.pageError).toBe(
-			"Cannot vote – presentation not live or slide not found",
+			"Cannot vote – presentation not found or answer not valid for this slide",
 		);
 		expect(outcome.shownOnSlide).toEqual([]);
 	});
@@ -692,7 +696,11 @@ describe("a refused quiz answer keeps the participant on the slide (REQ232)", ()
 				routeSubmissionFailure(
 					new ApiError(ROUTE_ERROR[refused], refused, 400),
 					getDict("de"),
-					{ refused: (message) => shown.push(message), failed: () => {} },
+					{
+					refused: (message) => shown.push(message),
+					movedOn: () => {},
+					failed: () => {},
+				},
 				);
 				const deckFor = CAUGHT_UP[refused] as (slide: Slide) => Presentation;
 				const markup = phone(answer.slide, deckFor(answer.slide), null);
@@ -728,5 +736,149 @@ describe("a refused quiz answer keeps the participant on the slide (REQ232)", ()
 		expect(source).toMatch(/const reportFailure = \(message: string\) => \{\s*onError\(message\);/);
 		const page = readFileSync(join(import.meta.dir, "..", "pages", "ParticipantPage.tsx"), "utf8");
 		expect(page).toContain("onError={setError}");
+	});
+});
+
+describe("an answer the deck moved on under keeps the participant in the deck (REQ236)", () => {
+	const realFetch = globalThis.fetch;
+	afterEach(() => {
+		globalThis.fetch = realFetch;
+	});
+
+	/** What the vote route says for each, and what a German deck's phone reads. */
+	const MOVED_ON: Record<DeckMovedOnCode, { error: string; notice: string }> = {
+		"presentation-not-live": {
+			error: "Cannot vote – this presentation is not live",
+			notice:
+				"Deine Antwort wurde nicht angenommen: Die Präsentation nimmt keine Antworten mehr an",
+		},
+		"slide-not-found": {
+			error: "Cannot vote – this slide is no longer in the presentation",
+			notice:
+				"Deine Antwort wurde nicht angenommen: Diese Frage wurde aus der Präsentation entfernt",
+		},
+	};
+
+	/**
+	 * The server after the room moved on: the vote route answers with `refused`,
+	 * and the join lookup — what the page re-reads to catch up — with `deck`.
+	 */
+	function serverAfter(refused: DeckMovedOnCode, deck: Presentation) {
+		globalThis.fetch = (async (input: RequestInfo | URL) => {
+			const url = String(input);
+			const body = url.includes("/vote")
+				? { error: MOVED_ON[refused].error, refused }
+				: deck;
+			return new Response(JSON.stringify(body), {
+				status: url.includes("/vote") ? 400 : 200,
+				headers: { "Content-Type": "application/json" },
+			});
+		}) as unknown as typeof fetch;
+	}
+
+	/**
+	 * Answer on the live page as it is wired: a moved-on answer catches the
+	 * store's deck up (`onDeckMovedOn` → `catchUpWithRoom`) and is noticed in
+	 * the deck's language; anything else goes to `setError`, which is what draws
+	 * the page's error screen.
+	 */
+	async function answerOnLivePage(
+		store: ReturnType<typeof createAppStore>,
+		slideId: string,
+	) {
+		const notices: string[] = [];
+		let catchingUp: Promise<void> = Promise.resolve();
+		await liveVoteTransport("deck", "phone")
+			.vote({ slideId, value: "mars" })
+			.catch((thrown: unknown) =>
+				routeSubmissionFailure(thrown, getDict("de"), {
+					refused: () => {},
+					movedOn: (message) => {
+						notices.push(message);
+						catchingUp = store.getState().catchUpWithRoom("123456");
+					},
+					failed: store.getState().setError,
+				}),
+			);
+		await catchingUp;
+		return { pageError: store.getState().error, notices };
+	}
+
+	test("D1 — the presenter ended the deck mid-flight: the room's ended screen, not an error", async () => {
+		const store = createAppStore();
+		store.getState().setPresentation(liveDeck(SELECT_QUIZ, RUNNING, { language: "de" }));
+		// The `ended` frame lands before the refused answer comes back, as it did
+		// in the re-test.
+		store.getState().applyEnded({ endedAt: new Date().toISOString() });
+		serverAfter(
+			"presentation-not-live",
+			liveDeck(SELECT_QUIZ, RUNNING, { language: "de", status: "ended" }),
+		);
+
+		const outcome = await answerOnLivePage(store, SELECT_QUIZ.id);
+		expect(outcome.pageError).toBe("");
+		expect(outcome.notices).toEqual([MOVED_ON["presentation-not-live"].notice]);
+		expect(store.getState().presentation?.status).toBe("ended");
+	});
+
+	test("the ended frame was missed: the refusal itself brings the phone to the ended screen", async () => {
+		const store = createAppStore();
+		store.getState().setPresentation(liveDeck(SELECT_QUIZ, RUNNING, { language: "de" }));
+		serverAfter(
+			"presentation-not-live",
+			liveDeck(SELECT_QUIZ, RUNNING, { language: "de", status: "ended" }),
+		);
+
+		const outcome = await answerOnLivePage(store, SELECT_QUIZ.id);
+		expect(outcome.pageError).toBe("");
+		expect(store.getState().presentation?.status).toBe("ended");
+	});
+
+	test("the slide was deleted mid-flight: the deck as it stands now, and a notice", async () => {
+		const store = createAppStore();
+		store.getState().setPresentation(
+			liveDeck(SELECT_QUIZ, RUNNING, {
+				language: "de",
+				slides: [SELECT_QUIZ, TYPED_QUIZ],
+			}),
+		);
+		serverAfter(
+			"slide-not-found",
+			liveDeck(TYPED_QUIZ, RUNNING, { language: "de", slides: [TYPED_QUIZ] }),
+		);
+
+		const outcome = await answerOnLivePage(store, SELECT_QUIZ.id);
+		expect(outcome.pageError).toBe("");
+		expect(outcome.notices).toEqual([MOVED_ON["slide-not-found"].notice]);
+		const deck = store.getState().presentation as Presentation;
+		expect(deck.status).toBe("live");
+		expect(deck.slides.map((slide) => slide.id)).toEqual([TYPED_QUIZ.id]);
+		expect(deck.slides[deck.activeSlideIndex ?? 0]?.id).toBe(TYPED_QUIZ.id);
+	});
+
+	test("the notice is the deck's language, never the route's English", () => {
+		for (const refused of Object.keys(MOVED_ON) as DeckMovedOnCode[]) {
+			const notices: string[] = [];
+			routeSubmissionFailure(
+				new ApiError(MOVED_ON[refused].error, null, 400, refused),
+				getDict("de"),
+				{
+					refused: () => {},
+					movedOn: (message) => notices.push(message),
+					failed: () => {},
+				},
+			);
+			expect(notices).toEqual([MOVED_ON[refused].notice]);
+		}
+	});
+
+	test("the live page catches up on a moved-on answer, and the slide view toasts it", () => {
+		const source = readFileSync(join(import.meta.dir, "ParticipantSlideView.tsx"), "utf8");
+		expect(source).toMatch(
+			/const reportMovedOn = \(message: string\) => \{\s*onDeckMovedOn\(\);\s*addToast\(message, "info"\);/,
+		);
+		expect(source).toContain("movedOn: reportMovedOn,");
+		const page = readFileSync(join(import.meta.dir, "..", "pages", "ParticipantPage.tsx"), "utf8");
+		expect(page).toContain("onDeckMovedOn={() => catchUpWithRoom(code)}");
 	});
 });

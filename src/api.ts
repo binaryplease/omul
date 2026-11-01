@@ -12,6 +12,7 @@ import {
 	type DeckCollaborator,
 	type DeckCollaboratorEntry,
 	type DeckGenerationAvailability,
+	type DeckMovedOnCode,
 	type DeckTemplate,
 	type DeckTemplateCategory,
 	type DeckThemeId,
@@ -19,6 +20,7 @@ import {
 	type FeedbackConfig,
 	FIRST_PASS,
 	type Folder,
+	isDeckMovedOnCode,
 	isVoteRefusalCode,
 	isWithheldTally,
 	type LegalLinks,
@@ -67,6 +69,14 @@ export class ApiError extends Error {
 	 */
 	readonly refused: VoteRefusalCode | ParticipantSignInRefusalCode | null;
 	/**
+	 * The same `refused` field when it says the deck moved on under the request
+	 * rather than that a rule refused it (REQ236) — the deck ended, or the slide
+	 * is gone. Kept apart from {@link refused} because the participant screen
+	 * answers it apart: it catches up with the room instead of naming a reason
+	 * beside the control.
+	 */
+	readonly movedOn: DeckMovedOnCode | null;
+	/**
 	 * The HTTP status the refusal came with, for a surface whose answer depends
 	 * on *which* refusal it was rather than on its prose — the administrators'
 	 * feedback page tells signed-out, not-an-admin and channel-off apart by it
@@ -85,12 +95,14 @@ export class ApiError extends Error {
 		refused: VoteRefusalCode | ParticipantSignInRefusalCode | null,
 		status = 0,
 		body: unknown = null,
+		movedOn: DeckMovedOnCode | null = null,
 	) {
 		super(message);
 		this.name = "ApiError";
 		this.refused = refused;
 		this.status = status;
 		this.body = body;
+		this.movedOn = movedOn;
 	}
 }
 
@@ -115,6 +127,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 				: null,
 			res.status,
 			err,
+			isDeckMovedOnCode(err.refused) ? err.refused : null,
 		);
 	}
 	return res.json();

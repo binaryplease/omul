@@ -291,6 +291,8 @@ const VOTE_REFUSAL_MESSAGE: Record<VoteRefusal["refused"], string> = {
 	"quiz-already-answered": "Your answer to this quiz question is final",
 	"participation-closed": "The presenter has closed this slide to submissions",
 	"repeat-passes-off": "This presentation does not let a device answer it again",
+	"presentation-not-live": "Cannot vote – this presentation is not live",
+	"slide-not-found": "Cannot vote – this slide is no longer in the presentation",
 };
 
 /** A JSON error Response with the given status. */
@@ -1413,7 +1415,10 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 			// The `refused` code rides beside the prose so a client can map the
 			// reason onto the participant's own language (REQ084) instead of
 			// guessing it back out of local state; the English `error` stays for
-			// bare API callers.
+			// bare API callers. A deck that ended, or a slide deleted, while the
+			// answer was in flight is stated the same way (REQ236): the participant
+			// is behind the room, not in error, and the code is how their screen
+			// knows to catch up instead of giving way to an error page.
 			if (isVoteRefusal(vote)) {
 				set.status = 400;
 				return {
@@ -1424,7 +1429,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 			if (!vote) {
 				set.status = 400;
 				return {
-					error: "Cannot vote – presentation not live or slide not found",
+					error: "Cannot vote – presentation not found or answer not valid for this slide",
 				};
 			}
 			return vote;
@@ -1435,7 +1440,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Voting"],
 				summary: "Submit a vote",
 				description:
-					"Records a participant vote on a slide. Public endpoint — no auth required. The shape of `value` depends on the slide type (e.g. choice IDs for multiple-choice, free text for word-cloud, numeric for scale, `\"x,y\"` coordinates for a 2x2 grid item named by `statementId`, `\"itemId:points\"` pairs summing to exactly 100 for a 100 Points slide, a whole number inside the authored range and on its step grid for a Guess the Number slide, `\"x,y\"` per-mille coordinates on the image for a Pin on Image slide — which is also refused with 400 when the slide carries no image at all, and a whole filled-in form as `fieldId`/`answer` pairs for a Form slide (REQ061), where each field's type is enforced at the boundary and a required field left blank, an `email` field given a non-address, a `choice` field given anything but one of its own option ids, or an answer past 200 characters is refused). A quiz slide takes an option id, or — when its `quizAnswerMode` is `type` (REQ055) — the answer the participant wrote, judged against the slide's `quizAnswers` after normalization (case, Latin-script accents, spacing and surrounding punctuation folded; nothing else — other scripts' combining marks are letters, not accents, and are compared as written). Returns 400 if the presentation is not `live`, the slide does not exist, or the value is not a valid submission for that slide type. A quiz slide states which of its own rules refused the answer — the question has not been started yet (REQ226), its window has closed, or this participant's answer is already final (REQ054/REQ057). Every stated refusal carries a machine-readable `refused` code (`quiz-not-started`, `quiz-window-closed`, `quiz-already-answered`, `participation-closed`) beside the English `error` text, so a client can name the reason in its own language. `pass` (REQ083, default `1`) names which of this device's passes through an audience-paced deck the answer belongs to; each pass is its own set of answers, so a re-submission replaces only that pass's answer, a quiz is final only within it, and a word-cloud cap counts only its responses. A pass is opened only by `POST /presentations/:id/passes`, and an opened pass stays open whatever the deck's switch says later; a `pass` that was never opened for this device — a client that missed a reset, a hand-built request — is read as the latest pass that was, or the first. Rate-limited per client address **and** per `participantId` (REQ145): over either limit answers `429` with a `Retry-After` header and `retryAfterSeconds` in the body.",
+					"Records a participant vote on a slide. Public endpoint — no auth required. The shape of `value` depends on the slide type (e.g. choice IDs for multiple-choice, free text for word-cloud, numeric for scale, `\"x,y\"` coordinates for a 2x2 grid item named by `statementId`, `\"itemId:points\"` pairs summing to exactly 100 for a 100 Points slide, a whole number inside the authored range and on its step grid for a Guess the Number slide, `\"x,y\"` per-mille coordinates on the image for a Pin on Image slide — which is also refused with 400 when the slide carries no image at all, and a whole filled-in form as `fieldId`/`answer` pairs for a Form slide (REQ061), where each field's type is enforced at the boundary and a required field left blank, an `email` field given a non-address, a `choice` field given anything but one of its own option ids, or an answer past 200 characters is refused). A quiz slide takes an option id, or — when its `quizAnswerMode` is `type` (REQ055) — the answer the participant wrote, judged against the slide's `quizAnswers` after normalization (case, Latin-script accents, spacing and surrounding punctuation folded; nothing else — other scripts' combining marks are letters, not accents, and are compared as written). Returns 400 if the presentation is not accepting answers, the slide does not exist, or the value is not a valid submission for that slide type. A quiz slide states which of its own rules refused the answer — the question has not been started yet (REQ226), its window has closed, or this participant's answer is already final (REQ054/REQ057). A deck that has moved on under the answer says so too (REQ236): `presentation-not-live` when it is not accepting answers (a live deck that is not `live`, a survey that has ended), `slide-not-found` when no slide of the deck has that id — the two ways an answer sent a moment before the presenter ended the deck or deleted the slide comes back. Every stated refusal carries a machine-readable `refused` code (`quiz-not-started`, `quiz-window-closed`, `quiz-already-answered`, `participation-closed`, `presentation-not-live`, `slide-not-found`) beside the English `error` text, so a client can name the reason in its own language. A deck that does not exist, and a value that is not a valid submission for the slide, answer 400 with the `error` text alone. `pass` (REQ083, default `1`) names which of this device's passes through an audience-paced deck the answer belongs to; each pass is its own set of answers, so a re-submission replaces only that pass's answer, a quiz is final only within it, and a word-cloud cap counts only its responses. A pass is opened only by `POST /presentations/:id/passes`, and an opened pass stays open whatever the deck's switch says later; a `pass` that was never opened for this device — a client that missed a reset, a hand-built request — is read as the latest pass that was, or the first. Rate-limited per client address **and** per `participantId` (REQ145): over either limit answers `429` with a `Retry-After` header and `retryAfterSeconds` in the body.",
 			},
 		},
 	)

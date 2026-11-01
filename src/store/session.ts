@@ -159,6 +159,14 @@ export interface SessionSlice {
 	 */
 	refreshDeckSlides: (code: string) => Promise<boolean>;
 	/**
+	 * Catch a participant's deck up with the room after the server said it moved
+	 * on under an answer (REQ236) — the deck ended, or the slide is gone. One
+	 * re-read, patching the status, the slides and the active slide, each only
+	 * where no frame moved it while the read was in flight: a frame that did is
+	 * newer news than this read.
+	 */
+	catchUpWithRoom: (code: string) => Promise<void>;
+	/**
 	 * Re-read the deck's slides on this browser's own credentials, patching only
 	 * the slides (REQ229) — what a presenter screen does when the deck is saved.
 	 *
@@ -444,6 +452,18 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 	 */
 	let savedSlidesRevision = 0;
 
+	/**
+	 * What the audience's copy of the slides is projected from — the pair the
+	 * participant surface re-reads on, read here from the store so a guard on
+	 * it cannot drift from the trigger.
+	 */
+	const projectionKey = () => {
+		const deck = get().presentation;
+		return `${deck?.resultsVisibility ?? ""}|${(
+			deck?.revealedSlideIds ?? []
+		).join(",")}`;
+	};
+
 	return {
 		...initialSessionState,
 
@@ -536,14 +556,6 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		 *    change that moved on has its own re-read already running.
 		 */
 		refreshDeckSlides: async (code) => {
-			// The same pair the participant surface triggers on, read here from the
-			// store so the guard cannot drift from the trigger.
-			const projectionKey = () => {
-				const deck = get().presentation;
-				return `${deck?.resultsVisibility ?? ""}|${(
-					deck?.revealedSlideIds ?? []
-				).join(",")}`;
-			};
 			if (!get().presentation) return false;
 			const askedAgainst = projectionKey();
 			const askedAtRevision = savedSlidesRevision;
@@ -558,6 +570,49 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 				// Nothing to report: the deck the participant holds is still usable,
 				// and the next change will try again.
 				return false;
+			}
+		},
+
+		/**
+		 * See {@link SessionSlice.catchUpWithRoom}. Shaped like
+		 * `refreshDeckSlides` — no `loading`, a failure leaves the deck as it
+		 * was — and wider than it on purpose: the server has just said this
+		 * browser's status or slides are stale, which is the one moment the
+		 * runtime fields are this read's to set. Each is still guarded, because
+		 * a frame that landed meanwhile (the `ended` this browser missed, a save,
+		 * a slide change) is newer than the read.
+		 */
+		catchUpWithRoom: async (code) => {
+			const deck = get().presentation;
+			if (!deck) return;
+			const askedAtStatus = deck.status;
+			const askedAtSlideIndex = deck.activeSlideIndex;
+			const askedAgainst = projectionKey();
+			const askedAtRevision = savedSlidesRevision;
+			try {
+				const data = await api.joinByCode(code);
+				const current = get().presentation;
+				if (!current || current.id !== deck.id) return;
+				const changes: Partial<Presentation> = {};
+				if (current.status === askedAtStatus && typeof data?.status === "string") {
+					changes.status = data.status;
+				}
+				const slidesCurrent =
+					projectionKey() === askedAgainst &&
+					savedSlidesRevision === askedAtRevision;
+				if (slidesCurrent && Array.isArray(data?.slides)) {
+					changes.slides = data.slides;
+					if (
+						current.activeSlideIndex === askedAtSlideIndex &&
+						typeof data.activeSlideIndex === "number"
+					) {
+						changes.activeSlideIndex = data.activeSlideIndex;
+					}
+				}
+				patchPresentation(changes);
+			} catch {
+				// The deck the participant holds is still the one to show; the room's
+				// next frame catches it up.
 			}
 		},
 

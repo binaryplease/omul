@@ -146,6 +146,7 @@ import {
 	slideAcceptsSubmissions,
 	slideAnswersAreDeletable,
 	solutionVisibleToAudience,
+	type DeckMovedOnCode,
 	type VoteRefusalCode,
 	voteValueLimitFor,
 	withAudienceSlides,
@@ -2601,9 +2602,15 @@ async function broadcastStandings(presentationId: string) {
  * that is live, and the only thing wrong with it is a decision taken in the room
  * a moment ago. Folding that into the generic `null` would tell the participant
  * their answer was invalid, which is the one thing it was not.
+ *
+ * A deck that moved on under the answer produces one too (REQ236): it is no
+ * longer accepting answers — the presenter ended it while the answer was in
+ * flight — or the slide the answer is for has been deleted. The participant's
+ * screen is behind the room, and the code is what lets it catch up rather than
+ * replace itself with an error.
  */
 export type VoteRefusal = {
-	refused: VoteRefusalCode;
+	refused: VoteRefusalCode | DeckMovedOnCode;
 };
 
 /** Whether a `submitVote` result is a stated refusal rather than a stored vote. */
@@ -2624,11 +2631,13 @@ export async function submitVote(
 ) {
 	const pres = await presentations.findOne(presentationId);
 	if (!pres) return null;
-	if (!acceptsSubmissions(pres)) return null;
+	if (!acceptsSubmissions(pres)) {
+		return { refused: "presentation-not-live" } satisfies VoteRefusal;
+	}
 
 	const slides = pres.slides as Slide[];
 	const slide = slides.find((s) => s.id === slideId);
-	if (!slide) return null;
+	if (!slide) return { refused: "slide-not-found" } satisfies VoteRefusal;
 
 	// The slide has to be open to submissions (REQ111). Ahead of every type
 	// branch and ahead of the value bound below, because a closed question is

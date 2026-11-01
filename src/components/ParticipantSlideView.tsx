@@ -39,6 +39,7 @@ import { useToast } from "./ui/Toast";
 import { POLL_COLORS } from "../constants";
 import { type Dict, getDict } from "../i18n";
 import type {
+	DeckMovedOnCode,
 	FormField,
 	GridAxis,
 	GuessRange,
@@ -285,7 +286,16 @@ const VOTE_REFUSAL_WORDING: Record<VoteRefusalCode, (dict: Dict) => string> = {
 };
 
 /**
- * Where a submission that did not land is reported (REQ232).
+ * What an answer the deck moved on under reads as (REQ236), in the deck's own
+ * language — a `Record` over the code for the same reason as the one above.
+ */
+const DECK_MOVED_ON_WORDING: Record<DeckMovedOnCode, (dict: Dict) => string> = {
+	"presentation-not-live": (dict) => dict.answerNotAcceptedDeckEnded,
+	"slide-not-found": (dict) => dict.answerNotAcceptedSlideGone,
+};
+
+/**
+ * Where a submission that did not land is reported (REQ232, REQ236).
  *
  * - **`refused`**: the server turned *this answer* away for one of its stated
  *   reasons — the question not started, its time over, an answer already
@@ -293,18 +303,32 @@ const VOTE_REFUSAL_WORDING: Record<VoteRefusalCode, (dict: Dict) => string> = {
  *   right one to show, so the reason belongs beside the answer control, and
  *   once the question is over the participant reads its result like anybody
  *   who did not answer in time.
- * - **`failed`**: anything without a code — the deck no longer live, the slide
- *   gone, a value the boundary rejected. That keeps the surface's own error
- *   path, which on the live page replaces the screen.
+ * - **`movedOn`**: the deck moved on while the answer was in flight — the
+ *   presenter ended it, or deleted the slide. Nothing is wrong but that this
+ *   screen is behind the room, so the surface catches up with the room and
+ *   says the answer was not taken; an error page would strand the participant
+ *   outside a deck every other phone is still showing.
+ * - **`failed`**: anything without a code — a value the boundary rejected, a
+ *   deck that no longer exists. That keeps the surface's own error path, which
+ *   on the live page replaces the screen.
  */
 export function routeSubmissionFailure(
 	thrown: unknown,
 	dict: Dict,
-	report: { refused: (message: string) => void; failed: (message: string) => void },
+	report: {
+		refused: (message: string) => void;
+		movedOn: (message: string) => void;
+		failed: (message: string) => void;
+	},
 ): void {
 	const refused = thrown instanceof ApiError ? thrown.refused : null;
 	if (refused) {
 		report.refused(VOTE_REFUSAL_WORDING[refused](dict));
+		return;
+	}
+	const movedOn = thrown instanceof ApiError ? thrown.movedOn : null;
+	if (movedOn) {
+		report.movedOn(DECK_MOVED_ON_WORDING[movedOn](dict));
 		return;
 	}
 	report.failed(thrown instanceof Error ? thrown.message : String(thrown));
@@ -649,6 +673,7 @@ export function ParticipantSlideView({
 	isSurvey,
 	transport,
 	onError,
+	onDeckMovedOn,
 }: {
 	pres: Presentation;
 	slide: Slide;
@@ -663,6 +688,12 @@ export function ParticipantSlideView({
 	 * component's to show, beside the control it refused (REQ232).
 	 */
 	onError: (message: string) => void;
+	/**
+	 * Where an answer the deck moved on under is reported (REQ236) — the page
+	 * catches its deck up with the room's. The notice saying the answer was not
+	 * taken is this component's, in the deck's language.
+	 */
+	onDeckMovedOn: () => void;
 }) {
 	const [voted, setVoted] = useState<Record<string, string>>({});
 	/**
@@ -884,6 +915,17 @@ export function ParticipantSlideView({
 		if (!answerStatusShown) addToast(message, "error");
 	};
 
+	/**
+	 * The deck moved on under the answer (REQ236): the page catches up — to the
+	 * ended screen, or to the deck without the deleted slide — and a toast
+	 * says the answer was not taken. A toast rather than the status line,
+	 * because the slide that line belongs to may be gone by the time it reads.
+	 */
+	const reportMovedOn = (message: string) => {
+		onDeckMovedOn();
+		addToast(message, "info");
+	};
+
 	/** Anything else goes to the surface's own error path, as before. */
 	const reportFailure = (message: string) => {
 		onError(message);
@@ -893,6 +935,7 @@ export function ParticipantSlideView({
 	const reportSubmissionFailure = (thrown: unknown) =>
 		routeSubmissionFailure(thrown, t, {
 			refused: reportRefusal,
+			movedOn: reportMovedOn,
 			failed: reportFailure,
 		});
 
@@ -1200,6 +1243,7 @@ export function ParticipantSlideView({
 			const toastError = (message: string) => addToast(message, "error");
 			routeSubmissionFailure(upvoteError, t, {
 				refused: toastError,
+				movedOn: toastError,
 				failed: toastError,
 			});
 		}

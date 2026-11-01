@@ -513,6 +513,29 @@ export function isVoteRefusalCode(value: unknown): value is VoteRefusalCode {
 }
 
 /**
+ * The reasons an answer is turned away because the deck **moved on** while it
+ * was in flight (REQ236): the presenter ended it (or it is otherwise not
+ * accepting answers), or the slide it answered was deleted. Ridden in the same
+ * `refused` field as {@link VOTE_REFUSAL_CODES}, and kept apart from them
+ * because the news is of another kind: nothing is wrong with the answer or with
+ * the slide's rules, the participant's screen is behind the room. So a client
+ * does not show the reason beside a control — it catches its deck up to the
+ * server's and says, in the deck's language, that the answer was not taken.
+ */
+export const DECK_MOVED_ON_CODES = [
+	"presentation-not-live",
+	"slide-not-found",
+] as const;
+
+/** One entry of {@link DECK_MOVED_ON_CODES}. */
+export type DeckMovedOnCode = (typeof DECK_MOVED_ON_CODES)[number];
+
+/** Whether an error body's `refused` field says the deck moved on under it. */
+export function isDeckMovedOnCode(value: unknown): value is DeckMovedOnCode {
+	return DECK_MOVED_ON_CODES.includes(value as DeckMovedOnCode);
+}
+
+/**
  * Whether the shared screen is currently blanked (REQ109).
  *
  * Deck-level rather than per-slide, and deliberately **sticky across

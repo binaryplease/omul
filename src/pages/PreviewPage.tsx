@@ -622,6 +622,9 @@ export function PreviewPage({
 														isSurvey={false}
 														transport={transport}
 														onError={(message) => addToast(message, "error")}
+														// The preview's transport never reaches a server, so no
+														// deck can move on under its answers (REQ236).
+														onDeckMovedOn={() => {}}
 													/>
 												</div>
 											</div>
