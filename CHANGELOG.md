@@ -122,6 +122,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The shared results page's breakdown by group now uses the presentation's language for each group's chart, like the chart above it.
 - A quiz question with a very long time limit (over about 24 days) no longer makes the server check the question once per millisecond for its whole duration.
 - In a quiz slide's settings, the line under the reveal setting now says what "Instant" does for a quiz question: "Deck default — results appear once the question is over (time up or submissions closed)." Before, it read "results appear as answers arrive", but a quiz question's results stay hidden while it is being answered. Other slides keep their wording.
+- Creating a presentation while not signed in no longer puts a `401 Unauthorized` error for `POST /api/presentations/<id>/claim` in the browser console. Before, every new presentation (blank, from a template, generated, imported or duplicated) asked the server to claim it for an account, which can only be refused when nobody is signed in. Now the app first checks whether a session exists and asks only when one does. Signed-in behaviour is unchanged: a presentation created while signed in belongs to the account, and signing in still adopts the presentations kept in this browser.
 - In the presentation settings, a screen reader now announces the language select as "Audience language" when it takes focus. Before, it heard only an unnamed combobox, because the caption over the select was not linked to it.
 
 ### Security

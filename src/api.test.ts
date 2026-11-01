@@ -584,15 +584,35 @@ describe("keeping the edit token a create returns (REQ194)", () => {
 	const TOKEN_KEY = "omul-tokens";
 
 	/**
-	 * Answer the create (or the generation) with a fresh deck and its token, and
-	 * the claim that follows with `claimStatus` — 200 when a session owns the
-	 * deck, 401 for an anonymous create — or a network error.
+	 * Answer the create (or the generation) with a fresh deck and its token, the
+	 * session lookup with `session` — a signed-in session, Better Auth's `null`
+	 * for nobody, or a failure — and the claim that follows with `claimStatus`:
+	 * 200 when a session owns the deck, 401 for an anonymous caller, or a network
+	 * error.
 	 */
-	function stubCreate(claimStatus: number | "network-error"): string[] {
+	function stubCreate(
+		claimStatus: number | "network-error",
+		session: "signed-in" | "signed-out" | "unreadable" = claimStatus === 401
+			? "signed-out"
+			: "signed-in",
+	): string[] {
 		const asked: string[] = [];
 		globalThis.fetch = (async (input: RequestInfo | URL) => {
 			const url = String(input);
 			asked.push(url);
+			if (url.endsWith("/api/auth/get-session")) {
+				if (session === "unreadable") {
+					return new Response("Bad Gateway", { status: 502 });
+				}
+				const body =
+					session === "signed-in"
+						? { session: { id: "session" }, user: { id: "user" } }
+						: null;
+				return new Response(JSON.stringify(body), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
 			if (url.endsWith("/claim")) {
 				if (claimStatus === "network-error") {
 					throw new TypeError("Failed to fetch");
@@ -637,6 +657,27 @@ describe("keeping the edit token a create returns (REQ194)", () => {
 		stubCreate(401);
 		await api.generatePresentation({ prompt: "A retro for the team" });
 		expect(heldTokens()).toEqual({ fresh: "token-fresh" });
+	});
+
+	// The claim a signed-out create used to ask could only be refused, and every
+	// refusal was a 401 in the presenter's console (REQ240).
+	test("an anonymous create asks no claim", async () => {
+		const asked = stubCreate(401, "signed-out");
+		await api.createPresentation({ title: "Only here", slides: [] });
+		expect(asked.some((url) => url.endsWith("/claim"))).toBe(false);
+	});
+
+	test("an anonymous generation asks no claim", async () => {
+		const asked = stubCreate(401, "signed-out");
+		await api.generatePresentation({ prompt: "A retro for the team" });
+		expect(asked.some((url) => url.endsWith("/claim"))).toBe(false);
+	});
+
+	test("an unreadable session still asks the claim", async () => {
+		const asked = stubCreate(200, "unreadable");
+		await api.createPresentation({ title: "Mine", slides: [] });
+		expect(asked.some((url) => url.endsWith("/claim"))).toBe(true);
+		expect(heldTokens()).toEqual({});
 	});
 
 	test("a claim that cannot be asked keeps the token", async () => {
