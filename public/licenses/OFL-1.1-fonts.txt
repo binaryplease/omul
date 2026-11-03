@@ -1,13 +1,14 @@
 omul — bundled webfont attribution
 ==================================
 
-Two typefaces are bundled with this application and are served from this same
-directory tree as .woff2/.woff files. They are third-party Font Software, they
-are NOT covered by the application's own license, and they are used unmodified.
+The typefaces below are bundled with this application and are served from this
+same directory tree as .woff2/.woff/.ttf files. They are third-party Font
+Software, they are NOT covered by the application's own license, and they are
+used unmodified.
 
-Both are licensed under the SIL Open Font License, Version 1.1, which requires
-that these copyright notices and the license text travel with the fonts. That
-is what this file is.
+All of them are licensed under the SIL Open Font License, Version 1.1, which
+requires that these copyright notices and the license text travel with the
+fonts. That is what this file is.
 
   Figtree
   Copyright 2022 The Figtree Project Authors (https://github.com/erikdkennedy/figtree)
@@ -17,8 +18,45 @@ is what this file is.
   Copyright 2020 The DM Mono Project Authors (https://www.github.com/googlefonts/dm-mono)
   Bundled via the npm package @fontsource/dm-mono.
 
-Neither typeface is modified, renamed, or sold on its own. The license text
-below is a single verbatim copy of OFL-1.1 and applies to both.
+  KaTeX math fonts: KaTeX_AMS, KaTeX_Caligraphic, KaTeX_Fraktur, KaTeX_Main,
+  KaTeX_Math, KaTeX_SansSerif, KaTeX_Script, KaTeX_Size1, KaTeX_Size2,
+  KaTeX_Size3, KaTeX_Size4 and KaTeX_Typewriter
+  Copyright (c) 2009-2010, Design Science, Inc. (<www.mathjax.org>)
+  Copyright (c) 2014-2018 Khan Academy (<www.khanacademy.org>),
+  with Reserved Font Names KaTeX_AMS, KaTeX_Caligraphic, KaTeX_Fraktur,
+  KaTeX_Main, KaTeX_Math, KaTeX_SansSerif, KaTeX_Script, KaTeX_Size1,
+  KaTeX_Size2, KaTeX_Size3, KaTeX_Size4 and KaTeX_Typewriter.
+  Bundled via the npm package katex, which typesets the formulas on slides.
+
+  Noto Sans (Regular and Bold)
+  Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic)
+  Vendored as .ttf files under server/fonts/ in the source repository and
+  shipped beside the built server rather than served to browsers: it sets the
+  text of the deck PDF export, which embeds the glyphs each document uses.
+
+  Sarasa Gothic SC (Regular)
+  Copyright (c) 2015-2025, Renzhi Li (aka. Belleve Invis, belleve@typeof.net).
+  Portions Copyright (c) 2016 The Inter Project Authors.
+  Portions Copyright (c) 2014-2021 Adobe Systems Incorporated
+  (http://www.adobe.com/), with Reserved Font Name 'Source'.
+  Portions Copyright (c) 2012 Google Inc.
+  (https://github.com/be5invis/Sarasa-Gothic)
+  Vendored as a .ttf file under server/fonts/ in the source repository and
+  shipped beside the built server, like Noto Sans: it sets the Chinese,
+  Japanese and Korean text of the deck PDF export.
+
+  GNU Unifont and Unifont Upper (release 15.0.06)
+  Copyright (C) 1998-2023 Roman Czyborra, Paul Hardy, Qianqian Fang,
+  Andrew Miller, Johnnie Weaver, David Corbett, Nils Moskopp,
+  Rebecca Bettencourt, Minseo Lee, et al. (https://unifoundry.com/unifont/)
+  Dual-licensed under the SIL Open Font License 1.1 and the GNU GPL version 2
+  or later with the GNU font embedding exception; distributed here under the
+  SIL Open Font License 1.1. Vendored as .ttf files under server/fonts/ in the
+  source repository and shipped beside the built server, like Noto Sans: it
+  sets the emoji of the deck PDF export.
+
+No typeface is modified, renamed, or sold on its own. The license text below
+is a single verbatim copy of OFL-1.1 and applies to all of them.
 
 The application itself is licensed separately — see LICENSE-AGPL-3.0,
 LICENSE-COMMERCIAL, TRADEMARK.md and NOTICE.md in the source repository.

@@ -8,8 +8,17 @@ import {
 	Users,
 	X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import { api, getCreatorToken } from "../api";
+import {
+	AccessibilityFindingsStrip,
+	accessibilityFieldMarker,
+	accessibilityFindingDestination,
+	accessibilityFindingsBySlide,
+	revealAccessibilityField,
+} from "../components/AccessibilityFindings";
+import type { SlideAccessibilityFinding } from "../components/DeckAccessibility";
+import { deckAccessibilityFindings } from "../components/DeckAccessibility";
 import {
 	ChoiceCards,
 	ColorField,
@@ -39,6 +48,11 @@ import {
 	RESULTS_VISIBILITY_OPTIONS,
 	SlideEditor,
 } from "../components/SlideEditor";
+import {
+	cursorSlideAfterRemoval,
+	SlideBulkBar,
+	SlideSelectCheckbox,
+} from "../components/SlideBulkBar";
 import { slideRailItemSurface } from "../components/SlideRail";
 import { SlideThumbnail } from "../components/SlideThumbnail";
 import { SlideTypeMenu } from "../components/SlideTypeMenu";
@@ -49,10 +63,16 @@ import { useToast } from "../components/ui/Toast";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 import { useStore, useStoreApi } from "../store";
+import {
+	canCopySlides,
+	canRemoveSlides,
+	moveSlideBlock,
+} from "../store/editorDocument";
 import type {
 	DeckAccessLevel,
 	DeckBrand,
 	DeckThemeId,
+	ParticipantLanguage,
 	PresentationMode,
 	QAVisibility,
 	ResultsVisibility,
@@ -70,7 +90,9 @@ import {
 	guessReferenceFor,
 	isContentSlideType,
 	isReachableGuessReference,
+	participantLanguageFor,
 	pinAreaFor,
+	profanityFilterLanguageFor,
 	slideWriteRefusalFor,
 	pinImageFor,
 	slideEmbedFor,
@@ -122,6 +144,7 @@ export function CreatePage({
 	const title = useStore((state) => state.title);
 	const language = useStore((state) => state.language);
 	const mode = useStore((state) => state.mode);
+	const allowRepeatPasses = useStore((state) => state.allowRepeatPasses);
 	const resultsVisibility = useStore((state) => state.resultsVisibility);
 	const qaEnabled = useStore((state) => state.qaEnabled);
 	const qaVisibility = useStore((state) => state.qaVisibility);
@@ -129,6 +152,15 @@ export function CreatePage({
 	const chatEnabled = useStore((state) => state.chatEnabled);
 	const requireParticipantName = useStore(
 		(state) => state.requireParticipantName,
+	);
+	const requireParticipantSignIn = useStore(
+		(state) => state.requireParticipantSignIn,
+	);
+	const profanityFilterEnabled = useStore(
+		(state) => state.profanityFilterEnabled,
+	);
+	const profanityFilterLanguage = useStore(
+		(state) => state.profanityFilterLanguage,
 	);
 	const theme = useStore((state) => state.theme);
 	const themeBrand = useStore((state) => state.themeBrand);
@@ -138,6 +170,7 @@ export function CreatePage({
 	const setTitle = useStore((state) => state.setTitle);
 	const setLanguage = useStore((state) => state.setLanguage);
 	const setMode = useStore((state) => state.setMode);
+	const setAllowRepeatPasses = useStore((state) => state.setAllowRepeatPasses);
 	const setResultsVisibility = useStore((state) => state.setResultsVisibility);
 	const applyResultsVisibilityToDeck = useStore(
 		(state) => state.applyResultsVisibilityToDeck,
@@ -148,6 +181,15 @@ export function CreatePage({
 	const setChatEnabled = useStore((state) => state.setChatEnabled);
 	const setRequireParticipantName = useStore(
 		(state) => state.setRequireParticipantName,
+	);
+	const setRequireParticipantSignIn = useStore(
+		(state) => state.setRequireParticipantSignIn,
+	);
+	const setProfanityFilterEnabled = useStore(
+		(state) => state.setProfanityFilterEnabled,
+	);
+	const setProfanityFilterLanguage = useStore(
+		(state) => state.setProfanityFilterLanguage,
 	);
 	const setTheme = useStore((state) => state.setTheme);
 	const setThemeBrand = useStore((state) => state.setThemeBrand);
@@ -160,6 +202,10 @@ export function CreatePage({
 	const removeSlide = useStore((state) => state.removeSlide);
 	const moveSlide = useStore((state) => state.moveSlide);
 	const reorderSlide = useStore((state) => state.reorderSlide);
+	const moveSlides = useStore((state) => state.moveSlides);
+	const setSlidesSkipped = useStore((state) => state.setSlidesSkipped);
+	const removeSlides = useStore((state) => state.removeSlides);
+	const copySlides = useStore((state) => state.copySlides);
 	const addOption = useStore((state) => state.addOption);
 	const updateOption = useStore((state) => state.updateOption);
 	const removeOption = useStore((state) => state.removeOption);
@@ -191,6 +237,12 @@ export function CreatePage({
 	const [accessLevel, setAccessLevel] = useState<DeckAccessLevel | null>(null);
 	const [error, setError] = useState("");
 	const [selected, setSelected] = useState<Selection>(0);
+	/**
+	 * The slides ticked in the rail for a bulk operation (REQ127), by id — a set
+	 * apart from the single-slide cursor above, which keeps choosing what the
+	 * canvas shows. Ids, so a reorder carries the ticks with their slides.
+	 */
+	const [bulkSelection, setBulkSelection] = useState<string[]>([]);
 	const [addMenuOpen, setAddMenuOpen] = useState(false);
 	/**
 	 * Which of the stage's two views is on screen (REQ154). It lives here rather
@@ -200,6 +252,21 @@ export function CreatePage({
 	 * style against a chart.
 	 */
 	const [canvasView, setCanvasView] = useState<SlideCanvasView>("question");
+	/**
+	 * The slide the canvas keeps while the deck-settings panel is open: the first,
+	 * unless an accessibility finding about the deck's theme brought the panel up
+	 * for another slide (REQ132), which is then the slide the theme is judged on.
+	 */
+	const [settingsCanvasIndex, setSettingsCanvasIndex] = useState(0);
+	/**
+	 * The field an accessibility finding last sent the editor to (REQ132). A
+	 * revision rather than the target alone, so going to the same field twice
+	 * brings it up twice.
+	 */
+	const [accessibilityTarget, setAccessibilityTarget] = useState<{
+		target: string;
+		revision: number;
+	} | null>(null);
 	// Drag-to-reorder cursor: the rail index being dragged and the slot it hovers.
 	const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 	const [dropIndex, setDropIndex] = useState<number | null>(null);
@@ -279,12 +346,16 @@ export function CreatePage({
 					slides: data.slides,
 					language: data.language,
 					mode: data.mode,
+					allowRepeatPasses: data.allowRepeatPasses,
 					resultsVisibility: data.resultsVisibility,
 					qaEnabled: data.qaEnabled,
 					qaVisibility: data.qaVisibility,
 					reactionsEnabled: data.reactionsEnabled,
 					chatEnabled: data.chatEnabled,
 					requireParticipantName: data.requireParticipantName,
+					requireParticipantSignIn: data.requireParticipantSignIn,
+					profanityFilterEnabled: data.profanityFilterEnabled,
+					profanityFilterLanguage: data.profanityFilterLanguage,
 					theme: data.theme,
 					themeBrand: data.themeBrand,
 					themeLogoUrl: data.themeLogoUrl,
@@ -320,12 +391,15 @@ export function CreatePage({
 		themeBrand,
 	});
 
-	// The slide on the canvas: the selected slide, or the first one while the
-	// deck-settings panel is open — the deck's theme is authored against a slide,
-	// so the stage keeps one rather than going blank. Clamped so a stale index
-	// from a removal never points past the end of the list.
-	const canvasIndex =
-		selected === "settings" ? 0 : Math.min(selected, slides.length - 1);
+	// The slide on the canvas: the selected slide, or — while the deck-settings
+	// panel is open — the first one, or the one a theme finding is about: the
+	// deck's theme is authored against a slide, so the stage keeps one rather
+	// than going blank. Clamped so a stale index from a removal never points past
+	// the end of the list.
+	const canvasIndex = Math.min(
+		selected === "settings" ? settingsCanvasIndex : selected,
+		slides.length - 1,
+	);
 	const activeSlide = slides[canvasIndex];
 	const activeSlideId = activeSlide?.id ?? null;
 
@@ -367,6 +441,45 @@ export function CreatePage({
 	 * wears.
 	 */
 	const deckTheme = { theme, themeBrand, themeLogoUrl, themeLogoAlt, title };
+
+	/**
+	 * The deck's accessibility findings (REQ132), re-run on every edit to a slide
+	 * or to the theme, so what the strip and the rail say is always the deck on
+	 * screen. Advisory: nothing below Save reads them.
+	 */
+	const accessibilityFindings = useMemo(
+		() => deckAccessibilityFindings({ theme, themeBrand }, slides),
+		[theme, themeBrand, slides],
+	);
+	const accessibilityFindingsOf = useMemo(
+		() => accessibilityFindingsBySlide(accessibilityFindings),
+		[accessibilityFindings],
+	);
+
+	/**
+	 * Acting on a finding: the rail selects the slide it is about (or the deck's
+	 * settings, for its theme or brand, with that slide kept on the canvas), and
+	 * the field it names is brought up once the column has drawn it.
+	 */
+	const handleGoToFinding = (finding: SlideAccessibilityFinding) => {
+		const destination = accessibilityFindingDestination(finding);
+		setSelected(destination.selection);
+		setSettingsCanvasIndex(destination.canvasSlideIndex);
+		if (destination.showsQuestion) setCanvasView("question");
+		const { target } = destination;
+		if (target) {
+			setAccessibilityTarget((previous) => ({
+				target,
+				revision: (previous?.revision ?? 0) + 1,
+			}));
+		}
+	};
+
+	useEffect(() => {
+		if (accessibilityTarget) {
+			revealAccessibilityField(document, accessibilityTarget.target);
+		}
+	}, [accessibilityTarget]);
 
 	/**
 	 * How many quiz questions the deck holds (REQ059) — read by two surfaces that
@@ -430,6 +543,69 @@ export function CreatePage({
 			if (nextSelected !== -1) setSelected(nextSelected);
 		}
 		handleDragEnd();
+	};
+
+	// REQ127 — the rail's bulk selection, read in deck order and only for slides
+	// that still exist, so a slide removed by any other path drops out of it.
+	const bulkSlides = slides.filter((slide) => bulkSelection.includes(slide.id));
+	const bulkIds = bulkSlides.map((slide) => slide.id);
+
+	const toggleBulkSlide = (slideId: string) =>
+		setBulkSelection((previous) =>
+			previous.includes(slideId)
+				? previous.filter((id) => id !== slideId)
+				: [...previous, slideId],
+		);
+
+	// A plain click moves the cursor; Ctrl/Cmd-click ticks the slide, and
+	// Shift-click ticks the run from the cursor to it.
+	const handleThumbnailClick = (index: number, event: MouseEvent) => {
+		if (event.shiftKey && typeof selected === "number") {
+			const [from, to] = [selected, index].sort((left, right) => left - right);
+			setBulkSelection(slides.slice(from, to + 1).map((slide) => slide.id));
+		} else if (event.metaKey || event.ctrlKey || event.shiftKey) {
+			toggleBulkSlide(slides[index].id);
+		} else {
+			setSelected(index);
+		}
+	};
+
+	/** Put the cursor back on `slideId` after the store has rewritten the list. */
+	const reacquireCursor = (slideId: string | null) => {
+		if (slideId === null) return;
+		const index = storeApi
+			.getState()
+			.slides.findIndex((slide) => slide.id === slideId);
+		if (index !== -1) setSelected(index);
+	};
+
+	const handleBulkMove = (direction: -1 | 1) => {
+		const cursorSlideId =
+			typeof selected === "number" ? (slides[selected]?.id ?? null) : null;
+		moveSlides(bulkIds, direction);
+		reacquireCursor(cursorSlideId);
+	};
+
+	const handleBulkRemove = () => {
+		const cursorSlideId =
+			typeof selected === "number"
+				? cursorSlideAfterRemoval(slides, bulkIds, selected)
+				: null;
+		removeSlides(bulkIds);
+		reacquireCursor(cursorSlideId);
+		setSettingsCanvasIndex(0);
+		setBulkSelection([]);
+	};
+
+	// The copies become the selection, so a second action reaches them; the
+	// cursor stays on the slide it was on, re-found after the insert shifted it.
+	const handleBulkCopy = () => {
+		const cursorSlideId =
+			typeof selected === "number" ? (slides[selected]?.id ?? null) : null;
+		const copyIds = copySlides(bulkIds);
+		if (copyIds.length === 0) return;
+		reacquireCursor(cursorSlideId);
+		setBulkSelection(copyIds);
 	};
 
 	const handleSubmit = async () => {
@@ -640,12 +816,16 @@ export function CreatePage({
 					slides,
 					language,
 					mode,
+					allowRepeatPasses,
 					resultsVisibility,
 					qaEnabled,
 					qaVisibility,
 					reactionsEnabled,
 					chatEnabled,
 					requireParticipantName,
+					requireParticipantSignIn,
+					profanityFilterEnabled,
+					profanityFilterLanguage,
 					theme,
 					themeBrand: savedBrand,
 					themeLogoUrl: themeLogoUrl.trim(),
@@ -659,12 +839,16 @@ export function CreatePage({
 					slides,
 					language,
 					mode,
+					allowRepeatPasses,
 					resultsVisibility,
 					qaEnabled,
 					qaVisibility,
 					reactionsEnabled,
 					chatEnabled,
 					requireParticipantName,
+					requireParticipantSignIn,
+					profanityFilterEnabled,
+					profanityFilterLanguage,
 					theme,
 					themeBrand: savedBrand,
 					themeLogoUrl: themeLogoUrl.trim(),
@@ -786,7 +970,10 @@ export function CreatePage({
 						className={`flex-shrink-0 md:w-full flex items-center gap-2 p-2 md:p-3 rounded-lg border text-sm transition-all ${slideRailItemSurface(
 							selected === "settings",
 						)}`}
-						onClick={() => setSelected("settings")}
+						onClick={() => {
+							setSettingsCanvasIndex(0);
+							setSelected("settings");
+						}}
 					>
 						<Settings size={15} />
 						<span className="hidden md:inline">Presentation settings</span>
@@ -801,24 +988,52 @@ export function CreatePage({
 						</span>
 					</div>
 
+					<SlideBulkBar
+						slides={slides}
+						selection={bulkSlides}
+						onSelectAll={() =>
+							setBulkSelection(slides.map((slide) => slide.id))
+						}
+						onClear={() => setBulkSelection([])}
+						onMove={handleBulkMove}
+						onSetSkipped={(skipped) => setSlidesSkipped(bulkIds, skipped)}
+						onRemove={handleBulkRemove}
+						onCopy={handleBulkCopy}
+						canMoveUp={moveSlideBlock(slides, bulkIds, -1) !== slides}
+						canMoveDown={moveSlideBlock(slides, bulkIds, 1) !== slides}
+						canRemove={canRemoveSlides(slides, bulkIds)}
+						canCopy={canCopySlides(slides, bulkIds)}
+					/>
+
 					{slides.map((slide, index) => (
-						<SlideThumbnail
-							key={slide.id}
-							index={index}
-							slide={slide}
-							active={selected === index}
-							onClick={() => setSelected(index)}
-							dragging={draggingIndex === index}
-							dropTarget={dropIndex === index}
-							onDragStart={() => handleDragStart(index)}
-							onDragEnter={() => handleDragEnterSlide(index)}
-							onDragOver={(event) => event.preventDefault()}
-							onDrop={(event) => {
-								event.preventDefault();
-								handleDropOnSlide(index);
-							}}
-							onDragEnd={handleDragEnd}
-						/>
+						<div key={slide.id} className="group relative flex-shrink-0 md:w-full">
+							<SlideThumbnail
+								index={index}
+								slide={slide}
+								active={selected === index}
+								bulkSelected={bulkIds.includes(slide.id)}
+								accessibilityFindingCount={
+									accessibilityFindingsOf.get(slide.id)?.length ?? 0
+								}
+								onClick={(event) => handleThumbnailClick(index, event)}
+								dragging={draggingIndex === index}
+								dropTarget={dropIndex === index}
+								onDragStart={() => handleDragStart(index)}
+								onDragEnter={() => handleDragEnterSlide(index)}
+								onDragOver={(event) => event.preventDefault()}
+								onDrop={(event) => {
+									event.preventDefault();
+									handleDropOnSlide(index);
+								}}
+								onDragEnd={handleDragEnd}
+							/>
+							<SlideSelectCheckbox
+								index={index}
+								checked={bulkIds.includes(slide.id)}
+								revealed={bulkIds.length > 0}
+								onToggle={() => toggleBulkSlide(slide.id)}
+							/>
+						</div>
 					))}
 
 					{/* Add slide — visible affordance that expands a type picker */}
@@ -873,6 +1088,15 @@ export function CreatePage({
 									onViewChange={setCanvasView}
 									deckQuizCount={deckQuizCount}
 								/>
+								{/* What on this slide a reader may not manage to read or
+								    follow (REQ132), under the slide it is about, each finding
+								    with the control that goes to the field clearing it. */}
+								<AccessibilityFindingsStrip
+									slide={activeSlide}
+									findings={accessibilityFindingsOf.get(activeSlide.id) ?? []}
+									deckFindingCount={accessibilityFindings.length}
+									onGoToFinding={handleGoToFinding}
+								/>
 								{/* The presenter's own script for this slide, under the slide
 								    it is about (REQ156): it is written in the same pass as the
 								    words above it, and read while presenting them. */}
@@ -926,6 +1150,7 @@ export function CreatePage({
 							<DeckSettings
 								language={language}
 								mode={mode}
+								allowRepeatPasses={allowRepeatPasses}
 								resultsVisibility={resultsVisibility}
 								overriddenSlideCount={overriddenSlideCount}
 								qaEnabled={qaEnabled}
@@ -933,8 +1158,14 @@ export function CreatePage({
 								reactionsEnabled={reactionsEnabled}
 								chatEnabled={chatEnabled}
 								requireParticipantName={requireParticipantName}
+								requireParticipantSignIn={requireParticipantSignIn}
+								profanityFilterEnabled={profanityFilterEnabled}
+								profanityFilterLanguage={profanityFilterLanguage}
+								onProfanityFilterEnabledChange={setProfanityFilterEnabled}
+								onProfanityFilterLanguageChange={setProfanityFilterLanguage}
 								onLanguageChange={setLanguage}
 								onModeChange={setMode}
+								onAllowRepeatPassesChange={setAllowRepeatPasses}
 								onResultsVisibilityChange={setResultsVisibility}
 								onApplyResultsVisibilityToDeck={() =>
 									applyResultsVisibilityToDeck(resultsVisibility)
@@ -944,6 +1175,7 @@ export function CreatePage({
 								onReactionsEnabledChange={setReactionsEnabled}
 								onChatEnabledChange={setChatEnabled}
 								onRequireParticipantNameChange={setRequireParticipantName}
+								onRequireParticipantSignInChange={setRequireParticipantSignIn}
 								theme={theme}
 								themeBrand={themeBrand}
 								authoredBrand={authoredBrand}
@@ -988,9 +1220,32 @@ export function CreatePage({
 // and slide authoring surfaces read as one coherent system rather than two
 // look-alikes.
 
+/**
+ * What each participant language is called in the panel's two pickers — the
+ * audience's language (REQ084) and the profanity filter's list (REQ085) — each
+ * in its own language, as a speaker of it looks for it. One table, so the two
+ * pickers cannot come to offer different languages or name one of them twice
+ * over; keyed by the schema's own type, so a language added there and missed
+ * here does not compile.
+ */
+const PARTICIPANT_LANGUAGE_LABELS: Record<ParticipantLanguage, string> = {
+	en: "English",
+	de: "Deutsch",
+	fr: "Français",
+	es: "Español",
+	it: "Italiano",
+	pt: "Português",
+	nl: "Nederlands",
+};
+
+const PARTICIPANT_LANGUAGE_OPTIONS = Object.entries(
+	PARTICIPANT_LANGUAGE_LABELS,
+) as [ParticipantLanguage, string][];
+
 function DeckSettings({
 	language,
 	mode,
+	allowRepeatPasses,
 	resultsVisibility,
 	overriddenSlideCount,
 	qaEnabled,
@@ -998,6 +1253,9 @@ function DeckSettings({
 	reactionsEnabled,
 	chatEnabled,
 	requireParticipantName,
+	requireParticipantSignIn,
+	profanityFilterEnabled,
+	profanityFilterLanguage,
 	theme,
 	themeBrand,
 	authoredBrand,
@@ -1006,6 +1264,7 @@ function DeckSettings({
 	deckTitle,
 	onLanguageChange,
 	onModeChange,
+	onAllowRepeatPassesChange,
 	onResultsVisibilityChange,
 	onApplyResultsVisibilityToDeck,
 	onQAEnabledChange,
@@ -1013,6 +1272,9 @@ function DeckSettings({
 	onReactionsEnabledChange,
 	onChatEnabledChange,
 	onRequireParticipantNameChange,
+	onRequireParticipantSignInChange,
+	onProfanityFilterEnabledChange,
+	onProfanityFilterLanguageChange,
 	onThemeChange,
 	onThemeBrandChange,
 	onThemeLogoUrlChange,
@@ -1020,6 +1282,8 @@ function DeckSettings({
 }: {
 	language: string;
 	mode: PresentationMode;
+	/** Whether a device may go through the deck more than once (REQ083). */
+	allowRepeatPasses: boolean;
 	resultsVisibility: ResultsVisibility;
 	/**
 	 * How many question slides currently override the deck's reveal mode — what
@@ -1034,6 +1298,11 @@ function DeckSettings({
 	chatEnabled: boolean;
 	/** Whether the room states its names on joining (REQ076). */
 	requireParticipantName: boolean;
+	/** Whether only signed-in people may join (REQ134). */
+	requireParticipantSignIn: boolean;
+	/** The profanity filter on free text, and the list it reads (REQ085). */
+	profanityFilterEnabled: boolean;
+	profanityFilterLanguage: ParticipantLanguage | null;
 	/** The deck's theme (REQ079/REQ080) and the organizer's mark (REQ136). */
 	theme: DeckThemeId;
 	/** The brand as it is being authored, and as the resolver reads it back. */
@@ -1045,6 +1314,7 @@ function DeckSettings({
 	deckTitle: string;
 	onLanguageChange: (language: string) => void;
 	onModeChange: (mode: PresentationMode) => void;
+	onAllowRepeatPassesChange: (allowRepeatPasses: boolean) => void;
 	onResultsVisibilityChange: (resultsVisibility: ResultsVisibility) => void;
 	onApplyResultsVisibilityToDeck: () => void;
 	onQAEnabledChange: (qaEnabled: boolean) => void;
@@ -1052,6 +1322,11 @@ function DeckSettings({
 	onReactionsEnabledChange: (reactionsEnabled: boolean) => void;
 	onChatEnabledChange: (chatEnabled: boolean) => void;
 	onRequireParticipantNameChange: (requireParticipantName: boolean) => void;
+	onRequireParticipantSignInChange: (requireParticipantSignIn: boolean) => void;
+	onProfanityFilterEnabledChange: (profanityFilterEnabled: boolean) => void;
+	onProfanityFilterLanguageChange: (
+		profanityFilterLanguage: ParticipantLanguage | null,
+	) => void;
 	onThemeChange: (theme: DeckThemeId) => void;
 	onThemeBrandChange: (changes: Partial<DeckBrand>) => void;
 	onThemeLogoUrlChange: (themeLogoUrl: string) => void;
@@ -1071,6 +1346,14 @@ function DeckSettings({
 	// REQ080 — whether the deck is drawn in the theme it authored, asked once so
 	// the sentence and the control below it cannot disagree.
 	const wearsOwnTheme = theme === CUSTOM_DECK_THEME_ID;
+	// REQ085 — the list the server will filter by, read through its own function
+	// rather than re-derived here, so the sentence under the picker names the list
+	// the room's answers are actually held against.
+	const filterListInForce = profanityFilterLanguageFor({
+		profanityFilterEnabled,
+		profanityFilterLanguage,
+		language,
+	});
 	return (
 		<div className="max-w-2xl mx-auto slide-in space-y-6">
 			<PanelHeader
@@ -1084,18 +1367,20 @@ function DeckSettings({
 			    screen alike. The set is built in: a deck names one of them, and
 			    what that name looks like stays the product's decision, so a deck
 			    authored today is not pinned to today's palette. */}
-			<Section
-				title="Theme"
-				description="Colours, typeface and slide backgrounds, across the presenter, participant and join surfaces."
-			>
-				<ChoiceCards
-					ariaLabel="Deck theme"
-					columns={2}
-					value={theme}
-					onChange={onThemeChange}
-					options={deckThemeOptions(authoredBrand)}
-				/>
-			</Section>
+			<div {...accessibilityFieldMarker({ scope: "deck", name: "theme" })}>
+				<Section
+					title="Theme"
+					description="Colours, typeface and slide backgrounds, across the presenter, participant and join surfaces."
+				>
+					<ChoiceCards
+						ariaLabel="Deck theme"
+						columns={2}
+						value={theme}
+						onChange={onThemeChange}
+						options={deckThemeOptions(authoredBrand)}
+					/>
+				</Section>
+			</div>
 
 			{/* The deck's own theme (REQ080/REQ092/REQ135) — three colours and a
 			    face, stored on the deck and applied wherever a built-in theme would
@@ -1134,13 +1419,18 @@ function DeckSettings({
 						value={themeBrand.canvas}
 						onChange={(canvas) => onThemeBrandChange({ canvas })}
 					/>
-					<ColorField
-						label="Text"
-						hint="The words on that canvas. Left empty, it is derived from the canvas."
-						placeholder="#f4f4f5"
-						value={themeBrand.text}
-						onChange={(text) => onThemeBrandChange({ text })}
-					/>
+					{/* The words' colour is where a contrast finding on this theme
+					    sends the organizer (REQ132): it is the brand's one colour
+					    that is only about being read. */}
+					<div {...accessibilityFieldMarker({ scope: "deck", name: "themeBrand" })}>
+						<ColorField
+							label="Text"
+							hint="The words on that canvas. Left empty, it is derived from the canvas."
+							placeholder="#f4f4f5"
+							value={themeBrand.text}
+							onChange={(text) => onThemeBrandChange({ text })}
+						/>
+					</div>
 					<Field
 						label="Typeface"
 						hint="Only faces this build ships, so every screen in the room resolves the same one."
@@ -1252,13 +1542,11 @@ function DeckSettings({
 						value={language}
 						onChange={(event) => onLanguageChange(event.target.value)}
 					>
-						<option value="en">English</option>
-						<option value="de">Deutsch</option>
-						<option value="fr">Français</option>
-						<option value="es">Español</option>
-						<option value="it">Italiano</option>
-						<option value="pt">Português</option>
-						<option value="nl">Nederlands</option>
+						{PARTICIPANT_LANGUAGE_OPTIONS.map(([value, label]) => (
+							<option key={value} value={value}>
+								{label}
+							</option>
+						))}
 					</select>
 				</Field>
 			</Section>
@@ -1284,11 +1572,27 @@ function DeckSettings({
 							value: "survey",
 							label: "Audience pace",
 							description:
-								"Participants navigate on their own. Great for async surveys.",
+								"Participants navigate on their own. Great for async surveys. Adds the option to let a device answer more than once.",
 							icon: <Users size={18} />,
 						},
 					]}
 				/>
+				{/* Repeat passes (REQ083) — under the pace, because the pace is the
+				    one thing it depends on. It is drawn only under Audience pace, and
+				    the Audience pace card names it so it can be found from the other
+				    pace. Hiding it deviates from ADR-0025 rules 1 and 4 by the owner's
+				    decision (REQ083 Notes). A pace switch leaves `allowRepeatPasses` as
+				    stored, so switching back shows the value as it was. */}
+				{mode === "survey" && (
+					<div className="mt-3">
+						<Toggle
+							label="Let a device answer more than once"
+							description="Once a participant reaches the last slide they can go through the deck again. Each pass is kept as its own set of answers rather than replacing the last, and counts as its own respondent in the results and both exports."
+							checked={allowRepeatPasses}
+							onChange={onAllowRepeatPassesChange}
+						/>
+					</div>
+				)}
 			</Section>
 
 			{/* Results visibility (REQ015/REQ016/REQ017) — the deck's reveal mode:
@@ -1330,6 +1634,69 @@ function DeckSettings({
 							: `${overriddenSlideCount} slide${
 									overriddenSlideCount === 1 ? " overrides" : "s override"
 								} it. Applying clears those overrides — including any that were withholding a Pin on Image target area until you reveal it.`}
+					</p>
+				</div>
+			</Section>
+
+			{/* The profanity filter (REQ085) — beside the reveal mode, because both
+			    decide what of the room's answers reaches the wall. Deck-level: no
+			    slide filters for itself. The filtering is the server's, applied
+			    before any payload leaves, so this panel only states the setting and
+			    the list the server will read; saving it mid-session re-draws the wall
+			    at once. */}
+			<Section
+				title="Profanity filter"
+				description="Keep offensive free-text answers off the shared screen and every phone."
+			>
+				<div className="flex flex-col gap-3">
+					<Toggle
+						label="Withhold answers containing profanity"
+						description="A word-cloud, open-ended or typed quiz answer containing a word on the list is kept off the wall and counted instead. It is still recorded and scored — you read it, marked as filtered, on the results page and in both exports."
+						checked={profanityFilterEnabled}
+						onChange={onProfanityFilterEnabledChange}
+					/>
+					<Field
+						label="Word list"
+						hint={
+							profanityFilterEnabled
+								? "Whole words only, ignoring case and accents. Follows the audience language unless you pick one."
+								: "Not in use while the filter is off — switch it on above to choose a list."
+						}
+					>
+						<select
+							className="input"
+							aria-label="Profanity filter word list"
+							value={profanityFilterLanguage ?? ""}
+							disabled={!profanityFilterEnabled}
+							title={
+								profanityFilterEnabled
+									? undefined
+									: "Not in use while the filter is off — switch it on above to choose a list."
+							}
+							onChange={(event) =>
+								onProfanityFilterLanguageChange(
+									event.target.value === ""
+										? null
+										: (event.target.value as ParticipantLanguage),
+								)
+							}
+						>
+							<option value="">
+								{`Same as the audience language (${
+									PARTICIPANT_LANGUAGE_LABELS[participantLanguageFor(language)]
+								})`}
+							</option>
+							{PARTICIPANT_LANGUAGE_OPTIONS.map(([value, label]) => (
+								<option key={value} value={value}>
+									{label}
+								</option>
+							))}
+						</select>
+					</Field>
+					<p className="text-xs text-text-muted">
+						{filterListInForce === null
+							? "Off — every answer reaches the wall exactly as it was typed."
+							: `On — answers are held against the word list for ${PARTICIPANT_LANGUAGE_LABELS[filterListInForce]}.`}
 					</p>
 				</div>
 			</Section>
@@ -1419,14 +1786,25 @@ function DeckSettings({
 			    Off on every fresh deck, here as everywhere else. */}
 			<Section
 				title="Participants"
-				description="Whether the people joining this deck say who they are."
+				description="Whether the people joining this deck say who they are, and whether they must be signed in."
 			>
-				<Toggle
-					label="Ask for a name on joining"
-					description="Everyone joining states a name before their first slide. The name is stored with their answers, listed on your participants panel while you present, and carried into both exports. Names are cleared when you reset the session, and a deck that never asks collects none."
-					checked={requireParticipantName}
-					onChange={onRequireParticipantNameChange}
-				/>
+				<div className="flex flex-col gap-3">
+					<Toggle
+						label="Ask for a name on joining"
+						description="Everyone joining states a name before their first slide. The name is stored with their answers, listed on your participants panel while you present, and carried into both exports. Names are cleared when you reset the session, and a deck that never asks collects none."
+						checked={requireParticipantName}
+						onChange={onRequireParticipantNameChange}
+					/>
+					{/* REQ134 — the same door, checked rather than asked: the server
+					    turns away anybody without an account, and each answer is
+					    attributable to the account that sent it. */}
+					<Toggle
+						label="Require participants to sign in"
+						description="Only people signed in to an account can join and answer. Anyone else is asked to sign in first and comes back to this deck afterwards. Each participant's answers are tied to the account they signed in with."
+						checked={requireParticipantSignIn}
+						onChange={onRequireParticipantSignInChange}
+					/>
+				</div>
 			</Section>
 		</div>
 	);

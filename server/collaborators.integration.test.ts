@@ -57,6 +57,9 @@ const SLIDES = [
 		question: "Q",
 		options: [{ id: "a", text: "A" }],
 	},
+	// The countdown the sweep's `countdown` route starts (REQ107) — that route
+	// refuses any other slide type, so it needs one of its own.
+	{ id: "cd", type: "countdown", question: "Break" },
 ];
 
 async function createOwnedDeck(): Promise<Any> {
@@ -161,6 +164,24 @@ function mutations(deckId: string, slideId: string) {
 				method: "POST",
 				headers: { "Content-Type": "application/json", ...headers },
 				body: JSON.stringify({ slideId }),
+			}),
+		countdown: (headers: Record<string, string>) =>
+			fetch(`${baseUrl}/api/presentations/${deckId}/countdown`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json", ...headers },
+				body: JSON.stringify({ slideId: SLIDES[1].id, action: "start" }),
+			}),
+		countdownPause: (headers: Record<string, string>) =>
+			fetch(`${baseUrl}/api/presentations/${deckId}/countdown`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json", ...headers },
+				body: JSON.stringify({ slideId: SLIDES[1].id, action: "pause" }),
+			}),
+		countdownReset: (headers: Record<string, string>) =>
+			fetch(`${baseUrl}/api/presentations/${deckId}/countdown`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json", ...headers },
+				body: JSON.stringify({ slideId: SLIDES[1].id, action: "reset" }),
 			}),
 		qaSettings: (headers: Record<string, string>) =>
 			fetch(`${baseUrl}/api/presentations/${deckId}/qa/settings`, {
@@ -330,12 +351,18 @@ describe("sharing a deck with other accounts (REQ075)", () => {
 		const { grantDeckAccess, listDeckCollaborators } = await import(
 			"./services/collaborators"
 		);
+		// A pair no other suite can have granted. A full `bun test` shares one store
+		// across files — in memory, whatever the environment says
+		// (`server/test-preload.ts`) — so a fixed pair granted earlier in the run
+		// would fail "exactly one call created it" for a reason that is not the race.
+		const racedDeck = `raced-deck-${crypto.randomUUID()}`;
+		const racedUser = `raced-user-${crypto.randomUUID()}`;
 		const raced = await Promise.all([
-			grantDeckAccess("raced-deck", "raced-user", "edit", "owner"),
-			grantDeckAccess("raced-deck", "raced-user", "edit", "owner"),
+			grantDeckAccess(racedDeck, racedUser, "edit", "owner"),
+			grantDeckAccess(racedDeck, racedUser, "edit", "owner"),
 		]);
 		expect(raced.filter((outcome) => outcome.created)).toHaveLength(1);
-		expect(await listDeckCollaborators("raced-deck")).toHaveLength(1);
+		expect(await listDeckCollaborators(racedDeck)).toHaveLength(1);
 
 		// And the single grant is the whole standing: revoking it leaves nothing
 		// behind, which is exactly what a duplicate would have broken.

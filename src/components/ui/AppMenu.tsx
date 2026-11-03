@@ -1,11 +1,11 @@
 import { Ellipsis, ExternalLink, MessageSquareText, X } from "lucide-react";
 import {
 	type KeyboardEvent,
+	type ReactNode,
 	type Ref,
 	useCallback,
 	useEffect,
 	useId,
-	useLayoutEffect,
 	useRef,
 	useState,
 } from "react";
@@ -21,11 +21,25 @@ import {
 } from "../../feedback";
 import { routeForLocation } from "../../router";
 import type { FeedbackSurface, LegalLinks } from "../../types";
-import { DECK_THEME_SCOPE_ATTRIBUTE } from "../DeckTheme";
 import { FeedbackForm } from "../FeedbackForm";
 import { configuredLegalLinks, LegalLink, useLegalLinks } from "../LegalLinks";
 import { ICON_BUTTON_HOVER } from "../ShareCluster";
+import {
+	BAR_MENU_ROW_ATTRIBUTE,
+	handleMenuPanelKey,
+	MENU_DIVIDER,
+	MENU_HEADING,
+	MENU_PANEL,
+	MENU_ROW,
+	MenuBackdrop,
+	MenuTrigger,
+	menuPortalHost,
+	useCloseOnEscape,
+	useMenuPanelPlacement,
+} from "./BarMenu";
 import { THEME_OPTIONS, type ThemePreference, useTheme } from "./Theme";
+
+export { appMenuPlacement } from "./BarMenu";
 
 // ── App menu: appearance, feedback + legal texts (REQ183, REQ185) ──
 //
@@ -41,9 +55,13 @@ import { THEME_OPTIONS, type ThemePreference, useTheme } from "./Theme";
 // `aria-expanded`; focus moves to the chosen theme on open; Escape, a click
 // outside, or tabbing off either end closes it, returning focus to the trigger.
 //
-// The panel is portaled. The presenter and preview headers scroll horizontally,
-// which clips anything absolutely positioned inside them, and their
-// `backdrop-blur` makes them the containing block for a `fixed` descendant too.
+// The trigger, the portal, the placement and the key rules are the shell in
+// `BarMenu.tsx`, which the presenter bar's menus share (REQ190).
+//
+// The panel is portaled. The preview header scrolls horizontally, which clips
+// anything absolutely positioned inside it, and it and the presenter header
+// carry a `backdrop-blur` that makes them the containing block for a `fixed`
+// descendant too.
 // So the panel is drawn at the end of the nearest theme scope — the deck's, or
 // a slide's own appearance over it, so it wears the same colours as its
 // trigger — at a fixed position computed from the trigger, clamped
@@ -56,40 +74,6 @@ import { THEME_OPTIONS, type ThemePreference, useTheme } from "./Theme";
 // inside it rather than closing it, because tabbing past the send button must
 // not throw away what was typed.
 
-/** Space between trigger and panel, and the least room kept to a viewport edge. */
-const APP_MENU_MARGIN_PX = 8;
-
-type Box = { top: number; bottom: number; right: number };
-type Size = { width: number; height: number };
-
-/**
- * Where the panel goes: right-aligned under the trigger, shifted left or right
- * just enough to stay on screen, and flipped above the trigger when it would
- * run off the bottom and there is room above. Pure, so it is testable.
- */
-export function appMenuPlacement(
-	trigger: Box,
-	panel: Size,
-	viewport: Size,
-): { top: number; left: number } {
-	const margin = APP_MENU_MARGIN_PX;
-	const rightmost = viewport.width - panel.width - margin;
-	const left = Math.max(margin, Math.min(trigger.right - panel.width, rightmost));
-	const below = trigger.bottom + margin;
-	const above = trigger.top - margin - panel.height;
-	const fitsBelow = below + panel.height <= viewport.height - margin;
-	return { top: fitsBelow || above < margin ? below : above, left };
-}
-
-const SECTION_HEADING =
-	"m-0 px-2 pb-1.5 pt-2 text-xs font-semibold uppercase tracking-wider text-text-muted";
-
-/** One actionable row in the panel — a legal link or the feedback item. */
-const MENU_ROW =
-	"flex min-h-9 w-full items-center justify-between gap-2.5 rounded-lg border-none bg-transparent px-2 py-2 text-left text-sm font-medium text-text no-underline transition-colors cursor-pointer hover:bg-surface-hover";
-
-const SECTION_DIVIDER = "mx-1.5 my-1 h-px bg-border";
-
 /** Marks the panel's rows that are tab stops, for the panel's own Tab rule. */
 const MENU_ITEM_ATTRIBUTE = "data-app-menu-item";
 
@@ -101,6 +85,20 @@ function appMenuName(feedbackEnabled: boolean): string {
 	return feedbackEnabled
 		? "Appearance, feedback and legal"
 		: "Appearance and legal";
+}
+
+/**
+ * The trigger's accessible name: the menu's own, or — with a leading section —
+ * that section's name followed by what the menu's own sections hold (REQ199),
+ * so a caller names only its own rows and the feedback item is named exactly
+ * where it is offered.
+ */
+export function appMenuTriggerLabel(
+	feedbackEnabled: boolean,
+	leadingLabel?: string,
+): string {
+	const menuName = appMenuName(feedbackEnabled);
+	return leadingLabel ? `${leadingLabel}, ${menuName.toLowerCase()}` : menuName;
 }
 
 /**
@@ -118,6 +116,7 @@ export function AppMenuPanel({
 	feedbackEnabled = false,
 	onSendFeedback,
 	onKeyDown,
+	leading,
 	ref,
 }: {
 	id: string;
@@ -127,6 +126,8 @@ export function AppMenuPanel({
 	feedbackEnabled?: boolean;
 	onSendFeedback?: () => void;
 	onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
+	/** A screen's own section, drawn above Appearance (REQ199). */
+	leading?: ReactNode;
 	ref?: Ref<HTMLDivElement>;
 }) {
 	const legalLinks = configuredLegalLinks(links);
@@ -159,9 +160,15 @@ export function AppMenuPanel({
 			ref={ref}
 			id={id}
 			onKeyDown={onKeyDown}
-			className="fixed z-50 w-62 max-w-[calc(100vw-1rem)] rounded-xl border border-border bg-surface p-1.5 text-left shadow-2xl popover-in"
+			className={`${MENU_PANEL} ${leading ? "w-64" : "w-62"}`}
 		>
-			<p id={`${id}-appearance`} className={SECTION_HEADING}>
+			{leading && (
+				<>
+					{leading}
+					<div aria-hidden className={MENU_DIVIDER} />
+				</>
+			)}
+			<p id={`${id}-appearance`} className={MENU_HEADING}>
 				Appearance
 			</p>
 			<div
@@ -195,7 +202,7 @@ export function AppMenuPanel({
 			</div>
 			{feedbackEnabled && (
 				<>
-					<div aria-hidden className={SECTION_DIVIDER} />
+					<div aria-hidden className={MENU_DIVIDER} />
 					<button
 						type="button"
 						{...{ [MENU_ITEM_ATTRIBUTE]: "" }}
@@ -213,9 +220,9 @@ export function AppMenuPanel({
 			)}
 			{legalLinks.length > 0 && (
 				<>
-					<div aria-hidden className={SECTION_DIVIDER} />
+					<div aria-hidden className={MENU_DIVIDER} />
 					<nav aria-labelledby={`${id}-legal`}>
-						<p id={`${id}-legal`} className={SECTION_HEADING}>
+						<p id={`${id}-legal`} className={MENU_HEADING}>
 							Legal
 						</p>
 						{legalLinks.map((link) => (
@@ -342,8 +349,41 @@ function AppMenuFeedbackDialog({
 	);
 }
 
-/** The theme switch, feedback and the legal texts, behind one icon button. */
-export function AppMenu() {
+/**
+ * A screen's own section at the head of the app menu (REQ199): the presenter's
+ * phone bar folds its Deck menu in here, so one More trigger stands where the
+ * Deck trigger and the app menu would be two unlabelled menus side by side.
+ * `rows` gets `close`, as a `BarMenu`'s children do, and its rows are
+ * `BarMenuRow`s.
+ */
+export type AppMenuLeading = {
+	/**
+	 * The trigger's accessible name for the screen's own section — "More —
+	 * edit, preview, …" — to which the menu adds what its own sections hold, so
+	 * the name follows the feedback item rather than being restated by a caller.
+	 */
+	label: string;
+	title: string;
+	heading: string;
+	rows: (close: () => void) => ReactNode;
+};
+
+/** Focus on open with a leading section: its first enabled row, else the theme. */
+const LEADING_INITIAL_FOCUS = `[${BAR_MENU_ROW_ATTRIBUTE}]:not(:disabled), [role="radio"][tabindex="0"]`;
+
+/**
+ * The theme switch, feedback and the legal texts, behind one icon button.
+ * Without `className` and `leading` it is the same menu on every surface;
+ * `className` is appended to the trigger's own, and `leading` puts a screen's
+ * section above Appearance.
+ */
+export function AppMenu({
+	className = "",
+	leading,
+}: {
+	className?: string;
+	leading?: AppMenuLeading;
+} = {}) {
 	const { theme, setTheme } = useTheme();
 	// Read on mount, not on open, so the links and the feedback item are there
 	// the first time.
@@ -364,13 +404,10 @@ export function AppMenu() {
 		setView("closed");
 		if (returnFocus) triggerRef.current?.focus();
 	}, []);
+	const closeAndReturn = useCallback(() => close(true), [close]);
 
 	const openPanel = () => {
-		setPortalHost(
-			triggerRef.current?.closest<HTMLElement>(
-				`[${DECK_THEME_SCOPE_ATTRIBUTE}]`,
-			) ?? document.body,
-		);
+		setPortalHost(menuPortalHost(triggerRef.current));
 		setView("panel");
 	};
 
@@ -389,111 +426,53 @@ export function AppMenu() {
 		setView("feedback");
 	};
 
-	// Place the panel before it paints, and keep it beside the trigger while
-	// the page scrolls or resizes underneath it. Written straight to the
-	// element: a position held in state would draw one frame in the wrong place.
-	useLayoutEffect(() => {
-		if (!open) return;
-		const place = () => {
-			const trigger = triggerRef.current;
-			const panel = panelRef.current;
-			if (!trigger || !panel) return;
-			const { top, left } = appMenuPlacement(
-				trigger.getBoundingClientRect(),
-				{ width: panel.offsetWidth, height: panel.offsetHeight },
-				{ width: window.innerWidth, height: window.innerHeight },
-			);
-			panel.style.top = `${top}px`;
-			panel.style.left = `${left}px`;
-		};
-		place();
-		panelRef.current
-			?.querySelector<HTMLElement>('[role="radio"][tabindex="0"]')
-			?.focus();
-		window.addEventListener("resize", place);
-		window.addEventListener("scroll", place, true);
-		return () => {
-			window.removeEventListener("resize", place);
-			window.removeEventListener("scroll", place, true);
-		};
-	}, [open]);
+	// Focus moves to the chosen theme on open — or, with a leading section, to
+	// its first enabled row, falling back to the theme when every row is
+	// disabled. The rows come first in the panel, so the first match is a row
+	// whenever one is enabled.
+	useMenuPanelPlacement(
+		open,
+		triggerRef,
+		panelRef,
+		leading ? LEADING_INITIAL_FOCUS : '[role="radio"][tabindex="0"]',
+	);
+	useCloseOnEscape(view !== "closed", closeAndReturn);
 
-	useEffect(() => {
-		if (view === "closed") return;
-		const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-			if (event.key === "Escape") close(true);
-		};
-		document.addEventListener("keydown", closeOnEscape);
-		return () => document.removeEventListener("keydown", closeOnEscape);
-	}, [view, close]);
-
-	// A key pressed in the panel is the panel's: the presenter pages slides on
-	// arrow keys and Space at the window, and choosing a theme must not move the
-	// deck. So nothing leaves, and Escape is answered here rather than at the
-	// document it no longer reaches.
-	//
-	// The panel sits at the end of the scope, not after the trigger, so the tab
-	// order is kept by hand: tabbing off either end closes it and lands back on
-	// the trigger. Off the far end that is one stop short of where a panel drawn
-	// right after the trigger would leave focus — one more Tab, never a trap.
-	const handlePanelKey = (event: KeyboardEvent<HTMLDivElement>) => {
-		event.stopPropagation();
-		if (event.key === "Escape") {
-			close(true);
-			return;
-		}
-		if (event.key !== "Tab") return;
-		const stops = [
-			...event.currentTarget.querySelectorAll<HTMLElement>(
-				`[role="radio"][tabindex="0"], [${MENU_ITEM_ATTRIBUTE}], a[href]`,
-			),
-		];
-		const edge = event.shiftKey ? stops[0] : stops[stops.length - 1];
-		if (document.activeElement !== edge) return;
-		event.preventDefault();
-		close(true);
-	};
+	const handlePanelKey = (event: KeyboardEvent<HTMLDivElement>) =>
+		handleMenuPanelKey(
+			event,
+			`${leading ? `[${BAR_MENU_ROW_ATTRIBUTE}]:not(:disabled), ` : ""}[role="radio"][tabindex="0"], [${MENU_ITEM_ATTRIBUTE}], a[href]`,
+			closeAndReturn,
+		);
 
 	return (
 		<>
-			<button
+			<MenuTrigger
 				ref={triggerRef}
-				type="button"
+				expanded={view !== "closed"}
+				controls={panelId}
+				label={appMenuTriggerLabel(feedbackEnabled, leading?.label)}
+				title={leading?.title ?? menuName}
 				onClick={() => (view === "closed" ? openPanel() : close(false))}
-				aria-label={menuName}
-				title={menuName}
-				aria-expanded={view !== "closed"}
-				// Only while the panel or the dialog exists: an id naming nothing is
-				// no reference.
-				aria-controls={view === "closed" ? undefined : panelId}
 				className={`flex size-8.5 flex-shrink-0 items-center justify-center rounded-lg border bg-surface-raised hover:border-accent/50 ${
 					view === "closed" ? "border-border" : "border-accent/50"
-				} ${ICON_BUTTON_HOVER}`}
+				} ${ICON_BUTTON_HOVER} ${className}`}
 			>
 				<Ellipsis size={16} aria-hidden />
-			</button>
+			</MenuTrigger>
 			{view !== "closed" &&
 				portalHost &&
 				createPortal(
 					<>
-						{/* Click-away backdrop closes the panel or the dialog, handing
-						    focus back to the trigger rather than dropping it on the page
-						    body as the backdrop unmounts under it. Dimmed behind the
-						    dialog, which is modal. */}
-						<button
-							type="button"
-							tabIndex={-1}
-							aria-label={
+						{/* Dimmed behind the feedback dialog, which is modal. */}
+						<MenuBackdrop
+							label={
 								view === "feedback"
 									? "Close feedback"
 									: `Close ${menuName.toLowerCase()} menu`
 							}
-							className={`fixed inset-0 z-40 cursor-default border-none ${
-								view === "feedback"
-									? "bg-void/70 backdrop-blur-sm"
-									: "bg-transparent"
-							}`}
-							onClick={() => close(true)}
+							dimmed={view === "feedback"}
+							onClose={closeAndReturn}
 						/>
 						{view === "panel" && (
 							<AppMenuPanel
@@ -505,6 +484,14 @@ export function AppMenu() {
 								feedbackEnabled={feedbackEnabled}
 								onSendFeedback={openFeedback}
 								onKeyDown={handlePanelKey}
+								leading={
+									leading && (
+										<>
+											<p className={MENU_HEADING}>{leading.heading}</p>
+											{leading.rows(closeAndReturn)}
+										</>
+									)
+								}
 							/>
 						)}
 						{view === "feedback" && feedbackOrigin && (

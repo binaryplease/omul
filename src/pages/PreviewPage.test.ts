@@ -54,6 +54,7 @@ describe("both preview panes cover every slide type (REQ103)", () => {
 			video: "content",
 			embed: "content",
 			instruction: "content",
+			countdown: "content",
 		});
 	});
 
@@ -79,6 +80,7 @@ describe("both preview panes cover every slide type (REQ103)", () => {
 			video: "content",
 			embed: "content",
 			instruction: "content",
+			countdown: "content",
 		});
 	});
 
@@ -89,7 +91,7 @@ describe("both preview panes cover every slide type (REQ103)", () => {
 		}
 		// The catalog's own list is the denominator, so a new type widens this
 		// test the moment it is added to the schema.
-		expect(EVERY_SLIDE_TYPE.length).toBe(17);
+		expect(EVERY_SLIDE_TYPE.length).toBe(18);
 	});
 
 	test("a slide that collects answers is a 'results' screen and an 'answer' phone", () => {

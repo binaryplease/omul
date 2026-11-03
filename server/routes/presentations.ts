@@ -41,8 +41,11 @@ import {
 	DeckCollaboratorSchema,
 	DeckPdfQuerySchema,
 	DeckWorkspaceSchema,
+	deckRequiresParticipantSignIn,
 	ParticipantChannelsSchema,
 	ParticipantNameSchema,
+	type ParticipantSignInRefusalCode,
+	PassNumberSchema,
 	PostSlideCommentSchema,
 	PresentationSchema,
 	PreviewQuerySchema,
@@ -52,13 +55,16 @@ import {
 	QAUpvoteSchema,
 	ReactionSchema,
 	type ResultsCaller,
+	CountdownActionEnum,
 	ResponseVoteSchema,
+	ResultsQuerySchema,
 	ResultsVisibilityEnum,
 	SegmentQuerySchema,
 	ShareDeckSchema,
 	type SlideComment,
 	SlideCommentSchema,
 	type Slide,
+	StartPassSchema,
 	UpdatePresentationSchema,
 	VoteSchema,
 	withAudienceSlides,
@@ -71,6 +77,7 @@ import {
 	setCollaboratorLevel,
 } from "../services/collaborators";
 import { workspaceRoleFor } from "../services/workspaces";
+import { bindParticipantAccount } from "../services/participant-accounts";
 import { getWorkspaceTemplate } from "../services/workspace-templates";
 import {
 	addSlideComment,
@@ -114,6 +121,7 @@ import {
 	sendReaction,
 	setActiveSlide,
 	setAudienceBlanked,
+	applyCountdownAction,
 	setDeckResultsVisibility,
 	setPresentationWorkspace,
 	setParticipantChannels,
@@ -121,6 +129,7 @@ import {
 	setQuestionAnswered,
 	setSlideParticipation,
 	setSlideRevealed,
+	startNewPass,
 	startPresentation,
 	stateParticipantName,
 	submitQuestion,
@@ -236,6 +245,7 @@ const VOTE_REFUSAL_MESSAGE: Record<VoteRefusal["refused"], string> = {
 	"quiz-window-closed": "The time for this quiz question is over",
 	"quiz-already-answered": "Your answer to this quiz question is final",
 	"participation-closed": "The presenter has closed this slide to submissions",
+	"repeat-passes-off": "This presentation does not let a device answer it again",
 };
 
 /** A JSON error Response with the given status. */
@@ -244,6 +254,73 @@ function jsonError(status: number, error: string): Response {
 		status,
 		headers: { "Content-Type": "application/json" },
 	});
+}
+
+/** What a sign-in refusal reads as over the wire (REQ134), and its status. */
+const SIGN_IN_REFUSAL: Record<
+	ParticipantSignInRefusalCode,
+	{ status: number; error: string }
+> = {
+	"sign-in-required": {
+		status: 401,
+		error: "This presentation requires participants to sign in",
+	},
+	"participant-account-mismatch": {
+		status: 403,
+		error: "This participant is signed in to this presentation under another account",
+	},
+};
+
+/**
+ * The door a deck that requires signing in keeps (REQ134), on the join route
+ * and on every participant write. `null` lets the request through — always, on
+ * a deck with the switch off or one that does not exist (the route answers that
+ * as it always has).
+ *
+ * The account is whatever `resolveUserId` resolves from the request's own
+ * session cookie or API key; nothing the request *names* is trusted for it. On a
+ * write the request's `participantId` is bound to that account on first use and
+ * checked against it after, so the id every answer row is keyed by attributes
+ * the row to one account and cannot be borrowed by another. `participantId` is
+ * `null` where there is nothing to attribute — the join route, and a reaction
+ * that names no participant.
+ *
+ * `no-store`, as the join route's own answer is: a refusal cached by a browser
+ * would keep a participant out after they had signed in.
+ */
+async function guardParticipantSignIn(
+	pres: Record<string, unknown> | null,
+	request: Request,
+	participantId: string | null,
+): Promise<Response | null> {
+	if (!pres || !deckRequiresParticipantSignIn(pres)) return null;
+	const refuse = (refused: ParticipantSignInRefusalCode) =>
+		new Response(
+			JSON.stringify({ error: SIGN_IN_REFUSAL[refused].error, refused }),
+			{
+				status: SIGN_IN_REFUSAL[refused].status,
+				headers: {
+					"Content-Type": "application/json",
+					"Cache-Control": "no-store",
+				},
+			},
+		);
+	const userId = await resolveUserId(request.headers);
+	if (!userId) return refuse("sign-in-required");
+	if (participantId === null) return null;
+	// An answer stored under no participant id could be attributed to nobody.
+	if (!participantId) {
+		return jsonError(
+			400,
+			"A participantId is required on a presentation that requires signing in",
+		);
+	}
+	const binding = await bindParticipantAccount(
+		pres.id as string,
+		participantId,
+		userId,
+	);
+	return binding === "mismatch" ? refuse("participant-account-mismatch") : null;
 }
 
 /**
@@ -262,13 +339,22 @@ function jsonError(status: number, error: string): Response {
 async function resultsCallerFor(
 	pres: Record<string, unknown>,
 	request: Request,
+	{ includeFilteredAnswers = false }: { includeFilteredAnswers?: boolean } = {},
 ): Promise<ResultsCaller | Response> {
 	const canEdit = await canEditDeck(pres, request);
 	const link = authorizeResultsLink(pres, request.headers);
 	if (link.presented && !link.valid && !canEdit) {
 		return jsonError(401, "This results link is no longer valid");
 	}
-	return { canEdit, hasResultsLink: link.valid };
+	return {
+		canEdit,
+		hasResultsLink: link.valid,
+		// REQ085 — what the profanity filter withheld is an editor's to read, and
+		// only on a read that asks for it: the same credentials poll the projector.
+		// A results link is a delegation of the numbers, so asking with one alone
+		// changes nothing.
+		includeFilteredAnswers: canEdit && includeFilteredAnswers,
+	};
 }
 
 // ── Authorization for mutation routes ───────────────────────
@@ -288,7 +374,7 @@ async function resultsCallerFor(
 // the level this route needs — is refused with the same `403` a stranger's
 // account gets, which is the whole of "enforced on every mutation, not only in
 // the UI".
-async function requireEdit(
+export async function requireEdit(
 	request: Request,
 	id: string,
 	{ allowCollaborators = true }: { allowCollaborators?: boolean } = {},
@@ -473,7 +559,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Presentations"],
 				summary: "List presentations",
 				description:
-					"Returns presentations visible to the caller. When `creatorId` is provided, results are filtered to that creator. Internal fields (`creatorTokenHash`, `creatorToken`) are stripped from every entry, and every slide is projected as an audience sees it — withheld quiz answer keys (REQ056) and empty presenter notes (REQ090).",
+					"Returns presentations visible to the caller. When `creatorId` is provided, results are filtered to that creator. Internal fields (`creatorTokenHash`, `creatorToken`) are stripped from every entry, and every slide is projected as an audience sees it — withheld quiz answer keys (REQ056), and empty presenter notes (REQ090) and quiz audio cues (REQ058).",
 			},
 		},
 	)
@@ -560,12 +646,16 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				{
 					language: body.language,
 					mode: body.mode,
+					allowRepeatPasses: body.allowRepeatPasses,
 					resultsVisibility: body.resultsVisibility,
 					qaEnabled: body.qaEnabled,
 					qaVisibility: body.qaVisibility,
 					reactionsEnabled: body.reactionsEnabled,
 					chatEnabled: body.chatEnabled,
 					requireParticipantName: body.requireParticipantName,
+					requireParticipantSignIn: body.requireParticipantSignIn,
+					profanityFilterEnabled: body.profanityFilterEnabled,
+					profanityFilterLanguage: body.profanityFilterLanguage,
 					// `null` is "no theme named" — the workspace's default applies, else
 					// the house theme (REQ086).
 					theme: body.theme ?? undefined,
@@ -698,7 +788,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Presentations"],
 				summary: "Get presentation by ID",
 				description:
-					"Fetches a presentation by its internal ID. Includes `participantCount` derived from live WebSocket connections, `serverNow` (the server's clock at the moment of the response, so a client can render the quiz countdown against the same instant the deadline was written in — REQ057), and `accessLevel` — the caller's own standing on this deck (REQ075): `edit` for its owner, the holder of its edit token and an account it is shared with at `edit`, `comment` or `view` for a weaker grant, and `null` for a caller with none. `accessLevel` is a *report*, not a credential: every gated route re-resolves it from the request's own credentials, so a client that lies to itself about it only mis-draws its own buttons. `commentAccess` reports the caller's **account** standing on the same terms — what the deck's comment threads are gated on (REQ074), which refuses the edit token — so it reads `null` for a token holder with no account where `accessLevel` reads `edit`. Quiz slides carry their answer key — `options[].isCorrect`, and `quizAnswers` on a typed question (REQ055) — only for a caller the deck is authored for (its owner, its edit token, or any collaborator); everyone else sees it once the question is over (REQ056). A slide's presenter notes (REQ090) are carried on the same terms and read `\"\"` for everyone else, whatever the deck's state — they have no reveal to wait for. Returns 404 if not found.",
+					"Fetches a presentation by its internal ID. Includes `participantCount` derived from live WebSocket connections, `serverNow` (the server's clock at the moment of the response, so a client can render the quiz countdown against the same instant the deadline was written in — REQ057), and `accessLevel` — the caller's own standing on this deck (REQ075): `edit` for its owner, the holder of its edit token and an account it is shared with at `edit`, `comment` or `view` for a weaker grant, and `null` for a caller with none. `accessLevel` is a *report*, not a credential: every gated route re-resolves it from the request's own credentials, so a client that lies to itself about it only mis-draws its own buttons. `commentAccess` reports the caller's **account** standing on the same terms — what the deck's comment threads are gated on (REQ074), which refuses the edit token — so it reads `null` for a token holder with no account where `accessLevel` reads `edit`. Quiz slides carry their answer key — `options[].isCorrect`, and `quizAnswers` on a typed question (REQ055) — only for a caller the deck is authored for (its owner, its edit token, or any collaborator); everyone else sees it once the question is over (REQ056). A slide's presenter notes (REQ090) are carried on the same terms and read `\"\"` for everyone else, whatever the deck's state — they have no reveal to wait for. So is a quiz slide's audio cue, `quizAudioUrl` (REQ058): the presenter's screen plays it and nobody else is sent the address. Returns 404 if not found.",
 			},
 		},
 	)
@@ -721,6 +811,8 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 			// `status`. Returning 4xx for "ended" caused stale browser caches to
 			// keep participants stuck on the error screen even after a restart.
 			set.headers["Cache-Control"] = "no-store";
+			const signInRefused = await guardParticipantSignIn(pres, request, null);
+			if (signInRefused) return signInRefused;
 			// Never `canEdit`: this is the participants' door, and the deck they
 			// receive must not carry the answer key to a question still running
 			// (REQ056). An organizer opening their own join link is in the room as
@@ -736,7 +828,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Presentations"],
 				summary: "Look up presentation by join code",
 				description:
-					"Resolves a short human-friendly join code to a presentation. Slides never carry their presenter notes here (REQ090): `notes` reads `\"\"` for every caller, since this is the participants' door. Quiz slides never carry their answer key here — `options[].isCorrect`, and `quizAnswers` on a typed question (REQ055) — until the question is over, whoever asks (REQ056). Returned regardless of lifecycle status so participants on `ended` presentations still receive context. Includes `serverNow`, the server's clock at the moment of the response, so a participant's quiz countdown runs against the same instant the deadline was written in (REQ057). Response is marked `Cache-Control: no-store` to avoid stale browser caches across restarts. Rate-limited per client address (REQ145): over the limit answers `429` with a `Retry-After` header and `retryAfterSeconds` in the body.",
+					"Resolves a short human-friendly join code to a presentation. Slides never carry their presenter notes here (REQ090): `notes` reads `\"\"` for every caller, since this is the participants' door — nor a quiz's audio cue (REQ058), whose `quizAudioUrl` reads `\"\"` on the same terms. Quiz slides never carry their answer key here — `options[].isCorrect`, and `quizAnswers` on a typed question (REQ055) — until the question is over, whoever asks (REQ056). Returned regardless of lifecycle status so participants on `ended` presentations still receive context. Includes `serverNow`, the server's clock at the moment of the response, so a participant's quiz countdown runs against the same instant the deadline was written in (REQ057). Response is marked `Cache-Control: no-store` to avoid stale browser caches across restarts. On a deck with `requireParticipantSignIn` (REQ134) a caller whose session cookie or API key resolves no account is refused `401` with `refused: \"sign-in-required\"` and nothing of the deck; the same refusal guards every participant write on such a deck, and a `participantId` already bound there to another account is refused `403` with `refused: \"participant-account-mismatch\"`. Rate-limited per client address (REQ145): over the limit answers `429` with a `Retry-After` header and `retryAfterSeconds` in the body.",
 			},
 		},
 	)
@@ -760,7 +852,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Presentations"],
 				summary: "Update presentation",
 				description:
-					"Partially updates a deck's **authored** fields (title, slides, settings). This is also where a deck's theme is set (REQ079/REQ080): `theme` names one of the built-in themes or `custom`, `themeBrand` carries the theme the deck defines for itself — its colours as `#rgb`/`#rrggbb` and the id of a face this build ships (REQ092) — and `themeLogoUrl` / `themeLogoAlt` the organizer's own mark (REQ136), which the participant-facing surfaces wear in place of the product's. Only the keys the request carries are changed; a key it omits is left exactly as it stood. Anything outside the authored set is **dropped**, not merged: the deck's owner (`creatorId`), its edit-token hash and its results-link pair are credentials the caller's own authorization is resolved from, so this route cannot write them under any spelling — ownership moves through `…/claim` (or the admin reassign action) and the results link through `…/results-link`. Server-managed state has its own routes too: `status` (`…/start`, `…/end`), `activeSlideIndex` (`…/slide`), `revealedSlideIds` (`…/reveal`) and the question stamps (`…/timer`). Requires `Authorization: Bearer <creatorToken>`, deck ownership, or an `edit` collaborator grant (REQ075).",
+					"Partially updates a deck's **authored** fields (title, slides, settings). This is also where a deck's theme is set (REQ079/REQ080): `theme` names one of the built-in themes or `custom`, `themeBrand` carries the theme the deck defines for itself — its colours as `#rgb`/`#rrggbb` and the id of a face this build ships (REQ092) — and `themeLogoUrl` / `themeLogoAlt` the organizer's own mark (REQ136), which the participant-facing surfaces wear in place of the product's. Only the keys the request carries are changed; a key it omits is left exactly as it stood. Anything outside the authored set is **dropped**, not merged: the deck's owner (`creatorId`), its edit-token hash and its results-link pair are credentials the caller's own authorization is resolved from, so this route cannot write them under any spelling — ownership moves through `…/claim` (or the admin reassign action) and the results link through `…/results-link`. Server-managed state has its own routes too: `status` (`…/start`, `…/end`), `activeSlideIndex` (`…/slide`), `revealedSlideIds` (`…/reveal`), the question stamps (`…/timer`) and the countdown runs `countdownRuns` (`…/countdown`, REQ107). Requires `Authorization: Bearer <creatorToken>`, deck ownership, or an `edit` collaborator grant (REQ075).",
 				security: [{ bearerAuth: [] }],
 			},
 		},
@@ -1049,6 +1141,45 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 		},
 	)
 
+	// ── Start or stop a countdown slide (requires creator token, REQ107) ─
+	//
+	// `running` is required for the reason `open` is on `/participation`:
+	// starting and stopping are two equally ordinary halves of one control.
+	.post(
+		"/presentations/:id/countdown",
+		async ({ params, body, request, set }) => {
+			const auth = await requireEdit(request, params.id);
+			if (auth instanceof Response) return auth;
+			const result = await applyCountdownAction(
+				params.id,
+				body.slideId,
+				body.action,
+			);
+			if (result.status === "not-found") {
+				set.status = 404;
+				return { error: "Not found" };
+			}
+			if (result.status === "not-countdown") {
+				set.status = 400;
+				return { error: "Only a countdown slide has a clock to run" };
+			}
+			return sanitize(result.presentation, { canEdit: true });
+		},
+		{
+			body: z.object({
+				slideId: z.string(),
+				action: CountdownActionEnum,
+			}),
+			detail: {
+				tags: ["Slides"],
+				summary: "Start, pause or reset a countdown slide",
+				description:
+					"Moves the named countdown slide's clock (REQ107). `action` is required. `start` sets off a clock with no run from its full authored length, and continues a paused clock from its frozen time. `pause` freezes a running clock at the time left on the server's clock; clients never send a time. `reset` removes the run, so the clock returns to its full authored length, not running, from any state. Starting a running clock, pausing a paused one and pausing a clock with no run change nothing and broadcast nothing, so a retried request cannot move a clock. A clock that reached `0:00` is finished: it stays there, and only `reset` leaves that state. The run is recorded in the deck's `countdownRuns` under the slide's id, and every surface reads it against `serverNow`, so the shared screen and every phone read the same time, including one that joins or reloads during a run or a pause. Another slide's run is untouched, whatever slide the deck is on. Broadcast as `slide.countdown`. A deck-wide **reset** (REQ101) clears every run. A `slideId` the deck does not have answers `404`; a slide that is not a countdown answers `400`. Requires `Authorization: Bearer <creatorToken>`, deck ownership, or an `edit` collaborator grant (REQ075).",
+				security: [{ bearerAuth: [] }],
+			},
+		},
+	)
+
 	// ── Claim an ownerless presentation ────────────────────
 	// Attaches an existing anonymous/local deck to the signed-in account, the
 	// path that lets a browser-created presentation gain an account owner (e.g.
@@ -1189,12 +1320,18 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				body.participantId ?? "",
 			);
 			if (overLimit) return overLimit;
+			const signInRefused = await guardParticipantSignIn(
+				await getPresentation(params.id),
+				request,
+				body.participantId ?? "",
+			);
+			if (signInRefused) return signInRefused;
 			const vote = await submitVote(
 				params.id,
 				body.slideId,
 				body.value,
 				body.participantId ?? "",
-				{ statementId: body.statementId, skip: body.skip },
+				{ statementId: body.statementId, skip: body.skip, pass: body.pass },
 			);
 			// A stated refusal says which rule turned the answer away — a quiz's
 			// window or its finality (REQ054/REQ057), or the presenter having closed
@@ -1226,7 +1363,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Voting"],
 				summary: "Submit a vote",
 				description:
-					"Records a participant vote on a slide. Public endpoint — no auth required. The shape of `value` depends on the slide type (e.g. choice IDs for multiple-choice, free text for word-cloud, numeric for scale, `\"x,y\"` coordinates for a 2x2 grid item named by `statementId`, `\"itemId:points\"` pairs summing to exactly 100 for a 100 Points slide, a whole number inside the authored range and on its step grid for a Guess the Number slide, `\"x,y\"` per-mille coordinates on the image for a Pin on Image slide — which is also refused with 400 when the slide carries no image at all, and a whole filled-in form as `fieldId`/`answer` pairs for a Form slide (REQ061), where each field's type is enforced at the boundary and a required field left blank, an `email` field given a non-address, a `choice` field given anything but one of its own option ids, or an answer past 200 characters is refused). A quiz slide takes an option id, or — when its `quizAnswerMode` is `type` (REQ055) — the answer the participant wrote, judged against the slide's `quizAnswers` after normalization (case, Latin-script accents, spacing and surrounding punctuation folded; nothing else — other scripts' combining marks are letters, not accents, and are compared as written). Returns 400 if the presentation is not `live`, the slide does not exist, or the value is not a valid submission for that slide type. A quiz slide states which of its own rules refused the answer — the question's window has closed, or this participant's answer is already final (REQ054/REQ057). Every stated refusal carries a machine-readable `refused` code (`quiz-window-closed`, `quiz-already-answered`, `participation-closed`) beside the English `error` text, so a client can name the reason in its own language. Rate-limited per client address **and** per `participantId` (REQ145): over either limit answers `429` with a `Retry-After` header and `retryAfterSeconds` in the body.",
+					"Records a participant vote on a slide. Public endpoint — no auth required. The shape of `value` depends on the slide type (e.g. choice IDs for multiple-choice, free text for word-cloud, numeric for scale, `\"x,y\"` coordinates for a 2x2 grid item named by `statementId`, `\"itemId:points\"` pairs summing to exactly 100 for a 100 Points slide, a whole number inside the authored range and on its step grid for a Guess the Number slide, `\"x,y\"` per-mille coordinates on the image for a Pin on Image slide — which is also refused with 400 when the slide carries no image at all, and a whole filled-in form as `fieldId`/`answer` pairs for a Form slide (REQ061), where each field's type is enforced at the boundary and a required field left blank, an `email` field given a non-address, a `choice` field given anything but one of its own option ids, or an answer past 200 characters is refused). A quiz slide takes an option id, or — when its `quizAnswerMode` is `type` (REQ055) — the answer the participant wrote, judged against the slide's `quizAnswers` after normalization (case, Latin-script accents, spacing and surrounding punctuation folded; nothing else — other scripts' combining marks are letters, not accents, and are compared as written). Returns 400 if the presentation is not `live`, the slide does not exist, or the value is not a valid submission for that slide type. A quiz slide states which of its own rules refused the answer — the question's window has closed, or this participant's answer is already final (REQ054/REQ057). Every stated refusal carries a machine-readable `refused` code (`quiz-window-closed`, `quiz-already-answered`, `participation-closed`) beside the English `error` text, so a client can name the reason in its own language. `pass` (REQ083, default `1`) names which of this device's passes through an audience-paced deck the answer belongs to; each pass is its own set of answers, so a re-submission replaces only that pass's answer, a quiz is final only within it, and a word-cloud cap counts only its responses. A pass is opened only by `POST /presentations/:id/passes`, and an opened pass stays open whatever the deck's switch says later; a `pass` that was never opened for this device — a client that missed a reset, a hand-built request — is read as the latest pass that was, or the first. Rate-limited per client address **and** per `participantId` (REQ145): over either limit answers `429` with a `Retry-After` header and `retryAfterSeconds` in the body.",
 			},
 		},
 	)
@@ -1240,11 +1377,18 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				body.participantId ?? "",
 			);
 			if (overLimit) return overLimit;
+			const signInRefused = await guardParticipantSignIn(
+				await getPresentation(params.id),
+				request,
+				body.participantId ?? "",
+			);
+			if (signInRefused) return signInRefused;
 			const result = await voteOnResponse(
 				params.id,
 				body.slideId,
 				body.responseId,
 				body.participantId ?? "",
+				body.pass,
 			);
 			// An upvote is a submission, so a slide the presenter has closed refuses
 			// it with the same stated reason a vote gets (REQ111) rather than folding
@@ -1271,7 +1415,63 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Voting"],
 				summary: "Upvote an open-ended response",
 				description:
-					"Adds a participant upvote to an existing open-ended response on a word-cloud or open-text slide. Public endpoint. Returns 400 if response voting is disabled for that slide or the presentation is not in a votable state. Rate-limited on the same per-address and per-`participantId` submission budget a vote spends (REQ145), answering `429` over the limit.",
+					"Adds a participant upvote to an existing open-ended response on a word-cloud or open-text slide. Public endpoint. Returns 400 if response voting is disabled for that slide or the presentation is not in a votable state. `pass` (REQ083) is read exactly as a vote's is: each pass through the deck upvotes on its own account, and the toggle never takes back an upvote an earlier pass gave. Rate-limited on the same per-address and per-`participantId` submission budget a vote spends (REQ145), answering `429` over the limit.",
+			},
+		},
+	)
+
+	// ── Start another pass through the deck (public, REQ083) ─
+	//
+	// Public in the sense the vote endpoint is: the `participantId` is the
+	// caller's own credential. It opens the device's next pass and records it
+	// before anything is answered in it, and answers with its number — so the one
+	// thing a client never does is invent a pass on its own.
+	.post(
+		"/presentations/:id/passes",
+		async ({ params, body, request, server, set }) => {
+			// Spent from the same budget a vote is: it is the first step of the
+			// answers that follow it, and it reads the store on the caller's behalf.
+			const overLimit = guardSubmission({ request, server }, body.participantId);
+			if (overLimit) return overLimit;
+			// Read here so that a deck that does not exist is a `404` rather than
+			// folding into the refusal below, which is about a deck that does.
+			const pres = await getPresentation(params.id);
+			if (!pres) {
+				set.status = 404;
+				return { error: "Not found" };
+			}
+			const signInRefused = await guardParticipantSignIn(
+				pres,
+				request,
+				body.participantId,
+			);
+			if (signInRefused) return signInRefused;
+			const started = await startNewPass(params.id, body.participantId);
+			// The deck stopped allowing repeat passes after this phone drew its
+			// control — stated, with the code a client maps onto the deck's own
+			// language, like the vote refusals beside it.
+			if (isVoteRefusal(started)) {
+				set.status = 400;
+				return {
+					error: VOTE_REFUSAL_MESSAGE[started.refused],
+					refused: started.refused,
+				};
+			}
+			if (!started) {
+				set.status = 400;
+				return {
+					error: "Cannot start a new pass – the presentation has ended",
+				};
+			}
+			return started;
+		},
+		{
+			body: StartPassSchema,
+			detail: {
+				tags: ["Voting"],
+				summary: "Start another pass through the deck",
+				description:
+					"Starts another pass through an audience-paced deck for one device (REQ083), on a deck whose `allowRepeatPasses` is on: each pass is kept as its own set of answers and counted as its own respondent on the results surface and in both exports, instead of replacing the last. Public endpoint — `participantId` is the caller's own credential. The pass is opened and recorded now, before anything is answered in it, and the response `{ pass }` is its number — the one after the latest pass opened for this device — which the device's next answers carry as their own `pass`. It is always the next number, even when the latest pass holds nothing yet: a pass started and never answered in leaves no rows, so it does not appear in the results. Returns `400` with `refused: \"repeat-passes-off\"` when the deck does not allow repeat passes (the switch is off, or the deck is presenter-paced), `400` when the presentation has ended, `404` when it does not exist, and `422` without a `participantId`. Rate-limited on the same per-address and per-`participantId` submission budget a vote spends (REQ145), answering `429` over the limit.",
 			},
 		},
 	)
@@ -1367,6 +1567,12 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				body.participantId ?? "",
 			);
 			if (overLimit) return overLimit;
+			const signInRefused = await guardParticipantSignIn(
+				await getPresentation(params.id),
+				request,
+				body.participantId ?? "",
+			);
+			if (signInRefused) return signInRefused;
 			const result = await submitQuestion(
 				params.id,
 				body.text,
@@ -1429,6 +1635,12 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				body.participantId ?? "",
 			);
 			if (overLimit) return overLimit;
+			const signInRefused = await guardParticipantSignIn(
+				await getPresentation(params.id),
+				request,
+				body.participantId ?? "",
+			);
+			if (signInRefused) return signInRefused;
 			const result = await upvoteQuestion(
 				params.id,
 				params.questionId,
@@ -1556,6 +1768,14 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				body.participantId ?? "",
 			);
 			if (overLimit) return overLimit;
+			// A reaction stores nothing to attribute, so one that names no
+			// participant is checked for a sign-in alone.
+			const signInRefused = await guardParticipantSignIn(
+				await getPresentation(params.id),
+				request,
+				body.participantId || null,
+			);
+			if (signInRefused) return signInRefused;
 			const result = await sendReaction(
 				params.id,
 				body.kind,
@@ -1618,6 +1838,12 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				body.participantId ?? "",
 			);
 			if (overLimit) return overLimit;
+			const signInRefused = await guardParticipantSignIn(
+				await getPresentation(params.id),
+				request,
+				body.participantId ?? "",
+			);
+			if (signInRefused) return signInRefused;
 			const result = await postChatMessage(
 				params.id,
 				body.text,
@@ -1658,6 +1884,12 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 			// vote, a question and a chat message spend (REQ145).
 			const overLimit = guardSubmission({ request, server }, body.participantId);
 			if (overLimit) return overLimit;
+			const signInRefused = await guardParticipantSignIn(
+				await getPresentation(params.id),
+				request,
+				body.participantId,
+			);
+			if (signInRefused) return signInRefused;
 			const stated = await stateParticipantName(
 				params.id,
 				body.participantId,
@@ -1725,6 +1957,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 			const scorecard = await getParticipantScorecard(
 				params.id,
 				query.participantId,
+				query.pass,
 			);
 			if (!scorecard) {
 				set.status = 404;
@@ -1735,12 +1968,17 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 		{
 			query: z.object({
 				participantId: z.string().min(1),
+				/**
+				 * Which of this device's passes through the deck the card is for
+				 * (REQ083), read as an answer naming it is; absent is the first.
+				 */
+				pass: z.coerce.number().pipe(PassNumberSchema).optional(),
 			}),
 			detail: {
 				tags: ["Results"],
 				summary: "Get one participant's quiz scorecard",
 				description:
-					"Returns what the given participant scored across the deck's quiz slides (REQ054/REQ055/REQ056): every quiz question, how it was answered (`answerMode`), the option they picked (`optionId`) or the answer they typed (`answer`), whether they were right, the time they took, and the points it earned — plus the deck totals. Every quiz slide is listed whether answered or not, with explicit `null`s for an unanswered one. Scores are derived from the votes and the slide as it stands now, so re-marking the correct answer — or adding an accepted spelling — re-scores immediately. It also carries this participant's place on the deck's leaderboard (REQ059): `entryId` and `label` are the one-way handle their row is named by on the anonymous board, `rank` their place (`null` until they have answered something) and `rankedCount` how many participants are ranked. 404 if the presentation is missing.",
+					"Returns what the given participant scored across the deck's quiz slides (REQ054/REQ055/REQ056): every quiz question, how it was answered (`answerMode`), the option they picked (`optionId`) or the answer they typed (`answer`), whether they were right, the time they took, and the points it earned — plus the deck totals. Every quiz slide is listed whether answered or not, with explicit `null`s for an unanswered one. Scores are derived from the votes and the slide as it stands now, so re-marking the correct answer — or adding an accepted spelling — re-scores immediately. It also carries this participant's place on the deck's leaderboard (REQ059): `entryId` and `label` are the one-way handle their row is named by on the anonymous board, `rank` their place (`null` until they have answered something) and `rankedCount` how many participants are ranked. On an audience-paced deck a device can go through more than once (REQ083): `pass` (default `1`) says which pass the card is for, read exactly as an answer naming it would be, and the response echoes the pass it describes — each pass is its own row on the board. 404 if the presentation is missing.",
 			},
 		},
 	)
@@ -1748,13 +1986,15 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 	// ── Get results for a slide ────────────────────────────
 	.get(
 		"/presentations/:id/results/:slideId",
-		async ({ params, request, set }) => {
+		async ({ params, query, request, set }) => {
 			const pres = await getPresentation(params.id);
 			if (!pres) {
 				set.status = 404;
 				return { error: "Not found" };
 			}
-			const caller = await resultsCallerFor(pres, request);
+			const caller = await resultsCallerFor(pres, request, {
+				includeFilteredAnswers: query.filtered === "include",
+			});
 			if (caller instanceof Response) return caller;
 			const results = await getSlideResults(params.id, params.slideId, caller);
 			if (!results) {
@@ -1764,11 +2004,12 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 			return results;
 		},
 		{
+			query: ResultsQuerySchema,
 			detail: {
 				tags: ["Results"],
 				summary: "Get results for a single slide",
 				description:
-					"Returns the aggregated tally for one slide (counts, response list, or scale stats depending on slide type). **The slide's reveal mode decides whether there is a tally here at all** (REQ015/REQ016/REQ017): a caller who cannot edit the deck reads `{ \"type\": <slide type>, \"withheld\": true }` in place of the numbers whenever the effective mode is `private`, or `on-click` before the presenter has revealed that slide — including after the deck has ended, since ending a session is not the organizer revealing what they chose to withhold. The answers are still recorded and still counted; they are simply not published to the room, and stay readable to the owner or the holder of the edit token, who reads the tally under every mode. The holder of the deck's **results link** (REQ098) reads it under every mode too — that is the one thing the link grants — by sending its token as `X-Omul-Results-Token`; a token that has been revoked, or that never belonged to this deck, answers `401` rather than falling back to the public read. A quiz slide's `options[].isCorrect` — and, on a typed question (REQ055), the `typedAnswers.entries` and `typedAnswers.accepted` blocks — is emitted only to a caller that can edit the deck (owner or edit token), or once the question is over; everyone else reads `null` there while it is still running (REQ056). A Pin on Image slide's `correctArea`, `correctCount` and `correctShare` (REQ053) are emitted on the same terms — to an editor always, and to everyone else only once the slide's effective results visibility reveals it — and all three read `null` together, so a withheld target area is indistinguishable from a question that named none. A Form slide's `submissions` (REQ061) — the rows the room actually wrote — are emitted only to a caller that can edit the deck, and read `null` for everybody else *whatever the reveal mode says*: reveal mode is a decision about the organizer's numbers, and a decision about numbers must not publish a participant's email address to the room. The per-field `answered` counts and a choice field's per-option counts stay public either way. A leaderboard slide (REQ059) takes no votes of its own: its payload is the deck's standings across every quiz question — `entries` (the top `size` rows, each with `rank`, an anonymous `entryId`/`label`, `totalPoints`, `correctCount` and `answeredCount`), `rankedCount` for everyone ranked behind them, and `quizCount`/`maxPoints` for what the deck is worth. Rows are named by a one-way handle derived from the participant id, never the id itself, so the board stays public and anonymous. 404 if the presentation or slide is missing.",
+					"Returns the aggregated tally for one slide (counts, response list, or scale stats depending on slide type). **The slide's reveal mode decides whether there is a tally here at all** (REQ015/REQ016/REQ017): a caller who cannot edit the deck reads `{ \"type\": <slide type>, \"withheld\": true }` in place of the numbers whenever the effective mode is `private`, or `on-click` before the presenter has revealed that slide — including after the deck has ended, since ending a session is not the organizer revealing what they chose to withhold. The answers are still recorded and still counted; they are simply not published to the room, and stay readable to the owner or the holder of the edit token, who reads the tally under every mode. The holder of the deck's **results link** (REQ098) reads it under every mode too — that is the one thing the link grants — by sending its token as `X-Omul-Results-Token`; a token that has been revoked, or that never belonged to this deck, answers `401` rather than falling back to the public read. A quiz slide's `options[].isCorrect` — and, on a typed question (REQ055), the `typedAnswers.entries` and `typedAnswers.accepted` blocks — is emitted only to a caller that can edit the deck (owner or edit token), or once the question is over; everyone else reads `null` there while it is still running (REQ056). A Pin on Image slide's `correctArea`, `correctCount` and `correctShare` (REQ053) are emitted on the same terms — to an editor always, and to everyone else only once the slide's effective results visibility reveals it — and all three read `null` together, so a withheld target area is indistinguishable from a question that named none. A Form slide's `submissions` (REQ061) — the rows the room actually wrote — are emitted only to a caller that can edit the deck, and read `null` for everybody else *whatever the reveal mode says*: reveal mode is a decision about the organizer's numbers, and a decision about numbers must not publish a participant's email address to the room. The per-field `answered` counts and a choice field's per-option counts stay public either way. A leaderboard slide (REQ059) takes no votes of its own: its payload is the deck's standings across every quiz question — `entries` (the top `size` rows, each with `rank`, an anonymous `entryId`/`label`, `totalPoints`, `correctCount` and `answeredCount`), `rankedCount` for everyone ranked behind them, and `quizCount`/`maxPoints` for what the deck is worth. Rows are named by a one-way handle derived from the participant id, never the id itself, so the board stays public and anonymous. On a deck with the profanity filter on (REQ085), a word-cloud, open-ended or typed-quiz answer containing a word on the deck's list is left out of `words`, `answers`, `responses` and `typedAnswers.entries` for **every** caller — the presenter's own screen is the projector — while `totalVotes` still counts it and `filteredCount` (beside `words`/`responses`, or inside `typedAnswers`) says how many were withheld, `null` while the deck filters nothing. `?filtered=include` adds `filteredAnswers` — each withheld answer's `id`, its `text` exactly as written and its `createdAt` — for a caller who reads the deck as its authors do (its owner, its edit token, or a collaborator at any level — the readers of a word cloud's `answers`); for everybody else, a results-link holder included, it reads `null` either way. 404 if the presentation or slide is missing.",
 			},
 		},
 	)
@@ -1813,7 +2054,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Results"],
 				summary: "Break one slide's results down by an earlier slide's answers",
 				description:
-					"Returns the slide's tally split into one group per answer the same participants gave on the slide named by `?by=`, joined on participant id (REQ020). Each entry in `segments` carries the option id it stands for (`key`), its `label`, how many people in it answered this slide (`respondentCount`), and `results` — **the same payload shape the unsegmented results endpoints publish**, computed by the same aggregation over that group alone, so a segment's numbers are the numbers this slide's own chart would draw for a room of exactly those people. Every authored option gets a group, empty ones included, and a final group with `key: null` holds the people who answered this slide but not the grouping one. Only a slide whose answers are **one choice from a fixed set** may group another — a single-select multiple-choice slide, or a quiz question answered by picking (REQ054) — and only one that comes **earlier** in the deck; the slide being broken down must itself have a tally. Anything else answers `400` with a `refused` code and the reason in words. Both slides pass the reveal-mode gate (REQ015–REQ017): if either tally is withheld from this caller the payload carries `withheld: true`, `withheldReason: \"reveal-mode\"` and no segments, since the group labels and counts *are* the grouping slide's tally under another name. The **results link** (REQ098) lifts that gate here exactly as it does elsewhere. It lifts nothing else, and three limits apply to every caller who cannot edit the deck. **A slide whose tally lists one entry per respondent is not broken down at all** — open-text, word cloud, pin, grid, guess, leaderboard, and a typed quiz question — answering `withheld: true` with `withheldReason: \"identifiable\"`: no group size makes such a list anonymous, and its entries are matchable across two breakdowns of the same slide by different groupings. **Groups are held back at least two at a time**: the groups partition the people who answered and the unsegmented tally is readable on the same terms, so holding back one group alone would publish it as `unsegmented - the rest`; whenever a group falls under `minRespondents`, the smallest group that clears the floor is held back with it. `suppressed: true` therefore does not mean \"too few answered\" — a group above the floor wears it too when it is that complement. **A held-back group publishes no head count**: `respondentCount` is `null` beside `results: null`, because \"exactly one person picked this and answered that\" is a fact about a person rather than a number about the room. An owner or edit-token holder reads every group whatever its size, and every slide type. 404 if the presentation or either slide is missing.",
+					"Returns the slide's tally split into one group per answer the same participants gave on the slide named by `?by=`, joined on participant id (REQ020) — per pass on an audience-paced deck a device went through more than once (REQ083), so each pass is grouped by its own answer. Each entry in `segments` carries the option id it stands for (`key`), its `label`, how many people in it answered this slide (`respondentCount`), and `results` — **the same payload shape the unsegmented results endpoints publish**, computed by the same aggregation over that group alone, so a segment's numbers are the numbers this slide's own chart would draw for a room of exactly those people. Every authored option gets a group, empty ones included, and a final group with `key: null` holds the people who answered this slide but not the grouping one. Only a slide whose answers are **one choice from a fixed set** may group another — a single-select multiple-choice slide, or a quiz question answered by picking (REQ054) — and only one that comes **earlier** in the deck; the slide being broken down must itself have a tally. Anything else answers `400` with a `refused` code and the reason in words. Both slides pass the reveal-mode gate (REQ015–REQ017): if either tally is withheld from this caller the payload carries `withheld: true`, `withheldReason: \"reveal-mode\"` and no segments, since the group labels and counts *are* the grouping slide's tally under another name. The **results link** (REQ098) lifts that gate here exactly as it does elsewhere. It lifts nothing else, and three limits apply to every caller who cannot edit the deck. **A slide whose tally lists one entry per respondent is not broken down at all** — open-text, word cloud, pin, grid, guess, leaderboard, and a typed quiz question — answering `withheld: true` with `withheldReason: \"identifiable\"`: no group size makes such a list anonymous, and its entries are matchable across two breakdowns of the same slide by different groupings. **Groups are held back at least two at a time**: the groups partition the people who answered and the unsegmented tally is readable on the same terms, so holding back one group alone would publish it as `unsegmented - the rest`; whenever a group falls under `minRespondents`, the smallest group that clears the floor is held back with it. The floor counts **people as distinct devices**, never passes (REQ083): one person going through the deck five times is five respondents and still one person, and does not make a group publishable. `suppressed: true` therefore does not mean \"too few answered\" — a group above the floor wears it too when it is that complement. **A held-back group publishes no head count**: `respondentCount` is `null` beside `results: null`, because \"exactly one person picked this and answered that\" is a fact about a person rather than a number about the room. An owner or edit-token holder reads every group whatever its size, and every slide type. 404 if the presentation or either slide is missing.",
 			},
 		},
 	)
@@ -1857,13 +2098,15 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 	// ── Get all results ────────────────────────────────────
 	.get(
 		"/presentations/:id/results",
-		async ({ params, request, set }) => {
+		async ({ params, query, request, set }) => {
 			const pres = await getPresentation(params.id);
 			if (!pres) {
 				set.status = 404;
 				return { error: "Not found" };
 			}
-			const caller = await resultsCallerFor(pres, request);
+			const caller = await resultsCallerFor(pres, request, {
+				includeFilteredAnswers: query.filtered === "include",
+			});
 			if (caller instanceof Response) return caller;
 			const results = await getAllResults(params.id, caller);
 			if (!results) {
@@ -1873,11 +2116,12 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 			return results;
 		},
 		{
+			query: ResultsQuerySchema,
 			detail: {
 				tags: ["Results"],
 				summary: "Get results for all slides",
 				description:
-					"Returns aggregated results for every slide in the presentation, keyed by slide ID. Useful for export and final summary views. Each entry passes the same reveal-mode gate as the single-slide endpoint (REQ015/REQ016/REQ017): for a caller who cannot edit the deck, a slide whose tally is not published carries `withheld: true` and no numbers, while the owner or the holder of the edit token reads every tally whatever the mode. So does the holder of the deck's **results link** (REQ098), which is what the read-only results page is fed by: send its token as `X-Omul-Results-Token`. A revoked or foreign token answers `401` rather than falling back to the public read, so a holder learns their link is gone instead of reading a deck of withheld markers.",
+					"Returns aggregated results for every slide in the presentation, keyed by slide ID. Useful for export and final summary views. Each entry passes the same reveal-mode gate as the single-slide endpoint (REQ015/REQ016/REQ017): for a caller who cannot edit the deck, a slide whose tally is not published carries `withheld: true` and no numbers, while the owner or the holder of the edit token reads every tally whatever the mode. So does the holder of the deck's **results link** (REQ098), which is what the read-only results page is fed by: send its token as `X-Omul-Results-Token`. A revoked or foreign token answers `401` rather than falling back to the public read, so a holder learns their link is gone instead of reading a deck of withheld markers. The profanity filter (REQ085) applies to every entry exactly as on the single-slide endpoint, and `?filtered=include` adds each slide's `filteredAnswers` for a caller who reads the deck as its authors do (owner, edit token or collaborator) — the read the results surface is built from.",
 			},
 		},
 	)
@@ -1993,7 +2237,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Results"],
 				summary: "Render the deck to PDF, with or without its results",
 				description:
-					"Renders the whole deck as a self-contained PDF (REQ096): a cover page naming the deck and its counts, then one section per slide — what it asked, and what it offered to answer with (options and the marked answer key, scale statements, ranking and 100 Points items, grid axes, a guess range and its reference, form fields). `results=true` (the default) draws each slide's tally underneath it, as bars where the aggregation publishes a share of the whole and as a table where it does not; `results=false` renders the deck alone. The numbers are the same aggregation the results endpoints publish, flattened by the same function the XLSX export's Aggregates sheet is written from — never recomputed. Nothing outside the file is referenced: a slide's media is named by its URL rather than fetched, and the text is set in the PDF standard fonts, whose WinAnsi encoding folds text outside Latin-1 to its nearest unaccented form (REQ158). Requires `Authorization: Bearer <creatorToken>` (or deck ownership) for **both** readings — even without a tally the document carries every quiz answer key, including one a running question is still withholding from the room (REQ056). A results link (REQ098) does not open this route. Served as an attachment and marked `Cache-Control: no-store`. Rate-limited per client address (REQ213): over the limit answers `429` with a `Retry-After` header and `retryAfterSeconds` in the body. One render runs at a time across every caller, with a short queue behind it; past that the export answers `503` with `Retry-After` at once. The render yields the thread while it works, so other requests are answered meanwhile.",
+					"Renders the whole deck as a self-contained PDF (REQ096): a cover page naming the deck and its counts, then one section per slide — what it asked, and what it offered to answer with (options and the marked answer key, scale statements, ranking and 100 Points items, grid axes, a guess range and its reference, form fields). `results=true` (the default) draws each slide's tally underneath it, as bars where the aggregation publishes a share of the whole and as a table where it does not; `results=false` renders the deck alone. The numbers are the same aggregation the results endpoints publish, flattened by the same function the XLSX export's Aggregates sheet is written from — never recomputed. Nothing outside the file is referenced: a slide's media is named by its URL rather than fetched, and the text is set in an embedded, subset face (Noto Sans) that draws Latin, Latin Extended, Greek and Cyrillic as authored, and Chinese, Japanese and Korean are drawn from a second embedded, subset face (Sarasa Gothic SC) chosen per run of text; emoji and any other script, which neither face has glyphs for, are still folded to their nearest drawable form or a single `?` rather than failing the export (REQ158). Requires `Authorization: Bearer <creatorToken>` (or deck ownership) for **both** readings — even without a tally the document carries every quiz answer key, including one a running question is still withholding from the room (REQ056). A results link (REQ098) does not open this route. Served as an attachment and marked `Cache-Control: no-store`. Rate-limited per client address (REQ213): over the limit answers `429` with a `Retry-After` header and `retryAfterSeconds` in the body. One render runs at a time across every caller, with a short queue behind it; past that the export answers `503` with `Retry-After` at once. The render yields the thread while it works, so other requests are answered meanwhile.",
 				security: [{ bearerAuth: [] }],
 			},
 		},

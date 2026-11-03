@@ -11,6 +11,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api";
 import { ContentSlideView } from "./ContentSlideView";
+import { countdownRunFor } from "./CountdownFace";
 import { acceptedGridPoint, gridEndLabel, GridPlot, ownGridMarks } from "./GridPlot";
 import {
 	acceptedPin,
@@ -47,6 +48,7 @@ import {
 	encodePinPoint,
 	encodePoints,
 	encodeRanking,
+	FIRST_PASS,
 	FORM_ANSWER_MAX_LENGTH,
 	formFieldsFor,
 	gridAxesFor,
@@ -422,10 +424,18 @@ export type ParticipantVoteTransport = {
 	scorecard: () => Promise<any>;
 };
 
-/** The live transport: the answer goes to the room. */
+/**
+ * The live transport: the answer goes to the room.
+ *
+ * One transport per pass through the deck (REQ083): everything this screen
+ * sends — an answer, an upvote — and the scorecard it reads back belong to the
+ * pass it was built for, so a device going through again answers as somebody
+ * new and an earlier pass is never written over.
+ */
 export function liveVoteTransport(
 	presentationId: string,
 	participantId: string,
+	pass: number = FIRST_PASS,
 ): ParticipantVoteTransport {
 	return {
 		participantId,
@@ -433,12 +443,19 @@ export function liveVoteTransport(
 			await api.vote(presentationId, slideId, value, participantId, {
 				statementId,
 				skip,
+				pass,
 			});
 		},
 		upvoteResponse: async ({ slideId, responseId }) => {
-			await api.voteOnResponse(presentationId, slideId, responseId, participantId);
+			await api.voteOnResponse(
+				presentationId,
+				slideId,
+				responseId,
+				participantId,
+				pass,
+			);
 		},
-		scorecard: () => api.getScorecard(presentationId, participantId),
+		scorecard: () => api.getScorecard(presentationId, participantId, pass),
 	};
 }
 
@@ -1074,6 +1091,13 @@ export function ParticipantSlideView({
 					joinCode={pres.code}
 					joinUrl={`${window.location.origin}/join/${pres.code}`}
 					deck={pres}
+					/* A countdown runs here on the same run and the same server
+					   clock as the shared screen (REQ107). */
+					countdownRun={
+						slide.type === "countdown"
+							? countdownRunFor(slide, pres, serverClockOffsetMs)
+							: null
+					}
 				/>
 			</div>
 		) : (
@@ -2509,6 +2533,7 @@ export function ParticipantSlideView({
 									results={results}
 									onUpvote={handleUpvote}
 									upvotedIds={upvoted}
+									answerFilterLabel={t.answersFiltered}
 								/>
 							</div>
 						);

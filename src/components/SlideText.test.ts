@@ -1,6 +1,6 @@
 /**
  * Unit tests for authored slide text (REQ088 hyperlinks, REQ089 markdown,
- * REQ091 text size).
+ * REQ091 text size, REQ093 mathematical notation).
  *
  * Everything a surface renders goes through the two parsers and the size token
  * in `SlideText.tsx`, so pinning them down is pinning down all four surfaces at
@@ -17,7 +17,10 @@
  *     evasions that make a pattern match and a URL parser disagree — casing,
  *     leading space, an embedded newline.
  *   - **That plain text stays plain.** A deck written before markdown existed
- *     must render character for character as it did, line breaks included.
+ *     must render character for character as it did, line breaks included —
+ *     and one written before formulas existed must too, prices and all.
+ *
+ * What KaTeX makes of a formula once it is found is `SlideMath.test.ts`'s.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -26,10 +29,12 @@ import {
 	parseSlideInline,
 	parseSlideText,
 	safeSlideLinkHref,
+	SLIDE_MARKDOWN_HINT,
 	SLIDE_TEXT_SCALE,
 	SLIDE_TEXT_SIZE_OPTIONS,
 	type SlideInlineNode,
 	type SlideTextBlock,
+	slideInlineHasMath,
 	slideTextToPlain,
 } from "./SlideText";
 
@@ -54,6 +59,8 @@ function writeBack(nodes: SlideInlineNode[]): string {
 					return `*${writeBack(node.children)}*`;
 				case "link":
 					return `[${writeBack(node.children)}](${node.href})`;
+				case "math":
+					return node.display ? `$$${node.tex}$$` : `$${node.tex}$`;
 			}
 		})
 		.join("");
@@ -62,6 +69,7 @@ function writeBack(nodes: SlideInlineNode[]): string {
 /** The same, for a whole body: one line per block, list items prefixed. */
 function writeBackBlocks(blocks: SlideTextBlock[]): string[] {
 	return blocks.flatMap((block) => {
+		if (block.kind === "math") return [`math: ${block.tex}`];
 		if (block.kind === "heading") {
 			return [`h${block.level}: ${writeBack(block.content)}`];
 		}
@@ -359,6 +367,233 @@ describe("slideTextToPlain — the gist a rail item shows (REQ089)", () => {
 
 	test("blocks collapse onto one line", () => {
 		expect(slideTextToPlain("# Agenda\n- one\n- two")).toBe("Agenda one two");
+	});
+});
+
+describe("formulas — TeX between dollar signs (REQ093)", () => {
+	test("an inline formula is read out of the text, as typed and as TeX", () => {
+		expect(parseSlideInline("What is $\\frac{1}{2}$?")).toEqual([
+			{ kind: "text", text: "What is " },
+			{
+				kind: "math",
+				tex: "\\frac{1}{2}",
+				display: false,
+				source: "$\\frac{1}{2}$",
+			},
+			{ kind: "text", text: "?" },
+		]);
+	});
+
+	test("a display formula may pad itself with spaces", () => {
+		expect(parseSlideInline("$$ E = mc^2 $$")).toEqual([
+			{
+				kind: "math",
+				tex: "E = mc^2",
+				display: true,
+				source: "$$ E = mc^2 $$",
+			},
+		]);
+		expect(writeBack(parseSlideInline("$$a$$ and $$ b $$"))).toBe(
+			"$$a$$ and $$b$$",
+		);
+	});
+
+	test("prose with prices in it stays exactly the prose it was", () => {
+		// Pandoc's rules: a formula opens onto a non-space, closes after one, and
+		// is not followed by a digit. Every deck written before formulas existed
+		// renders as it did, dollar signs included.
+		for (const written of [
+			"Tickets cost $5 and $10.",
+			"$5-$10 a ticket",
+			"It costs 5$ or 6$.",
+			"Set $PATH and $HOME first",
+			"$x$5",
+			"price $ 5 $",
+			"$",
+			"Only $",
+			"$$5",
+			"$$$$",
+			"$$ $$",
+		]) {
+			expect(parseSlideInline(written)).toEqual([
+				{ kind: "text", text: written },
+			]);
+		}
+	});
+
+	test("an inline formula does not cross a line; a display one may", () => {
+		expect(parseSlideInline("a $x\ny$ b")).toEqual([
+			{ kind: "text", text: "a $x\ny$ b" },
+		]);
+		expect(writeBack(parseSlideInline("$$x\n+ y$$"))).toBe("$$x\n+ y$$");
+	});
+
+	test("\\$ writes a dollar sign, beside a formula or anywhere else", () => {
+		expect(writeBack(parseSlideInline("\\$5 and $x$"))).toBe("$5 and $x$");
+		expect(parseSlideInline("\\$5 or \\$10")).toEqual([
+			{ kind: "text", text: "$5 or $10" },
+		]);
+	});
+
+	test("inside a formula a backslash belongs to TeX", () => {
+		// `\$` is a dollar sign in the formula rather than its end, and `\\` is
+		// TeX's line break — not an escape this parser gets to take.
+		expect(parseSlideInline("$\\$5$")).toEqual([
+			{ kind: "math", tex: "\\$5", display: false, source: "$\\$5$" },
+		]);
+		expect(writeBack(parseSlideInline("$a\\\\$ b"))).toBe("$a\\\\$ b");
+		expect(writeBack(parseSlideInline("$\\{x\\}$"))).toBe("$\\{x\\}$");
+	});
+
+	test("code wins, and an address keeps its dollar signs", () => {
+		expect(parseSlideInline("`$HOME` and `$x$`")).toEqual([
+			{ kind: "code", text: "$HOME" },
+			{ kind: "text", text: " and " },
+			{ kind: "code", text: "$x$" },
+		]);
+		expect(linksIn(parseSlideInline("https://example.com/$x$"))).toEqual([
+			["https://example.com/$x$", "https://example.com/$x$"],
+		]);
+	});
+
+	test("emphasis steps over a formula rather than ending inside it", () => {
+		// `_` and `*` are TeX's subscript and asterisk as often as they are
+		// emphasis markers.
+		expect(writeBack(parseSlideInline("_the root $x_1$ is real_"))).toBe(
+			"*the root $x_1$ is real*",
+		);
+		expect(writeBack(parseSlideInline("**bold $a**b$ end**"))).toBe(
+			"**bold $a**b$ end**",
+		);
+		// An escaped dollar opens nothing, so it cannot carry a run past its end.
+		expect(writeBack(parseSlideInline("*a \\$x* b$*"))).toBe("*a $x* b$*");
+	});
+
+	test("emphasis without a dollar sign closes exactly where it always did", () => {
+		expect(parseSlideInline("*a \\* b*")).toEqual([
+			{ kind: "emphasis", children: [{ kind: "text", text: "a \\" }] },
+			{ kind: "text", text: " b*" },
+		]);
+		expect(parseSlideInline("***x***")).toEqual([
+			{ kind: "strong", children: [{ kind: "text", text: "*x" }] },
+			{ kind: "text", text: "*" },
+		]);
+		expect(parseSlideInline("__a__b__")).toEqual([
+			{ kind: "strong", children: [{ kind: "text", text: "a" }] },
+			{ kind: "text", text: "b__" },
+		]);
+	});
+
+	test("a formula may sit in a link's label and in a list item", () => {
+		expect(
+			writeBack(parseSlideInline("[the $x$ link](https://example.com)")),
+		).toBe("[the $x$ link](https://example.com/)");
+		expect(writeBackBlocks(parseSlideText("- $a^2$\n- $b^2$"))).toEqual([
+			"- $a^2$",
+			"- $b^2$",
+		]);
+	});
+});
+
+describe("a display formula on lines of its own (REQ093)", () => {
+	test("its lines are TeX — not list items, not headings", () => {
+		const written = "$$\nx = 1\n+ 2\n- 3\n# 4\n$$";
+		expect(parseSlideText(written)).toEqual([
+			{ kind: "math", tex: "x = 1\n+ 2\n- 3\n# 4", source: written },
+		]);
+	});
+
+	test("a paragraph ends where a formula block starts", () => {
+		expect(
+			writeBackBlocks(parseSlideText("Solve:\n$$\nx^2\n$$\nand then")),
+		).toEqual(["Solve:", "math: x^2", "and then"]);
+	});
+
+	test("it keeps the lines it was typed on, indentation and all", () => {
+		expect(parseSlideText("  $$\\int_0^1 x\\,dx$$   ")).toEqual([
+			{
+				kind: "math",
+				tex: "\\int_0^1 x\\,dx",
+				source: "  $$\\int_0^1 x\\,dx$$   ",
+			},
+		]);
+	});
+
+	test("words after the closing $$ keep the formula in its paragraph", () => {
+		expect(parseSlideText("$$a$$ trailing")).toEqual([
+			{
+				kind: "paragraph",
+				content: [
+					{ kind: "math", tex: "a", display: true, source: "$$a$$" },
+					{ kind: "text", text: " trailing" },
+				],
+			},
+		]);
+	});
+
+	test("it may not cross a blank line, and is then just text", () => {
+		expect(writeBackBlocks(parseSlideText("$$\nx\n\ny\n$$"))).toEqual([
+			"$$\nx",
+			"y\n$$",
+		]);
+	});
+
+	test("CRLF line endings read the same as LF", () => {
+		expect(writeBackBlocks(parseSlideText("Solve:\r\n$$\r\nx^2\r\n$$"))).toEqual(
+			["Solve:", "math: x^2"],
+		);
+	});
+
+	test("adversarial dollar signs at the field's length still parse in a blink", () => {
+		// The field holds 5000 characters (SLIDE_TEXT_MAX_LENGTH); every pattern
+		// here is a run of openers that close late or never, the shape that would
+		// make a careless scanner quadratic.
+		const fill = (unit: string) => unit.repeat(5000 / unit.length);
+		const started = performance.now();
+		for (const written of [
+			fill("$a"),
+			fill("$$a"),
+			fill("$$\nx\n"),
+			`*${fill("$a\\$b")}`,
+			`_${fill("$x_1 ")}`,
+		]) {
+			parseSlideInline(written);
+			parseSlideText(written);
+		}
+		expect(performance.now() - started).toBeLessThan(500);
+	});
+});
+
+describe("formulas reduced to a gist, and named for the canvas (REQ093)", () => {
+	test("a gist keeps a formula's TeX and drops its dollar signs", () => {
+		expect(slideTextToPlain("What is $\\frac{1}{2}$?")).toBe(
+			"What is \\frac{1}{2}?",
+		);
+		expect(slideTextToPlain("Intro\n$$\nx^2\n$$")).toBe("Intro x^2");
+	});
+
+	test("slideInlineHasMath finds a formula wherever it sits in a heading", () => {
+		for (const heading of [
+			"$x$",
+			"What is $$x$$?",
+			"**bold $x$**",
+			"*$x$*",
+			"[the $x$](https://example.com)",
+		]) {
+			expect(slideInlineHasMath(heading)).toBe(true);
+		}
+		for (const heading of ["plain", "$5 and $10", "`$x$`", "\\$x\\$", ""]) {
+			expect(slideInlineHasMath(heading)).toBe(false);
+		}
+	});
+
+	test("the editor's hint names the notation the parser reads", () => {
+		// The hint is the promise; these are the three things it promises.
+		expect(SLIDE_MARKDOWN_HINT).toContain("$x^2$");
+		expect(SLIDE_MARKDOWN_HINT).toContain("$$x^2$$");
+		expect(SLIDE_MARKDOWN_HINT).toContain("\\$");
+		expect(writeBack(parseSlideInline("$x^2$"))).toBe("$x^2$");
+		expect(parseSlideText("$$x^2$$")[0]?.kind).toBe("math");
 	});
 });
 

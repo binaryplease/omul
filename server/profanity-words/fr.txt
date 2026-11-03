@@ -1,0 +1,64 @@
+# Profanity word list — French (REQ085)
+#
+# Read by server/profanity-filter.ts when a deck's profanity filter uses this
+# language. One entry per line; an entry of several words matches those words
+# in that order. Lines starting with # are comments.
+#
+# Matching is whole-word and ignores case and accents, and an apostrophe ends a
+# word, so "d'enculé" is caught by "enculé" and "ENCULE" is too. Every
+# inflection in common use is its own entry.
+#
+# What belongs here: words whose ordinary use is obscene, a slur, or a strong
+# personal insult — including the English swearwords French speakers use as
+# loanwords. What does not: mild words (bordel, gueule), and any word whose
+# everyday meaning is innocent — "chatte" (a female cat), "tapette" (a fly
+# swatter), "cul" (as in cul-de-sac), "bâtard" (a loaf, a mongrel), and "con"
+# and "bite", which are ordinary words in English, Spanish and Italian too and
+# turn up in a French room's answers as exactly those.
+
+putain
+putains
+pute
+putes
+merde
+merdes
+connard
+connards
+connasse
+connasses
+conne
+connes
+enculé
+enculés
+enculée
+enculer
+salope
+salopes
+salaud
+salauds
+nique
+niquer
+foutre
+couilles
+branleur
+branleurs
+branler
+enfoiré
+enfoirés
+pétasse
+pouffiasse
+trou du cul
+nègre
+nègres
+bougnoule
+bougnoules
+pédé
+pédés
+gouine
+gouines
+fuck
+fucking
+motherfucker
+shit
+bullshit
+bitch

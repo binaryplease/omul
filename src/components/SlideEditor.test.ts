@@ -25,11 +25,17 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { SlideTypeEnum } from "../../server/schemas";
 import { newSlide } from "../store/editorDocument";
 import type { ResultsVisibility, Slide } from "../types";
 import { effectiveResultsVisibility } from "../types";
+import { QUIZ_AUDIO_PRESETS } from "./QuizAudioCue";
 import {
+	QuizAudioCueFields,
 	resultsRevealConsequence,
 	slideAnswerRulesDeparture,
 	slideResultsDeparture,
@@ -323,5 +329,177 @@ describe("a group with nothing to reset draws no reset", () => {
 	test("a type that owns a rule still offers it while sitting at the default", () => {
 		const rules = slideAnswerRulesDeparture(newSlide("multiple-choice"));
 		expect([rules.resettable, rules.departed]).toEqual([true, false]);
+	});
+});
+
+describe("a slide can be skipped from the editor (REQ110)", () => {
+	const editor = readFileSync(join(import.meta.dir, "SlideEditor.tsx"), "utf8");
+	const thumbnail = readFileSync(join(import.meta.dir, "SlideThumbnail.tsx"), "utf8");
+	const header = editor.slice(editor.indexOf("function SlideHeader("));
+
+	test("a fresh slide of every type is not skipped", () => {
+		for (const type of SlideTypeEnum.options) {
+			expect(newSlide(type).skipped ?? false).toBe(false);
+		}
+	});
+
+	test("the slide's header toggles it, and says which way it is set", () => {
+		expect(header).toContain("onUpdate({ skipped: !slide.skipped })");
+		expect(header).toContain("aria-pressed={slide.skipped}");
+		expect(header).toContain("${ICON_BUTTON_HOVER}");
+		expect(header).toContain("<SkipForward size={15} />");
+	});
+
+	test("the type pill stays in its column, so it never covers Skip slide", () => {
+		// The pill sits in a `min-w-0` column beside the header's buttons. Without
+		// a width cap it overflowed that column at desktop widths and lay over
+		// Skip slide, so a click there opened the type menu instead.
+		const label = header.slice(header.indexOf('aria-label="Change slide type"'));
+		const trigger = /className="([^"]*)"/.exec(label)?.[1] ?? "";
+		expect(trigger.split(" ")).toContain("max-w-full");
+		expect(label).toMatch(
+			/<span className="([^"]* )?min-w-0 [^"]*\btruncate\b[^"]*">\s*\{SLIDE_TYPE_LABELS\[slide\.type\]\}/,
+		);
+		// The fix is the width, not a z-index over the buttons.
+		expect(header).not.toMatch(/flex flex-shrink-0 items-center gap-0\.5[^"]*\bz-/);
+	});
+
+	test("the filmstrip marks a skipped slide with the rail's shared marker", () => {
+		expect(thumbnail).toContain("{slide.skipped && <SkippedSlideMarker />}");
+	});
+});
+
+describe("the quiz's Audio cue row offers three tracks and Custom (REQ058)", () => {
+	const URL_FIELD = 'aria-label="Audio track URL"';
+
+	/** The row's contents for one slide, drawn with no DOM. */
+	const drawRow = (slide: Slide, customOpen = false) =>
+		renderToStaticMarkup(
+			createElement(QuizAudioCueFields, {
+				slide,
+				onUpdate: () => {},
+				deckMode: "live",
+				customOpen,
+				onCustomOpenChange: () => {},
+			}),
+		);
+
+	/** The row for a quiz storing one value. */
+	const rowFor = (quizAudioUrl: string, customOpen = false) =>
+		drawRow({ ...newSlide("quiz"), quizAudioUrl }, customOpen);
+
+	/** The words on each button of the row, narrowed to the pressed ones if asked. */
+	const buttonsIn = (markup: string, pressedOnly = false) =>
+		markup
+			.split("<button")
+			.slice(1)
+			.filter((button) => !pressedOnly || button.includes('aria-pressed="true"'))
+			.map((button) => button.slice(0, button.indexOf("</button>")))
+			.map((button) => button.replace(/^[^>]*>/, "").replace(/<[^>]*>/g, ""));
+
+	test("the row offers the three tracks and Custom, in that order, and Remove", () => {
+		// A play control has an icon and a name, and no words on its face.
+		expect(buttonsIn(rowFor("")).filter((words) => words !== "")).toEqual([
+			...QUIZ_AUDIO_PRESETS.map((preset) => preset.label),
+			"Custom",
+			"Remove audio cue",
+		]);
+	});
+
+	test("each bundled track has its own play control, right after its tile", () => {
+		const names = rowFor("")
+			.split("<button")
+			.slice(1)
+			.map((button) => button.slice(0, button.indexOf(">")))
+			.map((tag) => /aria-label="([^"]*)"/.exec(tag)?.[1] ?? "")
+			.filter((name) => name.startsWith("Play "));
+		expect(names).toEqual(QUIZ_AUDIO_PRESETS.map((preset) => `Play ${preset.label}`));
+		for (const preset of QUIZ_AUDIO_PRESETS) {
+			const markup = rowFor("");
+			expect(markup.indexOf(`aria-label="Play ${preset.label}"`)).toBeGreaterThan(
+				markup.indexOf(`>${preset.label}<`),
+			);
+		}
+	});
+
+	test("Custom has no play control", () => {
+		expect(rowFor("https://example.com/a.mp3")).not.toContain("Play Custom");
+		expect(rowFor("", true)).not.toContain("Play Custom");
+	});
+
+	test("a play control is never nested inside a tile's button", () => {
+		for (const closedBefore of rowFor("").split("<button").slice(1)) {
+			expect(closedBefore).toContain("</button>");
+		}
+	});
+
+	test("a play control is no selection: it carries no pressed state and sends no update", () => {
+		for (const preset of QUIZ_AUDIO_PRESETS) {
+			const markup = rowFor(preset.path);
+			const control = markup
+				.split("<button")
+				.find((button) => button.includes(`aria-label="Play ${preset.label}"`));
+			expect(control).not.toContain("aria-pressed");
+		}
+		const editor = readFileSync(join(import.meta.dir, "SlideEditor.tsx"), "utf8");
+		const previewButton = editor.slice(
+			editor.indexOf("<QuizAudioPreviewButton"),
+			editor.indexOf("/>", editor.indexOf("<QuizAudioPreviewButton")),
+		);
+		expect(previewButton).toContain("onToggle={() => preview.toggle(preset)}");
+		expect(previewButton).not.toContain("onUpdate");
+		expect(previewButton).not.toContain("selectOption");
+	});
+
+	test("a tile selects and plays nothing", () => {
+		const editor = readFileSync(join(import.meta.dir, "SlideEditor.tsx"), "utf8");
+		const selection = editor.slice(
+			editor.indexOf("const selectOption ="),
+			editor.indexOf("return (", editor.indexOf("const selectOption =")),
+		);
+		expect(selection).toContain("onUpdate");
+		expect(selection).not.toContain("preview");
+	});
+
+	test("a new quiz stores no track, selects nothing and draws no URL field", () => {
+		const markup = drawRow(newSlide("quiz"));
+		expect(buttonsIn(markup, true)).toEqual([]);
+		expect(markup).not.toContain(URL_FIELD);
+		expect(markup).toContain("runs in silence");
+	});
+
+	test("a preset's path reads as that preset, with no URL field", () => {
+		for (const preset of QUIZ_AUDIO_PRESETS) {
+			const markup = rowFor(preset.path);
+			expect(buttonsIn(markup, true)).toEqual([preset.label]);
+			expect(markup).not.toContain(URL_FIELD);
+		}
+	});
+
+	test("another address reads as Custom, with that address in the field", () => {
+		const address = "https://cdn.example.com/audio/my-track.mp3";
+		const markup = rowFor(address);
+		expect(buttonsIn(markup, true)).toEqual(["Custom"]);
+		expect(markup).toContain(URL_FIELD);
+		expect(markup).toContain(`value="${address}"`);
+	});
+
+	test("opening Custom on an empty value draws an empty field", () => {
+		const markup = rowFor("", true);
+		expect(buttonsIn(markup, true)).toEqual(["Custom"]);
+		expect(markup).toContain(URL_FIELD);
+		expect(markup).toContain('value=""');
+	});
+
+	test("Remove stays drawn, and is disabled only when there is nothing to remove", () => {
+		const removeButton = (markup: string) =>
+			markup.split("<button").find((button) => button.includes("Remove audio cue"));
+		expect(removeButton(rowFor(""))).toContain("disabled");
+		expect(removeButton(rowFor(QUIZ_AUDIO_PRESETS[0].path))).not.toContain(
+			'disabled=""',
+		);
+		expect(removeButton(rowFor("https://example.com/a.mp3"))).not.toContain(
+			'disabled=""',
+		);
 	});
 });

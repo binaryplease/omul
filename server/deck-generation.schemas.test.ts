@@ -151,7 +151,8 @@ describe("REQ007 — the draft rule: nothing comes back verified", () => {
 			// stays true if the marking mechanism ever grows.
 			expect(slideHasCorrectAnswers(slide)).toBe(false);
 			for (const option of slide.options) {
-				expect(option.isCorrect).toBeUndefined();
+				// The schema's declared "never marked" (REQ184), never `false`.
+				expect(option.isCorrect).toBe(null);
 			}
 			expect(slide.quizAnswers).toEqual([]);
 			expect(slide.guessReference).toBeNull();

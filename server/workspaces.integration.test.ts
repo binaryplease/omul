@@ -58,6 +58,9 @@ const SLIDES = [
 		question: "Q",
 		options: [{ id: "a", text: "A" }],
 	},
+	// The countdown the sweep's `countdown` route starts (REQ107) — that route
+	// refuses any other slide type, so it needs one of its own.
+	{ id: "cd", type: "countdown", question: "Break" },
 ];
 
 function keyed(key: string): Record<string, string> {
@@ -170,6 +173,12 @@ function mutations(deckId: string, slideId: string) {
 				method: "POST",
 				headers: { "Content-Type": "application/json", ...headers },
 				body: JSON.stringify({ slideId }),
+			}),
+		countdown: (headers: Record<string, string>) =>
+			fetch(`${baseUrl}/api/presentations/${deckId}/countdown`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json", ...headers },
+				body: JSON.stringify({ slideId: SLIDES[1].id, action: "start" }),
 			}),
 		qaSettings: (headers: Record<string, string>) =>
 			fetch(`${baseUrl}/api/presentations/${deckId}/qa/settings`, {

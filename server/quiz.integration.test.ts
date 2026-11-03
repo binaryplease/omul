@@ -195,9 +195,10 @@ describe("quiz competition integration", () => {
 		const fetched = await fetchPresentation(pres.id, pres.creatorToken);
 		expect(fetched.slides[0].type).toBe("quiz");
 		expect(fetched.slides[0].timeLimit).toBe(30);
+		// An unmarked option reads its declared "never marked", not `false` (REQ184).
 		expect(
 			fetched.slides[0].options.map((option: AnyJson) => option.isCorrect),
-		).toEqual([undefined, true, undefined]);
+		).toEqual([null, true, null]);
 	});
 
 	// ── REQ056 — the answer key never reaches a competitor early ─
@@ -258,7 +259,7 @@ describe("quiz competition integration", () => {
 		const fetched = await fetchPresentation(pres.id);
 		expect(
 			fetched.slides[0].options.map((option: AnyJson) => option.isCorrect),
-		).toEqual([undefined, true, undefined]);
+		).toEqual([null, true, null]);
 	}, 10_000);
 
 	test("a deliberate reveal opens the solution on an untimed question (REQ102)", async () => {

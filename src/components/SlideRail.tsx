@@ -1,3 +1,4 @@
+import { SkipForward } from "lucide-react";
 import type { ButtonHTMLAttributes } from "react";
 import type { SlideType } from "../types";
 import { slideTextToPlain } from "./SlideText";
@@ -32,12 +33,16 @@ export function slideRailItemSurface(active: boolean): string {
  * rather than showing one — so its markup comes off here (REQ089): a truncated
  * one-line gist reading `**Q3** — see [the docs](https://…)` names the slide
  * worse than the words in it do.
+ *
+ * `skipped` marks a slide Next and Previous step over (REQ110). The item stays
+ * clickable: a skipped slide can still be opened directly.
  */
 export function SlideRailItem({
 	index,
 	type,
 	title,
 	active,
+	skipped = false,
 	alwaysShowTitle = false,
 	className = "",
 	...buttonProps
@@ -46,6 +51,7 @@ export function SlideRailItem({
 	type: SlideType;
 	title: string;
 	active: boolean;
+	skipped?: boolean;
 	alwaysShowTitle?: boolean;
 	className?: string;
 	// `type` (slide type) and `title` (slide title) are our own props; drop the
@@ -63,10 +69,28 @@ export function SlideRailItem({
 			<div className="flex items-center gap-2 md:mb-1">
 				<span className="font-mono text-xs text-text-muted">{index + 1}</span>
 				<SlideTypeIcon type={type} />
+				{skipped && <SkippedSlideMarker />}
 			</div>
 			<p className={`truncate ${alwaysShowTitle ? "" : "hidden md:block"}`}>
 				{gist || "Untitled"}
 			</p>
 		</button>
+	);
+}
+
+/**
+ * The mark a skipped slide wears wherever slides are listed (REQ110): the
+ * presenter's rail and the editor's filmstrip compose this one rather than each
+ * drawing its own, so a skipped slide reads the same on both.
+ */
+export function SkippedSlideMarker() {
+	return (
+		<span
+			className="inline-flex items-center gap-0.5 text-[11px] text-text-dim"
+			title="Skipped — Next and Previous step over this slide"
+		>
+			<SkipForward size={11} aria-hidden />
+			<span className="sr-only">, skipped</span>
+		</span>
 	);
 }

@@ -347,6 +347,21 @@ describe("Shareable results link integration (REQ098)", () => {
 				{ resultsVisibility: "instant" },
 			],
 			["POST", `/api/presentations/${pres.id}/timer`, { slideId: "q1" }],
+			[
+				"POST",
+				`/api/presentations/${pres.id}/countdown`,
+				{ slideId: "q1", action: "start" },
+			],
+			[
+				"POST",
+				`/api/presentations/${pres.id}/countdown`,
+				{ slideId: "q1", action: "pause" },
+			],
+			[
+				"POST",
+				`/api/presentations/${pres.id}/countdown`,
+				{ slideId: "q1", action: "reset" },
+			],
 			["POST", `/api/presentations/${pres.id}/qa/settings`, { enabled: true }],
 			["POST", `/api/presentations/${pres.id}/channels`, { chatEnabled: true }],
 		];

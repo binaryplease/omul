@@ -57,14 +57,14 @@ describe("the embed slide type (REQ066, REQ067, REQ068)", () => {
 		expect(slideHasResults("embed")).toBe(false);
 	});
 
-	test("it is a content slide, beside the other four", () => {
+	test("it is a content slide, beside the other five", () => {
 		// A Miro board is worked in rather than read (REQ068) and is still content:
 		// nothing the room does to it comes back here as an answer, so there is no
 		// aggregate to draw — which is the test this set is listed by.
 		expect(isContentSlideType("embed")).toBe(true);
 		expect([...CONTENT_SLIDE_TYPES].sort()).toEqual(
 			(
-				["embed", "image", "instruction", "text", "video"] as SlideType[]
+				["countdown", "embed", "image", "instruction", "text", "video"] as SlideType[]
 			).sort(),
 		);
 	});

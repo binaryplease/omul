@@ -1,0 +1,47 @@
+# Profanity word list — Dutch (REQ085)
+#
+# Read by server/profanity-filter.ts when a deck's profanity filter uses this
+# language. One entry per line; an entry of several words matches those words
+# in that order. Lines starting with # are comments.
+#
+# Matching is whole-word and ignores case and accents. Dutch builds its
+# harshest curses by compounding a disease onto a noun, and a whole-word list
+# catches only the compounds it names: each one in common use is listed on its
+# own line.
+#
+# What belongs here: words whose ordinary use is obscene, a slur, or a strong
+# personal insult — including the English swearwords Dutch speakers use as
+# loanwords. What does not: mild words (debiel, idioot), and any word whose
+# everyday meaning is innocent — the bare disease names "kanker", "tyfus" and
+# "tering" (a talk about cancer research is not profane), "eikel" (an acorn),
+# "pik" and "mongool" (a Mongol).
+
+kut
+kutwijf
+klootzak
+klootzakken
+lul
+hoer
+hoeren
+hoerenzoon
+slet
+sletten
+trut
+neuken
+neuk
+geneukt
+zakkenwasser
+kankerlijer
+kankerhoer
+tyfuslijer
+teringlijer
+godverdomme
+flikker
+flikkers
+nikker
+nikkers
+fuck
+fucking
+motherfucker
+shit
+bitch

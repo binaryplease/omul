@@ -387,6 +387,42 @@ describe("Results & Export (REQ095, REQ101)", () => {
 		);
 	});
 
+	test("a never-marked option exports its correctness as null, a marked slide's as booleans (REQ184)", async () => {
+		// The choice slide's options are stored with no `isCorrect`, so they parse
+		// to the schema's declared `null` — which must reach the sheet as an empty
+		// "Correct" cell, not as `false`. The quiz marks Paris, so both of its
+		// options carry a boolean.
+		const pres = await create(DECK);
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		await runSession(pres.id);
+
+		const fetched = await (
+			await authed(`/api/presentations/${pres.id}`, pres.creatorToken)
+		).json();
+		expect(
+			fetched.slides[0].options.map((option: AnyJson) => option.isCorrect),
+		).toEqual([null, null]);
+
+		const { workbook } = await downloadWorkbook(pres.id, pres.creatorToken);
+		const aggregates = rowsOf(workbook, "Aggregates");
+		const correctOf = (slideNumber: number, entry: string) =>
+			aggregates.find(
+				(row) =>
+					row["Slide #"] === slideNumber &&
+					row.Entry === entry &&
+					row.Metric === "Correct",
+			)?.Value;
+
+		// `toBe(null)` rather than `toBeNull()`'s looser cousins: a missing row
+		// reads `undefined` here, and that is a different defect.
+		expect(correctOf(1, "Weekly")).toBe(null);
+		expect(correctOf(1, "Monthly")).toBe(null);
+		expect(correctOf(4, "Paris")).toBe(true);
+		expect(correctOf(4, "Lyon")).toBe(false);
+	});
+
 	test("the summary counts participants and responses", async () => {
 		const pres = await create(DECK);
 		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {

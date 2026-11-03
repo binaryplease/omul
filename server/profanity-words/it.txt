@@ -1,0 +1,58 @@
+# Profanity word list — Italian (REQ085)
+#
+# Read by server/profanity-filter.ts when a deck's profanity filter uses this
+# language. One entry per line; an entry of several words matches those words
+# in that order. Lines starting with # are comments.
+#
+# Matching is whole-word and ignores case and accents, and an apostrophe ends a
+# word. Every inflection in common use is its own entry, and the blasphemies
+# that are among the strongest things a person can say in Italian are listed as
+# the phrases they are.
+#
+# What belongs here: words whose ordinary use is obscene, a slur, or a strong
+# personal insult — including the English swearwords Italian speakers use as
+# loanwords. What does not: mild words (scemo, pirla), and any word whose
+# everyday meaning is innocent — "Troia" (Troy), "finocchio" (fennel),
+# "bocchino" (a mouthpiece), "negro" (an ordinary word for black in Spanish and
+# Portuguese answers), "figa" (also slang for "cool").
+
+cazzo
+cazzi
+cazzone
+cazzoni
+cazzata
+cazzate
+vaffanculo
+fanculo
+affanculo
+stronzo
+stronza
+stronzi
+stronze
+puttana
+puttane
+mignotta
+zoccola
+coglione
+coglioni
+rompicoglioni
+merda
+minchia
+fica
+sborra
+succhiacazzi
+bastardo
+bastarda
+bastardi
+frocio
+froci
+ricchione
+culattone
+porco dio
+porca madonna
+dio cane
+fuck
+fucking
+motherfucker
+shit
+bitch

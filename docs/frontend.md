@@ -32,14 +32,77 @@ that already exist — compose these, never re-hand-roll:
   other.
 - **Share controls** — `src/components/ShareCluster.tsx`. `buildShareControls()`
   is the single descriptor for the join-code / link / QR / embed / edit-link
-  controls; `<ShareCluster variant="bar"|"compact" …>` owns their layout on both
-  the presenter's wide bar and compact row.
+  controls; `<ShareCluster variant="menu" …>` (REQ190) draws them as one bar
+  group: the join code, which copies itself on a tap, a direct QR button
+  (REQ191), and a Share menu with the other actions in descriptor order. Below
+  `sm` the same descriptor draws one button with the code on its face, opening a
+  Join menu — Show QR code, Copy join code, then the Share menu's rows
+  (REQ199); `joinMenuLabel()` beside `shareMenuLabel()` names it.
 - **Icon-button hover** — `ICON_BUTTON_HOVER` in `ShareCluster.tsx` is the shared
   muted→accent interaction-state token. Compose it; don't inline
   `text-text-muted hover:text-accent` per surface.
+- **Presenter bar groups** — `BAR_GROUP` and `BAR_GROUP_ITEM`, beside
+  `ICON_BUTTON_HOVER` in `ShareCluster.tsx` (REQ190). `BAR_GROUP` is one pill
+  per group of controls, whose items carry no border of their own;
+  `BAR_GROUP_ITEM` composes `ICON_BUTTON_HOVER` into a control at least 32px
+  square whose pressed (`aria-pressed`) and open (`aria-expanded`) states are an
+  accent fill — a change in luminance, not in hue alone. A toggle in a group
+  never re-declares a `border-accent` of its own. The bar is one control height
+  per width (REQ192, REQ199), and the heights live in the tokens rather than per
+  site: a 38px item, a 44px pill, below `sm`; a 34px item, a 40px pill, from
+  `sm` to `xl`; a 32px item, a 38px pill, from `xl`. The presenter bar's other
+  bordered or filled controls — the Deck trigger, the lifecycle button, the View
+  only marker — compose `BAR_CONTROL_HEIGHT`, the pill's height at each width,
+  and the app menu's trigger `BAR_CONTROL_SIZE`, its square twin. The one item
+  that carries the screen's primary fill, the phone dock's Next, composes
+  `BAR_GROUP_ITEM_PRIMARY` rather than writing the fill inline.
+- **Presenter bottom dock** — below `sm` the presenter bar's room console is
+  docked to the bottom edge of the screen (REQ199): the same element, moved by
+  `max-sm:fixed` classes rather than drawn twice, marked `data-bottom-dock`.
+  While that marker is in the document below `sm`, `src/index.css` sets
+  `--bottom-dock-height` on the root; the presenter page pads its end by it and
+  the toast container (`Toast.tsx`) rises by it, and both read `0px` on every
+  other page; it is also the root's `scroll-padding-bottom`, so a focus that
+  scrolls a control into view keeps it above the dock. A menu opened from the
+  dock is placed against the dock's top edge rather than its trigger's
+  (`BOTTOM_DOCK_ATTRIBUTE` in `BarMenu.tsx`), so it opens clear of the whole
+  dock. A `backdrop-filter` on an ancestor would pin a `fixed` dock to that
+  ancestor, so the presenter header's blur starts at `sm`.
+- **Presenter panel sheet** — below `sm` the panels beside the slide (notes,
+  comments, Q&A, audience, who took part) are one sheet fixed above the dock
+  (REQ199) rather than blocks under the slide: their wrapper is `sm:contents`,
+  so from `sm` it generates no box and they lay out exactly as before. The
+  sheet is drawn only while a panel is (`max-sm:has-[aside]:flex`), stacks the
+  open panels and scrolls when they outgrow it, scrolls a newly opened panel
+  into view, and carries its own "Hide panels" close, which hands focus back to
+  the dock's Panels trigger.
+- **Bar menus** — `src/components/ui/BarMenu.tsx` (REQ190). The mechanics of
+  `<AppMenu/>`, held once: `MenuTrigger`, the portal host, the placement
+  (`appMenuPlacement()`), Escape, the click-away backdrop and the panel's Tab
+  rule, which `AppMenu` composes unchanged. `<BarMenu>` puts them around a panel
+  of `<BarMenuRow>`s under a heading — the presenter bar's Share, Panels and Deck
+  menus. Focus goes to the first enabled row on open, or to the panel when none
+  is enabled. A disabled row dims its icon and label and spells out why on a
+  second line (`disabledReason()` reads it off the accessible name), so the
+  reason reaches a touch screen and a screen reader, not only a hover. A row
+  that hands off to a dialog or a page closes the menu first; a toggle or a copy
+  leaves it open.
+- **An icon control that says why it is unavailable** —
+  `<ReasonButton label reason/>` in `src/components/ui/ReasonTip.tsx` (REQ127).
+  With a `reason` it stays a focusable button marked `aria-disabled`, its click
+  guarded, and shows the reason as a visible tip while hovered, focused or after
+  a tap, dismissible with Escape and linked by `aria-describedby`. The tip is
+  portaled and placed with the bar menus' `appMenuPlacement()`, so a scrolling
+  rail or an entrance animation's transform cannot clip or misplace it.
+  `UNAVAILABLE_CONTROL` is the dimmed look, composed rather than re-declared.
+  The editor's slide-list bulk bar and the slide header's move and delete
+  controls wear it. A `disabled` button with the reason in its `title` or
+  accessible name only is what it replaces: a keyboard cannot reach it and a
+  pointer is rarely shown it.
 - **Theme switch and legal texts** — `<AppMenu/>` in
   `src/components/ui/AppMenu.tsx` (REQ183) is the one shared primitive for both:
-  a 34px icon trigger (lucide `Ellipsis`) opening a disclosure panel with an
+  a 34px icon trigger (lucide `Ellipsis`; the presenter bar sizes it to its
+  control height) opening a disclosure panel with an
   Appearance section (Light / Dark / Auto, from `THEME_OPTIONS` in `Theme.tsx`)
   and a Legal section listing the configured texts. Every screen but a loading
   spinner mounts it — top-right, or in its toolbar where it has one — and that
@@ -47,7 +110,16 @@ that already exist — compose these, never re-hand-roll:
   every route; there is no app-wide footer. Never re-hand-roll a theme toggle
   or a legal-links row: mount `<AppMenu/>`. Its panel is portaled to the
   nearest `DeckThemeScope` (so it escapes a scrolling header but keeps the
-  deck's colours) and clamped to the viewport.
+  deck's colours) and clamped to the viewport. Two optional props, and without
+  them it is the same menu on every surface (REQ199): `className` is appended to
+  the trigger's classes (the presenter bar sizes it per width with it), and
+  `leading` — a trigger name for the screen's own rows, a heading and a
+  `rows(close)` render of `BarMenuRow`s — puts a screen's own section above
+  Appearance; the menu appends what its own sections hold to that name
+  (`appMenuTriggerLabel()`), feedback included where it is on, in a `w-64`
+  panel, with focus on its first enabled row on open. The presenter's phone bar
+  folds its Deck menu into a More menu this way rather than drawing two menu
+  triggers side by side.
 - **Legal texts** — `src/components/LegalLinks.tsx` (REQ183).
   `LEGAL_TEXT_DESCRIPTORS` names the imprint, privacy policy and terms once,
   `<LegalLink/>` is the one anchor a legal link is drawn with (new tab,
@@ -116,8 +188,8 @@ that already exist — compose these, never re-hand-roll:
 - **"May this caller edit this deck?"** — `callerCanEditDeck()` in
   `server/schemas.ts`, re-exported through `src/types.ts` (REQ149). The one
   reading of that question, composed by every surface that gates a deck control:
-  `PresenterPage` (the lifecycle controls, the Q&A queue, the roster, the reset
-  and export chips), `PreviewPage` (the Edit button) and `CreatePage` (the
+  `PresenterPage` (the lifecycle controls, the Q&A queue, the roster, the Deck
+  menu's reset and export rows), `PreviewPage` (the Edit button) and `CreatePage` (the
   redirect that keeps a caller who cannot save out of the editor, and the Preview
   link beside the title). It takes **both** proofs a browser has, because the
   server honours both: `heldEditToken` — whether `getCreatorToken()` finds this
@@ -257,6 +329,23 @@ that already exist — compose these, never re-hand-roll:
   own note to itself (`src/api.ts`), never re-read from the server: a
   participant-facing "what is X called?" would turn a room's names into a public
   lookup.
+- **Signed-in participants** — `src/components/ParticipantSignIn.tsx` (REQ134).
+  `ParticipantSignInGate` is the screen a deck that requires signing in shows a
+  participant it turned away, and `participantSignInPrompt()` the one mapping from
+  the server's stated `refused` code to it: `sign-in-required` asks them to sign
+  in, `participant-account-mismatch` says this device already answered here as
+  another account and offers to switch. The refusal lands in the session slice's
+  `signInRefusal` — from the join door in `loadByCode`, and from any write through
+  `reportingSignInRefusals()` around the live transport or `signInRefusalOf()` in
+  the page's own handlers — and the gate is an **early return** ahead of the error
+  screen, because a refusal here is a door, not a failure. Sign-in happens in the
+  one `AuthDialog`, on the page, so the participant never leaves `/join/<code>`:
+  when the session names a new account the page joins again. The only step that
+  leaves is the password reset email, which `AuthDialog`'s `returnTo` points back
+  at the deck through `appReturnUrl()` — and only once `sameOriginAppPath()` has
+  accepted it as a same-origin path this router serves; anything else falls back
+  to the home page. The gate is the only participant code that reads the session,
+  so a room on an open deck never asks who it is.
 - **The live room's two switches** — `src/components/LiveRoom.tsx`
   (REQ111/REQ109). What the presenter decides about the room *while it is in
   front of them*, and the module exists because both halves of each switch are
@@ -324,6 +413,25 @@ that already exist — compose these, never re-hand-roll:
   relevance rather than availability — the room is not the
   moderator of the room. A **spectator** on the shared screen does get it, inert
   and carrying its reason, like every other control that page draws for them.
+- **What the profanity filter kept off the wall** — `src/components/Results.tsx`
+  (REQ085). `answerFilterReportOf()` is the one read of a tally's filter block,
+  wherever its slide type keeps it (beside a cloud's `words` and a wall's
+  `responses`, inside a typed quiz's `typedAnswers`), and `<AnswerFilterNotice/>`
+  the one rendering, drawn by `ResultsDisplay` under the three free-text tallies:
+  a count on every surface — `ANSWER_FILTER_LABEL_EN` on the shared screen, the
+  participant dictionary's `answersFiltered` on a phone (REQ084), passed as
+  `answerFilterLabel` — and, only where the payload carries the words, a
+  disclosure that starts **closed** and marks each one "Filtered". A tally the
+  filter emptied draws the notice instead of "Waiting for responses". **Nothing
+  here is a privacy boundary**: the filtering is the server's, before any payload
+  leaves, so no component filters, masks or hides an answer. Only the results
+  surface's read (`getSharedResults`) asks for the words (`filtered=include`), and
+  the server answers it only for an editor; nothing that feeds the presenter's
+  screen asks, because that screen is the projector. The setting itself is
+  authored in the editor's Presentation settings beside the reveal mode, the list
+  picker drawn disabled with its reason while the filter is off and its
+  consequence line read through `profanityFilterLanguageFor()` — the server's own
+  reading — so it names the list the room is actually held against.
 - **Which player a video URL opens** — `slideVideoFor()` (re-exported from
   `src/types.ts`) is the single read site for a video slide's `mediaUrl`
   (REQ064). A link to a video platform is a *page*, not a file — a `<video>`
@@ -384,6 +492,39 @@ that already exist — compose these, never re-hand-roll:
   boundary**: the server empties the field for every caller that cannot edit the
   deck, and `PRESENTER_NOTES_PRIVACY_LABEL` ("Only you") states that settled fact
   at the point of authoring rather than enforcing a second, weaker copy of it.
+- **Quiz audio cue** — `src/components/QuizAudioCue.tsx` (REQ058).
+  `quizAudioCueFor()` (re-exported from `src/types.ts`) is the single read of a
+  quiz's `quizAudioUrl`; `quizAudioCueWindow()` decides, as a pure function of
+  the slide, the deck and the server's clock, whether the cue sounds — off the
+  same window the countdown runs on, so the track stops when the screen reads
+  "Time's up" — and `quizAudioCueOffsetSeconds()` where in the track it is, so
+  the cue keeps the window's time however often it is stopped and started;
+  `useQuizAudioCue()` holds the two players that follow those
+  decisions; and `<QuizAudioCueControl/>` is the mute, drawn beside the
+  countdown and on the blanked screen from one descriptor,
+  `quizAudioCueControlFor()`. **Only the presenter page plays a cue**: it alone
+  calls the hook, the dry run hands `PresenterSlideView` no cue, a view-only
+  spectator is told the cue plays on the presenter's screen, and participants
+  are never sent the address (`withAudienceSlides`). `mise run check` holds both
+  halves — nothing but that module and the editor reads the field or resolves
+  the cue, and nothing outside that module and the presenter page makes an
+  audio element or an audio context. A video slide's own player is the slide's
+  content, not a cue, and neither guard is about it. The editor's Audio cue row,
+  `QuizAudioCueFields` in `src/components/SlideEditor.tsx`, offers
+  `QUIZ_AUDIO_PRESETS` and "Custom" as `ChoiceCards` tiles, reads the stored
+  value through `quizAudioChoiceFor()` and draws the URL field only under Custom.
+  A preset is stored as its root-relative path under `/app/audio/`, so a deck
+  authored with a URL reads as Custom and keeps its address. Each bundled track
+  has a play control beside its tile, `<QuizAudioPreviewButton/>`, whose name and
+  failure reason come from `quizAudioPreviewControlFor()`. It is a separate
+  button, so selecting stays silent and pressing play selects nothing, and each
+  tile is its own one-option `ChoiceCards` so that the control is never nested in
+  the tile. `useQuizAudioPreview()` plays one track once through its own media
+  element and has no slide to write to. It is not the hook above, which only the
+  presenter page calls. `quizAudioCueLoopPath()` picks the player for a cue:
+  `createBufferCuePlayer()` for a bundled track, whose loop has no gap, and
+  `createElementCuePlayer()` for a Custom address, which may be on a host that
+  sends no CORS headers.
 - **Quiz verdict** — `QuizVerdict` in
   `src/components/ParticipantSlideView.tsx` is the one rendering of a
   participant's own result, worn by both answer modes. What a quiz question
@@ -408,7 +549,14 @@ that already exist — compose these, never re-hand-roll:
   from a dry run that filled a real deck with fake responses. **Never reach for
   `api.vote` from a participant surface** — go through the transport, and the
   question "can this screen vote?" stays answerable by reading which one it was
-  handed.
+  handed. A live transport is built for **one pass** through the deck (REQ083):
+  its answers, its upvotes and the scorecard it reads all name that pass, and
+  `ParticipantPage` builds a new one — and re-keys the slide view, so the screen
+  starts blank — when the device goes through again. The pass number is always
+  the server's (`POST …/passes`), remembered per deck in `src/storage.ts`'s
+  `PARTICIPANT_PASS_KEY` and forgotten on a reset; `newPassControlFor()` decides
+  whether the "Answer again" control is absent (a deck that allows no second
+  pass), disabled with its reason (not at the last slide yet) or ready.
 - **The editor's stage** — `src/components/SlideCanvas.tsx` (REQ152). The slide
   being authored, drawn as the room will get it, at the centre of the Create/Edit
   page and at every viewport width. It is `SlidePreview` **promoted**, not a
@@ -521,7 +669,7 @@ that already exist — compose these, never re-hand-roll:
     where REQ012's two-option floor is stated, and it returns its *reason*, so a
     disabled control can carry it into an accessible name rather than into a
     hover-only tooltip nothing but a mouse ever reads.
-- **Authored slide text** — `src/components/SlideText.tsx` (REQ088/REQ089/REQ091).
+- **Authored slide text** — `src/components/SlideText.tsx` (REQ088/REQ089/REQ091/REQ093).
   `parseSlideInline()` reads a heading's markup and `parseSlideText()` a body's
   blocks; `<SlideText variant="inline"|"blocks" size=…/>` is the one rendering
   worn by the editor's preview, the shared screen, every phone and the dry run;
@@ -531,17 +679,43 @@ that already exist — compose these, never re-hand-roll:
   re-derive the size from `slide.textSize` — ask `slideTextSizeFor()`: the one
   thing authored text has to be is the *same* text everywhere, and a surface that
   printed the stars a projector resolved would be showing a different slide.
-  Two rules the module exists to keep:
+  Formulas (REQ093) are TeX between `$…$` and `$$…$$`, found by the same parse on
+  Pandoc's rules — so `$5 or $10` stays prose — with `\$` for a dollar sign, code
+  spans winning over formulas, and a `$$` block on lines of its own read as TeX
+  line for line rather than as list items. `<SlideMath/>` in
+  `src/components/SlideMath.tsx` draws one, and is the only module that reaches
+  KaTeX: its options (`SLIDE_MATH_OPTIONS` — `trust` off, `throwOnError`, capped
+  sizes and macro expansion, a fresh macro table per formula), its bound check
+  (`slideMathWithinBounds` — KaTeX's cap reaches positive sizes only, so a
+  negative size past it, or a row stretch past three, is refused before anything
+  is drawn), its load (a chunk
+  of its own, fetched the first time a formula is on screen; the stylesheet and
+  its OFL fonts ride `index.css`) and its fallback: malformed TeX, a command
+  KaTeX refused (drawn in `SLIDE_MATH_REFUSED_MARK`, which the component looks
+  for) or a chunk that never arrived shows the formula exactly as typed. A
+  display formula scrolls sideways inside a `minmax(0,1fr)` grid frame, because
+  every surface centres the slide in a column that shrinks to fit, and a wide
+  formula would otherwise *be* that column's width — past the edge of a phone.
+  Three rules the module exists to keep:
   - **No HTML string is ever built.** The parser emits a typed node tree and
     React escapes every leaf, so `dangerouslySetInnerHTML` is not used here and
     must not be introduced. The only attacker-controlled attribute that reaches
     the DOM is a link's `href`, and `safeSlideLinkHref()` allowlists its scheme
     (`http`/`https`/`mailto`/`tel`) — a `javascript:` target does not become a
-    defanged link, it does not become a link at all.
+    defanged link, it does not become a link at all. The one subtree React does
+    not build is a formula, and KaTeX's own `render()` builds it from DOM nodes
+    into an element React leaves empty — never from a string. `mise run check`
+    refuses KaTeX outside `SlideMath.tsx`, and refuses `dangerouslySetInnerHTML`,
+    an `innerHTML`/`outerHTML` assignment and every other HTML sink anywhere in
+    `src/`.
   - **A gist is not a slide.** Surfaces that *name* a slide rather than show it —
     `SlideRailItem`, `SlideThumbnail`, a `title` tooltip — take
     `slideTextToPlain()` instead, or a truncated rail row reads as the brackets
-    it was typed with.
+    it was typed with. A formula's gist is its TeX without the dollar signs.
+  - **The canvas shows what the room reads.** Its heading is a field (REQ153),
+    and a field can only show TeX, so a heading with a formula in it
+    (`slideInlineHasMath()`) rests typeset on the canvas and shows its source
+    only under the caret.
 - **The deck's theme and its mark** — `src/components/DeckTheme.tsx`
   (REQ079/REQ080/REQ092/REQ135/REQ136). `DECK_THEME_APPEARANCE` is the single
   catalog of what each built-in theme looks like — palette in both colour
@@ -641,7 +815,8 @@ that already exist — compose these, never re-hand-roll:
   "unset" and unset is the value that means *inherit*. It states what the resolver
   will make of a half-typed colour, and what stands while nothing is authored.
 - **Preview entry** — `src/components/PreviewLink.tsx` is the single control that
-  opens a dry run, composed by the editor and the presenter's screen. It is
+  opens a dry run, composed by the editor and — as `variant="menu-row"`, a row
+  of the Deck menu — the presenter's screen. It is
   offered whether or not the browser holds the deck, disabled with its reason:
   a preview reads the deck's answer keys, so it needs the same
   credential an edit does.
@@ -653,8 +828,8 @@ that already exist — compose these, never re-hand-roll:
   it resolves the server's status against the token this browser happens to hold
   into what can actually be offered, including the state nobody expects — a link
   that is **active but not held here**, which cannot be copied (only its hash is
-  stored) and can only be replaced. It hangs off a chip on the presenter's
-  results group, beside Export and Reset rather than in the join-code cluster:
+  stored) and can only be replaced. It hangs off a row of the presenter's Deck
+  menu, beside Export and Reset rather than in the join-code cluster:
   that cluster hands out ways *into* the deck, and this hands out a read of what
   came out of it. What the link opens is
   `src/pages/SharedResultsPage.tsx` at `/results/:id`, which composes
@@ -666,14 +841,14 @@ that already exist — compose these, never re-hand-roll:
   a deck leaves in — the workbook to analyse it, the PDF with its results, the
   PDF of the deck alone — each entry carrying its own label, one-line summary,
   icon and download call; `<ExportDialog/>` is the one surface that composes it,
-  and `exportButtonLabel()` beside it is the accessible name of the chip that
-  opens it (the chip carries an icon and no text, so that string is the whole
-  control). A format added later — REQ097's slide images — is a row in that
-  array and nothing else. It is a dialog rather than three chips because "which
+  and `exportButtonLabel()` beside it is the accessible name of the Deck menu
+  row that opens it (the row's own text is the short "Export…", so that string
+  is what says what leaves the building). A format added later is a row in that
+  array and nothing else. It is a dialog rather than chips because "which
   shape?" is one question with several answers, and this row of the presenter's
   chrome has no space to say what any of them is; every row is drawn whatever
-  the answer, disabled with its reason, and it sits on the results
-  group beside Reset because what an export takes out is the session.
+  the answer, and it sits on the results group beside Reset because what an
+  export takes out is the session.
 - **Saving a file** — `src/download.ts`. `saveBlobAs()` is the one anchor-click
   that puts bytes in a download folder, worn by the deck list's JSON export and
   by every format in the export dialog above (REQ095/REQ096);
@@ -735,6 +910,7 @@ those comments are one authority — if they disagree, fix the drift.
 | `Results.tsx` — poll dot cluster | Array index as `key` | Dots come from a bare count, so the index *is* the identity; the fly-in animation depends on the DOM node surviving across renders |
 | `CreatePage.tsx` / `JoinPage.tsx` — first input | `autoFocus` | Intentional: the title of a new deck and the join code are the one thing the page is for |
 | `PresenterNotes.tsx` — the strip's open editor | `autoFocus` | The box exists only because the author just clicked the strip open (REQ156); focusing it finishes their gesture rather than stealing focus from one |
+| `AnswerThemes.tsx` — a theme's rename field | `autoFocus` | The field replaces the Rename button that was just pressed (REQ114), so without it a keyboard user's focus would fall to the page |
 | `src/api.ts`, `Results.tsx`, `server/routes/presentations.ts` | `any` in the `request<T>` client and the results shapes | Typing the API client end-to-end is its own piece of work, not a drive-by |
 | `SlideText.tsx` — parsed markup nodes | Array index as `key` | A parsed node is addressed by position and nothing else — two identical `**bold**` runs in one sentence differ only by their neighbours — and nothing in the tree is reordered or kept across renders |
 

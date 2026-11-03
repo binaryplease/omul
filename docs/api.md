@@ -135,7 +135,7 @@ omul** below).
 | GET | `/api/presentations/shared` | ✅ session/key | List the decks other accounts have shared with the caller, each with its `accessLevel` (REQ075) — see **Sharing a deck with other accounts** below |
 | POST | `/api/presentations` | optional session/key | Create; returns `creatorToken` once (null for API-key create; records owner when signed in). `templateId` starts the deck from a catalog entry, copying its slides (REQ006) — see **Deck templates** below. `workspaceId` makes the deck the **workspace's** instead: no account owner, no edit token, and a role check on the caller (REQ128) — see **Workspaces** below. `workspaceTemplateId`, alongside it, starts that deck from one of the workspace's own published templates (REQ004) |
 | GET | `/api/presentations/:id` | — | Get presentation by ID. Reports the caller's own `accessLevel` (REQ075) and account-standing `commentAccess` (REQ074) on it |
-| PATCH | `/api/presentations/:id` | ✅ owner, token or `edit` grant | Update the deck's **authored** fields — including `showJoinBar`, whether the presenter surface draws its join bar (REQ073). The owner, the edit-token hash and the results-link pair are not among them and are dropped, not merged |
+| PATCH | `/api/presentations/:id` | ✅ owner, token or `edit` grant | Update the deck's **authored** fields. The owner, the edit-token hash and the results-link pair are not among them and are dropped, not merged |
 | DELETE | `/api/presentations/:id` | ✅ owner or token | Delete presentation — and every collaborator grant on it. The one mutation an `edit` collaborator is **not** allowed (REQ075) |
 | POST | `/api/presentations/:id/start` | ✅ owner, token or `edit` grant | Go live |
 | POST | `/api/presentations/:id/end` | ✅ owner, token or `edit` grant | End presentation |
@@ -146,6 +146,7 @@ omul** below).
 | POST | `/api/presentations/:id/participation` | ✅ owner, token or `edit` grant | Open or close one slide to submissions `{ slideId, open }` (REQ111) — see **The live room** below |
 | POST | `/api/presentations/:id/blank` | ✅ owner, token or `edit` grant | Blank the shared screen, or bring it back `{ blanked }` (REQ109) — see **The live room** below |
 | POST | `/api/presentations/:id/timer` | ✅ owner, token or `edit` grant | Reopen a slide's question, restarting its countdown `{ slideId }` (REQ057) |
+| POST | `/api/presentations/:id/countdown` | ✅ owner, token or `edit` grant | Start, pause, resume or reset a countdown slide's clock `{ slideId, action }` (REQ107) — see **Running a countdown slide** below |
 | POST | `/api/presentations/:id/claim` | ✅ session + control | Claim an ownerless deck for the account (409 if owned by another account, or by a workspace) |
 | POST | `/api/presentations/:id/workspace` | ✅ deck owner + role at the other end | Move the deck into a workspace `{ workspaceId }`, or back into the caller's account `{ workspaceId: null }` (REQ128) — see **Workspaces** below |
 | GET | `/api/presentations/:id/collaborators` | ✅ owner | Who the deck is shared with, and at what level (REQ075) |
@@ -155,9 +156,15 @@ omul** below).
 | GET | `/api/presentations/:id/comments` | ✅ account with any grant, or owner | The deck's comment threads, oldest first (REQ074) — see **Comment threads on slides** below |
 | POST | `/api/presentations/:id/comments` | ✅ account with `comment` / `edit`, or owner | Comment on one slide `{ slideId, body }` (REQ074) |
 | DELETE | `/api/presentations/:id/comments/:commentId` | ✅ the comment's own author | Take back one of your own comments (REQ074) |
-| POST | `/api/presentations/:id/vote` | — | Submit vote `{ slideId, value, participantId, statementId?, skip? }`. Live mode: requires `status === "live"`. Survey mode (REQ003/REQ082): accepts votes at any non-ended status. `statementId` + `skip` support multi-statement scales (REQ029/REQ031) and 2x2 grid items (REQ047/REQ050). Choice slides: see **Choice voting** below; ranking slides: see **Ranking voting** below; 100 Points slides: see **100 Points voting** below; 2x2 grid slides: see **2x2 Grid voting** below; Guess the Number slides: see **Guess the Number voting** below; Pin on Image slides: see **Pin on Image voting** below; form slides take a whole filled-in form as one value, see **Form voting** below; quiz slides add a final-answer rule and a time window, and take either an option id or a typed answer (REQ055), see **Quiz competition** below. |
-| POST | `/api/presentations/:id/response-vote` | — | Upvote (toggle) an open-ended response `{ slideId, responseId, participantId }` — only when slide has `allowResponseVotes: true` (REQ025). |
+| POST | `/api/presentations/:id/vote` | — | Submit vote `{ slideId, value, participantId, statementId?, skip?, pass? }`. Live mode: requires `status === "live"`. Survey mode (REQ003/REQ082): accepts votes at any non-ended status. `pass` names which of the device's passes through an audience-paced deck the answer belongs to (REQ083) — see **Repeat passes** below. `statementId` + `skip` support multi-statement scales (REQ029/REQ031) and 2x2 grid items (REQ047/REQ050). Choice slides: see **Choice voting** below; ranking slides: see **Ranking voting** below; 100 Points slides: see **100 Points voting** below; 2x2 grid slides: see **2x2 Grid voting** below; Guess the Number slides: see **Guess the Number voting** below; Pin on Image slides: see **Pin on Image voting** below; form slides take a whole filled-in form as one value, see **Form voting** below; quiz slides add a final-answer rule and a time window, and take either an option id or a typed answer (REQ055), see **Quiz competition** below. |
+| POST | `/api/presentations/:id/response-vote` | — | Upvote (toggle) an open-ended response `{ slideId, responseId, participantId, pass? }` — only when slide has `allowResponseVotes: true` (REQ025). Per pass (REQ083) |
+| POST | `/api/presentations/:id/passes` | — | Start another pass through an audience-paced deck `{ participantId }` → `{ pass }`, on a deck whose `allowRepeatPasses` is on (REQ083) — see **Repeat passes** below |
 | DELETE | `/api/presentations/:id/answers/:answerId` | ✅ owner, token or `edit` grant | Delete one submitted answer from a word-cloud or open-ended slide (REQ027) — see **Removing a submitted answer** below |
+| GET | `/api/presentations/:id/slides/:slideId/answer-themes` | ✅ owner, token or `edit` grant | The themes a free-text slide's answers are grouped into → `{ themes }` (REQ114) — see **Grouping free-text answers into themes** below |
+| POST | `/api/presentations/:id/slides/:slideId/answer-themes` | ✅ owner, token or `edit` grant | Create an empty theme `{ name }` → `201` (REQ114) |
+| PATCH | `/api/presentations/:id/slides/:slideId/answer-themes/:themeId` | ✅ owner, token or `edit` grant | Rename a theme `{ name }` (REQ114) |
+| DELETE | `/api/presentations/:id/slides/:slideId/answer-themes/:themeId` | ✅ owner, token or `edit` grant | Delete a theme; its answers become ungrouped (REQ114) |
+| PUT | `/api/presentations/:id/answers/:answerId/answer-theme` | ✅ owner, token or `edit` grant | Put one answer in a theme on its slide `{ themeId }`, moving it from any other, or in none `{ themeId: null }` (REQ114) |
 | GET | `/api/presentations/:id/qa?participantId=` | — | The deck-wide Q&A list, as this caller may read it (REQ036/REQ037) — see **The Q&A layer** below |
 | POST | `/api/presentations/:id/qa` | — | Ask a question `{ text, participantId }` (REQ036) |
 | POST | `/api/presentations/:id/qa/settings` | ✅ owner, token or `edit` grant | Switch the Q&A layer on/off, choose who reads it and whether each question waits for approval `{ enabled?, visibility?, approvalRequired? }` (REQ036/REQ037/REQ038) |
@@ -170,17 +177,17 @@ omul** below).
 | POST | `/api/presentations/:id/chat` | — | Post a chat message `{ text, participantId }` (REQ078) |
 | POST | `/api/presentations/:id/participant-name` | — | State what this participant is called on the deck `{ participantId, name }` (REQ076) — see **Participant names** below |
 | GET | `/api/presentations/:id/participants` | ✅ owner, token or `edit` grant | The deck's roster: who took part, by name (REQ076). The results link does **not** open it |
-| GET | `/api/presentations/:id/scorecard?participantId=` | — | One participant's quiz scores across the deck (REQ056), and their place on its leaderboard (REQ059) |
+| GET | `/api/presentations/:id/scorecard?participantId=&pass=` | — | One participant's quiz scores across the deck (REQ056), and their place on its leaderboard (REQ059) — for one pass through it (REQ083, default the first) |
 | GET | `/api/presentations/:id/preview` | ✅ owner, token or `edit` grant | A dry run of the whole deck with generated test votes (REQ103/REQ104) — see **Preview and test votes** below. Writes nothing |
-| GET | `/api/presentations/:id/results` | — | All slide results, each behind the deck's reveal mode (REQ015–REQ017) — see **The deck's reveal mode** below. Also reads the **results token** (REQ098), which lifts that mode |
-| GET | `/api/presentations/:id/results/:slideId` | — | Results for one slide, behind the deck's reveal mode (REQ015–REQ017), and behind the results token the same way. On a `leaderboard` slide this is the deck's standings across its quiz questions — see **Leaderboard slide** below |
+| GET | `/api/presentations/:id/results` | — | All slide results, each behind the deck's reveal mode (REQ015–REQ017) — see **The deck's reveal mode** below. Also reads the **results token** (REQ098), which lifts that mode. Free-text answers the deck's profanity filter withholds are left out for every caller; `?filtered=include` adds them for the deck's owner, edit token or collaborators (REQ085) — see **The profanity filter on free text** below |
+| GET | `/api/presentations/:id/results/:slideId` | — | Results for one slide, behind the deck's reveal mode (REQ015–REQ017), and behind the results token the same way. On a `leaderboard` slide this is the deck's standings across its quiz questions — see **Leaderboard slide** below. Takes `?filtered=` like the whole-deck read (REQ085). |
 | GET | `/api/presentations/:id/results/:slideId/segments?by=` | — | One slide's tally split by the answers the same people gave on an earlier slide, joined on participant id (REQ020/REQ116) — see **Segmented results** below |
 | GET | `/api/presentations/:id/results.xlsx` | ✅ owner, token or `edit` grant | The whole session as an Excel workbook (REQ095) — see **Spreadsheet export** below |
 | GET | `/api/presentations/:id/deck.pdf` | ✅ owner, token or `edit` grant | The deck rendered to a self-contained PDF, with its results (`?results=true`, the default) or without them (`?results=false`) (REQ096) — see **PDF export** below |
 | POST | `/api/presentations/:id/results-link` | ✅ owner, token or `edit` grant | Mint the deck's read-only results link; returns `resultsToken` once (REQ098) — see **The shareable results link** below |
 | DELETE | `/api/presentations/:id/results-link` | ✅ owner, token or `edit` grant | Revoke it. Immediate, and it retires every copy (REQ098) |
 | GET | `/api/presentations/:id/results-link` | ✅ owner, token or `edit` grant | Whether the deck has a link right now, and when it was minted (REQ098) |
-| GET | `/api/join/:code` | — | Look up presentation by 6-digit code |
+| GET | `/api/join/:code` | — | Look up presentation by 6-digit code. On a deck with `requireParticipantSignIn` an anonymous caller is refused `401` `refused: "sign-in-required"` (REQ134) — see **Signed-in participants** below |
 | GET | `/api/workspaces` | ✅ session/key | The workspaces the caller is in, each with the `role` they hold (REQ128/REQ129) |
 | POST | `/api/workspaces` | ✅ session/key | Create one `{ name }`; the caller becomes its `owner` in the same act |
 | GET | `/api/workspaces/:id` | ✅ member | One workspace, with the caller's own role on it |
@@ -362,8 +369,8 @@ in the body:
 | `POST /api/presentations` | 30 per 5 minutes | client |
 | `POST /api/deck-generation` (REQ007) | 5 per 5 minutes | client |
 | `GET /api/join/:code` | 600 per minute | client |
-| `POST …/vote`, `…/response-vote`, `…/qa`, `…/qa/:questionId/upvote`, `…/chat`, `…/participant-name` | 600 per minute | client |
-| the same six public writes | 60 per minute | `participantId` |
+| `POST …/vote`, `…/response-vote`, `…/passes` (REQ083), `…/qa`, `…/qa/:questionId/upvote`, `…/chat`, `…/participant-name` | 600 per minute | client |
+| the same seven public writes | 60 per minute | `participantId` |
 | `POST …/reactions` (REQ077) | 3000 per minute | client |
 | `POST …/reactions` (REQ077) | 120 per minute | `participantId` |
 | `POST …/collaborators` (REQ075) | 600 per minute | client |
@@ -467,8 +474,8 @@ above, and unlike the other two it is not all-or-nothing.
 what the holder may **change**, not what they may read. A collaborator was
 deliberately given the deck, so all three read it exactly as its owner does — the
 answer key on a running quiz question (REQ056), the presenter's notes (REQ090), a
-Form slide's per-participant rows (REQ061), a tally the reveal mode withholds
-(REQ015–REQ017). The two halves of that sentence are `canMutateDeck()` and
+quiz's audio cue (REQ058), a Form slide's per-participant rows (REQ061), a tally
+the reveal mode withholds (REQ015–REQ017). The two halves of that sentence are `canMutateDeck()` and
 `canReadDeckAuthoring()` in `server/schemas.ts`, and no route re-derives either
 by comparing level strings.
 
@@ -790,7 +797,7 @@ this. **Deleting the deck** sweeps them, beside its collaborator grants and for 
 sharper reason than a grant has — a comment is text people wrote, which is the
 last thing that should outlive what it was about (REQ146).
 
-## Authored slide text (REQ088, REQ089, REQ091)
+## Authored slide text (REQ088, REQ089, REQ091, REQ093)
 
 A slide's `question` — and `body` on a content slide — is **markdown, stored
 verbatim**. The boundary does not trim it, escape it, or resolve it: it comes
@@ -798,9 +805,12 @@ back byte for byte on every read, and `textSize` (`small` / `medium` / `large` /
 `x-large`, default `medium`) rides alongside as the step the author picked.
 
 Rendering is entirely the client's, in `src/components/SlideText.tsx` — bold,
-italic, code, up to three sub-heading levels, bulleted and numbered lists, and
-links written `[label](url)` or pasted bare. Two consequences for anything that
-consumes this API:
+italic, code, up to three sub-heading levels, bulleted and numbered lists, links
+written `[label](url)` or pasted bare, and formulas (REQ093): TeX between `$…$`
+inline or `$$…$$` on display, read on Pandoc's rules so that `$5 or $10` stays
+two prices, with `\$` for a literal dollar sign. The server neither typesets nor
+checks a formula — backslashes, braces and dollar signs are stored and served
+as typed. Two consequences for anything that consumes this API:
 
 - **The markup is not sanitised on the way in, because it is never turned into
   HTML on the way out.** The renderer builds React elements, so the only
@@ -808,7 +818,9 @@ consumes this API:
   `http`/`https`/`mailto`/`tel` reach one. A `javascript:` target is stored as
   typed and simply never becomes a link — which is also why a client that
   rendered these strings as HTML itself would be reintroducing the hole this
-  design does not have.
+  design does not have. A formula is typeset by a bundled KaTeX with every
+  command that could emit a link, a picture or an attribute switched off
+  (`src/components/SlideMath.tsx`); one that does not typeset is shown as typed.
 - **A size outside the four steps is never stored, on either write path.** A
   step no surface implements would be a slide the projector cannot draw, so it
   is refused where it is written rather than where it is read. *How* it is
@@ -899,6 +911,83 @@ un-noted one are the same complete shape and no client reaches for
 The preview (REQ103) projects its participant pane through the same function
 client-side, so the phone shown in a dry run is missing exactly what a real
 phone would be missing.
+
+## Skipping a slide (REQ110)
+
+Every slide carries `skipped`, a boolean that defaults to `false` — so a deck
+written before the field existed reads as having no skipped slide. It is an
+authored field like any other: written through `PATCH /api/presentations/:id`
+inside `slides`, under the same owner-or-edit-token gate, and toggled in the
+editor from the slide's header.
+
+**It is navigation, not deletion.** Next and Previous — the presenter's buttons,
+the phone dock and the arrow keys, and an audience-paced participant's own pair
+— step over a skipped slide to the nearest one that is not
+(`steppedSlideIndex()` in `server/schemas.ts`, the one rule every surface
+pages by). When none is left in a direction, that direction is shut exactly as it
+is at the deck's first or last slide; it never wraps. An audience-paced pass
+starts on the first slide that is not skipped.
+
+Everything else about the slide is untouched:
+
+- It stays in the deck, in its place, and `n / total` keeps counting it.
+- `POST /api/presentations/:id/slide` still accepts its index: a presenter may
+  open a skipped slide directly from the rail. The server refuses nothing.
+- Answers already recorded on it stay, and it stays in results, the shareable
+  results page, `results.xlsx` and `deck.pdf` exactly as before.
+- The field is public, like the slide's appearance: it rides the join payload
+  and the `slide.changed` broadcast, because an audience-paced phone pages by it.
+
+## Quiz audio cue (REQ058)
+
+A quiz slide may carry `quizAudioUrl`: the address of an audio track the
+presenter's screen plays while the question's answer window is open — and that
+no other screen ever plays. It defaults to `""`, a question that runs in
+silence, which is what every quiz authored before the field does.
+
+**Three bundled tracks or a custom address.** The editor offers three tracks and
+"Custom". A bundled track is stored as its root-relative path, such as
+`/app/audio/quiz-cue-1.mp3`, so the API sees an ordinary address and has no
+preset vocabulary. Those files are public, like every other file under `/app/`.
+Any other address is one the organizer typed under "Custom", and that track
+stays wherever their link points.
+
+**An address, held to the authored-URL grammar.** Nothing is uploaded. The slide
+stores the value as given, capped at 2048 characters on a create and a PATCH like
+every slide media URL (REQ159 — longer is `422`). What may be *played* is decided at one read
+site, `quizAudioCueFor()` in `server/schemas.ts`: the scheme allowlist every
+other authored media URL meets (`browserSafeAssetUrl` — `http(s)` or a
+root-relative path), and a cue left on a slide that is no longer a quiz is
+inert. A refused address is stored but never played, and the editor says so
+beside the field.
+
+**Presenter-only on the wire, like the notes.** `withAudienceSlides()` empties
+the field to `""` for every caller the deck is not authored for, on every
+surface the notes table above names — the deck fetch without standing, the
+public list, `GET /api/join/:code` whoever asks, and the `slide.changed`
+broadcast — and no results payload or export carries it, so a participant's
+phone is never handed an address it could load. Writing one is the deck
+PATCH's ordinary gate (owner, edit token or `edit` collaborator); a `view` or
+`comment` collaborator reads it, as they read the notes, and is refused `403`
+on the write.
+
+**When it plays is the presenter page's decision, off the server's window.**
+The cue starts when the question opens (REQ057), loops, and keeps the window's
+time — a question paged back to, reopened or reloaded is heard where it would
+have been, and Restart timer starts it from the top. It stops on the instant
+the presenter's countdown reads "Time's up" — the submission grace is flight
+time for a tap, not more question — or when the presenter closes the slide to
+submissions (REQ111), navigates away, or ends the deck. An audience-paced deck
+has no shared window, so its cues never play. See
+`src/components/QuizAudioCue.tsx` and [frontend.md](frontend.md#shared-primitives).
+
+**The browser reads a bundled track with `fetch`.** The presenter page decodes a
+bundled track to loop it without a gap, so the presenter page's `GET` for the
+file comes from a same-origin `fetch`. The editor's preview of a bundled track is
+a media element request and touches no API route. A Custom address is played by
+a media element only, so its host needs no CORS headers. The app sends no
+`Content-Security-Policy`. A proxy that adds one has to allow the same origin in
+`connect-src` and `media-src`, or the bundled cue reads "Audio cue unavailable".
 
 ## Deck templates (REQ005, REQ006)
 
@@ -1565,9 +1654,10 @@ and, unlike them, applies to **every slide type**.
 
 **Every stated refusal carries its machine-readable `refused` code** beside the
 prose — one of `VOTE_REFUSAL_CODES` in `server/schemas.ts`
-(`quiz-window-closed`, `quiz-already-answered`, `participation-closed`). The
-prose is for a bare API caller; the code is for a client that wants to say the
-same thing in its own words.
+(`quiz-window-closed`, `quiz-already-answered`, `participation-closed`, and
+`repeat-passes-off`, which only the request to start another pass through a deck
+answers with — REQ083). The prose is for a bare API caller; the code is for a
+client that wants to say the same thing in its own words.
 
 **That string is the API's, not the room's.** Like the quiz refusals beside it,
 the participant surface pre-empts the round trip and shows the same fact in the
@@ -1637,6 +1727,51 @@ presenter asked for one.
   went dark is indistinguishable from one that has lost its signal, so the shared
   screen draws a stated curtain and the deck's own mark.
 
+## Running a countdown slide (REQ107)
+
+A countdown slide authors its length (`countdownSeconds`, 1–3600, default 60)
+and the presenter runs it. The run is **server-managed live state** on the
+presentation, beside `slideStartedAt` and `revealedSlideIds`, not on the
+authored slide — so the deck PATCH cannot write it, and an editor's save
+mid-session cannot move a clock.
+
+| Setting / field | Meaning |
+|---|---|
+| `countdownSeconds` (slide) | the full length, in whole seconds — what the face shows while it is not running |
+| `countdownRuns` (presentation) | one run per slide id, `{ remainingMs, resumedAt }`: the milliseconds left when the clock last moved, and the server's instant it set off from them. `resumedAt: null` is a clock frozen at `remainingMs`. A slide with no entry is at its full length, not running. Public, because the shared screen and every phone read the same clock from it |
+| `serverNow` (on `GET /presentations/:id` and `GET /join/:code`) | the server's clock at the moment of the response — the clock the run was stamped on, so a client that joins or reloads mid-run draws the time left rather than the full length |
+
+`POST /presentations/:id/countdown` with `{ slideId, action }` moves the clock
+and broadcasts `slide.countdown`. `action` is required:
+
+| `action` | No run | Running | Paused | Finished (reached `0:00`) |
+|---|---|---|---|---|
+| `start` | starts at the full length | no change | resumes from the frozen time | no change |
+| `pause` | no change | freezes at the time left | no change | no change |
+| `reset` | no change | removes the run | removes the run | removes the run |
+
+The server's clock decides the frozen time, and the request carries no time. An
+action that changes nothing answers `200` with the deck as it stands and
+broadcasts nothing, so a retried or duplicated request cannot move a clock.
+
+A clock that reaches `0:00` is finished without any request: it stays there,
+nothing else happens at zero, and only `reset` leaves that state. A run keeps
+the length it started with, so editing `countdownSeconds` moves neither a run
+in progress nor a finished clock; the next start after a reset uses the new
+length. Each slide's run is its own: navigating away, or moving another
+countdown, leaves a run or a pause where it was. A deck-wide reset (REQ101)
+clears every run. A `slideId` the deck does not have is a `404` and a slide that
+is not a countdown a `400`.
+
+The time left is `countdownRemainingSeconds(slide, run, now)` and the state is
+`countdownPhase(run, now)` (`server/schemas.ts`), rounded up, floored at zero,
+with `now` on the server's clock. `nextCountdownRun` holds the table above. The
+shared screen and the phone both draw the clock through
+`src/components/CountdownFace.tsx`, so a phone that joins or reloads during a
+pause draws the frozen time. Surfaces that draw a deck outside a session — the
+editor canvas, the rail, the results view, the dry run, the PDF export — draw
+the full length.
+
 ## Removing a submitted answer (REQ027)
 
 `DELETE /api/presentations/:id/answers/:answerId` takes one individual answer
@@ -1702,9 +1837,142 @@ would move a competitor's standing.
 An answer id belonging to another deck answers the same `404` an unknown id
 does, so the route cannot be used to probe for one.
 
-Automatic moderation — a profanity filter over incoming submissions — is a
-separate requirement (REQ085) and is not implemented; this route is what a
-presenter has instead.
+Automatic moderation — the deck's profanity filter — is REQ085, directly below.
+It withholds an answer from the room without deleting it; this route is still
+the one that removes a row, and it works on an answer the filter is already
+holding back (its id is in the editor's `filteredAnswers`).
+
+## Grouping free-text answers into themes (REQ114)
+
+An editor can sort a word-cloud or open-ended slide's answers into named
+themes. Each theme is `{ id, slideId, name, answerIds, createdAt }`, where
+`answerIds` are the ids the results payload names answers by — the same
+`responses[].id` / `answers[].id` the delete above takes. An answer is in **at
+most one** theme on its slide: putting it in another moves it, and an answer in
+none is ungrouped.
+
+- **Who:** every route — the read included — takes the deck-mutation gate
+  (owner, edit token, or an `edit` grant). Themes are sent to no participant, no
+  broadcast, no shared screen and no results-link holder, whose token opens
+  nothing here (`401`).
+- **Which slides:** `slideAnswersAreGroupable` in `server/schemas.ts` — the two
+  types REQ027 deletes from. Any other type answers `400` with
+  `refused: "slide-type"`, including an answer whose slide has since been
+  authored into another type; a slide not on the deck answers `404`.
+- **Bounds:** a name is trimmed and 1–80 characters (`422` otherwise); a slide
+  holds at most 50 themes, past which creating one answers `400` with
+  `refused: "theme-limit"`.
+- **No probing:** an answer id from another deck, or a theme id from another
+  slide or deck, answers the same `404` an unknown one does.
+- **The answers are never touched.** Themes are stored beside them, in their own
+  collection, so tallies, both results endpoints and both exports (REQ095,
+  REQ096) read exactly what they read before, and nothing here deletes or hides
+  an answer.
+- **Erasure follows the answers:** clearing the session (REQ101) and deleting
+  the deck (REQ146) remove its themes; deleting one answer (REQ027) takes it out
+  of its theme. A theme left with no answers stays — an editor may be building
+  groups ahead of the answers.
+
+## The profanity filter on free text (REQ085)
+
+A deck can hold the room's free text against a word list. An answer that
+contains a word on the list is **withheld from every payload the room is sent**
+— and kept, as written, for the deck's editors on the results surface and in
+both exports.
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `profanityFilterEnabled` | boolean | `false` | Whether the deck filters at all |
+| `profanityFilterLanguage` | `en` / `de` / `fr` / `es` / `it` / `pt` / `nl` / `null` | `null` | Which language's list it reads; `null` follows the deck's own `language` |
+
+Both are authored with the deck — `POST /api/presentations`, the ordinary
+`PATCH` (gated as every mutation is: owner, edit token or `edit` grant; `401` /
+`403` otherwise) and the editor's Presentation settings — and both are public on
+the deck document, since no client draws anything from them and the lists ship in
+this repository. A list outside the seven is refused at the body schema. The list
+in force is one reading, `profanityFilterLanguageFor()` in `server/schemas.ts`:
+`null` while the filter is off, otherwise the chosen list, or the deck's language
+read as its primary subtag (English for any tag the participant screens do not
+speak — the reading `resolveLang` makes for a phone's dictionary, held to it by a
+test). A `null` list is read when asked, not copied when the filter was switched
+on, so a deck re-authored into German filters against the German list.
+A deck stored before the fields existed reads `false` / `null`, with no
+migration.
+
+**What it reads.** The answers that reach a screen as the words somebody wrote:
+a word cloud, an open-ended slide and a quiz question answered by typing
+(REQ055) — `slideAnswersAreFiltered()`. A form's rows never reach the room at
+all (REQ061), so there is nothing to withhold there. The Q&A layer, the chat and
+participant names are not slide answers and are not filtered.
+
+**How it matches.** Whole words, ignoring case and accents: `ß` reads as `ss`,
+full-width letters and ligatures as the letters they draw, any mark stacked on a
+Latin letter (an accent, a variation selector, a strike-through) is ignored, a
+zero-width character typed into a word does not split it, and anything that is
+not a letter or a digit — apostrophes and hyphens included — ends a word, so
+`d'enculé` is caught by `enculé` and `foda-se` by `foda`. Never substrings:
+"Scunthorpe", "classic" and "puttanesca" pass. An entry of several words matches
+as those words in that order. Spelling is not folded: a digit or a look-alike
+letter from another alphabet makes a different word. The lists are `server/profanity-words/<language>.txt`,
+inlined into the server bundle at build time — nothing is read from disk or
+fetched at runtime, and no browser bundle carries one. Each list's header says
+what belongs on it and which innocent look-alikes it keeps out, and
+`server/profanity-filter.schemas.test.ts` holds both.
+
+**What is withheld, and where.** The filter is applied in
+`aggregateSlideResults()`, before any payload is assembled — the reveal gate's
+place, for its reason — so a withheld answer is missing from the public results
+reads, the `results.updated` frame, the preview and segmented breakdowns alike,
+**and from the presenter's own credentialed poll**, because that screen is the
+projector:
+
+| Payload | With the filter on |
+|---|---|
+| word cloud `words`, and the editor's per-answer `answers` (REQ027) | without the withheld answers |
+| open-ended `responses` | without the withheld responses — and so without their ids |
+| typed quiz `typedAnswers.entries` | without the withheld answers' groups; the answer is **still scored** and still counted in `respondentCount` and `scoring` |
+| `totalVotes` | unchanged — every answer that arrived |
+| `filteredCount` (beside `words`/`responses`; inside `typedAnswers`) | how many were withheld — a count, which names nobody. `null` while the deck filters nothing, so "withheld none" and "off" stay apart |
+| `filteredAnswers` (same places) | `null` — except as below |
+
+**The raw words, for an editor who asks.** `GET …/results` and
+`GET …/results/:slideId` take `?filtered=include` (`withhold` is the default;
+anything else is `422`). For a caller who can read the deck's authoring — the
+owner, the edit token, a collaborator at any level, exactly the readers of a
+word cloud's `answers` — it adds `filteredAnswers`: each withheld answer's `id`,
+its `text` exactly as written and its `createdAt`, never a participant id. For
+everybody else, **a results-link holder included**, it reads `null` either way:
+the link is a delegation of the numbers. The results surface
+(`/results/:id`) is the one client read that asks; it draws the words behind a
+closed disclosure, each marked filtered. No read that feeds the presenter's
+screen ever asks.
+
+**In the exports.** The workbook (REQ095) marks every stored row in a
+`Filtered` column on the Responses sheet — `true` beside the raw words the room
+never saw, `false` for an answer the filter read and let through, empty where no
+filter read it (filter off, or not a free-text slide); the Aggregates sheet and
+the PDF's totals count `Withheld by profanity filter` per slide while the deck
+filters; and the Summary states `Profanity filter` and `Profanity filter list`.
+The PDF (REQ096) prints the withheld answers, as written, under a section labelled
+"Withheld from the room by the profanity filter", after the tally the room saw —
+never inside it. Like every setting the exports report, the marks are the deck's
+filter **as of the export**.
+
+**Switching it live.** The filter is evaluated when a tally is read, so it
+applies to answers already given: switched on mid-session it takes the line the
+presenter reached for it about off the wall at once, and switched off it puts
+every withheld answer back. A `PATCH` that moves the list in force — switching
+the filter, picking a list, or moving the deck's `language` while the filter
+follows it — re-sends every free-text slide's recounted tally to the room on
+`results.updated`, so no phone has to reload; a Save that leaves it where it was
+re-sends nothing. A withheld answer that should go for good is taken down with
+the route above, by the id `filteredAnswers` names: no screen draws a delete
+control for one, because the presenter's moderation list is on the projector and
+the results page carries no controls.
+
+**Off is off.** With the filter off every payload carries the answers exactly as
+before; the only difference is the two stated keys, `filteredCount: null` and
+`filteredAnswers: null`, and an empty `Filtered` column in the workbook.
 
 ## Choice voting and results (REQ013, REQ014)
 
@@ -1990,7 +2258,9 @@ otherwise land answered.
 
 Withheld marks are **dropped** from the slide's options rather than emitted as an
 explicit marker, because there the absence is the point: a withheld solution has
-to be indistinguishable from a slide whose author marked nothing. `quizAnswers`
+to be indistinguishable from a slide whose author marked nothing. Every option of
+a withheld question loses the key, marked or not, including an unmarked option's
+stored `isCorrect: null` (the field's declared "never marked", REQ184). `quizAnswers`
 empties to `[]` for the same reason and reads the same way. A typed question's
 `options` are emptied too: it offers none to anyone, and a question switched from
 `select` keeps the options it was authored with (deliberately — that is what
@@ -2051,6 +2321,7 @@ the endpoint hands out nobody else's.
 
 | Field | Meaning |
 |---|---|
+| `pass` | which of this device's passes through an audience-paced deck the card describes (REQ083) — the `?pass=` asked for, read as an answer naming it would be; `1` for a device that never started another pass |
 | `quizCount` / `answeredCount` / `correctCount` | quiz slides in the deck, how many they answered, how many they got right |
 | `totalPoints` / `maxPoints` | their score, and what the deck's quiz questions are worth at best |
 | `slides[]` | **every** quiz slide, answered or not, in deck order |
@@ -2700,9 +2971,10 @@ clear.
 A deck can **require** the people joining it to state a name. What that buys is
 one sentence: the name is stored with that participant's answers and read back
 under it on the results surface and in both exports. What it is not is a login —
-nothing verifies a stated name and nothing signs anybody in (REQ134/REQ137 are
-separate entries), so the `participantId` minted in the browser stays the handle
-every stored row is keyed by, and the name is a *label on that handle*.
+nothing verifies a stated name, so the `participantId` minted in the browser
+stays the handle every stored row is keyed by, and the name is a *label on that
+handle*. Requiring the room to **sign in** is a separate switch with its own
+enforcement — see **Signed-in participants** below.
 
 **The switch is the deck's, it is authored with the deck, and it is off.**
 `requireParticipantName` rides `POST /api/presentations` and the ordinary
@@ -2809,27 +3081,190 @@ Two things the roster is explicitly **not**: it does not re-point the leaderboar
 and it does not name the author of a Q&A question or a chat message — both of
 those channels stay anonymous to the room.
 
-## The join bar (REQ073)
+## Signed-in participants (REQ134)
 
-The presenter surface draws a **join bar** — the join code and the share
-controls beside it, inline on wide screens and on its own row below the header
-otherwise. `showJoinBar` decides whether it is drawn, and that is all it decides.
+A deck can require the people joining it to be **signed in**. Unlike a stated
+name this is checked, and checked by the server: "signed in" means the request's
+own session cookie or personal API key resolves an account, the same resolution
+every account-gated route here uses. No new credential exists for it.
 
-**It is the deck's, and it is shown.** The field is written by the ordinary
-`PATCH /api/presentations/:id` and by nothing else, so the caller is whoever may
-change the deck — the owner, the edit-token holder or an `edit` collaborator —
-and every other caller is refused by that route's own authorization. It defaults
-to `true` on every schema that stores or returns it, which is what a deck stored
-before the field existed reads as. It is not a create field: a new deck shows
-its bar. It is public on the deck document because every presenter screen of the
-deck has to draw the same header, and the one being projected may be a second
-browser; a change reaches those screens on the `presentation.join-bar` frame.
+**The switch is the deck's, authored with it, and off.**
+`requireParticipantSignIn` rides `POST /api/presentations` and the ordinary
+`PATCH`, defaults to `false` on every schema that carries it — so every deck
+stored before it existed reads as off — and is **public** on the deck document
+like `requireParticipantName`, because a client has to know to ask for a
+sign-in. A deck with it off behaves exactly as it did before the switch existed,
+on every route.
 
-**It changes nothing about the door.** Hiding the bar leaves the join code, `GET
-/api/join/:code`, the deck's `status` and every submission route exactly as they
-were — none of them reads the field. A room that already has the code, or the
-link, or the QR printed on a handout, joins as before; what is gone is the code
-drawn on this screen.
+**What it gates.** With it on, these routes refuse a caller with no account:
+
+| Route | Refusal |
+|---|---|
+| `GET /api/join/:code` | `401` `refused: "sign-in-required"` — the body carries nothing of the deck |
+| `POST …/vote`, `…/response-vote`, `…/passes`, `…/qa`, `…/qa/:questionId/upvote`, `…/reactions`, `…/chat`, `…/participant-name` | `401` `refused: "sign-in-required"` |
+
+Each refusal carries the English `error` beside the `refused` code, and
+`Cache-Control: no-store` so a browser does not keep a participant out after
+they sign in. The check runs after the rate limit (REQ145) and before anything
+else the route decides. Public **reads** — the deck read, results, the Q&A list,
+the chat feed — are not gated, and neither is the participant's live WebSocket
+connection.
+
+**One participant id, one account.** The first write a signed-in caller makes
+under a `participantId` on such a deck binds that id, on that deck, to their
+account. Every row the room writes is already keyed by the participant id, so the
+binding attributes all of them to the account whose session sent them without the
+account being copied onto any row. After that:
+
+- the same account writes under the id as before, and a retried write changes
+  nothing;
+- **another account** writing under the same id is refused `403`
+  `refused: "participant-account-mismatch"` on every one of the routes above, so
+  one person's answers cannot be stored as somebody else's;
+- the same id on **another deck** is a different participant, bound separately.
+
+A write that names **no** participant id is refused `400` on such a deck, since
+an answer stored under no id could be attributed to nobody. A reaction is the one
+exception: it stores nothing, so one that names no participant is checked for a
+sign-in alone.
+
+**The binding is sound only for a deck whose switch stayed on.** It is keyed by
+(deck, participant id) with no time window, and it is checked only while the
+switch is on. So on a deck whose switch was **changed** mid-session, rows stored
+under a bound id while it was off — before it went on, or after it went off
+again — read as that account's although no session of that account sent them:
+an anonymous answer under `P` followed by account A's first signed-in write
+under `P`, or A writing under `P`, the switch going off, and somebody else then
+answering anonymously as `P` from the same browser. Nothing reads the binding
+today; whatever comes to (showing the account to the organizer is a later
+decision) has to window it first, and the switch's history that would need is not
+recorded yet.
+
+**The account never leaves the server.** No public schema, broadcast or tally
+declares the binding: it is absent from the join lookup, the deck read (the
+organizer's included), every results read, the Q&A list, the chat feed and the
+roster, and nothing adds it to the exports. Showing the organizer which account
+answered is not part of this surface.
+`server/participant-sign-in.integration.test.ts` reads each of those and
+searches the payload for the account id.
+
+**What clears it.** The bindings are stored in their own collection and go with
+the room's answers: a **reset** (REQ101) clears them, and a **delete** erases them
+with everything else the room wrote (REQ146).
+
+## Repeat passes through an audience-paced deck (REQ083)
+
+An audience-paced deck can let one device go through it **more than once** — a
+kiosk at an event, a self-check somebody retakes — and each time through, a
+**pass**, is kept as its own set of answers instead of replacing the last.
+
+**The switch is the deck's, it is authored with the deck, and it is off.**
+`allowRepeatPasses` rides `POST /api/presentations` and the ordinary `PATCH`,
+defaults to `false` everywhere, and is public on every read a phone makes,
+because a phone has to know whether to offer another pass. It is in effect only
+on an **audience-paced** deck (`mode: "survey"`) — read it through
+`deckAllowsRepeatPasses()` in `server/schemas.ts`; on a presenter-paced deck it is
+stored but opens no pass, and the editor draws the switch only while Audience pace
+is selected, leaving the stored value as it was. What either change
+stops is *new* passes: switching it off, or pacing the deck back to the
+presenter, leaves every pass already opened open — a kiosk's waiting pass is the
+next person's, whichever setting moved. Moving it mid-session reaches
+the room on the `presentation.repeat-passes` frame, in both directions: turned
+on, a phone at the end of the deck is otherwise never offered the pass; turned
+off, it is otherwise offered one the boundary refuses.
+
+**On a deck that never turned it on, nothing is different.** Every device has
+one set of answers and a resubmission replaces it, whatever pass a request
+names — no device ever had a second pass opened, so none can be reached.
+
+**What a pass is, on disk.** Every stored answer (`votes`) and response upvote
+(`responseVotes`) carries `pass`, a whole number from 1. A row written before the
+field existed has none and reads as `1` — a single first pass, with no migration.
+The latest pass the server has opened for each device is recorded in
+`participantPasses`, one row per (deck, participant); a device that never started
+another pass has none, since the first pass is always open.
+
+**Starting one.** `POST /api/presentations/:id/passes` with `{ participantId }`
+**opens** the next pass for that device — the one after the latest opened —
+records it, and answers `{ pass }`: the number its next answers carry. A pass
+exists from that moment rather than from its first answer, which is the point: a
+kiosk waiting at the first slide for the next person holds a pass of its own, so
+whoever answers there answers in it and never over the person before. It is
+always the next number, even when the latest pass holds nothing yet, because the
+last answer of one person and the first tap of the next can cross in flight;
+handing an empty-looking pass back could put both in it. A pass started and never
+answered in leaves no rows, so it appears nowhere in the results — which is why a
+device's passes in an export can skip a number. Refusals:
+
+| Status | When |
+|---|---|
+| `400` `refused: "repeat-passes-off"` | the deck does not allow repeat passes — the switch is off, or the deck is presenter-paced |
+| `400` | the presentation has ended |
+| `404` | the presentation does not exist |
+| `422` | no `participantId` |
+
+Public in the sense the vote endpoint is (the participant id is the credential),
+and it spends the same submission budget a vote does (REQ145).
+
+**Which pass an answer lands in.** `POST …/vote` and `POST …/response-vote` take
+an optional `pass` (absent is `1`), and `GET …/scorecard` takes `?pass=`. All three
+read it through **one rule**, `submissionPassFor()` in `server/schemas.ts`. An
+answer never opens a pass:
+
+| The request names… | It lands in |
+|---|---|
+| the first pass, or no pass | the first pass — no lookup at all |
+| a pass the server opened for this device | that pass, **whatever the switch says now** — turning repeat passes off stops new ones; it does not strand a device in the one it was handed, answered in or not yet |
+| a pass that was never opened | the latest pass that was, or the first — a client that missed a reset, or a hand-built request. Always the same place, however many answers follow, so one person is never split across two passes |
+
+**Each pass is its own set of answers.** Every rule that was per device is per
+pass: a re-submission replaces only that pass's answer, a quiz's answer is final
+only within it (so the next pass answers the question again), a word cloud's cap
+counts only its responses, a multi-select's deselect takes back only its own
+selection, an upvote's toggle never takes back an earlier pass's, and the duplicate
+fold (REQ025) treats an earlier pass's identical words as somebody else's — an
+upvote rather than a second row. The scorecard is one pass's card, and echoes
+`pass` back.
+
+**Every pass is a respondent.** Wherever a tally, a breakdown or an export counts
+people it counts respondents — one device's one pass (`respondentIdOf()`) — and a
+device's first pass is named by its own participant id, so a deck without repeat
+passes counts exactly the people it always did:
+
+| Surface | What a pass is there |
+|---|---|
+| `GET …/results…` | one more in `respondentCount`, and in a quiz's `scoring.answeredCount` |
+| Leaderboard (REQ059) | a row of its own, under its own one-way handle |
+| `GET …/results/:slideId/segments` (REQ020) | joined on the respondent: each pass is grouped by its own answer. The disclosure floor counts **devices**, not passes — one person going through five times is five respondents and still one person, and does not make a group publishable to a caller who cannot edit the deck |
+| `GET …/results.xlsx` (REQ095) | a row of its own on the Participants sheet, which carries a **Pass** column; a **Pass** column on the Responses sheet; counted under `Participants` on the Summary, beside `Repeat passes` |
+| `GET …/deck.pdf` (REQ096) | counted under `Participants` on the cover; a roster row of its own, a later pass marked `(pass n)` |
+
+**What stays per device.** A stated name (REQ076) belongs to the device, so every
+pass it makes carries the name it stated once, and the roster lists the device
+once. The Q&A layer, the chat and reactions are deck-wide channels rather than
+answers, and have no passes.
+
+**What clears them.** Every pass goes, not only the latest: a reset (REQ101) and
+a delete (REQ146) erase by deck — the answers, the upvotes and the record of
+which passes were opened — and taking an answer down (REQ027) takes its upvotes
+from every pass. A participant surface remembers the pass it is on per deck, so a
+reload lands back in it, and forgets it on the `presentation.reset` frame, since
+the re-run starts at the first pass again.
+
+## The join bar (REQ073, retired by REQ191)
+
+The presenter screen always draws the join code and its share controls — the
+code, a QR button and the Share menu — and no setting hides them. The screen is
+also what the room is shown, so the code on it is the room's standing
+invitation; the way to take everything off the wall at once is the blank
+(REQ109).
+
+`showJoinBar` and the `presentation.join-bar` frame are left behind by that
+decision: the deck PATCH still accepts the field, the deck document still stores
+and returns it, and the PATCH still sends the frame, but no client reads either
+of them any more, and their removal is pending. Neither ever decided who may
+join: the join code, `GET /api/join/:code`, the deck's `status` and every
+submission route never read the field.
 
 ## Preview and test votes (REQ103, REQ104)
 
@@ -2919,11 +3354,19 @@ Five sheets — the two halves of the requirement, raw data and result overviews
 
 | Sheet | One row per | Columns |
 |---|---|---|
-| `Summary` | deck fact | `Field`, `Value` — title, join code, status, mode, language, results visibility, Q&A settings, slide counts, participants, whether names were required and how many were stated (REQ076), responses, created/exported instants |
+| `Summary` | deck fact | `Field`, `Value` — title, join code, status, mode, whether the deck allows repeat passes as of the export (REQ083), language, results visibility, Q&A settings, the profanity filter and the list it reads (REQ085), slide counts, participants, whether names were required and how many were stated (REQ076), responses, created/exported instants |
 | `Slides` | slide | `Slide #`, `Slide ID`, `Type`, `Question`, `Participants`, `Responses` |
-| `Responses` | stored submission | `Slide #`, `Slide ID`, `Type`, `Question`, `Item`, `Participant`, `Name`, `Answer`, `Skipped`, `Submitted at` |
-| `Participants` | participant | `Participant`, `Name`, then one column per **interactive** slide (`1. <question>`) |
+| `Responses` | stored submission | `Slide #`, `Slide ID`, `Type`, `Question`, `Item`, `Participant`, `Name`, `Pass`, `Answer`, `Filtered` (REQ085 — whether the profanity filter kept this answer off the wall; empty where no filter read it), `Skipped`, `Submitted at` |
+| `Participants` | respondent — one device's one pass (REQ083) | `Participant`, `Name`, `Pass`, then one column per **interactive** slide (`1. <question>`) |
 | `Aggregates` | slide/entry/metric | `Slide #`, `Question`, `Type`, `Entry`, `Metric`, `Value` |
+
+Every count of participants in the workbook counts **respondents**: a device that
+went through an audience-paced deck twice (REQ083) is two, each its own row on the
+Participants sheet with its own answers, told apart by `Pass`. `Pass` is on every
+export, like `Name` — a column is a schema — and reads `1` all the way down on a
+deck that never allowed a second pass. The Summary's `Repeat passes` is the deck's
+setting when the export was taken, like every other setting on that sheet, so an
+export taken after the switch went off reads `false` above rows from a second pass.
 
 Three properties are worth stating, because each is load-bearing:
 
@@ -2977,9 +3420,9 @@ What the document holds:
 | Section | Contents |
 |---|---|
 | Cover | The deck's title, which reading this is, its join code, status, mode, language and reveal mode, its slide counts, the created and exported instants — and, with results, the participant/response/upvote counts and, on a deck that asked for names, that it did (REQ076) |
-| Roster (REQ076) | Whenever a name was stated in the session, with results: who took part — name and slides answered, ordered by name, with the unnamed rows last under `—`. **No participant id**: this codebase treats one as a bearer credential, and a handout is the artefact most likely to be left on a table; the join to the workbook's Participants sheet is the workbook's own job. Names only; who said what stays the workbook's |
+| Roster (REQ076) | Whenever a name was stated in the session, with results: who took part — name and slides answered, ordered by name, with the unnamed rows last under `—`, and one row per pass where a device went through an audience-paced deck more than once (REQ083), a later pass marked `(pass n)` — the cover counted each. **No participant id**: this codebase treats one as a bearer credential, and a handout is the artefact most likely to be left on a table; the join to the workbook's Participants sheet is the workbook's own job. Names only; who said what stays the workbook's |
 | One per slide | `Slide n of m · <type>`, the question, then what the slide **asked**: options and the marked answer key (or a typed quiz's accepted answers), the selection rule, scale statements and their ends, ranking and 100 Points items, grid axes, a guess range and its reference, a pin target area, form fields with their shape and choices, a content slide's body |
-| …with results | Under each slide: its slide-level totals as a list, and its per-entry numbers as **bars** where the aggregation publishes a share of the whole and as a **table** — one column per metric — where it does not |
+| …with results | Under each slide: its slide-level totals as a list, and its per-entry numbers as **bars** where the aggregation publishes a share of the whole and as a **table** — one column per metric — where it does not. Where the deck's profanity filter withheld answers (REQ085), they follow as written, under "Withheld from the room by the profanity filter" |
 
 Four properties are worth stating, because each is load-bearing:
 
@@ -2998,12 +3441,33 @@ Four properties are worth stating, because each is load-bearing:
   background image are printed as URLs rather than downloaded: an exporter that
   fetched them would be a signed-in caller making this server issue requests to
   an address they chose.
-- **The text is set in the PDF standard fonts**, so nothing is embedded and
-  every reader draws the file the same way. Their encoding is WinAnsi, which
-  covers Latin-1 and a handful of typographic characters: text beyond it is
-  folded to its nearest unaccented form (`č` → `c`), and a script these fonts
-  cannot express at all collapses to a single `?` rather than failing the
-  export. **REQ158** is the entry that replaces the fold with an embedded face.
+- **The text is set in an embedded face** — Noto Sans, regular and bold,
+  vendored under `server/fonts/` (SIL OFL 1.1, see `NOTICE.md` §3) and subset
+  into each file, so a document carries only the glyphs it draws — a typical
+  deck's PDF went from about 6 KB to about 23 KB, where the whole face would add
+  over 1 MB — and every reader draws it the same way. It covers
+  Latin, Latin Extended, Greek and Cyrillic, so `ł`, `č`, `Ω` and `Ї` print as
+  authored — in the deck and in what the room answered alike. **Chinese,
+  Japanese and Korean** — Han, kana, Hangul, and the CJK and full-width
+  punctuation they are written with — are drawn from a second vendored face,
+  Sarasa Gothic SC (regular only, so a bold heading draws its CJK characters in
+  the regular weight, and Japanese or Korean Han in the Simplified Chinese
+  glyph form), chosen per run of text. It is embedded only into an export that
+  has CJK in it, subset like the first: an export without CJK does not grow at
+  all, and one with some carries its glyphs plus about 9 KB of the face's
+  hinting tables. **Emoji** are drawn from a third vendored face, GNU Unifont
+  15.0.06 (OFL 1.1), the same way: monochrome pictographs on a 16-pixel grid
+  rather than the colour picture a phone shows, chosen per run and embedded only
+  into an export that has emoji in it — a few kilobytes for a deck's worth. A
+  sequence is drawn as its parts: a family joined by zero-width joiners as its
+  members side by side, a flag as the two boxed letters of its regional
+  indicators, a keycap as its digit; skin tones are dropped, as the face has no
+  colour to show them in. The face draws the emoji of Unicode 15.0 and earlier;
+  one added since (`🫩`, `🫪`) has only a hex-code placeholder in it and folds.
+  What no face has a glyph for — Arabic, Hebrew, Devanagari, Thai and every
+  other script outside the three — is still folded: to its nearest form the
+  faces can draw (a full-width `Ａ` → `A`) and, failing that, a run of it
+  collapses to a single `?` rather than failing the export (**REQ158**).
 
 An absent number is drawn as an explicit `—` rather than left blank, for the
 reason the workbook keeps its `null` cells.
@@ -3078,6 +3542,7 @@ holder is treated as any other stranger:
 | `GET …/results.xlsx` (REQ095), `GET …/deck.pdf` (REQ096) and `GET …/preview` (REQ103) | The workbook and the preview carry every stored response beside the `participantId` it was cast under; all three carry every answer key, the PDF included and in **both** its readings. The tallies are anonymous aggregates; these are the rows and the key behind them |
 | A running quiz question's answer key (REQ056) | The gate is "is the question over", and a results link is not the presenter ending it. `options[].isCorrect` reads `null` |
 | Presenter notes (REQ090) | They reach a client on the deck payload, which the results token is not a credential on at all — the holder's `GET /presentations/:id` is the public one |
+| The answers the profanity filter withheld (REQ085) | `?filtered=include` adds them only for the deck's own readers — owner, edit token, collaborators; the link holder reads the room's tally and the count, exactly as a phone does. The link delegates the numbers, and the filter decided these words are not for the room |
 | A Form slide's `submissions` (REQ061) | Already withheld from non-editors *whatever the reveal mode says*, because a decision about numbers must not publish a participant's email address. A results link is a decision about numbers — and REQ099 will hand this link to participants |
 | The deck's roster, `GET …/participants` (REQ076) | Gated as a mutation is, so the token is refused with `401`. A link to the tallies is the delegation of the organizer's numbers; who was in the room is not one, and nobody minting one decided to hand that over — the same sentence the row above makes about a form's rows |
 
@@ -3297,10 +3762,12 @@ expired, REQ057), clears the live-room switches `closedSlideIds` and
 `audienceBlanked` (REQ111/REQ109 — a re-run that inherited the last session's
 closed questions would refuse a room that had done nothing), clears the session
 clock's `sessionStartedAt` / `sessionEndedAt` (REQ108 — the next run is timed
-from its own start), and deletes every
+from its own start), clears every countdown in `countdownRuns`, running, paused or finished (REQ107),
+and deletes every
 vote, response upvote, Q&A question, Q&A
-upvote, chat message (REQ078) and stated participant name (REQ076) the
-presentation holds. Reactions (REQ077) are
+upvote, chat message (REQ078), stated participant name (REQ076) and record of a
+started pass (REQ083) the presentation holds — every pass of every device, so the
+re-run's first answer is a first pass again. Reactions (REQ077) are
 not on that list and need not be: nothing persists one. A `presentation.reset`
 event goes out to the room.
 
@@ -3313,23 +3780,38 @@ confirms the reset with what it costs (`src/pages/PresenterPage.tsx`).
 
 ## WebSocket events
 
-Single endpoint: `ws://host/ws`. Clients send `{ type: "join", presentationId, role }`.
-Server broadcasts to all subscribers of a presentationId.
+Single endpoint: `ws://host/ws`. Clients send `{ type: "join", presentationId, role }`,
+and `{ type: "ping" }` as a heartbeat. Server broadcasts to all subscribers of a
+presentationId.
+
+Every join is answered, to that client alone, with `room.joined` (REQ209). A
+client's own copy of the deck was read before its socket joined: the join lookup
+on first load, or whatever it held when a dropped socket or a server restart cut
+the frames off. Anything broadcast in between reached a room it was not in yet.
+The server seats the socket, reads the deck and sends the frame in one
+synchronous step, so every change after the read follows as a frame of its own.
+The browser client sends a `ping` every 15 s. It replaces a socket that has heard
+nothing for a whole beat, and reconnects at once when the page returns to the
+foreground or the network comes back. Each new socket joins again.
 
 | Event | Direction | Payload |
 |---|---|---|
-| `slide.changed` | server → clients | `{ presentationId, slideIndex, slide }` — the slide as the audience may see it: answer key withheld while the question runs (REQ056), presenter notes empty (REQ090) |
-| `results.updated` | server → clients | `{ presentationId, slideId, results }` — the tally as the **audience** may read it, so a slide whose mode withholds it broadcasts `{ type, withheld: true }` and no numbers (REQ016/REQ017), and an editor-only block on it (a word cloud's `answers`, a form's `submissions`) is `null`. Sent when an answer *lands* and when one is *taken down* (REQ027) — a tally moves both ways. **Frames may merge, values never do** (REQ150): a slide broadcasts at most once per 100 ms, so a room answering faster than that is folded into one frame carrying the settled tally rather than one frame per answer. A client that reads each frame as the current state is right; one that counted frames to count answers never was |
-| `presentation.started` | server → clients | `{ presentationId, startedAt }` — `startedAt` is when the session clock began (REQ108), the deck's `sessionStartedAt`. A start on a deck already live keeps its clock, so the frame repeats the instant it already had |
+| `room.joined` | server → the joining client | `{ presentationId, status, activeSlideIndex, activeSlideId, sessionStartedAt, sessionEndedAt, slideStartedAt, revealedSlideIds, closedSlideIds, audienceBlanked, countdownRuns }`: the deck's runtime fields as stored (`LiveRoomSnapshotSchema`), each already on the deck a participant receives, plus `activeSlideId`, the id of the slide at `activeSlideIndex` (`null` when there is none), so a client whose copy of the slides predates an edit can tell it is stale (REQ208). Not sent for a deck that does not exist |
+| `pong` | server → the pinging client | `{}`, the answer to a `ping` |
+| `slide.changed` | server → clients | `{ presentationId, slideIndex, slide }` — the slide as the audience may see it: answer key withheld while the question runs (REQ056), presenter notes and a quiz's audio cue empty (REQ090/REQ058) |
+| `results.updated` | server → clients | `{ presentationId, slideId, results }` — the tally as the **audience** may read it, so a slide whose mode withholds it broadcasts `{ type, withheld: true }` and no numbers (REQ016/REQ017), and an editor-only block on it (a word cloud's `answers`, a form's `submissions`) is `null`. An answer the deck's profanity filter withholds is in no frame at all, only counted in `filteredCount` (REQ085). Sent when an answer *lands* and when one is *taken down* (REQ027) — a tally moves both ways — and for every free-text slide when the filter is switched or its list moves. **Frames may merge, values never do** (REQ150): a slide broadcasts at most once per 100 ms, so a room answering faster than that is folded into one frame carrying the settled tally rather than one frame per answer. A client that reads each frame as the current state is right; one that counted frames to count answers never was |
+| `presentation.started` | server → clients | `{ presentationId, startedAt, slideIndex, slideId }`. `startedAt` is when the session clock began (REQ108), the deck's `sessionStartedAt`. A start on a deck already live keeps its clock, so the frame repeats the instant it already had. `slideIndex` is the slide the start landed on, always the first (REQ208), and `slideId` its id (`null` on a deck with no slides): a phone whose copy was read before the deck's first slide was deleted holds another slide at that index, and re-reads the deck instead of drawing it |
 | `presentation.ended` | server → clients | `{ presentationId, endedAt }` — `endedAt` is where the session clock stopped (REQ108), the deck's `sessionEndedAt`; `null` for a deck that ended without ever going live |
 | `presentation.reset` | server → clients | `{ presentationId }` |
 | `slide.revealed` | server → clients | `{ presentationId, slideId, revealed }` (REQ016/REQ102) |
 | `presentation.results-visibility` | server → clients | `{ presentationId, resultsVisibility }` — the deck's reveal mode moved (REQ015–REQ018). Sent by both its writers: the deck-wide endpoint, and a deck PATCH that names the field. Carries the deck-level setting only; clients re-read the deck for the per-slide overrides — see **The deck's reveal mode** above |
 | `slide.started` | server → clients | `{ presentationId, slideId, startedAt }` — a slide's question was opened, which is what a quiz countdown runs from (REQ057) |
+| `slide.countdown` | server → clients | `{ presentationId, slideId, run }` — a countdown slide's clock was started, paused, resumed or reset (REQ107). `run` is the deck's new `countdownRuns[slideId]`, `{ remainingMs, resumedAt }` with `resumedAt: null` while paused, or `null` after a reset. Applied through `withCountdownRun`, the function the server writes with. An action that changed nothing sends no frame |
 | `slide.participation` | server → clients | `{ presentationId, slideId, open }` — one slide was opened or closed to submissions (REQ111). Carries its value, like the settings frames below: a phone that learned about a closed question only by having an answer bounce is the failure the switch exists to prevent |
 | `presentation.blanked` | server → clients | `{ presentationId, blanked }` — the shared screen was blanked, or brought back (REQ109). Broadcast because the screen being projected may be a second browser rather than the presenter's own |
 | `presentation.participant-name` | server → clients | `{ presentationId, requireParticipantName }` — the deck started or stopped asking joiners for a name (REQ076). Sent by its one writer, the deck PATCH. Carries the **switch and nothing else**: a frame naming somebody would put a name on every phone in the room, and the roster is fetched by a credentialed caller instead |
-| `presentation.join-bar` | server → clients | `{ presentationId, showJoinBar }` — the presenter surface's join bar was shown or hidden (REQ073). Sent by its one writer, the deck PATCH, so every presenter screen of the deck draws the same header; a participant's screen has nothing to do with it, since hiding the bar changes nothing about who may join |
+| `presentation.repeat-passes` | server → clients | `{ presentationId, allowRepeatPasses }` — the deck started or stopped letting a device go through it again (REQ083). Sent by its one writer, the deck PATCH. The switch as stored; a client reads it with the deck's pace through `deckAllowsRepeatPasses()`. Nothing about who has made how many passes rides it |
+| `presentation.join-bar` | server → clients | `{ presentationId, showJoinBar }` — the presenter surface's join bar was shown or hidden (REQ073). Sent by its one writer, the deck PATCH, so every presenter screen of the deck draws the same header; a participant's screen has nothing to do with it, since hiding the bar changes nothing about who may join. No client listens to it since REQ191 retired the switch, and its removal is pending |
 | `qa.settings` | server → clients | `{ presentationId, qaEnabled, qaVisibility, qaApprovalRequired }` — the Q&A layer was switched on/off, re-scoped, or approval was required or relaxed (REQ036/REQ037/REQ038) |
 | `qa.updated` | server → clients | `{ presentationId }` — the question list moved: asked, upvoted, marked answered or approved (REQ036/REQ038/REQ060) |
 | `channels.settings` | server → clients | `{ presentationId, reactionsEnabled, chatEnabled }` — a participant channel was opened or closed (REQ077/REQ078). Sent by both its writers: the channels endpoint, and a deck PATCH that names either field |

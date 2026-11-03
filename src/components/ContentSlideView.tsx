@@ -5,6 +5,7 @@ import {
 	slideTextSizeFor,
 	slideVideoFor,
 } from "../types";
+import { type CountdownRun, CountdownSlideFace } from "./CountdownFace";
 import { DeckMark } from "./DeckTheme";
 import {
 	INSTRUCTION_FALLBACK_HEADING,
@@ -19,7 +20,9 @@ import { QRCodeDisplay } from "./ui/QRCode";
 //
 // REQ062 (text), REQ063 (image), REQ064 (video), REQ066/REQ067/REQ068 (an
 // externally hosted PowerPoint or Google Slides deck, or a Miro board),
-// REQ065/REQ118 (instruction slide with auto-generated join code + QR). Used by
+// REQ065/REQ118 (instruction slide with auto-generated join code + QR), REQ107
+// (a countdown, running on the live surfaces and at its authored length
+// everywhere else). Used by
 // SlidePreview, PresenterPage and ParticipantPage so the three views stay
 // visually in sync.
 //
@@ -41,6 +44,7 @@ export function ContentSlideView({
 	joinUrl,
 	deck,
 	compact,
+	countdownRun = null,
 	editing = null,
 }: {
 	slide: Slide;
@@ -55,6 +59,13 @@ export function ContentSlideView({
 	deck?: DeckThemeSettings | null;
 	/** Shrinks fonts/sizes for preview panels. */
 	compact?: boolean;
+	/**
+	 * A countdown slide's run (REQ107), handed in by the two live surfaces — the
+	 * presenter's screen and the participant's phone — so the face counts down
+	 * the time left. Absent everywhere a deck is drawn outside a session, which
+	 * shows the full authored length.
+	 */
+	countdownRun?: CountdownRun | null;
 	/**
 	 * The editor's authoring layer (REQ153), when this rendering *is* the canvas.
 	 * Absent — and unreachable — on the presenter's screen and every phone: those
@@ -317,6 +328,21 @@ export function ContentSlideView({
 						{joinUrl}
 					</span>
 				)}
+			</div>
+		);
+	}
+
+	if (slide.type === "countdown") {
+		// REQ107 — the slide is its clock: the time left on the presenter's run
+		// when a live surface hands one in, the full authored length otherwise.
+		return (
+			<div className={`w-full flex flex-col gap-6 ${placement.items} ${placement.text}`}>
+				<SlideQuestion
+					slide={slide}
+					className={headingClass}
+					editing={editing}
+				/>
+				<CountdownSlideFace slide={slide} run={countdownRun} compact={compact} />
 			</div>
 		);
 	}

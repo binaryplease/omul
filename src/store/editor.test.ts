@@ -37,6 +37,94 @@ describe("editor slice — defaults & loading", () => {
 		expect(store.getState().mode).toBe("live");
 		expect(store.getState().slides).toHaveLength(1);
 	});
+
+	test("repeat passes start off, on a fresh deck and on one that never said (REQ083)", () => {
+		const store = createAppStore();
+		store.getState().resetEditor();
+		expect(store.getState().allowRepeatPasses).toBe(false);
+		store.getState().loadEditor({
+			title: "Old deck",
+			slides: [{ id: "s1", type: "word-cloud", question: "Q" }],
+			mode: "survey",
+		});
+		expect(store.getState().allowRepeatPasses).toBe(false);
+	});
+
+	test("repeat passes load from the deck and are authored beside its pace (REQ083)", () => {
+		const store = createAppStore();
+		store.getState().loadEditor({
+			title: "Kiosk",
+			slides: [{ id: "s1", type: "word-cloud", question: "Q" }],
+			mode: "survey",
+			allowRepeatPasses: true,
+		});
+		expect(store.getState().allowRepeatPasses).toBe(true);
+		store.getState().setAllowRepeatPasses(false);
+		expect(store.getState().allowRepeatPasses).toBe(false);
+		// The switch is its own field: moving it leaves the pace where it was.
+		expect(store.getState().mode).toBe("survey");
+		store.getState().setMode("live");
+		expect(store.getState().allowRepeatPasses).toBe(false);
+		store.getState().setAllowRepeatPasses(true);
+		// Stored on a presenter-paced deck too — just not in effect there.
+		expect(store.getState().allowRepeatPasses).toBe(true);
+		expect(store.getState().mode).toBe("live");
+	});
+
+	test("the profanity filter starts off, following the deck's language (REQ085)", () => {
+		const store = createAppStore();
+		store.getState().resetEditor();
+		expect(store.getState().profanityFilterEnabled).toBe(false);
+		expect(store.getState().profanityFilterLanguage).toBeNull();
+		store.getState().loadEditor({
+			title: "Old deck",
+			slides: [{ id: "s1", type: "word-cloud", question: "Q" }],
+		});
+		expect(store.getState().profanityFilterEnabled).toBe(false);
+		expect(store.getState().profanityFilterLanguage).toBeNull();
+	});
+
+	test("the profanity filter loads from the deck and is authored on its own (REQ085)", () => {
+		const store = createAppStore();
+		store.getState().loadEditor({
+			title: "Town hall",
+			slides: [{ id: "s1", type: "word-cloud", question: "Q" }],
+			language: "de",
+			profanityFilterEnabled: true,
+			profanityFilterLanguage: "fr",
+		});
+		expect(store.getState().profanityFilterEnabled).toBe(true);
+		expect(store.getState().profanityFilterLanguage).toBe("fr");
+		store.getState().setProfanityFilterLanguage(null);
+		expect(store.getState().profanityFilterLanguage).toBeNull();
+		store.getState().setProfanityFilterEnabled(false);
+		expect(store.getState().profanityFilterEnabled).toBe(false);
+		// Switching it off forgets nothing: the list waits for it to come back on.
+		store.getState().setProfanityFilterLanguage("nl");
+		expect(store.getState().profanityFilterLanguage).toBe("nl");
+		expect(store.getState().language).toBe("de");
+	});
+
+	test("signing in starts off, and is authored on its own (REQ134)", () => {
+		const store = createAppStore();
+		store.getState().resetEditor();
+		expect(store.getState().requireParticipantSignIn).toBe(false);
+		store.getState().loadEditor({
+			title: "Old deck",
+			slides: [{ id: "s1", type: "word-cloud", question: "Q" }],
+		});
+		expect(store.getState().requireParticipantSignIn).toBe(false);
+		store.getState().loadEditor({
+			title: "Members only",
+			slides: [{ id: "s1", type: "word-cloud", question: "Q" }],
+			requireParticipantSignIn: true,
+		});
+		expect(store.getState().requireParticipantSignIn).toBe(true);
+		store.getState().setRequireParticipantSignIn(false);
+		expect(store.getState().requireParticipantSignIn).toBe(false);
+		// Its own switch: the name question beside it does not move with it.
+		expect(store.getState().requireParticipantName).toBe(false);
+	});
 });
 
 describe("editor slice — slide mutations", () => {
@@ -170,6 +258,34 @@ describe("editor slice — slide mutations", () => {
 		expect(store.getState().slides.map((slide) => slide.question)).toEqual([
 			"second",
 			"first",
+		]);
+	});
+
+	test("bulk actions apply to the whole selection (REQ127)", () => {
+		const store = createAppStore();
+		store.getState().resetEditor();
+		store.getState().addSlide("word-cloud");
+		store.getState().addSlide("open-text");
+		const [firstId, secondId, thirdId] = store
+			.getState()
+			.slides.map((slide) => slide.id);
+
+		store.getState().moveSlides([firstId, secondId], 1);
+		expect(store.getState().slides.map((slide) => slide.id)).toEqual([
+			thirdId,
+			firstId,
+			secondId,
+		]);
+		store.getState().setSlidesSkipped([firstId, thirdId], true);
+		expect(
+			store.getState().slides.map((slide) => slide.skipped ?? false),
+		).toEqual([true, true, false]);
+		// A selection covering the whole deck is refused, not trimmed.
+		store.getState().removeSlides([firstId, secondId, thirdId]);
+		expect(store.getState().slides).toHaveLength(3);
+		store.getState().removeSlides([firstId, thirdId]);
+		expect(store.getState().slides.map((slide) => slide.id)).toEqual([
+			secondId,
 		]);
 	});
 

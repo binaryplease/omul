@@ -1,0 +1,75 @@
+# Profanity word list — German (REQ085)
+#
+# Read by server/profanity-filter.ts when a deck's profanity filter uses this
+# language. One entry per line; an entry of several words matches those words
+# in that order. Lines starting with # are comments.
+#
+# Matching is whole-word and ignores case and accents, and ß reads as ss, so
+# "Scheiße", "SCHEISSE" and "scheisse" are one entry. German builds insults by
+# compounding, and a whole-word list catches only the compounds it names: each
+# one in common use is listed on its own line.
+#
+# What belongs here: words whose ordinary use is obscene, a slur, or a strong
+# personal insult — including the English swearwords German speakers use as
+# loanwords. What does not: mild words (verdammt, Kacke, Idiot), and any word
+# whose everyday meaning is innocent once case and accents are folded —
+# "Schwanz" (a tail), "behindert" (the word for disabled), "Möse" (which folds
+# onto "Mose", Moses), "Mongo" (a database), "Hurenkind" (a typesetting term).
+
+scheiße
+scheiß
+scheißkerl
+scheißdreck
+kackscheiße
+beschissen
+arschloch
+arschlöcher
+arschgesicht
+arschkriecher
+leck mich am arsch
+verpiss
+ficken
+fick
+fickt
+fickst
+gefickt
+ficker
+fickfresse
+dummfick
+fotze
+fotzen
+votze
+hure
+huren
+hurensohn
+hurensöhne
+nutte
+nutten
+schlampe
+schlampen
+wichser
+wichsen
+titten
+schwanzlutscher
+schwuchtel
+schwuchteln
+spast
+spasti
+spasten
+missgeburt
+drecksau
+dreckschwein
+drecksack
+hackfresse
+bastard
+neger
+kanake
+kanaken
+zigeuner
+fuck
+fucking
+motherfucker
+shit
+bullshit
+bitch
+asshole

@@ -1,0 +1,57 @@
+# Profanity word list — Spanish (REQ085)
+#
+# Read by server/profanity-filter.ts when a deck's profanity filter uses this
+# language. One entry per line; an entry of several words matches those words
+# in that order. Lines starting with # are comments.
+#
+# Matching is whole-word and ignores case and accents, so "cabrón" and
+# "CABRON" are one entry. Every inflection in common use is its own entry.
+#
+# What belongs here: words whose ordinary use is obscene, a slur, or a strong
+# personal insult, across Spain and Latin America — including the English
+# swearwords Spanish speakers use as loanwords. What does not: mild words
+# (carajo, hostia, culo), and any word whose everyday meaning is innocent in
+# some Spanish-speaking country — "coño" (which folds onto "cono", a cone),
+# "polla" (a hen, a betting pool), "coger" (to take), "pinche" (a kitchen
+# hand), "capullo" (a bud), "zorra" (a vixen, as in the fable).
+
+puta
+putas
+puto
+putos
+hijoputa
+hijueputa
+mierda
+mierdas
+joder
+jodido
+jodida
+jódete
+cabrón
+cabrones
+cabrona
+gilipollas
+pendejo
+pendejos
+pendeja
+verga
+chingar
+chinga
+chingada
+chingado
+maricón
+maricones
+marica
+culero
+culeros
+follar
+follando
+malparido
+malparida
+negrata
+sudaca
+fuck
+fucking
+motherfucker
+shit
+bitch

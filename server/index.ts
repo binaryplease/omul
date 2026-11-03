@@ -13,6 +13,7 @@ import {
 import { keptQueryParamsStartupReport } from "./kept-query-params";
 import { legalLinksStartupReport } from "./legal-links";
 import { adminFeedbackRoutes, adminRoutes } from "./routes/admin";
+import { answerThemeRoutes } from "./routes/answer-themes";
 import { deckGenerationRoutes } from "./routes/deck-generation";
 import { discoveryRoutes, publicOriginStartupReport } from "./routes/discovery";
 import { feedbackRoutes } from "./routes/feedback";
@@ -23,8 +24,9 @@ import { staticRoutes } from "./routes/static";
 import { templateRoutes } from "./routes/templates";
 import { websiteRoutes } from "./routes/website";
 import { workspaceRoutes } from "./routes/workspaces";
+import { joinLiveRoom } from "./services/presentations";
 import { websiteLinksStartupReport } from "./website-links";
-import { joinRoom, registerClient, removeClient } from "./ws";
+import { registerClient, removeClient, sendToClient } from "./ws";
 
 const PORT = process.env.PORT || 3000;
 const isDev = process.env.NODE_ENV !== "production";
@@ -186,6 +188,10 @@ const app = new Elysia()
 	// ── All API routes ────────────────────────────────────────
 	.use(presentationRoutes)
 
+	// ── Themes over a free-text slide's answers (REQ114) ──────
+	// Editor-only; see `server/services/answer-themes.ts`.
+	.use(answerThemeRoutes)
+
 	// ── Workspaces (REQ128, REQ129) ───────────────────────────
 	// The other owner a deck can have: a workspace, and the roles the accounts in
 	// it hold. Registered after the presentation routes it lists decks from —
@@ -212,11 +218,16 @@ const app = new Elysia()
 		message(ws, message) {
 			try {
 				const msg = typeof message === "string" ? JSON.parse(message) : message;
+				// The client id lives on ws.raw.data — see the open() note above.
+				const clientId = (ws.raw as any).data?.clientId as string | undefined;
+				if (!clientId) return;
 				if (msg.type === "join") {
-					// The client id lives on ws.raw.data — see the open() note above.
-					const clientId = (ws.raw as any).data?.clientId as string | undefined;
-					if (!clientId) return;
-					joinRoom(clientId, msg.presentationId, msg.role || "participant");
+					// Answered with the deck's live state (REQ209).
+					joinLiveRoom(clientId, msg.presentationId, msg.role || "participant");
+				} else if (msg.type === "ping") {
+					// The client's heartbeat (REQ209): a socket that stops answering
+					// is one the client replaces.
+					sendToClient(clientId, "pong", {});
 				}
 			} catch {
 				// ignore malformed messages

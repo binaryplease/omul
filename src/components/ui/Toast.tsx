@@ -35,7 +35,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 	return (
 		<ToastContext.Provider value={{ addToast }}>
 			{children}
-			<div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
+			{/* Clear of the presenter's phone dock (REQ199), which sets
+			    `--bottom-dock-height` while it is drawn; unset everywhere else. */}
+			<div className="fixed bottom-[calc(1.5rem+var(--bottom-dock-height,0px))] right-6 z-50 flex flex-col gap-2">
 				{toasts.map((toast) => (
 					<div
 						key={toast.id}

@@ -1,0 +1,117 @@
+# Profanity word list — English (REQ085)
+#
+# Read by server/profanity-filter.ts when a deck's profanity filter uses this
+# language. One entry per line; an entry of several words matches those words
+# in that order. Lines starting with # are comments.
+#
+# Matching is whole-word and ignores case and accents, so an entry is written
+# once, in its ordinary spelling, and every inflection a speaker actually uses
+# is its own entry: "fuck" does not catch "fucking", and does not catch
+# "Scunthorpe" either.
+#
+# What belongs here: words whose ordinary use is obscene, a slur, or a strong
+# personal insult. What does not: mild interjections (damn, hell, crap), and
+# any word whose everyday meaning is innocent — "cock" (the bird), "dick" (the
+# name), "tit" (the bird), "cum" (as in cum laude), "coon", "dyke", "knob",
+# "pussy" (the cat, the willow), "chink" (a gap), "fag" (a cigarette), "retard"
+# (to slow), "honky" (as in honky-tonk).
+# A filter that withholds an innocent answer from a room is one an organizer
+# switches off, so a doubtful word stays out and the tests in
+# server/profanity-filter.schemas.test.ts hold that line.
+
+fuck
+fucks
+fucked
+fucker
+fuckers
+fucking
+fuckin
+fuckhead
+fuckheads
+fuckface
+fuckwit
+fuckwits
+fucktard
+motherfucker
+motherfuckers
+motherfucking
+clusterfuck
+shit
+shits
+shitty
+shitting
+shithead
+shitheads
+shithole
+bullshit
+horseshit
+dipshit
+cunt
+cunts
+cocksucker
+cocksuckers
+cocksucking
+dickhead
+dickheads
+pussies
+twat
+twats
+wank
+wanker
+wankers
+wanking
+bollocks
+bellend
+knobhead
+tosser
+tossers
+asshole
+assholes
+arsehole
+arseholes
+asshat
+bastard
+bastards
+bitch
+bitches
+bitching
+slut
+sluts
+whore
+whores
+skank
+skanks
+jizz
+cumshot
+blowjob
+blowjobs
+handjob
+dildo
+dildos
+milf
+ballsack
+spaz
+nigger
+niggers
+nigga
+niggas
+gook
+gooks
+spic
+spics
+wetback
+wetbacks
+beaner
+beaners
+kike
+kikes
+paki
+pakis
+raghead
+ragheads
+towelhead
+towelheads
+faggot
+faggots
+tranny
+trannies

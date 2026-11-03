@@ -665,6 +665,9 @@ describe("buildResultsWorkbook (REQ095)", () => {
 			// REQ076 — the name column keeps its place whether or not the deck
 			// asked for names; this fixture did not, so every cell in it is null.
 			"Name",
+			// REQ083 — and the pass column keeps its place whether or not the deck
+			// allowed a second pass; this fixture's rows are all first passes.
+			"Pass",
 			"1. Which release train?",
 			"2. One word",
 		]);

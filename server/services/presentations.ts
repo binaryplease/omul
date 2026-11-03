@@ -7,6 +7,7 @@ import {
 	generateDeckTestVotes,
 	type TestVoteSet,
 } from "../preview";
+import { answerFilterFor, type ProfanityMatcher } from "../profanity-filter";
 import {
 	deckAccessLevelFor,
 	listGrantsForUser,
@@ -18,6 +19,11 @@ import {
 	participantNameLookup,
 	setParticipantName,
 } from "./participant-names";
+import {
+	deleteDeckAnswerThemes,
+	removeAnswerFromThemes,
+} from "./answer-themes";
+import { deleteDeckParticipantAccounts } from "./participant-accounts";
 import { deleteDeckComments } from "./slide-comments";
 import { defaultDeckThemeFor, workspaceRoleFor } from "./workspaces";
 import {
@@ -37,7 +43,14 @@ import {
 	decodePoints,
 	decodeQuizAnswer,
 	decodeRanking,
+	deckAllowsRepeatPasses,
 	deckRequiresParticipantName,
+	FIRST_PASS,
+	passOf,
+	type RepeatPassSettings,
+	respondentIdFor,
+	respondentIdOf,
+	submissionPassFor,
 	type DeckBrand,
 	type DeckThemeId,
 	EDIT_TOKEN_HEADER,
@@ -58,12 +71,16 @@ import {
 	isPinInArea,
 	isQuizWindowOpen,
 	isStandingQuizAnswer,
+	type CountdownAction,
+	type CountdownRunState,
 	type LeaderboardEntry,
 	leaderboardEntryLabel,
 	leaderboardSizeFor,
 	type LeaderboardTotals,
+	LiveRoomSnapshotSchema,
 	type LiveRoomState,
 	maxResponsesFor,
+	nextCountdownRun,
 	maxSelectionsFor,
 	normalizeQuestionText,
 	normalizeQuizAnswer,
@@ -75,9 +92,13 @@ import {
 	type ParticipantChannelSettings,
 	participantChannelsFor,
 	type ParticipantNameSettings,
+	type ParticipantLanguage,
 	type ParticipantRosterEntry,
 	ParticipantRosterEntrySchema,
 	orderParticipantRoster,
+	type ProfanityFilterState,
+	profanityFilterLanguageFor,
+	slideAnswersAreFiltered,
 	type QAListEntry,
 	qaListVisibleToAudience,
 	qaQuestionsVisibleTo,
@@ -97,6 +118,7 @@ import {
 	withheldTally,
 	withInheritedResultsVisibility,
 	withoutUnwritableFields,
+	withCountdownRun,
 	withSlideParticipation,
 	QUIZ_CORRECT_POINTS,
 	QUIZ_MAX_POINTS,
@@ -115,6 +137,7 @@ import {
 	voteValueLimitFor,
 	withAudienceSlides,
 	StoredChatMessageSchema,
+	StoredParticipantPassSchema,
 	StoredPresentationSchema,
 	StoredQAQuestionSchema,
 	StoredQAUpvoteSchema,
@@ -125,7 +148,7 @@ import {
 	type StoredResponseVote,
 	type StoredVote,
 } from "../schemas";
-import { participantIdsIn, type ResultsExportInput } from "../results-export";
+import { respondentIdsIn, type ResultsExportInput } from "../results-export";
 import {
 	type SegmentBucket,
 	SEGMENT_MIN_RESPONDENTS,
@@ -136,7 +159,7 @@ import {
 	segmentedTallyIsAggregate,
 	segmentRefusalFor,
 } from "../segmentation";
-import { broadcastToPresentation } from "../ws";
+import { broadcastToPresentation, joinRoom, sendToClient } from "../ws";
 
 // Index the fields each collection filters on so lookups hit a json_extract
 // expression index instead of scanning (see the where-clauses below).
@@ -170,6 +193,13 @@ const qaUpvotes = createStore("qaUpvotes", StoredQAUpvoteSchema, {
 const chatMessages = createStore("chatMessages", StoredChatMessageSchema, {
 	indexes: ["presentationId", "participantId"],
 });
+// The latest pass started for each device on each deck (REQ083) — one row per
+// (deck, participant), read on every answer that names a pass past the first.
+const participantPasses = createStore(
+	"participantPasses",
+	StoredParticipantPassSchema,
+	{ indexes: ["presentationId", "participantId"] },
+);
 
 /**
  * The queue every "read what is already stored, then decide what to store" in
@@ -250,9 +280,25 @@ type SingleRowVotePayload =
 	| { value: string; statementId: string; skip: boolean };
 
 /**
- * Store the one row a participant holds on this slide — replacing the one they
- * already hold, or writing their first — with the read and the write in the same
- * turn.
+ * One device's rows, narrowed to one of its passes (REQ083).
+ *
+ * In memory rather than in the where-clause, and for a reason that is not about
+ * speed: a row stored before passes existed has no `pass` key on disk, and the
+ * store compares that as nothing rather than as the first pass. The rows come
+ * back through the stored schema, whose default fills the pass in, so here the
+ * same row reads as the first pass it is.
+ */
+function rowsInPass(
+	rows: Record<string, unknown>[],
+	pass: number,
+): Record<string, unknown>[] {
+	return rows.filter((row) => passOf(row) === pass);
+}
+
+/**
+ * Store the one row a participant holds on this slide in this pass — replacing
+ * the one they already hold, or writing their first — with the read and the
+ * write in the same turn.
  *
  * Every single-row slide type went through its own copy of this: find the
  * participant's rows, update the first, insert if there were none. Each copy
@@ -267,11 +313,17 @@ type SingleRowVotePayload =
  * and the tidy-up stays for the rows written before it was. The caller
  * broadcasts: recounting the slide and writing to every socket in the room is no
  * part of the decision the queue protects.
+ *
+ * "One row" is one row **per pass** (REQ083): a device going through the deck
+ * again is somebody else answering, so its earlier pass is neither replaced nor
+ * collapsed. The queue key stays per participant — wider than one pass, which
+ * only ever queues a device behind itself.
  */
 async function storeSingleRowVote(
 	presentationId: string,
 	slideId: string,
 	participantId: string,
+	pass: number,
 	payload: SingleRowVotePayload,
 	statementId: string | null = null,
 ): Promise<Record<string, unknown>> {
@@ -288,12 +340,15 @@ async function storeSingleRowVote(
 			// `statementId` to null and the store compiles a null operand
 			// to `IS NULL`, so this matches exactly the rows the key covers and
 			// nothing else.
-			const existing = await votes.find({
-				presentationId,
-				slideId,
-				participantId,
-				statementId,
-			});
+			const existing = rowsInPass(
+				await votes.find({
+					presentationId,
+					slideId,
+					participantId,
+					statementId,
+				}),
+				pass,
+			);
 			if (existing.length > 0) {
 				await votes.update(existing[0].id as string, payload);
 				// A participant holds one row here by construction; collapse whatever a
@@ -308,6 +363,7 @@ async function storeSingleRowVote(
 				presentationId,
 				slideId,
 				participantId,
+				pass,
 				...payload,
 				createdAt: new Date().toISOString(),
 			});
@@ -339,6 +395,8 @@ export async function createPresentation(
 	opts: {
 		language?: string;
 		mode?: "live" | "survey";
+		/** Whether a device may go through the deck more than once (REQ083). */
+		allowRepeatPasses?: boolean;
 		resultsVisibility?: "instant" | "on-click" | "private";
 		/** The Q&A layer, authored with the deck (REQ036/REQ037). */
 		qaEnabled?: boolean;
@@ -348,6 +406,11 @@ export async function createPresentation(
 		chatEnabled?: boolean;
 		/** Whether the room states its names on joining (REQ076). */
 		requireParticipantName?: boolean;
+		/** Whether the room must be signed in to join and answer (REQ134). */
+		requireParticipantSignIn?: boolean;
+		/** The profanity filter on free text, and the list it reads (REQ085). */
+		profanityFilterEnabled?: boolean;
+		profanityFilterLanguage?: ParticipantLanguage | null;
 		/**
 		 * The deck's appearance (REQ079/REQ080) and the organizer's mark (REQ136) —
 		 * a built-in theme's id, the theme the deck defines for itself, or both.
@@ -399,6 +462,10 @@ export async function createPresentation(
 		status: "draft",
 		language: opts.language ?? "en",
 		mode: opts.mode ?? "live",
+		// REQ083 — one set of answers per device is what an unstated setting
+		// means, so a client that has never heard of passes creates the deck it
+		// always did.
+		allowRepeatPasses: opts.allowRepeatPasses ?? false,
 		resultsVisibility: opts.resultsVisibility ?? "instant",
 		revealedSlideIds: [],
 		// The withholding value is what an unstated setting means (REQ037): a deck
@@ -415,6 +482,14 @@ export async function createPresentation(
 		// client that has never heard of this setting must not create a deck that
 		// asks a room for its names.
 		requireParticipantName: opts.requireParticipantName ?? false,
+		// REQ134 — likewise: a client that has never heard of the switch creates
+		// the open room it always did.
+		requireParticipantSignIn: opts.requireParticipantSignIn ?? false,
+		// REQ085 — off, and following the deck's language once switched on, is what
+		// an unstated filter means: a client that has never heard of it creates the
+		// deck it always did, every answer on the wall as written.
+		profanityFilterEnabled: opts.profanityFilterEnabled ?? false,
+		profanityFilterLanguage: opts.profanityFilterLanguage ?? null,
 		// REQ079/REQ080/REQ136 — an unstated theme is the workspace's default for
 		// a workspace deck (REQ086) and the house theme otherwise, an unstated
 		// brand authors nothing, and an unstated logo is no logo. All spelled out
@@ -963,6 +1038,19 @@ export async function updatePresentation(
 	rawChanges: Record<string, unknown>,
 ) {
 	const changes = withoutUnwritableFields(rawChanges);
+	// REQ085 — the profanity filter's list as it stood before this write, read only
+	// when the write could move it. The editor sends every setting on every Save,
+	// so naming a field is no evidence it changed; comparing the list in force
+	// before and after is what keeps the room from being recounted on every Save.
+	const movesFilter =
+		"profanityFilterEnabled" in changes ||
+		"profanityFilterLanguage" in changes ||
+		"language" in changes;
+	const filterBefore = movesFilter
+		? profanityFilterLanguageFor(
+				((await presentations.findOne(id)) ?? {}) as ProfanityFilterState,
+			)
+		: null;
 	const updated = await presentations.update(id, changes);
 	if (!updated) return updated;
 	// REQ059 — quiz scores are derived from the slide *as it stands now*, so
@@ -1011,6 +1099,33 @@ export async function updatePresentation(
 	if ("requireParticipantName" in changes) {
 		broadcastParticipantNameSetting(id, updated);
 	}
+	// REQ083 — whether a phone offers another pass at the end of the deck is
+	// drawn from the deck it holds, so the switch has to reach the room for the
+	// reason the one above does. Turned **on**, a participant who has reached the
+	// end is otherwise never offered the pass it now allows; turned **off**, a
+	// participant is otherwise offered a control the boundary has started
+	// refusing. It names the switch alone — nothing about who has made how many
+	// passes is anybody else's to read. This PATCH is the only writer.
+	if ("allowRepeatPasses" in changes) {
+		broadcastToPresentation(id, "presentation.repeat-passes", {
+			presentationId: id,
+			allowRepeatPasses: updated.allowRepeatPasses === true,
+		});
+	}
+	// REQ085 — the profanity filter decides what every free-text tally may hold,
+	// so a change to it has to reach the room the way an answer does: as a
+	// recounted tally, not a settings frame. Switched **on**, the wall otherwise
+	// keeps the very line the presenter reached for the switch to take down until
+	// the next answer lands; switched **off**, the answers it was holding back stay
+	// missing just as long. The deck's language moves the list while the filter
+	// follows it, so that write counts too — when, and only when, the list in
+	// force is not the one it was.
+	if (
+		movesFilter &&
+		profanityFilterLanguageFor(updated as ProfanityFilterState) !== filterBefore
+	) {
+		await recountFilteredTallies(id, updated.slides as Slide[]);
+	}
 	// REQ073 — the join bar is drawn by every presenter screen of the deck, and
 	// the one being projected may be a second browser, so the switch has to reach
 	// it rather than wait for its next reload. It names only the switch: hiding
@@ -1026,15 +1141,44 @@ export async function updatePresentation(
 }
 
 /**
+ * Re-send every free-text slide's tally to the room (REQ085) — what a change to
+ * the profanity filter owes a live session. Each slide goes through the
+ * coalesced broadcast an answer takes, read as the audience reads it, all of
+ * them at once; a slide nobody is watching costs one read and reaches nobody.
+ *
+ * A failed recount is logged rather than thrown: the deck has been saved by the
+ * time this runs, and reporting the save as failed would be untrue. A room that
+ * missed the frame catches up on its next tally, and the presenter's own screen
+ * on its next poll.
+ */
+async function recountFilteredTallies(
+	presentationId: string,
+	slides: Slide[],
+): Promise<void> {
+	await Promise.all(
+		slides.filter(slideAnswersAreFiltered).map((slide) =>
+			broadcastResults(presentationId, slide.id).catch((cause: unknown) =>
+				console.error(
+					`[tally] recount failed for ${tallyKey(presentationId, slide.id)}:`,
+					cause,
+				),
+			),
+		),
+	);
+}
+
+/**
  * Erase everything a room submitted under one presentation — the votes, the
  * upvotes on open-ended responses, the Q&A questions, the Q&A upvotes, the live
- * chat (REQ078) and the names the room stated on joining (REQ076).
+ * chat (REQ078), the names the room stated on joining (REQ076), the record of
+ * which passes each device started (REQ083) and which account each participant
+ * id was bound to on a deck that requires signing in (REQ134).
  *
- * All six collections are keyed by `presentationId` and by nothing else, so the
+ * All eight collections are keyed by `presentationId` and by nothing else, so the
  * deck document is the only handle any surface has on them. Written once because
  * two callers erase the same set for two different reasons — a reset clears the
  * room's answers so the deck can be re-run, a delete clears them because the deck
- * is going away — and a seventh collection remembered in one copy but not the
+ * is going away — and a collection remembered in one copy but not the
  * other is exactly how a delete quietly starts leaving something behind again.
  *
  * The names are **in** this set rather than swept beside it the way the comment
@@ -1043,16 +1187,29 @@ export async function updatePresentation(
  * room that stated the first — while a slide's comments were written by the
  * deck's authors, who did not re-run anything.
  *
+ * The themes an editor grouped the free-text answers into (REQ114) go too,
+ * though the room did not write them: a theme is a list of answer ids, and
+ * once the answers are erased it groups nothing that exists.
+ *
  * Reactions (REQ077) are not here and need not be: nothing persists one, so
  * there is no row for either caller to miss.
+ *
+ * **Every pass goes, not only the latest** (REQ083). A device's later passes
+ * through an audience-paced deck are more rows under the same deck, so the
+ * erase is keyed by the deck alone and has no pass to forget — and the record
+ * of which passes were started goes with them, so a re-run's first answer is a
+ * first pass again.
  */
 async function eraseParticipantRecords(presentationId: string): Promise<void> {
 	await votes.deleteMany({ presentationId });
 	await responseVotes.deleteMany({ presentationId });
+	await participantPasses.deleteMany({ presentationId });
 	await qaUpvotes.deleteMany({ presentationId });
 	await qaQuestions.deleteMany({ presentationId });
 	await chatMessages.deleteMany({ presentationId });
 	await deleteDeckParticipantNames(presentationId);
+	await deleteDeckParticipantAccounts(presentationId);
+	await deleteDeckAnswerThemes(presentationId);
 }
 
 /**
@@ -1206,6 +1363,103 @@ export async function restartSlideTimer(
 	return updated;
 }
 
+/** What a presenter's action on a countdown came to (REQ107). */
+export type CountdownRunResult =
+	| { status: "ok"; presentation: Record<string, unknown> }
+	| { status: "not-found" }
+	| { status: "not-countdown" };
+
+/**
+ * Start, pause or reset one countdown slide's clock (REQ107).
+ *
+ * {@link nextCountdownRun} decides what the action does, against the server's
+ * clock read inside the lock, so a request queued behind another is measured at
+ * its own turn and clients never supply a time. An action that moves nothing — a
+ * retried start or pause, anything but a reset on a finished clock — answers with
+ * the deck as it stands, and writes and broadcasts nothing. Only the named slide's
+ * run moves: another slide's run is kept wherever the presenter navigates.
+ *
+ * A slide the deck does not have, and one that is not a countdown, are refused
+ * rather than recorded — a run on either would be a clock no surface draws.
+ */
+export async function applyCountdownAction(
+	presentationId: string,
+	slideId: string,
+	action: CountdownAction,
+): Promise<CountdownRunResult> {
+	return slideListLock.run(
+		`countdown:${presentationId}`,
+		async (): Promise<CountdownRunResult> => {
+			const pres = await presentations.findOne(presentationId);
+			if (!pres) return { status: "not-found" };
+
+			const slide = (pres.slides as Slide[]).find(
+				(candidate) => candidate.id === slideId,
+			);
+			if (!slide) return { status: "not-found" };
+			if (slide.type !== "countdown") return { status: "not-countdown" };
+
+			const runs =
+				(pres.countdownRuns as Record<string, CountdownRunState> | undefined) ??
+				{};
+			const current = runs[slideId] ?? null;
+			const run = nextCountdownRun(slide, current, action, Date.now());
+			if (run === current) return { status: "ok", presentation: pres };
+
+			const presentation = await presentations.update(presentationId, {
+				countdownRuns: withCountdownRun(runs, slideId, run),
+			});
+			if (!presentation) return { status: "not-found" };
+			// Sent inside the lock, so the room hears two quick actions in the order
+			// the server applied them.
+			broadcastToPresentation(presentationId, "slide.countdown", {
+				presentationId,
+				slideId,
+				run,
+			});
+			return { status: "ok", presentation };
+		},
+	);
+}
+
+/**
+ * Seat a socket in its deck's room, and answer it with where the deck stands
+ * (REQ209).
+ *
+ * A client learns the deck's state from a read it made *before* its socket
+ * joined — the join lookup on first load, the deck it already held after a
+ * dropped socket or a server restart — and every frame broadcast in between
+ * reached a room it was not in yet. A `presentation.started` lost there left a
+ * phone on "Waiting for presenter" for the whole session. So the join itself is
+ * answered with the live state, and the three steps run synchronously: once the
+ * client is in the room, the deck is read and the frame sent before any other
+ * request's write can land, so every change after the read reaches the client
+ * as a frame of its own, behind this one.
+ *
+ * What it carries is `LiveRoomSnapshotSchema`. A deck that does not exist is
+ * answered with nothing.
+ */
+export function joinLiveRoom(
+	clientId: string,
+	presentationId: string,
+	role: "presenter" | "participant",
+): void {
+	joinRoom(clientId, presentationId, role);
+	const pres = presentations.findOneNow(presentationId);
+	if (!pres) return;
+	const slides = pres.slides as Slide[];
+	sendToClient(
+		clientId,
+		"room.joined",
+		LiveRoomSnapshotSchema.parse({
+			...pres,
+			presentationId,
+			activeSlideId:
+				slides[(pres.activeSlideIndex as number | undefined) ?? 0]?.id ?? null,
+		}),
+	);
+}
+
 export async function startPresentation(presentationId: string) {
 	const pres = await presentations.findOne(presentationId);
 	if (!pres) return null;
@@ -1236,9 +1490,20 @@ export async function startPresentation(presentationId: string) {
 		...(stamps ? { slideStartedAt: stamps } : {}),
 	});
 	if (updated) {
+		// The frame names the slide the start landed on. Going live always moves
+		// the deck to the first slide, and a restart after End begins from a deck
+		// still parked where the last session stopped: a frame that said only
+		// "live" left every other screen in the room — each phone, a second
+		// presenter tab — on that old slide while the presenter who clicked stood
+		// on the first one. It names that slide by id as well: a phone's copy of
+		// the deck was read before any edit made while the deck was not live, so
+		// after the old first slide was deleted the index alone pointed it at a
+		// slide the deck no longer has.
 		broadcastToPresentation(presentationId, "presentation.started", {
 			presentationId,
 			startedAt: sessionStartedAt,
+			slideIndex: 0,
+			slideId: first?.id ?? null,
 		});
 		if (stamps && first) {
 			broadcastToPresentation(presentationId, "slide.started", {
@@ -1301,6 +1566,9 @@ export async function resetPresentation(presentationId: string) {
 		sessionEndedAt: null,
 		closedSlideIds: [],
 		audienceBlanked: false,
+		// The countdowns the last session started (REQ107) go with it, running,
+		// paused or finished: a re-run opens every clock at its full length.
+		countdownRuns: {},
 	});
 
 	// Clear all votes for this presentation, and the questions the room asked
@@ -1546,6 +1814,123 @@ function acceptsSubmissions(pres: Record<string, unknown>): boolean {
 	const mode = (pres.mode as "live" | "survey" | undefined) ?? "live";
 	if (mode === "survey") return pres.status !== "ended";
 	return pres.status === "live";
+}
+
+// ── Repeat passes (REQ083) ───────────────────────────────────
+//
+// A pass is **opened** by one act — {@link startNewPass}, which records it — and
+// which pass a device's request means is decided here and only here, by
+// {@link resolvePass}: the store half of `submissionPassFor` in
+// `server/schemas.ts`. Every route that names a pass composes it: an answer, an
+// upvote and the scorecard that reads back what they wrote. So a client whose
+// idea of its pass has drifted from the store's — it missed a reset, say — is
+// read the same way by every one of them, and its answers, its upvotes and its
+// own score all land in one place.
+
+/**
+ * The queue a device's "start another pass" runs in: read the latest pass
+ * opened, write the next. Two taps landing together would otherwise both read
+ * the same pass and both hand out the one after it — one pass for what the
+ * device asked to be two. Keyed per (deck, participant), and a lock of its own
+ * so its keys cannot meet a slide's in {@link voteWriteLock}.
+ */
+const passOpenLock = createKeyedLock();
+
+/**
+ * The latest pass the server has opened for this device on this deck (REQ083) —
+ * the first, for a device that never started another, since the first pass is
+ * always open and needs no row.
+ */
+async function latestPassOpened(
+	presentationId: string,
+	participantId: string,
+): Promise<number> {
+	const records = await participantPasses.find({ presentationId, participantId });
+	let latest = FIRST_PASS;
+	for (const record of records) {
+		latest = Math.max(latest, passOf({ pass: record.openedPass }));
+	}
+	return latest;
+}
+
+/**
+ * The pass this device's request lands in (REQ083) — see the block above.
+ *
+ * The first pass costs nothing: every client that names no pass, and every deck
+ * that never allowed another, is answered without a read. A later one costs one
+ * indexed read of the device's single pass record, however many passes a
+ * shared kiosk has made.
+ */
+async function resolvePass(
+	presentationId: string,
+	participantId: string,
+	requested: number = FIRST_PASS,
+): Promise<number> {
+	if (requested <= FIRST_PASS || !participantId) return FIRST_PASS;
+	return submissionPassFor(
+		requested,
+		await latestPassOpened(presentationId, participantId),
+	);
+}
+
+/**
+ * Start another pass through the deck for one device (REQ083) — what the
+ * participant screen calls once the device has reached the end of the deck.
+ *
+ * It **opens** the pass after the latest one opened, records it, and answers
+ * with its number — the number the device's next answers carry. A pass exists
+ * from this moment rather than from its first answer, and that is the point: a
+ * kiosk waiting at the first slide for the next person is holding a pass of its
+ * own, so whoever answers there answers in it, and never over the person before.
+ *
+ * Always the next number, even when the latest pass holds nothing yet. Handing
+ * an empty pass back instead would be a guess about answers still in flight —
+ * the last answer of one person and the first tap of the next can cross — and
+ * guessing wrong puts two people in one pass. A pass started and never answered
+ * in leaves no rows behind, so it simply does not appear in the results.
+ *
+ * Answers a stated refusal when the deck does not allow repeat passes — the
+ * switch the participant screen draws the control from, so a phone that missed
+ * it being turned off is told why — and `null` when the deck allows them but is
+ * not taking submissions any more, because it has ended.
+ */
+export async function startNewPass(
+	presentationId: string,
+	participantId: string,
+): Promise<{ pass: number } | VoteRefusal | null> {
+	const pres = await presentations.findOne(presentationId);
+	if (!pres) return null;
+	if (!deckAllowsRepeatPasses(pres as RepeatPassSettings)) {
+		return { refused: "repeat-passes-off" } satisfies VoteRefusal;
+	}
+	if (!acceptsSubmissions(pres)) return null;
+	if (!participantId) return null;
+	return passOpenLock.run(`${presentationId}:${participantId}`, async () => {
+		const pass = (await latestPassOpened(presentationId, participantId)) + 1;
+		const now = new Date().toISOString();
+		const [record, ...extras] = await participantPasses.find({
+			presentationId,
+			participantId,
+		});
+		if (record) {
+			await participantPasses.update(record.id as string, {
+				openedPass: pass,
+				updatedAt: now,
+			});
+			// One row per device by construction; fold away any a race outside this
+			// process left beside it, now that the one kept carries the latest.
+			for (const extra of extras) await participantPasses.remove(extra.id as string);
+		} else {
+			await participantPasses.insert({
+				presentationId,
+				participantId,
+				openedPass: pass,
+				createdAt: now,
+				updatedAt: now,
+			});
+		}
+		return { pass };
+	});
 }
 
 // ── Voting ───────────────────────────────────────────────────
@@ -1818,7 +2203,7 @@ export async function submitVote(
 	slideId: string,
 	value: string,
 	participantId: string,
-	opts: { statementId?: string | null; skip?: boolean } = {},
+	opts: { statementId?: string | null; skip?: boolean; pass?: number } = {},
 ) {
 	const pres = await presentations.findOne(presentationId);
 	if (!pres) return null;
@@ -1845,6 +2230,14 @@ export async function submitVote(
 
 	const { statementId, skip } = opts;
 
+	// REQ083 — which of this device's passes the answer belongs to, read once
+	// here so that every branch below keeps its own rule *within* that pass: a
+	// re-submission replaces this pass's answer, a quiz is final in this pass, a
+	// cap counts this pass's responses — and an earlier pass is left exactly as it
+	// was. The first pass is read without touching the store, which is every
+	// answer to a deck that never allowed a second.
+	const pass = await resolvePass(presentationId, participantId, opts.pass);
+
 	// ── Scales: per-statement dedup, optional skip (REQ029, REQ031) ────────
 	if (slide.type === "scale" && statementId) {
 		if (skip && !slide.scaleAllowSkip) return null;
@@ -1852,6 +2245,7 @@ export async function submitVote(
 			presentationId,
 			slideId,
 			participantId,
+			pass,
 			{ value, statementId, skip: !!skip },
 			statementId,
 		);
@@ -1885,6 +2279,9 @@ export async function submitVote(
 		// rather than a row nothing can account for.
 		const foldsDuplicates =
 			slide.type === "open-text" && !!slide.allowResponseVotes;
+		// Who is answering, as the fold below has to compare it: a device's later
+		// pass is somebody else saying the same thing (REQ083).
+		const respondentId = respondentIdFor(participantId, pass);
 		const outcome = await voteWriteLock.run(
 			foldsDuplicates
 				? responseFoldKey(presentationId, slideId)
@@ -1892,11 +2289,17 @@ export async function submitVote(
 			async (): Promise<Record<string, unknown> | null> => {
 				const cap = maxResponsesFor(slide);
 				if (cap > 0) {
-					const existing = await votes.find({
-						presentationId,
-						slideId,
-						participantId,
-					});
+					// The cap is per pass: a device going through the deck again has
+					// its full allowance of answers again, and its earlier pass's
+					// answers are neither replaced nor counted against it.
+					const existing = rowsInPass(
+						await votes.find({
+							presentationId,
+							slideId,
+							participantId,
+						}),
+						pass,
+					);
 					if (existing.length >= cap) {
 						if (cap === 1) {
 							// Replace the single existing response
@@ -1925,7 +2328,7 @@ export async function submitVote(
 							normalizeQuestionText(String(existingResponse.value ?? "")) ===
 							target,
 					);
-					if (match && match.participantId !== participantId) {
+					if (match && respondentIdOf(match) !== respondentId) {
 						// The upvote this fold writes is the same row `voteOnResponse`
 						// toggles, so it takes that function's key rather than riding on
 						// the fold's: holding the slide-wide key alone would leave one
@@ -1944,18 +2347,22 @@ export async function submitVote(
 								participantId,
 							),
 							async () => {
-								const existingUpvote = await responseVotes.find({
-									presentationId,
-									slideId,
-									responseId: match.id as string,
-									participantId,
-								});
+								const existingUpvote = rowsInPass(
+									await responseVotes.find({
+										presentationId,
+										slideId,
+										responseId: match.id as string,
+										participantId,
+									}),
+									pass,
+								);
 								if (existingUpvote.length > 0) return;
 								await responseVotes.insert({
 									presentationId,
 									slideId,
 									responseId: match.id as string,
 									participantId,
+									pass,
 									createdAt: new Date().toISOString(),
 								});
 							},
@@ -1969,6 +2376,7 @@ export async function submitVote(
 					slideId,
 					value,
 					participantId,
+					pass,
 					createdAt: new Date().toISOString(),
 				});
 			},
@@ -2035,11 +2443,17 @@ export async function submitVote(
 		const outcome = await voteWriteLock.run(
 			voteWriteKey(presentationId, slideId, participantId),
 			async (): Promise<VoteRefusal | Record<string, unknown>> => {
-				const existing = await votes.find({
-					presentationId,
-					slideId,
-					participantId,
-				});
+				// Final *in this pass* (REQ083): going through the deck again is
+				// another attempt at the question, and the answer an earlier pass
+				// gave stays final where it is.
+				const existing = rowsInPass(
+					await votes.find({
+						presentationId,
+						slideId,
+						participantId,
+					}),
+					pass,
+				);
 				// An answer to a question the slide no longer asks — an option since
 				// deleted, or an option id on a question that now takes typed answers —
 				// is not an answer to the question as it now stands: the tally already
@@ -2065,6 +2479,7 @@ export async function submitVote(
 					slideId,
 					value: submitted,
 					participantId,
+					pass,
 					createdAt: new Date().toISOString(),
 				});
 			},
@@ -2103,11 +2518,17 @@ export async function submitVote(
 		const outcome = await voteWriteLock.run(
 			voteWriteKey(presentationId, slideId, participantId),
 			async (): Promise<Record<string, unknown> | null> => {
-				const existing = await votes.find({
-					presentationId,
-					slideId,
-					participantId,
-				});
+				// The selections this pass holds (REQ083) — the replace, the
+				// deselect and the cap are all about the answer being given now, and
+				// none of them may reach into a pass the device has already finished.
+				const existing = rowsInPass(
+					await votes.find({
+						presentationId,
+						slideId,
+						participantId,
+					}),
+					pass,
+				);
 
 				if (limit === 1) {
 					if (existing.length > 0) {
@@ -2136,6 +2557,7 @@ export async function submitVote(
 					slideId,
 					value,
 					participantId,
+					pass,
 					createdAt: new Date().toISOString(),
 				});
 			},
@@ -2161,6 +2583,7 @@ export async function submitVote(
 			presentationId,
 			slideId,
 			participantId,
+			pass,
 			{ value: normalized },
 		);
 		await broadcastResults(presentationId, slideId);
@@ -2187,6 +2610,7 @@ export async function submitVote(
 			presentationId,
 			slideId,
 			participantId,
+			pass,
 			{ value: normalized },
 		);
 		await broadcastResults(presentationId, slideId);
@@ -2216,6 +2640,7 @@ export async function submitVote(
 			presentationId,
 			slideId,
 			participantId,
+			pass,
 			{ value: normalized },
 		);
 		await broadcastResults(presentationId, slideId);
@@ -2251,6 +2676,7 @@ export async function submitVote(
 			presentationId,
 			slideId,
 			participantId,
+			pass,
 			{ value: normalized },
 		);
 		await broadcastResults(presentationId, slideId);
@@ -2295,6 +2721,7 @@ export async function submitVote(
 			presentationId,
 			slideId,
 			participantId,
+			pass,
 			{ value: normalized },
 		);
 		await broadcastResults(presentationId, slideId);
@@ -2330,6 +2757,7 @@ export async function submitVote(
 			presentationId,
 			slideId,
 			participantId,
+			pass,
 			{ value: storedValue, statementId, skip: !!skip },
 			statementId,
 		);
@@ -2347,6 +2775,7 @@ export async function submitVote(
 			presentationId,
 			slideId,
 			participantId,
+			pass,
 			{ value },
 		);
 		await broadcastResults(presentationId, slideId);
@@ -2358,6 +2787,7 @@ export async function submitVote(
 		slideId,
 		value,
 		participantId,
+		pass,
 		createdAt: new Date().toISOString(),
 	});
 	await broadcastResults(presentationId, slideId);
@@ -2368,12 +2798,16 @@ export async function submitVote(
  * Upvote a submitted open-ended response (REQ025). Dedup per
  * (participantId, responseId) — a second call by the same participant toggles
  * the vote off.
+ *
+ * Per pass, like an answer (REQ083): a device's later pass upvotes on its own
+ * account, and its toggle never takes back an upvote an earlier pass gave.
  */
 export async function voteOnResponse(
 	presentationId: string,
 	slideId: string,
 	responseId: string,
 	participantId: string,
+	requestedPass: number = FIRST_PASS,
 ) {
 	const pres = await presentations.findOne(presentationId);
 	if (!pres) return null;
@@ -2397,6 +2831,8 @@ export async function voteOnResponse(
 	const response = await votes.findOne(responseId);
 	if (!response || response.slideId !== slideId) return null;
 
+	const pass = await resolvePass(presentationId, participantId, requestedPass);
+
 	// The toggle is the same read-modify-write the vote path is queued for
 	// (REQ148): the `find` awaits, so two taps landing together both read "not
 	// upvoted yet" and both insert. That leaves the response one upvote heavier
@@ -2408,12 +2844,15 @@ export async function voteOnResponse(
 	await voteWriteLock.run(
 		responseUpvoteKey(presentationId, slideId, responseId, participantId),
 		async () => {
-			const existing = await responseVotes.find({
-				presentationId,
-				slideId,
-				responseId,
-				participantId,
-			});
+			const existing = rowsInPass(
+				await responseVotes.find({
+					presentationId,
+					slideId,
+					responseId,
+					participantId,
+				}),
+				pass,
+			);
 
 			if (existing.length > 0) {
 				// Toggle off
@@ -2425,6 +2864,7 @@ export async function voteOnResponse(
 				slideId,
 				responseId,
 				participantId,
+				pass,
 				createdAt: new Date().toISOString(),
 			});
 		},
@@ -2529,6 +2969,8 @@ export async function deleteSubmittedAnswer(
 		await responseVotes.remove(upvote.id as string);
 	}
 	await votes.remove(answerId);
+	// After the row, never before: see `assignAnswerToTheme` (REQ114).
+	await removeAnswerFromThemes(presentationId, slideId, answerId);
 
 	// The room is told, on the same channel a vote's tally moves on: an answer
 	// coming off the wall is a change to the tally exactly as an answer landing
@@ -2536,6 +2978,19 @@ export async function deleteSubmittedAnswer(
 	// the deleted line until its next reload.
 	await broadcastResults(presentationId, slideId);
 	return { ok: true, slideId };
+}
+
+/**
+ * One submitted answer on this deck, by its id — what a theme assignment
+ * (REQ114) names. An id from another deck is `null`, as an unknown one is.
+ */
+export async function findSubmittedAnswer(
+	presentationId: string,
+	answerId: string,
+): Promise<{ id: string; slideId: string } | null> {
+	const answer = await votes.findOne(answerId);
+	if (!answer || answer.presentationId !== presentationId) return null;
+	return { id: answerId, slideId: String(answer.slideId) };
 }
 
 // ── Q&A layer (REQ036, REQ037, REQ038, REQ060) ───────────────
@@ -3339,7 +3794,11 @@ export async function getParticipantRoster(
 
 /** One participant's answer to one quiz question, scored. */
 type ScoredQuizAnswer = {
-	participantId: string;
+	/**
+	 * Who answered: the respondent — a device's one pass through the deck
+	 * (REQ083) — which on a deck without repeat passes is the participant id.
+	 */
+	respondentId: string;
 	/**
 	 * What they submitted, as it is stored: an option id on a select-answer
 	 * question, the text they wrote on a typed one (REQ055).
@@ -3391,6 +3850,10 @@ type ScoredQuizSlide = {
  * the bucket `respondentCount` and `guardSubmission` (`server/rate-limit.ts`)
  * already put such rows in, and the whole point here is that every number agrees.
  *
+ * "Participant" here is a respondent (REQ083): a device that went through the
+ * deck twice answered the question twice, once per pass, and both answers count
+ * — each pass is somebody else answering.
+ *
  * Rows are returned in the order they landed, so the scorecard reads as the
  * question was answered.
  */
@@ -3402,9 +3865,9 @@ function finalQuizAnswers(
 	const answered = new Set<string>();
 	for (const quizVote of slideVotes) {
 		if (!isStandingQuizAnswer(slide, String(quizVote.value ?? ""))) continue;
-		const participantId = String(quizVote.participantId ?? "");
-		if (answered.has(participantId)) continue;
-		answered.add(participantId);
+		const respondentId = respondentIdOf(quizVote);
+		if (answered.has(respondentId)) continue;
+		answered.add(respondentId);
 		final.push(quizVote);
 	}
 	return final;
@@ -3439,7 +3902,7 @@ function scoreQuizSlide(
 				: answeredAt - openedAt;
 		const isCorrect = isCorrectQuizAnswer(slide, submitted);
 		answers.push({
-			participantId: String(quizVote.participantId ?? ""),
+			respondentId: respondentIdOf(quizVote),
 			submitted,
 			answerMode,
 			isCorrect,
@@ -3478,11 +3941,19 @@ function scoreQuizSlide(
  * Counted over {@link finalQuizAnswers}, so a group's `count` is people rather
  * than rows — the same unit `respondentCount` and the scoring block report, and
  * the reason a participant cannot appear twice in the same group.
+ *
+ * An answer the deck's profanity filter withholds (REQ085) is in no group: it is
+ * still an answer, and still scored exactly as it was — the filter decides what
+ * the screen shows, never who was right — so it stays counted in
+ * `respondentCount` and the scoring block, and `filteredCount` says how many of
+ * those answers this list leaves out.
  */
 function tallyTypedQuizAnswers(
 	slide: Slide,
 	slideVotes: Record<string, unknown>[],
 	revealsCorrect: boolean,
+	answerFilter: ProfanityMatcher | null,
+	caller: ResultsCaller,
 ) {
 	// A Map keyed on the normalized form: insertion order is arrival order, which
 	// is what breaks ties between equally popular answers below.
@@ -3490,7 +3961,11 @@ function tallyTypedQuizAnswers(
 		string,
 		{ text: string; count: number; isCorrect: boolean }
 	>();
-	for (const quizVote of finalQuizAnswers(slide, slideVotes)) {
+	const { shown, filtered } = partitionByAnswerFilter(
+		finalQuizAnswers(slide, slideVotes),
+		answerFilter,
+	);
+	for (const quizVote of shown) {
 		const submitted = String(quizVote.value ?? "");
 		const key = normalizeQuizAnswer(submitted);
 		const group = groups.get(key);
@@ -3514,7 +3989,10 @@ function tallyTypedQuizAnswers(
 	return {
 		/** The solutions the organizer accepts — `null` until the key may be seen. */
 		accepted: revealsCorrect ? acceptedQuizAnswers(slide) : null,
-		/** Distinct answers the room gave, however many may be shown. */
+		/**
+		 * Distinct answers the room gave, however many may be shown — not counting
+		 * the answers the profanity filter withheld, which `filteredCount` reports.
+		 */
 		distinctCount: entries.length,
 		entries: revealsCorrect
 			? entries.map((entry) => ({
@@ -3523,6 +4001,10 @@ function tallyTypedQuizAnswers(
 					isCorrect: entry.isCorrect,
 				}))
 			: null,
+		// Answers the profanity filter left out of `entries` (REQ085). A count says
+		// nothing of the answer key, so it is published while the question runs as
+		// well as after.
+		...filteredBlockFor(filtered, answerFilter, caller),
 	};
 }
 
@@ -3620,17 +4102,17 @@ async function scoreQuizDeck(
 }
 
 /**
- * The answer one participant has standing on a scored question — the first, on
+ * The answer one respondent has standing on a scored question — the first, on
  * the rare row where history left more than one (the boundary allows a single
  * final answer, but a deck re-authored under its votes can leave two standing).
  * The same one the score, the lock and the card all read.
  */
 function answerOf(
 	scored: ScoredQuizSlide,
-	participantId: string,
+	respondentId: string,
 ): ScoredQuizAnswer | null {
 	return (
-		scored.answers.find((answer) => answer.participantId === participantId) ??
+		scored.answers.find((answer) => answer.respondentId === respondentId) ??
 		null
 	);
 }
@@ -3647,13 +4129,17 @@ function answerOf(
  *
  * Scoped by presentation so the same participant is a different handle in a
  * different deck — two boards cannot be joined to follow one person around.
+ *
+ * What it digests is the respondent (REQ083): a device's first pass is the
+ * participant id itself, so its handle is the one it always had, and each later
+ * pass is a row of its own on the board.
  */
 function leaderboardEntryIdFor(
 	presentationId: string,
-	participantId: string,
+	respondentId: string,
 ): string {
 	const hasher = new Bun.CryptoHasher("sha256");
-	hasher.update(`${presentationId}:${participantId}`);
+	hasher.update(`${presentationId}:${respondentId}`);
 	// Sixteen hex characters: 64 bits, far past collision inside one room, and
 	// short enough to travel in every row of the payload.
 	return hasher.digest("hex").slice(0, 16);
@@ -3687,10 +4173,10 @@ function rankQuizDeck(
 	const totals = new Map<string, LeaderboardTotals>();
 	for (const { scored } of deck) {
 		for (const answer of scored.answers) {
-			if (!answer.participantId) continue;
+			if (!answer.respondentId) continue;
 			const entryId = leaderboardEntryIdFor(
 				presentationId,
-				answer.participantId,
+				answer.respondentId,
 			);
 			const running = totals.get(entryId) ?? {
 				entryId,
@@ -3739,25 +4225,33 @@ function leaderboardFrom(presentationId: string, deck: ScoredQuizDeck) {
  *
  * Every quiz slide in the deck is listed, answered or not, so a client never has
  * to reason about a missing key to know a question went unanswered.
+ *
+ * It is the card of **one pass** (REQ083) — the one `requestedPass` names, read
+ * exactly as an answer naming it would be. That is what lets a device going
+ * through the deck again answer its quiz questions again: the card of its new
+ * pass is blank, so nothing on it locks the cards a previous pass has spent.
  */
 export async function getParticipantScorecard(
 	presentationId: string,
 	participantId: string,
+	requestedPass: number = FIRST_PASS,
 ) {
 	const pres = await presentations.findOne(presentationId);
 	if (!pres) return null;
 
+	const pass = await resolvePass(presentationId, participantId, requestedPass);
+	const respondentId = respondentIdFor(participantId, pass);
 	const deck = await scoreQuizDeck(
 		presentationId,
 		pres,
 		storedResultsSource(presentationId),
 	);
 	const board = leaderboardFrom(presentationId, deck);
-	const entryId = leaderboardEntryIdFor(presentationId, participantId);
+	const entryId = leaderboardEntryIdFor(presentationId, respondentId);
 	const standing = board.entries.find((entry) => entry.entryId === entryId);
 
 	const slides = deck.map(({ slide, scored }) => {
-		const answer = answerOf(scored, participantId);
+		const answer = answerOf(scored, respondentId);
 		const answerMode = quizAnswerModeFor(slide);
 		return {
 			slideId: slide.id,
@@ -3786,6 +4280,12 @@ export async function getParticipantScorecard(
 	const answered = slides.filter((slide) => slide.answered);
 	return {
 		participantId,
+		/**
+		 * REQ083 — which of this device's passes the card describes: the one the
+		 * request named, as the server reads it, so a client whose idea of its pass
+		 * had drifted is told the one its answers actually land in.
+		 */
+		pass,
 		/**
 		 * REQ059 — how this participant appears on the deck's leaderboard, and
 		 * where they stand in it. The handle is theirs whether or not they have
@@ -3866,6 +4366,75 @@ function testVoteResultsSource(set: TestVoteSet): ResultsSource {
 	};
 }
 
+/**
+ * One answer the profanity filter withheld from the room (REQ085), as an editor
+ * who asked for it reads it: the row's id — what a deletion names it by
+ * (REQ027) — its text exactly as it was written, and when it arrived. No
+ * participant id, for the reason a word cloud's answer list carries none.
+ */
+type FilteredAnswer = { id: string; text: string; createdAt: string };
+
+/**
+ * A slide's rows split by the profanity filter (REQ085): what the room may be
+ * shown, and what it may not. With no filter in force every row is shown.
+ */
+function partitionByAnswerFilter(
+	rows: Record<string, unknown>[],
+	answerFilter: ProfanityMatcher | null,
+): { shown: Record<string, unknown>[]; filtered: Record<string, unknown>[] } {
+	if (!answerFilter) return { shown: rows, filtered: [] };
+	const shown: Record<string, unknown>[] = [];
+	const filtered: Record<string, unknown>[] = [];
+	for (const row of rows) {
+		(answerFilter(String(row.value ?? "")) ? filtered : shown).push(row);
+	}
+	return { shown, filtered };
+}
+
+/**
+ * The withheld answers themselves (REQ085), for a caller who can read the
+ * deck's authoring **and** asked for them — and an explicit `null` for
+ * everybody else, the presenter's live poll included, on the terms a word
+ * cloud's per-answer list is `null` (stated, not absent).
+ *
+ * Two conditions rather than one, and the second is the projector: the
+ * presenter's own screen reads with editor rights and *is* the screen the room
+ * looks at, so being entitled to the words is not enough to be sent them. Only a
+ * read that asks — the results surface, an export — gets them.
+ */
+function filteredAnswersFor(
+	rows: Record<string, unknown>[],
+	answerFilter: ProfanityMatcher | null,
+	caller: ResultsCaller,
+): FilteredAnswer[] | null {
+	if (!answerFilter || !caller.canEdit || !caller.includeFilteredAnswers) {
+		return null;
+	}
+	return rows.map((row) => ({
+		id: String(row.id ?? ""),
+		text: String(row.value ?? ""),
+		createdAt: String(row.createdAt ?? ""),
+	}));
+}
+
+/**
+ * The filter's two keys on a free-text payload (REQ085), written once for the
+ * three slide types that carry them: `filteredCount` — how many answers the room
+ * is not shown, a count that names nobody, or `null` while the deck filters
+ * nothing so "withheld none" and "off" stay apart — and `filteredAnswers`, on
+ * {@link filteredAnswersFor}'s terms.
+ */
+function filteredBlockFor(
+	filtered: Record<string, unknown>[],
+	answerFilter: ProfanityMatcher | null,
+	caller: ResultsCaller,
+): { filteredCount: number | null; filteredAnswers: FilteredAnswer[] | null } {
+	return {
+		filteredCount: answerFilter ? filtered.length : null,
+		filteredAnswers: filteredAnswersFor(filtered, answerFilter, caller),
+	};
+}
+
 export async function getSlideResults(
 	presentationId: string,
 	slideId: string,
@@ -3927,6 +4496,14 @@ async function aggregateSlideResults(
 	}
 
 	const slideVotes = await source.votesFor(slideId);
+	// REQ085 — the deck's profanity filter, where it reads this slide: a word
+	// cloud, an open-ended slide or a typed quiz question on a deck that has it
+	// switched on. Applied here, before any payload is assembled, for the reason
+	// the reveal gate above is: every surface that hands an answer to a screen
+	// lands on this function, so a withheld answer is missing from all of them at
+	// once — the room-wide broadcast, the public reads, the preview and the
+	// presenter's own poll alike. `null` everywhere else, which changes nothing.
+	const answerFilter = answerFilterFor(pres as ProfanityFilterState, slide);
 
 	switch (slide.type) {
 		case "multiple-choice":
@@ -3967,9 +4544,10 @@ async function aggregateSlideResults(
 				// on a quiz it has already been applied, and re-applying it is free.
 				if (!isStandingQuizAnswer(slide, val)) continue;
 				// A typed answer has no option to be counted under, but it is still
-				// one participant answering.
+				// one participant answering — and a device's later pass through the
+				// deck is one more (REQ083).
 				if (counts[val] !== undefined) counts[val]++;
-				respondents.add(countedVote.participantId as string);
+				respondents.add(respondentIdOf(countedVote));
 			}
 			// A plain choice slide reveals its solution as soon as it has one to
 			// reveal (REQ013). A quiz slide has a notion of correctness always, but
@@ -4003,7 +4581,13 @@ async function aggregateSlideResults(
 				// answered by picking an option.
 				typedAnswers:
 					answerMode === "type"
-						? tallyTypedQuizAnswers(slide, slideVotes, revealsCorrect)
+						? tallyTypedQuizAnswers(
+								slide,
+								slideVotes,
+								revealsCorrect,
+								answerFilter,
+								opts,
+							)
 						: null,
 				// REQ054/REQ056/REQ057 — how the room scored and where the question's
 				// window stands. The key is emitted for a plain choice slide
@@ -4099,9 +4683,16 @@ async function aggregateSlideResults(
 		}
 
 		case "word-cloud": {
+			// REQ085 — a withheld answer is in no word and no list the room reads.
+			// It is still an answer that arrived, so `totalVotes` keeps counting it,
+			// and `filteredCount` says how many of those the cloud does not draw.
+			const { shown, filtered } = partitionByAnswerFilter(
+				slideVotes,
+				answerFilter,
+			);
 			// Count word frequencies
 			const wordCounts: Record<string, number> = {};
-			for (const v of slideVotes) {
+			for (const v of shown) {
 				const word = (v.value as string).trim().toLowerCase();
 				if (word) {
 					wordCounts[word] = (wordCounts[word] || 0) + 1;
@@ -4127,13 +4718,18 @@ async function aggregateSlideResults(
 				// it arrived. It carries **no participant id**: that is a participant's
 				// only credential, and taking one line down needs nothing about who
 				// wrote it.
+				//
+				// The rows the filter withheld are not on it (REQ085): the presenter's
+				// screen draws this list under the cloud, and that screen is the
+				// projector. They reach an editor through `filteredAnswers` instead.
 				answers: opts.canEdit
-					? slideVotes.map((wordVote) => ({
+					? shown.map((wordVote) => ({
 							id: wordVote.id as string,
 							text: String(wordVote.value ?? ""),
 							createdAt: String(wordVote.createdAt ?? ""),
 						}))
 					: null,
+				...filteredBlockFor(filtered, answerFilter, opts),
 			};
 		}
 
@@ -4147,7 +4743,13 @@ async function aggregateSlideResults(
 				const rid = u.responseId as string;
 				upvoteCounts[rid] = (upvoteCounts[rid] || 0) + 1;
 			}
-			const responses = slideVotes.map((v) => ({
+			// REQ085 — a withheld response is not on the wall, so its id is not
+			// published either; it reaches an editor who asks, as written.
+			const { shown, filtered } = partitionByAnswerFilter(
+				slideVotes,
+				answerFilter,
+			);
+			const responses = shown.map((v) => ({
 				id: v.id as string,
 				text: v.value as string,
 				createdAt: v.createdAt as string,
@@ -4159,6 +4761,7 @@ async function aggregateSlideResults(
 				layout: slide.openTextLayout ?? "speech-bubbles",
 				allowResponseVotes: !!slide.allowResponseVotes,
 				responses,
+				...filteredBlockFor(filtered, answerFilter, opts),
 			};
 		}
 
@@ -4854,6 +5457,9 @@ function cachedResultsSource(source: ResultsSource): ResultsSource {
  * inside the group that wrote it. That is the same sentence the rest of this
  * says — "as a room of exactly these people would have seen it" — and it is the
  * one number a segment can visibly differ from the chart above it on.
+ *
+ * The members are respondents (REQ083), so a device's later pass is in whichever
+ * group *that* pass's answer put it in, and its rows are its own pass's alone.
  */
 function participantScopedSource(
 	source: ResultsSource,
@@ -4861,7 +5467,7 @@ function participantScopedSource(
 ): ResultsSource {
 	const members = new Set(participantIds);
 	const mine = (rows: Record<string, unknown>[]) =>
-		rows.filter((row) => members.has(String(row.participantId ?? "")));
+		rows.filter((row) => members.has(respondentIdOf(row)));
 	return {
 		votesFor: (slideId) => source.votesFor(slideId).then(mine),
 		responseVotesFor: (slideId) => source.responseVotesFor(slideId).then(mine),
@@ -5025,22 +5631,37 @@ export async function getSegmentedResults(
 	const buckets = segmentBucketsFor(
 		sourceSlide,
 		sourceVotes,
-		participantIdsIn(targetVotes),
+		respondentIdsIn(targetVotes),
 	);
 
-	/** How many people in one group answered the slide being broken down. */
-	const respondentsIn = (bucket: SegmentBucket): number => {
+	/** What one group answered on the slide being broken down. */
+	const answersOf = (bucket: SegmentBucket) => {
 		const members = new Set(bucket.participantIds);
-		return participantIdsIn(
-			targetVotes.filter((row) => members.has(String(row.participantId ?? ""))),
-		).length;
+		return targetVotes.filter((row) => members.has(respondentIdOf(row)));
 	};
 
 	// Counted first, every group of them, because which groups may be published is
 	// a decision about the whole set: hold one back on its own and it is the
 	// difference between the tally above and the groups beside it.
-	const respondentCounts = buckets.map(respondentsIn);
-	const disclosure = segmentDisclosure(respondentCounts, opts);
+	//
+	// Two counts, because a pass is not a person (REQ083). What a group reports
+	// is its respondents — every pass, as the tally above counts them — but what
+	// the disclosure floor protects is people, and the nearest this product gets
+	// to one is a device. One person going through the deck five times is five
+	// respondents and still one person, so the floor counts devices: it can only
+	// ever hold back more because of this, never publish more.
+	const respondentCounts = buckets.map(
+		(bucket) => respondentIdsIn(answersOf(bucket)).length,
+	);
+	const deviceCounts = buckets.map(
+		(bucket) =>
+			new Set(
+				answersOf(bucket)
+					.map((row) => String(row.participantId ?? ""))
+					.filter((participantId) => participantId.length > 0),
+			).size,
+	);
+	const disclosure = segmentDisclosure(deviceCounts, opts);
 
 	/** One group: how many of it answered, and — where that may be published — what it answered. */
 	const segmentOf = async (
@@ -5120,7 +5741,13 @@ export async function getResultsExport(
 	const pres = await presentations.findOne(presentationId);
 	if (!pres) return null;
 
-	const results = await getAllResults(presentationId, { canEdit: true });
+	// The answers the profanity filter withheld from the room ride along (REQ085):
+	// an export is an editor's read that asks for everything, and the PDF prints
+	// them, marked, under the tally the room saw.
+	const results = await getAllResults(presentationId, {
+		canEdit: true,
+		includeFilteredAnswers: true,
+	});
 	if (!results) return null;
 
 	const [exportVotes, exportResponseVotes, exportNames] = await Promise.all([

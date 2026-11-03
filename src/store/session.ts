@@ -15,10 +15,22 @@
 // assert the new state — no DOM required.
 
 import type { StoreApi } from "zustand";
-import { api } from "../api";
+import { LiveRoomSnapshotSchema } from "../../server/schemas";
+import { api, signInRefusalOf } from "../api";
 import { addReaction, type LiveReaction, readReaction } from "../reactions";
-import type { Presentation, QAVisibility, ResultsVisibility } from "../types";
-import { isWithheldTally, withSlideParticipation } from "../types";
+import type {
+	CountdownAction,
+	CountdownRunState,
+	ParticipantSignInRefusalCode,
+	Presentation,
+	QAVisibility,
+	ResultsVisibility,
+} from "../types";
+import {
+	isWithheldTally,
+	withCountdownRun,
+	withSlideParticipation,
+} from "../types";
 import type { AppState } from "./store";
 
 type AppSet = StoreApi<AppState>["setState"];
@@ -83,6 +95,17 @@ export interface SessionSlice {
 	 */
 	sessionResetRevision: number;
 	/**
+	 * The id of the slide the server last named as live — in the start frame,
+	 * a `slide.changed`, or the answer to a join — or `null` while no frame has
+	 * named one (REQ208/REQ209).
+	 *
+	 * Held beside the index because the socket moves the index and never the
+	 * slides: a copy read before an edit (the first slide deleted while the deck
+	 * was stopped) resolves the right index to the wrong slide, and only the id
+	 * tells the participant surface that its copy has to be read again.
+	 */
+	liveSlideId: string | null;
+	/**
 	 * The reactions currently crossing this screen (REQ077).
 	 *
 	 * The one piece of state here that is neither fetched nor server-authoritative
@@ -97,10 +120,19 @@ export interface SessionSlice {
 	loading: boolean;
 	/** Last fetch/mutation error message, or "" when there is none. */
 	error: string;
+	/**
+	 * Why a deck that requires signing in turned this participant away (REQ134),
+	 * or `null` while it has not: at the join door, where nothing of the deck is
+	 * sent, or on any write after it. The participant page draws its sign-in
+	 * prompt off this rather than off `error`, so the refusal reads as a door to
+	 * walk through instead of a failure.
+	 */
+	signInRefusal: ParticipantSignInRefusalCode | null;
 
 	// — plain setters —
 	setPresentation: (presentation: Presentation | null) => void;
 	setError: (message: string) => void;
+	setSignInRefusal: (refused: ParticipantSignInRefusalCode | null) => void;
 	setParticipantCount: (count: number) => void;
 	setResultsFor: (slideId: string, results: SlideResults) => void;
 	setActiveSlideIndex: (index: number) => void;
@@ -118,8 +150,13 @@ export interface SessionSlice {
 	 * (REQ053) — and **withholding is decided on the server, per request**
 	 * (`withAudienceSolutions`). A client cannot un-strip what it was never sent,
 	 * so the only way to gain a revealed answer key is to ask again.
+	 *
+	 * Resolves `true` when the answer's slides were applied, and `false` when
+	 * nothing changed — the fetch failed, the answer carried no slides, or the
+	 * projection moved past it — so a caller that needs the slides can ask again
+	 * (REQ209).
 	 */
-	refreshDeckSlides: (code: string) => Promise<void>;
+	refreshDeckSlides: (code: string) => Promise<boolean>;
 
 	// — lifecycle mutations (REST + optimistic update; throw on failure) —
 	startPresentation: (id: string) => Promise<void>;
@@ -129,6 +166,12 @@ export interface SessionSlice {
 	revealResults: (id: string, slideId: string, reveal: boolean) => void;
 	/** Reopen one slide's question, restarting its countdown (REQ057). */
 	restartSlideTimer: (id: string, slideId: string) => Promise<void>;
+	/** Start, pause or reset one countdown slide's clock (REQ107). */
+	controlCountdown: (
+		id: string,
+		slideId: string,
+		action: CountdownAction,
+	) => Promise<void>;
 	/**
 	 * Switch the Q&A layer on/off (REQ036), choose who reads it (REQ037) and
 	 * whether each question waits for approval (REQ038).
@@ -154,8 +197,6 @@ export interface SessionSlice {
 	) => Promise<void>;
 	/** Blank the shared screen, or bring it back (REQ109). */
 	setAudienceBlanked: (id: string, blanked: boolean) => Promise<void>;
-	/** Show or hide the presenter surface's join bar (REQ073). */
-	setJoinBarShown: (id: string, shown: boolean) => Promise<void>;
 	/** Take one submitted answer off a word cloud or open-ended slide (REQ027). */
 	deleteSubmittedAnswer: (
 		id: string,
@@ -164,16 +205,31 @@ export interface SessionSlice {
 	) => Promise<void>;
 
 	// — WebSocket reducers (server-authoritative; pure) —
-	applySlideChanged: (payload: { slideIndex: number }) => void;
+	applySlideChanged: (payload: {
+		slideIndex: number;
+		slide?: { id?: unknown } | null;
+	}) => void;
 	applyResultsUpdated: (payload: {
 		slideId: string;
 		results: SlideResults;
 	}) => void;
 	applyParticipantCount: (payload: { count: number }) => void;
-	/** The deck went live; `startedAt` is when its session clock began (REQ108). */
-	applyStarted: (payload?: { startedAt?: string | null }) => void;
+	/**
+	 * The deck went live; `startedAt` is when its session clock began (REQ108)
+	 * and `slideIndex` / `slideId` the slide the start landed on.
+	 */
+	applyStarted: (payload?: {
+		startedAt?: string | null;
+		slideIndex?: number | null;
+		slideId?: string | null;
+	}) => void;
 	/** The deck ended; `endedAt` is where its session clock stopped (REQ108). */
 	applyEnded: (payload?: { endedAt?: string | null }) => void;
+	/**
+	 * The socket joined its room, and the server answered with where the deck
+	 * stands now (REQ209) — everything a frame missed before the join is in it.
+	 */
+	applyJoined: (payload: unknown) => void;
 	applyReset: () => void;
 	applyRevealed: (payload: { slideId: string; revealed: boolean }) => void;
 	/**
@@ -187,12 +243,20 @@ export interface SessionSlice {
 		slideId: string;
 		startedAt: string;
 	}) => void;
+	/**
+	 * A countdown slide's clock moved (REQ107): `run` is the run it now has, and
+	 * `null` is a clock back at its full length.
+	 */
+	applyCountdown: (payload: {
+		slideId: string;
+		run: CountdownRunState | null;
+	}) => void;
 	/** The deck started or stopped asking joiners for a name (REQ076). */
 	applyParticipantNameSetting: (payload: {
 		requireParticipantName: boolean;
 	}) => void;
-	/** The presenter surface's join bar was shown or hidden (REQ073). */
-	applyJoinBarSetting: (payload: { showJoinBar: boolean }) => void;
+	/** The deck started or stopped letting a device go through it again (REQ083). */
+	applyRepeatPassesSetting: (payload: { allowRepeatPasses: boolean }) => void;
 	/** The Q&A layer was switched on/off or re-scoped (REQ036/REQ037/REQ038). */
 	applyQASettings: (payload: {
 		qaEnabled: boolean;
@@ -230,9 +294,11 @@ const initialSessionState = {
 	qaRevision: 0,
 	chatRevision: 0,
 	sessionResetRevision: 0,
+	liveSlideId: null,
 	liveReactions: [],
 	loading: false,
 	error: "",
+	signInRefusal: null,
 } satisfies Pick<
 	SessionSlice,
 	| "presentation"
@@ -242,9 +308,11 @@ const initialSessionState = {
 	| "qaRevision"
 	| "chatRevision"
 	| "sessionResetRevision"
+	| "liveSlideId"
 	| "liveReactions"
 	| "loading"
 	| "error"
+	| "signInRefusal"
 >;
 
 /**
@@ -352,6 +420,7 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 
 		setPresentation: (presentation) => set({ presentation }),
 		setError: (error) => set({ error }),
+		setSignInRefusal: (signInRefusal) => set({ signInRefusal }),
 		setParticipantCount: (participantCount) => set({ participantCount }),
 		setResultsFor: (slideId, results) =>
 			set({ results: { ...get().results, [slideId]: results } }),
@@ -385,7 +454,7 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		},
 
 		loadByCode: async (code) => {
-			set({ loading: true, error: "" });
+			set({ loading: true, error: "", signInRefusal: null });
 			try {
 				const data = await api.joinByCode(code);
 				set({
@@ -399,9 +468,14 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 				});
 				return data;
 			} catch (joinError) {
+				const signInRefusal = signInRefusalOf(joinError);
 				set({
-					error:
-						joinError instanceof Error ? joinError.message : "Unknown error",
+					error: signInRefusal
+						? ""
+						: joinError instanceof Error
+							? joinError.message
+							: "Unknown error",
+					signInRefusal,
 					loading: false,
 				});
 				return null;
@@ -441,16 +515,18 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 					deck?.revealedSlideIds ?? []
 				).join(",")}`;
 			};
-			if (!get().presentation) return;
+			if (!get().presentation) return false;
 			const askedAgainst = projectionKey();
 			try {
 				const data = await api.joinByCode(code);
-				if (!Array.isArray(data?.slides)) return;
-				if (projectionKey() !== askedAgainst) return;
+				if (!Array.isArray(data?.slides)) return false;
+				if (projectionKey() !== askedAgainst) return false;
 				patchPresentation({ slides: data.slides });
+				return true;
 			} catch {
 				// Nothing to report: the deck the participant holds is still usable,
 				// and the next change will try again.
+				return false;
 			}
 		},
 
@@ -495,6 +571,18 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		restartSlideTimer: async (id, slideId) => {
 			const updated = await api.restartSlideTimer(id, slideId);
 			patchPresentation(startedStampsIn(updated));
+		},
+
+		controlCountdown: async (id, slideId, action) => {
+			const updated = await api.controlCountdown(id, slideId, action);
+			// The presenter's own clock lands off the response it already holds;
+			// the broadcast is what moves every other screen.
+			const runs = (updated as { countdownRuns?: unknown } | null)?.countdownRuns;
+			if (runs && typeof runs === "object") {
+				patchPresentation({
+					countdownRuns: runs as Presentation["countdownRuns"],
+				});
+			}
 		},
 
 		setQASettings: async (id, changes) => {
@@ -543,14 +631,6 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 			patchPresentation({ audienceBlanked: updated?.audienceBlanked === true });
 		},
 
-		setJoinBarShown: async (id, shown) => {
-			// Through the deck PATCH, the one writer of the field, and read back off
-			// its response like the switches above — the broadcast is what moves
-			// every other presenter screen of the deck.
-			const updated = await api.updatePresentation(id, { showJoinBar: shown });
-			patchPresentation({ showJoinBar: updated?.showJoinBar !== false });
-		},
-
 		/**
 		 * Take one submitted answer off the slide (REQ027), then re-read the slide's
 		 * tally on this browser's own credentials.
@@ -567,8 +647,10 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 			get().setResultsFor(slideId, await api.getResults(id, slideId));
 		},
 
-		applySlideChanged: ({ slideIndex }) =>
-			patchPresentation({ activeSlideIndex: slideIndex }),
+		applySlideChanged: ({ slideIndex, slide }) => {
+			set({ liveSlideId: typeof slide?.id === "string" ? slide.id : null });
+			patchPresentation({ activeSlideIndex: slideIndex });
+		},
 
 		/**
 		 * A slide's tally moved.
@@ -597,13 +679,48 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		// Each frame carries the session clock's instant (REQ108), so a second
 		// presenter screen of the deck runs the same clock as the one that clicked.
 		// A frame without one leaves the clock this screen already holds.
-		applyStarted: (payload) =>
+		// It carries the slide the start landed on too: a restart after End moves
+		// the deck back to the first slide, and a screen that kept the index it
+		// held would go live again on wherever the last session stopped while the
+		// presenter who clicked stood on slide one. And it names that slide's id,
+		// which a frame that moves the index takes along (or forgets, when the
+		// frame names none) so the id never describes an older index.
+		applyStarted: (payload) => {
+			if (typeof payload?.slideIndex === "number") {
+				set({
+					liveSlideId:
+						typeof payload.slideId === "string" ? payload.slideId : null,
+				});
+			}
 			patchPresentation({
 				status: "live",
 				...(typeof payload?.startedAt === "string"
 					? { sessionStartedAt: payload.startedAt, sessionEndedAt: null }
 					: {}),
-			}),
+				...(typeof payload?.slideIndex === "number"
+					? { activeSlideIndex: payload.slideIndex }
+					: {}),
+			});
+		},
+
+		/**
+		 * Every runtime field is taken from the frame, because this client's own
+		 * copy was read before its socket joined: on first load the join lookup, and
+		 * after a dropped socket or a server restart whatever it held when the frames
+		 * stopped arriving. A `presentation.started` lost in that gap is what left a
+		 * phone on "Waiting for presenter" while the deck ran. Anything that changes
+		 * after the join reaches this socket as a frame of its own, behind this one.
+		 *
+		 * A frame that does not parse, or that names another deck, is dropped.
+		 */
+		applyJoined: (payload) => {
+			const snapshot = LiveRoomSnapshotSchema.safeParse(payload);
+			if (!snapshot.success) return;
+			const { presentationId, activeSlideId, ...live } = snapshot.data;
+			if (get().presentation?.id !== presentationId) return;
+			set({ liveSlideId: activeSlideId });
+			patchPresentation(live);
+		},
 
 		applyEnded: (payload) =>
 			patchPresentation({
@@ -635,6 +752,9 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 						// timed from its own start.
 						sessionStartedAt: null,
 						sessionEndedAt: null,
+						// And every countdown the last run started (REQ107), paused ones
+						// included: a re-run opens each clock at its full length.
+						countdownRuns: {},
 					},
 				});
 			}
@@ -654,6 +774,8 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 				qaRevision: get().qaRevision + 1,
 				chatRevision: get().chatRevision + 1,
 				sessionResetRevision: get().sessionResetRevision + 1,
+				// The reset moved the index to 0 without naming a slide.
+				liveSlideId: null,
 				liveReactions: [],
 			});
 		},
@@ -672,10 +794,28 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 			});
 		},
 
+		/**
+		 * A countdown slide's clock moved (REQ107), applied through
+		 * `withCountdownRun` — the function the server wrote the map with — so
+		 * this screen holds exactly the clocks the server recorded.
+		 */
+		applyCountdown: ({ slideId, run }) => {
+			const current = get().presentation;
+			if (!current) return;
+			patchPresentation({
+				countdownRuns: withCountdownRun(
+					current.countdownRuns ?? {},
+					slideId,
+					run,
+				),
+			});
+		},
+
 		applyParticipantNameSetting: ({ requireParticipantName }) =>
 			patchPresentation({ requireParticipantName }),
 
-		applyJoinBarSetting: ({ showJoinBar }) => patchPresentation({ showJoinBar }),
+		applyRepeatPassesSetting: ({ allowRepeatPasses }) =>
+			patchPresentation({ allowRepeatPasses }),
 
 		applyQASettings: ({ qaEnabled, qaVisibility, qaApprovalRequired }) =>
 			patchPresentation({ qaEnabled, qaVisibility, qaApprovalRequired }),

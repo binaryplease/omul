@@ -1,0 +1,49 @@
+# Profanity word list — Portuguese (REQ085)
+#
+# Read by server/profanity-filter.ts when a deck's profanity filter uses this
+# language. One entry per line; an entry of several words matches those words
+# in that order. Lines starting with # are comments.
+#
+# Matching is whole-word and ignores case and accents, and a hyphen ends a
+# word, so "foda-se" is caught by "foda". Every inflection in common use is its
+# own entry.
+#
+# What belongs here: words whose ordinary use is obscene, a slur, or a strong
+# personal insult, in Portugal and in Brazil — including the English swearwords
+# Portuguese speakers use as loanwords. What does not: mild words (otário,
+# desgraçado), and any word whose everyday meaning is innocent — "cu" alone
+# (copper's symbol, Cu), "bicha" (a queue in Portugal), "piranha" (the fish),
+# "veado" (a deer), "pica" (an injection), "crioulo" (a Creole language),
+# "puto" (a kid, in Portugal).
+
+caralho
+caralhos
+porra
+foda
+fodas
+foder
+fodido
+fodida
+fodase
+puta
+putas
+merda
+cabrão
+cabrões
+buceta
+boceta
+piroca
+viado
+viados
+arrombado
+arrombada
+cuzão
+punheta
+punheteiro
+babaca
+vai tomar no cu
+fuck
+fucking
+motherfucker
+shit
+bitch

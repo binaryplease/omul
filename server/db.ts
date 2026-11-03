@@ -76,6 +76,13 @@ export interface Store {
 	): Promise<Record<string, unknown> | null>;
 	remove(id: string): Promise<boolean>;
 	findOne(id: string): Promise<Record<string, unknown> | null>;
+	/**
+	 * `findOne` without the promise, for a caller that must read and act in one
+	 * synchronous step — so that no other request's write and broadcast can land
+	 * in between (`joinLiveRoom`, REQ209). Everything else reads through
+	 * `findOne`.
+	 */
+	findOneNow(id: string): Record<string, unknown> | null;
 	find(filter?: Record<string, unknown>): Promise<Record<string, unknown>[]>;
 	deleteMany(filter: Record<string, unknown>): Promise<number>;
 }
@@ -111,9 +118,9 @@ export function openedCollectionNames(): string[] {
  * schema object `ref()` hands out. This catalog's
  * foreign keys are plain `z.string()` over `crypto.randomUUID()` values with no
  * `prefix_` on them, so `ref()` cannot express them and the walk reads all
- * twenty of them — `presentationId`, `slideId`, `workspaceId`, `userId`,
+ * twenty-two of them — `presentationId`, `slideId`, `workspaceId`, `userId`,
  * `authorId`, `participantId`, `questionId`, `responseId`,
- * `sourcePresentationId`, spread over ten of the twelve collections — as
+ * `sourcePresentationId`, spread over eleven of the thirteen collections — as
  * ordinary fields that forgot a default. The rule's
  * own exemption for identity fields covers exactly those, and
  * `server/stored-defaults.test.ts` enforces the rule over every collection with
@@ -161,8 +168,12 @@ export function createStore<TSchema extends z.ZodType>(
 		return collection.delete(id);
 	}
 
-	async function findOne(id: string): Promise<Record<string, unknown> | null> {
+	function findOneNow(id: string): Record<string, unknown> | null {
 		return collection.get(id) as Record<string, unknown> | null;
+	}
+
+	async function findOne(id: string): Promise<Record<string, unknown> | null> {
+		return findOneNow(id);
 	}
 
 	async function find(
@@ -177,5 +188,5 @@ export function createStore<TSchema extends z.ZodType>(
 		return collection.deleteMany(filter as never);
 	}
 
-	return { insert, update, remove, findOne, find, deleteMany };
+	return { insert, update, remove, findOne, findOneNow, find, deleteMany };
 }

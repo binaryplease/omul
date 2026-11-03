@@ -85,13 +85,36 @@ intact.
 
 ## 3. Webfonts — SIL Open Font License 1.1
 
-Two typefaces ship inside the built client as `.woff2`/`.woff` files under
-`dist/client/assets/`, pulled in by `src/index.css`:
+These typefaces ship inside the built client as `.woff2`/`.woff`/`.ttf` files
+under `dist/client/assets/`, pulled in by `src/index.css` — all but Noto Sans,
+Sarasa Gothic and Unifont, which ship beside the built server instead (see
+below):
 
 | Font | Package | Copyright | License |
 | --- | --- | --- | --- |
 | Figtree | `@fontsource-variable/figtree` | Copyright 2022 The Figtree Project Authors | OFL-1.1 |
 | DM Mono | `@fontsource/dm-mono` | Copyright 2020 The DM Mono Project Authors | OFL-1.1 |
+| KaTeX's twelve math faces — KaTeX_AMS, \_Caligraphic, \_Fraktur, \_Main, \_Math, \_SansSerif, \_Script, \_Size1–4, \_Typewriter | `katex` | Copyright (c) 2009-2010 Design Science, Inc.; Copyright (c) 2014-2018 Khan Academy | OFL-1.1, each face's name reserved |
+| Noto Sans, Regular and Bold | vendored, `server/fonts/` (release NotoSans-v2.015, hinted TTF) | Copyright 2022 The Noto Project Authors | OFL-1.1 |
+| Sarasa Gothic SC, Regular | vendored, `server/fonts/` (release v1.0.42, hinted TTF) | Copyright (c) 2015-2025, Renzhi Li; portions Copyright (c) 2016 The Inter Project Authors, (c) 2014-2021 Adobe Systems Incorporated with Reserved Font Name 'Source', (c) 2012 Google Inc. | OFL-1.1 |
+| GNU Unifont and Unifont Upper | vendored, `server/fonts/` (release 15.0.06, TrueType) | Copyright © 1998-2023 Roman Czyborra, Paul Hardy, Qianqian Fang, Andrew Miller, Johnnie Weaver, David Corbett, Nils Moskopp, Rebecca Bettencourt, Minseo Lee, et al. | OFL-1.1 (dual-licensed with GPL-2.0-or-later plus the GNU font embedding exception; used under the OFL) |
+
+The KaTeX faces typeset slide formulas (REQ093). They are worth a sentence of
+their own because the package that brings them declares **MIT**, which is the
+license of KaTeX's code: the font files inside it say OFL-1.1 in their own
+name tables, and that is the license they travel under. A browser downloads one
+only when a formula on screen needs it.
+
+Noto Sans sets the text of the deck PDF export (REQ158), Sarasa Gothic SC sets
+the Chinese, Japanese and Korean in it, and Unifont the emoji. None is ever
+served to a browser: `bun build` copies the five `.ttf` files into
+`dist/server/` beside the bundle that reads them, and each exported PDF embeds
+a subset of the glyphs it draws — which the OFL permits for documents made with
+the font. Sarasa Gothic is used under its own name, which is not the reserved
+name 'Source' that one of its upstream portions carries. Unifont is offered
+under two licenses at the recipient's choice since its 13.0.04 release; this
+distribution takes the OFL, which is why it is listed here with the others, and
+declares no reserved font name.
 
 The OFL requires the copyright notice and the license text to travel with the
 font files. They do: the notices and the full license text are in
@@ -101,7 +124,8 @@ running server serves at `/app/licenses/OFL-1.1-fonts.txt` — under the app's
 base path, with the rest of the built client (REQ179). The container image
 carries it by the same route, through `COPY public ./public`.
 
-Neither typeface is modified, renamed or sold on its own.
+No typeface is modified, renamed or sold on its own — for the KaTeX faces, whose
+names are reserved, that is also what lets them keep the names they ship with.
 
 ## 4. Everything else in `public/` and `src/`
 
@@ -111,6 +135,14 @@ third-party artwork, icon set, seed data, sample content or copy-pasted snippet
 is vendored into either directory. Icons are drawn at runtime by
 `lucide-react`, an ISC-licensed dependency (section 6), not copied into the
 tree.
+
+The three quiz audio tracks in `public/audio/` (REQ058) belong to this section:
+they were synthesized for this repository with ffmpeg from mathematical
+expressions and contain no sample or recording made by anybody else.
+[`public/licenses/quiz-audio-tracks.txt`](public/licenses/quiz-audio-tracks.txt)
+names each track with its source and license and records the commands that
+rebuild it. A later track from a third party would need its own entry in this
+file, because this section would no longer be true of it.
 
 ## 5. Contributor agreement text — Creative Commons Attribution 3.0
 
@@ -144,6 +176,14 @@ previous measurement, 242 packages on 2026-08-31, was taken over a tree that
 still carried packages the lockfile had stopped naming, and a stale directory
 counts as a dependency in a scan that walks `node_modules`. The drop of nine is
 the `unzipper` pin below removing a chain of them.
+
+That measurement has not been re-taken since. Two changes have landed on top
+of it: on 2026-10-21 REQ093 added `katex` and the `commander` it depends on, both
+MIT; and on 2026-10-23 REQ158 added `@pdf-lib/fontkit`, MIT, whose one
+dependency, `pako`, was already in the set — so the set is **236 packages** and
+the MIT row below would read 193.
+The table is left as measured rather than edited to match, so that its numbers
+stay the ones a clean install on 2026-09-07 produced.
 
 | License | Packages |
 | --- | --- |
@@ -179,6 +219,14 @@ rather than a number:
 - **`Unlicense`** (`big-integer`) and **`0BSD`** (`tslib`) — public-domain-
   equivalent and permissive respectively; both bundled into the built server.
   `big-integer` arrives through the `unzipper` pin below.
+- **MIT, with OFL-1.1 inside** — `katex`, the formula typesetter (REQ093). Its
+  code is bundled into the built client as a chunk of its own, loaded only when
+  a slide carries a formula; its fonts are OFL-1.1 and listed in section 3.
+  `commander`, which it depends on, serves only KaTeX's command-line tool and is
+  in neither built artifact.
+- **MIT** — `@pdf-lib/fontkit`, which lets `pdf-lib` embed the Noto Sans faces
+  of section 3 in the deck PDF export (REQ158). Reached by no module but
+  `server/deck-pdf.ts`, and bundled into the built server.
 
 ### The one dependency that stated no license is pinned out — `unzipper`
 

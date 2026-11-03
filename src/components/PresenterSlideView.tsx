@@ -1,11 +1,13 @@
 import { Segmented } from "./EditorControls";
 import { ContentSlideView } from "./ContentSlideView";
+import { CountdownRunControls, countdownRunFor } from "./CountdownFace";
 import {
 	LEADERBOARD_LABELS_EN,
 	LeaderboardHeading,
 	readLeaderboard,
 } from "./Leaderboard";
 import { SlideParticipationControl } from "./LiveRoom";
+import { type QuizAudioCue, QuizAudioCueControl } from "./QuizAudioCue";
 import { QuizTimer, quizWindowFor, useQuizCountdown } from "./QuizTimer";
 import {
 	answerModerationFor,
@@ -16,8 +18,14 @@ import {
 import { SLIDE_PLACEMENT_CLASSES } from "./SlideAppearance";
 import { SlideText } from "./SlideText";
 import { SlideTypeIcon } from "./SlideTypeIcon";
-import { useState } from "react";
-import type { McValueDisplay, Presentation, Slide, SlideType } from "../types";
+import { type ReactNode, useState } from "react";
+import type {
+	CountdownAction,
+	McValueDisplay,
+	Presentation,
+	Slide,
+	SlideType,
+} from "../types";
 import {
 	effectiveResultsVisibility,
 	isInteractiveSlideType,
@@ -70,6 +78,110 @@ export function presenterSlideKind(type: SlideType): PresenterSlideKind {
 	return "content";
 }
 
+/**
+ * How wide the shared screen lets a slide run: an open-ended wall gets the room
+ * its cards need, everything else a reading column.
+ */
+export function presenterSlideWidthClass(type: SlideType): string {
+	return type === "open-text" ? "max-w-6xl" : "max-w-3xl";
+}
+
+/**
+ * The top of a question slide on the shared screen: its type, the question, the
+ * picture beside it and how many have answered. What the live screen adds under
+ * it — the countdown and the switches that govern the room — arrives as
+ * `children`.
+ */
+function PresenterSlideHeading({
+	slide,
+	results,
+	children,
+}: {
+	slide: Slide;
+	results: any;
+	children?: ReactNode;
+}) {
+	// This slide's own appearance over the deck's theme (REQ087) — where its
+	// elements sit, and whether it is carrying a picture the words need lifting
+	// off. Both off the resolver: a background URL no browser may be pointed at is
+	// no picture, so it must not put the words in a picture's colours either.
+	const appearance = slideAppearanceFor(slide);
+	const placement = SLIDE_PLACEMENT_CLASSES[appearance.placement];
+	return (
+		<div
+			className={`${placement.text} mb-4 sm:mb-8 slide-in ${
+				appearance.backgroundImage !== "" ? "slide-title-overlay" : ""
+			}`}
+		>
+			<SlideTypeIcon type={slide.type} large />
+			{/* The question as its author wrote it (REQ088/REQ089), at the step
+			    they chose (REQ091) — the same string the room's phones render
+			    through the same component. */}
+			<h2 className="text-xl sm:text-3xl font-bold mt-3 sm:mt-4 mb-2">
+				<SlideText
+					text={slide.question}
+					size={slideTextSizeFor(slide)}
+					variant="inline"
+				/>
+			</h2>
+			{/* The slide's illustration (REQ069) — but not on a slide whose media
+			    *is* its result surface (REQ052): a pin slide's picture is drawn
+			    below with the room's pins on it, and a copy up here would be the
+			    same image twice with the answers on only one of them. */}
+			{slide.mediaUrl && !slideMediaIsInteractionArea(slide.type) && (
+				<img
+					src={slide.mediaUrl}
+					alt={slide.mediaAlt ?? ""}
+					className={`${placement.media} mt-4 max-h-64 rounded-xl object-contain`}
+				/>
+			)}
+			{results && (
+				<p className="text-text-muted mt-3">
+					{describeResponses(slide, results)}
+				</p>
+			)}
+			{children}
+		</div>
+	);
+}
+
+/**
+ * The heading a leaderboard slide wears on the shared screen (REQ059): the
+ * board's title and how many places it shows across how many quiz questions.
+ */
+function PresenterStandingsHeading({
+	slide,
+	results,
+}: {
+	slide: Slide;
+	results: any;
+}) {
+	// The board behind the slide, read once for the caption; the board itself is
+	// drawn from the same payload by ResultsDisplay.
+	const standings = results ? readLeaderboard(results) : null;
+	return (
+		<LeaderboardHeading
+			title={
+				<SlideText
+					text={slide.question || LEADERBOARD_LABELS_EN.title}
+					size={slideTextSizeFor(slide)}
+					variant="inline"
+				/>
+			}
+			subtitle={
+				standings
+					? `Top ${Math.min(
+							standings.size,
+							standings.entries.length,
+						)} across ${standings.quizCount} quiz question${
+							standings.quizCount === 1 ? "" : "s"
+						}`
+					: undefined
+			}
+		/>
+	);
+}
+
 /** What the presenter's screen may do to the slide it is showing. */
 export type PresenterSlideControls = {
 	/** Whether this viewer holds the deck — a spectator gets the read-only view. */
@@ -89,12 +201,26 @@ export type PresenterSlideControls = {
 	 */
 	onSetParticipation: ((slideId: string, open: boolean) => void) | null;
 	/**
+	 * Start, pause or reset a countdown slide's clock (REQ107), or `null` on a
+	 * surface with no room to run it for — a dry run's clock would count down for
+	 * nobody, so its face stays at the full length.
+	 */
+	onSetCountdown: ((slideId: string, action: CountdownAction) => void) | null;
+	/**
 	 * Take one submitted answer off this slide (REQ027), or `null` on a surface
 	 * with no stored answer to take: a dry run's responses were generated for it
 	 * and never written, so deleting one would delete nothing and the next
 	 * regeneration would put it back.
 	 */
 	onDeleteAnswer: ((slideId: string, answerId: string) => void) | null;
+	/**
+	 * This slide's audio cue as this screen plays it (REQ058), or `null` where
+	 * nothing is played: a slide carrying no cue, and a surface that plays none —
+	 * the dry run's presenter pane is a rehearsal at a desk, not the screen the
+	 * room hears. The page that plays the cue owns it; this view only draws its
+	 * switch.
+	 */
+	audioCue: QuizAudioCue | null;
 };
 
 export function PresenterSlideView({
@@ -134,7 +260,9 @@ export function PresenterSlideView({
 		onReveal,
 		onRestartTimer,
 		onSetParticipation,
+		onSetCountdown,
 		onDeleteAnswer,
+		audioCue,
 	} = controls;
 	// Whether the room can still answer this slide (REQ111), read through the
 	// very predicate the boundary refuses on rather than off the field — the
@@ -168,18 +296,17 @@ export function PresenterSlideView({
 			? (answerId: string) => onDeleteAnswer(slide.id, answerId)
 			: null,
 	});
-	// This slide's own appearance over the deck's theme (REQ087) — where its
-	// elements sit, and whether it is carrying a picture the words need lifting
-	// off. Both off the resolver: a background URL no browser may be pointed at is
-	// no picture, so it must not put the words in a picture's colours either.
-	const appearance = slideAppearanceFor(slide);
-	const placement = SLIDE_PLACEMENT_CLASSES[appearance.placement];
-
-	// The board behind a leaderboard slide (REQ059), read once for the caption
-	// above it; the board itself is drawn from the same payload by ResultsDisplay.
-	const standings = kind === "standings" && results ? readLeaderboard(results) : null;
+	// Where this slide's elements sit (REQ087), for the controls under its
+	// heading — the heading itself reads the same resolver.
+	const placement = SLIDE_PLACEMENT_CLASSES[slideAppearanceFor(slide).placement];
 
 	if (kind === "content") {
+		// A countdown slide runs on the room's clock (REQ107): the run the server
+		// recorded, read against its clock — the same run every phone reads.
+		const countdownRun =
+			slide.type === "countdown"
+				? countdownRunFor(slide, pres, serverClockOffsetMs)
+				: null;
 		return (
 			<div className="slide-in py-4">
 				<ContentSlideView
@@ -187,7 +314,21 @@ export function PresenterSlideView({
 					joinCode={pres.code}
 					joinUrl={joinUrl}
 					deck={pres}
+					countdownRun={countdownRun}
 				/>
+				{/* The clock's controls under the clock they run, not in the page
+				    chrome — they change this slide's face and nothing else. */}
+				{countdownRun && onSetCountdown && (
+					<div className={`mt-6 flex flex-col ${placement.items}`}>
+						<CountdownRunControls
+							slide={slide}
+							run={countdownRun}
+							canControl={canControl}
+							live={pres.status === "live"}
+							onAction={(action) => onSetCountdown(slide.id, action)}
+						/>
+					</div>
+				)}
 			</div>
 		);
 	}
@@ -202,25 +343,7 @@ export function PresenterSlideView({
 		   never show anything. */
 		return (
 			<div className="slide-in py-4 space-y-6">
-				<LeaderboardHeading
-					title={
-						<SlideText
-							text={slide.question || LEADERBOARD_LABELS_EN.title}
-							size={slideTextSizeFor(slide)}
-							variant="inline"
-						/>
-					}
-					subtitle={
-						standings
-							? `Top ${Math.min(
-									standings.size,
-									standings.entries.length,
-								)} across ${standings.quizCount} quiz question${
-									standings.quizCount === 1 ? "" : "s"
-								}`
-							: undefined
-					}
-				/>
+				<PresenterStandingsHeading slide={slide} results={results} />
 				{visibility === "private" ? (
 					<div className="text-center text-text-dim py-16">
 						Standings are private — not shown on the shared screen.
@@ -278,41 +401,12 @@ export function PresenterSlideView({
 
 	return (
 		<>
-			<div
-				className={`${placement.text} mb-4 sm:mb-8 slide-in ${
-					appearance.backgroundImage !== "" ? "slide-title-overlay" : ""
-				}`}
-			>
-				<SlideTypeIcon type={slide.type} large />
-				{/* The question as its author wrote it (REQ088/REQ089), at the step
-				    they chose (REQ091) — the same string the room's phones render
-				    through the same component. */}
-				<h2 className="text-xl sm:text-3xl font-bold mt-3 sm:mt-4 mb-2">
-					<SlideText
-						text={slide.question}
-						size={slideTextSizeFor(slide)}
-						variant="inline"
-					/>
-				</h2>
-				{/* The slide's illustration (REQ069) — but not on a slide whose media
-				    *is* its result surface (REQ052): a pin slide's picture is drawn
-				    below with the room's pins on it, and a copy up here would be the
-				    same image twice with the answers on only one of them. */}
-				{slide.mediaUrl && !slideMediaIsInteractionArea(slide.type) && (
-					<img
-						src={slide.mediaUrl}
-						alt={slide.mediaAlt ?? ""}
-						className={`${placement.media} mt-4 max-h-64 rounded-xl object-contain`}
-					/>
-				)}
-				{results && (
-					<p className="text-text-muted mt-3">
-						{describeResponses(slide, results)}
-					</p>
-				)}
+			<PresenterSlideHeading slide={slide} results={results}>
 				{/* The question's countdown and the control that reopens it, on the
 				    question they govern rather than in the page chrome.
-				    Both surfaces show the same window (REQ057). */}
+				    Both surfaces show the same window (REQ057). The audio cue's
+				    switch joins them (REQ058): the cue plays for that same window,
+				    so muting it is a decision about this question too. */}
 				{slide.type === "quiz" && (
 					<div className={`mt-4 flex flex-col gap-2 ${placement.items}`}>
 						<QuizTimer
@@ -330,6 +424,7 @@ export function PresenterSlideView({
 								Restart timer
 							</button>
 						)}
+						{audioCue && <QuizAudioCueControl cue={audioCue} />}
 					</div>
 				)}
 				{/* Whether the room can still answer this question (REQ111), on the
@@ -344,15 +439,16 @@ export function PresenterSlideView({
 				    its own window (REQ057) — the clock closes it on time, this closes
 				    it on the presenter's word, and neither speaks for the other. */}
 				{onSetParticipation && (
-					<div className={`mt-4 flex ${placement.items}`}>
+					<div className={`mt-4 flex flex-col ${placement.items}`}>
 						<SlideParticipationControl
 							open={participationOpen}
 							canControl={canControl}
+							live={pres.status === "live"}
 							onChange={(open) => onSetParticipation(slide.id, open)}
 						/>
 					</div>
 				)}
-			</div>
+			</PresenterSlideHeading>
 
 			{/* Results visualization — gated by the effective results visibility:
 			    the slide's override, else the deck default (REQ102) */}

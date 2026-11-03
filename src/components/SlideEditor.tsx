@@ -8,15 +8,18 @@ import {
 	Eye,
 	EyeOff,
 	Keyboard,
+	Link2,
 	ListChecks,
 	Mail,
 	MousePointerClick,
+	Music2,
 	Plus,
 	Settings2,
+	SkipForward,
 	Trash2,
 	X,
 } from "lucide-react";
-import { useState } from "react";
+import { Fragment, useId, useState } from "react";
 import type {
 	DeckThemeSettings,
 	FormFieldInput,
@@ -45,10 +48,14 @@ import {
 import {
 	acceptedQuizAnswers,
 	correctGuessRangeFor,
+	COUNTDOWN_DEFAULT_SECONDS,
+	COUNTDOWN_MAX_SECONDS,
+	countdownSecondsFor,
 	effectiveResultsVisibility,
 	EMBED_PROVIDERS,
 	FORM_FIELD_LIMIT,
 	FORM_FIELD_OPTION_LIMIT,
+	formatCountdown,
 	GRID_ITEM_LIMIT,
 	gridAxesFor,
 	guessRangeFor,
@@ -93,12 +100,28 @@ import {
 	SettingsGroup,
 	Toggle,
 } from "./EditorControls";
+import { accessibilityFieldMarker } from "./AccessibilityFindings";
 import { PinCanvas } from "./PinImage";
+import {
+	QUIZ_AUDIO_PRESETS,
+	type QuizAudioChoice,
+	type QuizAudioOption,
+	QuizAudioPreviewButton,
+	quizAudioChoiceFor,
+	quizAudioCueAuthoringNote,
+	quizAudioCueRowValue,
+	quizAudioPreviewControlFor,
+	quizAudioUrlForOption,
+	useQuizAudioPreview,
+} from "./QuizAudioCue";
 import { isChoiceShapedSlide } from "./SlideCanvasFields";
 import { deckThemeAppearance } from "./DeckTheme";
 import { slideLayoutOptions } from "./SlideAppearance";
+import { ReasonButton } from "./ui/ReasonTip";
 import { useTheme } from "./ui/Theme";
 import { MC_VALUE_DISPLAY_OPTIONS } from "./Results";
+import { ICON_BUTTON_HOVER } from "./ShareCluster";
+import { SLIDE_REMOVAL_FLOOR_REASON } from "./SlideBulkBar";
 import { SLIDE_MARKDOWN_HINT, SLIDE_TEXT_SIZE_OPTIONS } from "./SlideText";
 import { SlideTypeIcon } from "./SlideTypeIcon";
 import {
@@ -847,12 +870,16 @@ export function SlideEditor({
 
 /**
  * The slide the column is about: which one of the deck it is, what type it is —
- * changeable from here — and the three things that can be done to it as a whole.
+ * changeable from here — and the four things that can be done to it as a whole.
  *
  * It is the column's masthead rather than a group of its own: the type is the
  * one setting that decides which groups exist below it (REQ155's order starts
- * with it), and the reorder and delete controls act on the slide, not on any of
- * its settings.
+ * with it), and the skip, reorder and delete controls act on the slide, not on
+ * any of its settings.
+ *
+ * Skip (REQ110) is a toggle rather than an action: it changes how the deck is
+ * paged and nothing in the slide, so turning it off again gives back exactly
+ * the slide that was there.
  */
 function SlideHeader({
 	slide,
@@ -925,6 +952,11 @@ function SlideHeader({
 			// never lands on an empty places field.
 			changes.leaderboardSize = LEADERBOARD_DEFAULT_SIZE;
 		}
+		if (type === "countdown" && !slide.countdownSeconds) {
+			// The default length (REQ107), so converting an existing slide never
+			// lands on an empty length field.
+			changes.countdownSeconds = COUNTDOWN_DEFAULT_SECONDS;
+		}
 		if (type === "quiz") changes.timeLimit = slide.timeLimit || 30;
 		onUpdate(changes);
 	};
@@ -937,7 +969,9 @@ function SlideHeader({
 			<div className="min-w-0">
 				{/* The slide-type changer: a prominent trigger that opens a visual
 				    picker of every type, so converting a slide is a discoverable
-				    choice rather than a hunt through a native dropdown. */}
+				    choice rather than a hunt through a native dropdown. It stays in
+				    its column and truncates a long type name, so it never runs under
+				    the header's buttons beside it (REQ110). */}
 				<div className="relative">
 					<button
 						type="button"
@@ -945,12 +979,12 @@ function SlideHeader({
 						aria-expanded={typeMenuOpen}
 						aria-haspopup="menu"
 						aria-label="Change slide type"
-						className="inline-flex items-center gap-2 rounded-xl border border-border bg-surface-raised py-1 pl-1 pr-2.5 transition-colors hover:border-text-dim"
+						className="inline-flex max-w-full items-center gap-2 rounded-xl border border-border bg-surface-raised py-1 pl-1 pr-2.5 transition-colors hover:border-text-dim"
 					>
 						<span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-void/50">
 							<SlideTypeIcon type={slide.type} />
 						</span>
-						<span className="truncate text-sm font-semibold text-text">
+						<span className="min-w-0 truncate text-sm font-semibold text-text">
 							{SLIDE_TYPE_LABELS[slide.type]}
 						</span>
 						<ChevronDown
@@ -989,36 +1023,43 @@ function SlideHeader({
 			<div className="flex flex-shrink-0 items-center gap-0.5">
 				<button
 					type="button"
-					className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:opacity-30 disabled:hover:text-text-muted"
+					className={`rounded-lg p-1.5 hover:bg-surface-hover aria-pressed:bg-accent-dim aria-pressed:text-accent-text ${ICON_BUTTON_HOVER}`}
+					onClick={() => onUpdate({ skipped: !slide.skipped })}
+					aria-pressed={slide.skipped}
+					title={
+						slide.skipped
+							? "Skipped — Next and Previous step over this slide. Click to include it again"
+							: "Skip slide — Next and Previous step over it; it stays in the deck"
+					}
+					aria-label="Skip slide"
+				>
+					<SkipForward size={15} />
+				</button>
+				{/* Unavailable, each says why on hover, focus or tap (ADR-0025). */}
+				<ReasonButton
+					label="Move slide up"
+					reason={index === 0 ? "Already the first slide" : null}
+					className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
 					onClick={() => onMove(-1)}
-					disabled={index === 0}
-					title="Move slide up"
-					aria-label="Move slide up"
 				>
 					<ChevronUp size={15} />
-				</button>
-				<button
-					type="button"
-					className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:opacity-30 disabled:hover:text-text-muted"
+				</ReasonButton>
+				<ReasonButton
+					label="Move slide down"
+					reason={index === total - 1 ? "Already the last slide" : null}
+					className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
 					onClick={() => onMove(1)}
-					disabled={index === total - 1}
-					title="Move slide down"
-					aria-label="Move slide down"
 				>
 					<ChevronDown size={15} />
-				</button>
-				<button
-					type="button"
-					className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-error disabled:opacity-30 disabled:hover:text-text-muted"
+				</ReasonButton>
+				<ReasonButton
+					label="Delete slide"
+					reason={canRemove ? null : SLIDE_REMOVAL_FLOOR_REASON}
+					className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-error"
 					onClick={onRemove}
-					disabled={!canRemove}
-					title={
-						canRemove ? "Delete slide" : "A presentation needs at least one slide"
-					}
-					aria-label="Delete slide"
 				>
 					<Trash2 size={15} />
-				</button>
+				</ReasonButton>
 			</div>
 		</div>
 	);
@@ -1048,6 +1089,22 @@ function ContentGroup({
 	const embedNote = slide.type === "embed" ? embedUrlNote(slide) : null;
 	const note = videoNote ?? embedNote;
 	const isInteractiveMedia = !isContentSlideType(slide.type);
+
+	// Marked as the field an accessibility finding about a missing description
+	// goes to (REQ132) — on a question, a text slide and an image slide alike.
+	const altTextField = (
+		<div {...accessibilityFieldMarker({ scope: "slide", name: "mediaAlt" })}>
+			<Field label="Alt text">
+				<input
+					className="input"
+					placeholder="Describe the image"
+					maxLength={SLIDE_ITEM_TEXT_MAX_LENGTH}
+					value={slide.mediaAlt ?? ""}
+					onChange={(event) => onUpdate({ mediaAlt: event.target.value })}
+				/>
+			</Field>
+		</div>
+	);
 
 	const mediaFields = (
 		<>
@@ -1079,17 +1136,7 @@ function ContentGroup({
 					{note.text}
 				</p>
 			)}
-			{(slide.type === "image" || (slide.mediaUrl ?? "") !== "") && (
-				<Field label="Alt text">
-					<input
-						className="input"
-						placeholder="Describe the image"
-						maxLength={SLIDE_ITEM_TEXT_MAX_LENGTH}
-						value={slide.mediaAlt ?? ""}
-						onChange={(event) => onUpdate({ mediaAlt: event.target.value })}
-					/>
-				</Field>
-			)}
+			{(slide.type === "image" || (slide.mediaUrl ?? "") !== "") && altTextField}
 		</>
 	);
 
@@ -1100,20 +1147,25 @@ function ContentGroup({
 			    minority of slides — so it rests as a row that says whether there is
 			    one, and opens where it sits. */}
 			{isInteractiveMedia ? (
-				<DisclosureRow
-					label="Image / GIF"
-					value={(slide.mediaUrl ?? "").trim() === "" ? "None" : "Set"}
-					openHint="Open the picture beside this question"
-				>
-					{mediaFields}
-				</DisclosureRow>
+				<div {...accessibilityFieldMarker({ scope: "slide", name: "mediaAlt" })}>
+					<DisclosureRow
+						label="Image / GIF"
+						value={(slide.mediaUrl ?? "").trim() === "" ? "None" : "Set"}
+						openHint="Open the picture beside this question"
+					>
+						{mediaFields}
+					</DisclosureRow>
+				</div>
 			) : (
 				(slide.type === "image" ||
 					slide.type === "video" ||
 					slide.type === "embed") &&
 				mediaFields
 			)}
-			{!isInteractiveMedia && (
+			{slide.type === "countdown" && (
+				<CountdownLengthField slide={slide} onUpdate={onUpdate} />
+			)}
+			{!isInteractiveMedia && slide.type !== "countdown" && (
 				<Field
 					label={captionLabel}
 					hint={captionLabel === "Body text" ? SLIDE_MARKDOWN_HINT : undefined}
@@ -1143,12 +1195,72 @@ function ContentGroup({
 					/>
 				</Field>
 			)}
+			{/* A text slide draws its picture too, so it is described here as well
+			    — the accessibility check asks for it (REQ132). */}
+			{slide.type === "text" && (slide.mediaUrl ?? "") !== "" && altTextField}
 			{slide.type === "instruction" && (
 				<p className="text-xs text-text-muted">
 					The join code and QR code are generated from the presentation.
 				</p>
 			)}
 		</SettingsGroup>
+	);
+}
+
+/**
+ * How long a countdown slide runs (REQ107), authored as minutes and seconds —
+ * the two numbers the clock face reads in — and stored as the one count of
+ * seconds the slide carries. Every write goes through `countdownSecondsFor`, so
+ * a length outside 1 second…1 hour lands where every surface would draw it.
+ */
+function CountdownLengthField({ slide, onUpdate }: SlideSettingsProps) {
+	const total = countdownSecondsFor(slide);
+	const minutes = Math.floor(total / 60);
+	const seconds = total % 60;
+	// An empty field is mid-typing, read as zero of that unit; the clamp then
+	// decides what the whole length means.
+	const write = (nextMinutes: number, nextSeconds: number) =>
+		onUpdate({
+			countdownSeconds: countdownSecondsFor({
+				countdownSeconds: nextMinutes * 60 + nextSeconds,
+			}),
+		});
+	const typed = (value: string) => {
+		const parsed = Number(value.trim());
+		return value.trim() === "" || !Number.isFinite(parsed) ? 0 : parsed;
+	};
+	return (
+		<>
+			<div className="flex items-end gap-2">
+				<Field label="Minutes">
+					<input
+						type="number"
+						className="input w-20"
+						aria-label="Countdown minutes"
+						min={0}
+						max={COUNTDOWN_MAX_SECONDS / 60}
+						value={minutes}
+						onChange={(event) => write(typed(event.target.value), seconds)}
+					/>
+				</Field>
+				<Field label="Seconds">
+					<input
+						type="number"
+						className="input w-20"
+						aria-label="Countdown seconds"
+						min={0}
+						max={59}
+						value={seconds}
+						onChange={(event) => write(minutes, typed(event.target.value))}
+					/>
+				</Field>
+			</div>
+			<p className="text-xs text-text-muted">
+				{`Counts down from ${formatCountdown(total)} — up to ${formatCountdown(
+					COUNTDOWN_MAX_SECONDS,
+				)}.`}
+			</p>
+		</>
 	);
 }
 
@@ -2134,14 +2246,16 @@ function PinFields({
 					onChange={(event) => onUpdate({ mediaUrl: event.target.value })}
 				/>
 			</Field>
-			<Field label="Alt text">
-				<input
-					className="input"
-					placeholder="Describe the image"
-					value={slide.mediaAlt ?? ""}
-					onChange={(event) => onUpdate({ mediaAlt: event.target.value })}
-				/>
-			</Field>
+			<div {...accessibilityFieldMarker({ scope: "slide", name: "mediaAlt" })}>
+				<Field label="Alt text">
+					<input
+						className="input"
+						placeholder="Describe the image"
+						value={slide.mediaAlt ?? ""}
+						onChange={(event) => onUpdate({ mediaAlt: event.target.value })}
+					/>
+				</Field>
+			</div>
 			{/* A pin slide with no image cannot be answered at all — the vote
 			    boundary refuses every submission to one — so it is said here, where
 			    it can be fixed, and refused at save (CreatePage) so it cannot ship. */}
@@ -2236,7 +2350,8 @@ function PinFields({
 
 /**
  * How a quiz question is scored and timed (REQ054/REQ057) — the window it is
- * open for, which is also what the speed half of the score is measured against.
+ * open for, which is also what the speed half of the score is measured against
+ * — and the track the presenter's screen plays over that window (REQ058).
  */
 function ScoringGroup({
 	slide,
@@ -2246,6 +2361,10 @@ function ScoringGroup({
 }: SlideSettingsProps & { title: string; deckMode: PresentationMode }) {
 	const departure = slideScoringDeparture(slide);
 	const seconds = slide.timeLimit ?? 30;
+	// Held here rather than inside the row, which unmounts its contents on Done.
+	// The editor remounts per slide (`key={activeSlide.id}`), so this cannot leak
+	// onto the next slide.
+	const [customAudioOpen, setCustomAudioOpen] = useState(false);
 	return (
 		<SettingsGroup
 			title={title}
@@ -2297,7 +2416,156 @@ function ScoringGroup({
 					/>
 				</Field>
 			</DisclosureRow>
+			{/* REQ058 — what the presenter's screen plays while the question is
+			    open. It rests as a row, like the picture behind a slide: whether
+			    there is one is legible without opening anything. It is left out of
+			    the group's reset on purpose — a reset puts a choice back and never
+			    throws away something authored — so the way to no cue is its own
+			    Remove. */}
+			<DisclosureRow
+				label="Audio cue"
+				value={quizAudioCueRowValue(slide)}
+				openHint="Open the track played while the question is open"
+			>
+				<QuizAudioCueFields
+					slide={slide}
+					onUpdate={onUpdate}
+					deckMode={deckMode}
+					customOpen={customAudioOpen}
+					onCustomOpenChange={setCustomAudioOpen}
+				/>
+			</DisclosureRow>
 		</SettingsGroup>
+	);
+}
+
+/**
+ * The inside of the Audio cue row (REQ058): three bundled tracks and Custom, with
+ * the URL field drawn only under Custom. Each bundled track has a play control
+ * beside its tile: selecting a track stays silent and pressing play does not select
+ * it, so a selection never makes an unexpected sound. The audio element is made in
+ * `useQuizAudioPreview()`, because the guard in
+ * `scripts/guard-frontend-conventions.ts` keeps audio elements to the cue module and
+ * the presenter page.
+ *
+ * Each tile is its own one-option `ChoiceCards`, so a control can sit beside it
+ * without being nested inside the picker's button.
+ *
+ * `customOpen` is controlled so a test can draw both states without a DOM. Every
+ * handler sets it, so an author who empties a stored address by typing or with
+ * Remove keeps the field they were working in.
+ */
+export function QuizAudioCueFields({
+	slide,
+	onUpdate,
+	deckMode,
+	customOpen,
+	onCustomOpenChange,
+}: Pick<SlideSettingsProps, "slide" | "onUpdate"> & {
+	deckMode: PresentationMode;
+	customOpen: boolean;
+	onCustomOpenChange: (customOpen: boolean) => void;
+}) {
+	const authoredAudio = slide.quizAudioUrl ?? "";
+	const choice = quizAudioChoiceFor(authoredAudio, customOpen);
+	const audioNote = quizAudioCueAuthoringNote(slide, deckMode, choice === "custom");
+	const preview = useQuizAudioPreview();
+	const previewReasonId = useId();
+	const selectOption = (option: QuizAudioOption) => {
+		onCustomOpenChange(option === "custom");
+		onUpdate({ quizAudioUrl: quizAudioUrlForOption(option, authoredAudio) });
+	};
+	return (
+		<>
+			<Field label="Audio track">
+				<div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1.5 gap-y-1.5">
+					{QUIZ_AUDIO_PRESETS.map((preset) => {
+						const previewState = preview.stateOf(preset.id);
+						const { reason } = quizAudioPreviewControlFor(
+							preset.label,
+							previewState,
+						);
+						const reasonId = `${previewReasonId}-${preset.id}`;
+						return (
+							<Fragment key={preset.id}>
+								<ChoiceCards<QuizAudioChoice>
+									ariaLabel={`Audio track: ${preset.label}`}
+									variant="tile"
+									value={choice}
+									onChange={() => selectOption(preset.id)}
+									options={[
+										{
+											value: preset.id,
+											label: preset.label,
+											icon: <Music2 size={13} />,
+										},
+									]}
+								/>
+								<QuizAudioPreviewButton
+									trackLabel={preset.label}
+									state={previewState}
+									reasonId={reasonId}
+									onToggle={() => preview.toggle(preset)}
+								/>
+								{reason !== null && (
+									<p id={reasonId} className="col-span-2 text-xs text-warning">
+										{reason}
+									</p>
+								)}
+							</Fragment>
+						);
+					})}
+					<ChoiceCards<QuizAudioChoice>
+						ariaLabel="Audio track: Custom"
+						variant="tile"
+						value={choice}
+						onChange={() => selectOption("custom")}
+						options={[
+							{ value: "custom", label: "Custom", icon: <Link2 size={13} /> },
+						]}
+					/>
+				</div>
+			</Field>
+			{choice === "custom" && (
+				<Field label="Audio track URL">
+					<input
+						className="input"
+						placeholder="https://..."
+						aria-label="Audio track URL"
+						maxLength={SLIDE_MEDIA_URL_MAX_LENGTH}
+						value={authoredAudio}
+						onChange={(event) => {
+							onCustomOpenChange(true);
+							onUpdate({ quizAudioUrl: event.target.value });
+						}}
+					/>
+				</Field>
+			)}
+			{/* Read through the resolver the presenter's screen plays it
+			    through, so the row cannot promise a cue the room will not
+			    hear. */}
+			<p className={`text-xs ${audioNote.warning ? "text-warning" : "text-text-muted"}`}>
+				{audioNote.text}
+			</p>
+			{/* A line of its own, so the row's Done does not run on from it. */}
+			<button
+				type="button"
+				className="flex w-fit items-center gap-1.5 text-xs text-text-muted transition-colors hover:text-error disabled:cursor-not-allowed disabled:text-text-dim disabled:hover:text-text-dim"
+				onClick={() => {
+					onCustomOpenChange(choice === "custom");
+					onUpdate({ quizAudioUrl: "" });
+				}}
+				disabled={authoredAudio === ""}
+				title={
+					authoredAudio === ""
+						? "This question carries no audio cue."
+						: "Remove this question's audio cue."
+				}
+			>
+				<X size={12} />
+				Remove audio cue
+			</button>
+		</>
 	);
 }
 
@@ -2508,32 +2776,40 @@ function StyleGroup({
 					options={slideLayoutOptions()}
 				/>
 			</Field>
-			<Field label="Text size" inline>
-				<Segmented<SlideTextSize>
-					compact
-					ariaLabel="Size of this slide's heading and body text"
-					value={slideTextSizeFor(slide)}
-					onChange={(size) => onUpdate({ textSize: size })}
-					options={SLIDE_TEXT_SIZE_OPTIONS}
-				/>
-			</Field>
+			{/* The four fields here an accessibility finding can name (REQ132) are
+			    marked, so a finding brings up the one that clears it. */}
+			<div {...accessibilityFieldMarker({ scope: "slide", name: "textSize" })}>
+				<Field label="Text size" inline>
+					<Segmented<SlideTextSize>
+						compact
+						ariaLabel="Size of this slide's heading and body text"
+						value={slideTextSizeFor(slide)}
+						onChange={(size) => onUpdate({ textSize: size })}
+						options={SLIDE_TEXT_SIZE_OPTIONS}
+					/>
+				</Field>
+			</div>
 			<div className="space-y-1">
-				<ColorField
-					collapsible
-					label="Background"
-					placeholder={inherited.canvas}
-					value={slide.backgroundColor ?? ""}
-					unsetNote="Following the deck's theme."
-					onChange={(backgroundColor) => onUpdate({ backgroundColor })}
-				/>
-				<ColorField
-					collapsible
-					label="Text"
-					placeholder={inherited.text}
-					value={slide.textColor ?? ""}
-					unsetNote="Following the deck's theme."
-					onChange={(textColor) => onUpdate({ textColor })}
-				/>
+				<div {...accessibilityFieldMarker({ scope: "slide", name: "backgroundColor" })}>
+					<ColorField
+						collapsible
+						label="Background"
+						placeholder={inherited.canvas}
+						value={slide.backgroundColor ?? ""}
+						unsetNote="Following the deck's theme."
+						onChange={(backgroundColor) => onUpdate({ backgroundColor })}
+					/>
+				</div>
+				<div {...accessibilityFieldMarker({ scope: "slide", name: "textColor" })}>
+					<ColorField
+						collapsible
+						label="Text"
+						placeholder={inherited.text}
+						value={slide.textColor ?? ""}
+						unsetNote="Following the deck's theme."
+						onChange={(textColor) => onUpdate({ textColor })}
+					/>
+				</div>
 				<ColorField
 					collapsible
 					label="Chart"
@@ -2548,47 +2824,49 @@ function StyleGroup({
 					onChange={(chartColor) => onUpdate({ chartColor })}
 				/>
 			</div>
-			<DisclosureRow
-				label="Background image"
-				value={slideAppearanceFor(slide).backgroundImage === "" ? "None" : "Set"}
-				openHint="Open the picture behind this slide"
-			>
-				<Field label="Background image URL">
-					<input
-						className="input"
-						placeholder="https://..."
-						maxLength={SLIDE_MEDIA_URL_MAX_LENGTH}
-						value={slide.backgroundImage ?? ""}
-						onChange={(event) => onUpdate({ backgroundImage: event.target.value })}
-					/>
-				</Field>
-				{/* What the resolver makes of the URL, said here rather than discovered
-				    on a projector: a scheme no browser should be pointed at draws no
-				    picture at all. */}
-				{(slide.backgroundImage ?? "") !== "" &&
-					slideAppearanceFor(slide).backgroundImage === "" && (
-						<p className="text-xs text-warning">
-							That address can't be loaded as a picture — use an http(s) or
-							root-relative URL.
-						</p>
-					)}
-				{/* The way back to no picture. It stands whether or not there is one to
-				    remove and says why it is unavailable. */}
-				<button
-					type="button"
-					className="inline-flex items-center gap-1.5 text-xs text-text-muted transition-colors hover:text-error disabled:cursor-not-allowed disabled:text-text-dim disabled:hover:text-text-dim"
-					onClick={() => onUpdate({ backgroundImage: "" })}
-					disabled={(slide.backgroundImage ?? "") === ""}
-					title={
-						(slide.backgroundImage ?? "") === ""
-							? "This slide carries no background image."
-							: "Remove this slide's background image."
-					}
+			<div {...accessibilityFieldMarker({ scope: "slide", name: "backgroundImage" })}>
+				<DisclosureRow
+					label="Background image"
+					value={slideAppearanceFor(slide).backgroundImage === "" ? "None" : "Set"}
+					openHint="Open the picture behind this slide"
 				>
-					<X size={12} />
-					Remove background image
-				</button>
-			</DisclosureRow>
+					<Field label="Background image URL">
+						<input
+							className="input"
+							placeholder="https://..."
+							maxLength={SLIDE_MEDIA_URL_MAX_LENGTH}
+							value={slide.backgroundImage ?? ""}
+							onChange={(event) => onUpdate({ backgroundImage: event.target.value })}
+						/>
+					</Field>
+					{/* What the resolver makes of the URL, said here rather than discovered
+					    on a projector: a scheme no browser should be pointed at draws no
+					    picture at all. */}
+					{(slide.backgroundImage ?? "") !== "" &&
+						slideAppearanceFor(slide).backgroundImage === "" && (
+							<p className="text-xs text-warning">
+								That address can't be loaded as a picture — use an http(s) or
+								root-relative URL.
+							</p>
+						)}
+					{/* The way back to no picture. It stands whether or not there is one to
+					    remove and says why it is unavailable. */}
+					<button
+						type="button"
+						className="inline-flex items-center gap-1.5 text-xs text-text-muted transition-colors hover:text-error disabled:cursor-not-allowed disabled:text-text-dim disabled:hover:text-text-dim"
+						onClick={() => onUpdate({ backgroundImage: "" })}
+						disabled={(slide.backgroundImage ?? "") === ""}
+						title={
+							(slide.backgroundImage ?? "") === ""
+								? "This slide carries no background image."
+								: "Remove this slide's background image."
+						}
+					>
+						<X size={12} />
+						Remove background image
+					</button>
+				</DisclosureRow>
+			</div>
 		</SettingsGroup>
 	);
 }

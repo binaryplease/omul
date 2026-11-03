@@ -309,6 +309,9 @@ export function PreviewPage({
 			activeSlideIndex: activeIndex,
 			slideStartedAt,
 			revealedSlideIds,
+			// A dry run draws every countdown at its full length (REQ107), whatever
+			// the stored deck's live session left its clocks at.
+			countdownRuns: {},
 		};
 	}, [pres, preview, activeIndex, revealedSlideIds]);
 
@@ -553,12 +556,19 @@ export function PreviewPage({
 														// nothing. What closing a question does to a real room is
 														// the one thing a dry run cannot rehearse.
 														onSetParticipation: null,
+														// Nor a room to run a countdown for (REQ107): the face
+														// stays at its full length, as the editor draws it.
+														onSetCountdown: null,
 														// And nothing to take down (REQ027): a dry run's answers
 														// were generated for it and never written, so deleting one
 														// would delete nothing — and "Regenerate" would put it
 														// straight back. Moderation is about what a real room
 														// really said.
 														onDeleteAnswer: null,
+														// And no sound (REQ058): a quiz's audio cue plays on the
+														// presenter's screen and no other, and a rehearsal at a
+														// desk is not the screen a room hears.
+														audioCue: null,
 													}}
 												/>
 												{/* REQ090 — the notes for this slide, on the presenter

@@ -29,11 +29,14 @@ import {
 	SLIDE_TEXT_MAX_LENGTH,
 	SlideInputSchema,
 	SlideSchema,
+	slideHasCorrectAnswers,
 	slideWriteRefusalFor,
 	type SlideType,
 	SlideTypeEnum,
+	StoredPresentationSchema,
 	UNWRITABLE_PRESENTATION_FIELDS,
 	UpdatePresentationSchema,
+	withAudienceSolutions,
 	withoutUnwritableFields,
 } from "./schemas";
 
@@ -128,6 +131,97 @@ describe("maxResponsesFor (REQ022/REQ026)", () => {
 		expect(maxResponsesFor({ allowMultiple: true })).toBe(0);
 		expect(maxResponsesFor({ allowMultiple: false })).toBe(1);
 		expect(maxResponsesFor({})).toBe(1);
+	});
+
+	test("an unconfigured slide declares its absence as null and still follows allowMultiple (REQ184)", () => {
+		// `maxResponses` declares `null` as its default rather than being a bare
+		// `.optional()`, so a slide that never set it — submitted or stored —
+		// says so explicitly. A `.default(1)` would have erased the fallback.
+		for (const allowMultiple of [false, true]) {
+			const submitted = SlideSchema.parse({
+				id: "wc",
+				type: "word-cloud",
+				question: "Q",
+				allowMultiple,
+			});
+			const [stored] = StoredPresentationSchema.parse({
+				id: "deck",
+				slides: [{ id: "wc", type: "word-cloud", question: "Q", allowMultiple }],
+			}).slides;
+			for (const slide of [submitted, stored]) {
+				expect(slide.maxResponses).toBe(null);
+				expect(maxResponsesFor(slide)).toBe(allowMultiple ? 0 : 1);
+			}
+		}
+	});
+});
+
+describe("options[].isCorrect declares its absence (REQ184)", () => {
+	const OPTIONS = [
+		{ id: "a", text: "Paris", isCorrect: true },
+		{ id: "b", text: "Lyon", isCorrect: false },
+		{ id: "c", text: "Nice" },
+	];
+
+	test("an option the author never marked parses to null, submitted or stored", () => {
+		// `null` is the schema's declared "never marked". A `.default(false)` would
+		// have said "marked wrong" for every option nobody touched.
+		const submitted = SlideInputSchema.parse({
+			id: "qz",
+			type: "quiz",
+			question: "Capital of France?",
+			options: OPTIONS,
+		});
+		const [stored] = StoredPresentationSchema.parse({
+			id: "deck",
+			slides: [{ id: "qz", type: "quiz", question: "Q", options: OPTIONS }],
+		}).slides;
+		for (const slide of [submitted, stored]) {
+			expect(slide.options.map((option) => option.isCorrect)).toEqual([
+				true,
+				false,
+				null,
+			]);
+		}
+	});
+
+	test("a slide whose options are all unmarked still has no notion of correctness", () => {
+		const slide = SlideSchema.parse({
+			id: "mc",
+			type: "multiple-choice",
+			question: "Q",
+			options: [
+				{ id: "a", text: "Weekly" },
+				{ id: "b", text: "Monthly" },
+			],
+		});
+		expect(slide.options.every((option) => option.isCorrect === null)).toBe(
+			true,
+		);
+		expect(slideHasCorrectAnswers(slide)).toBe(false);
+	});
+
+	test("a withheld solution drops the key from every option, the unmarked null included", () => {
+		// The stored `null` must not survive withholding: an audience that saw
+		// `isCorrect: null` on some options and no key on others would read off
+		// which ones the author marked (REQ056).
+		const quiz = SlideSchema.parse({
+			id: "qz",
+			type: "quiz",
+			question: "Capital of France?",
+			timeLimit: 30,
+			options: OPTIONS,
+		});
+		const deck = StoredPresentationSchema.parse({
+			id: "deck",
+			status: "live",
+			resultsVisibility: "instant",
+		});
+		const [audience] = withAudienceSolutions([quiz], deck, Date.now());
+		expect(audience.options).toHaveLength(3);
+		expect(audience.options.some((option) => "isCorrect" in option)).toBe(
+			false,
+		);
 	});
 });
 

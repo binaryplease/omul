@@ -1,6 +1,11 @@
 @import "tailwindcss";
 @import "@fontsource-variable/figtree";
 @import "@fontsource/dm-mono";
+/* KaTeX's rules and, through them, its fonts (REQ093): bundled by the build
+   from the installed package like the two faces above, never fetched from
+   anybody else's host. The library itself arrives on demand (SlideMath.tsx),
+   and a font is only downloaded once a formula on screen asks for it. */
+@import "katex/dist/katex.min.css";
 
 /* ── Design system: "Signal" ──────────────────────────────────
  * Aesthetic: Broadcast / signal / pulse
@@ -129,6 +134,21 @@
 
 @utility shadow-panel {
 	box-shadow: var(--shadow-panel);
+}
+
+/* The presenter's phone dock (REQ199): below `sm` the presenter bar's room
+   console is fixed to the bottom edge, and while it is in the document its
+   height is published here — its 44px controls, 8px of padding above and
+   below, its 1px top border and the safe area — so the page can scroll its
+   last content clear of it and a toast can rise above it. Unset on every other
+   page and at every other width, where both read `0px`. A focus that scrolls
+   a control into view keeps it above the dock too, rather than up to the
+   dock's height under it (WCAG 2.4.11). */
+@media (width < 40rem) {
+	:root:has([data-bottom-dock]) {
+		--bottom-dock-height: calc(3.75rem + 1px + env(safe-area-inset-bottom));
+		scroll-padding-bottom: var(--bottom-dock-height);
+	}
 }
 
 /* ── Light mode token overrides ────────────────────────────── */

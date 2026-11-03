@@ -231,6 +231,60 @@ export function appHomeUrl(search?: string): string {
 }
 
 /**
+ * `candidate` as a path into this app on `origin` — path, query and hash — or
+ * `null` when it is anything else (REQ134).
+ *
+ * The one gate a return target crosses before a sign-in flow is told to come
+ * back to it. Only a root-relative path is taken, never an absolute URL, a
+ * protocol-relative `//host` or a backslash a browser would read as one; what
+ * is left is resolved against `origin` and must still be on it; and the path
+ * must be one this router names — it survives {@link routeForLocation} and
+ * {@link pathForRoute} unchanged — so a target that only *looks* like ours
+ * (`/join/../elsewhere`) comes back as the path a browser would actually load,
+ * or not at all. Pure, so the rule is asserted without a DOM.
+ */
+export function sameOriginAppPath(
+	candidate: string,
+	origin: string,
+): string | null {
+	if (!candidate.startsWith("/") || candidate.startsWith("//")) return null;
+	if (candidate.includes("\\")) return null;
+	let resolved: URL;
+	try {
+		resolved = new URL(candidate, origin);
+	} catch {
+		return null;
+	}
+	if (resolved.origin !== origin) return null;
+	const route = routeForLocation(resolved.pathname, resolved.hash.slice(1));
+	if (pathForRoute(route).split("#")[0] !== resolved.pathname) return null;
+	return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+}
+
+/**
+ * An absolute link back into this app at `returnTo`, carrying a sign-in flow's
+ * `landing` query (`mode=reset-password`) — the app's home page with it when
+ * `returnTo` is absent or fails {@link sameOriginAppPath}. Absolute for the
+ * reason {@link appHomeUrl} is: a mail client follows it.
+ *
+ * This is how a participant who has to reset a password on a deck that requires
+ * signing in comes back to the same `/join/<code>` (REQ134): the reset email
+ * lands there, kept query and all, instead of on the home page.
+ */
+export function appReturnUrl(
+	returnTo: string | undefined,
+	landing: string,
+	origin: string = window.location.origin,
+): string {
+	const path = returnTo ? sameOriginAppPath(returnTo, origin) : null;
+	if (!path) return `${origin}${APP_BASE_PATH}?${landing}`;
+	const [beforeHash, hash] = path.split("#");
+	const separator = beforeHash.includes("?") ? "&" : "?";
+	const fragment = hash === undefined ? "" : `#${hash}`;
+	return `${origin}${beforeHash}${separator}${landing}${fragment}`;
+}
+
+/**
  * The tab's words. The product is named by its name alone (REQ167) — the mark
  * stands without a gloss, and so does the word.
  */

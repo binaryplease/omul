@@ -24,6 +24,7 @@ import type { StoreApi } from "zustand";
 import type {
 	DeckBrand,
 	DeckThemeId,
+	ParticipantLanguage,
 	PresentationMode,
 	QAVisibility,
 	ResultsVisibility,
@@ -42,6 +43,8 @@ import {
 import {
 	applyEditorOperation,
 	blankDocument,
+	canCopySlides,
+	copySlidesOperation,
 	type EditorDocument,
 	type EditorOperation,
 	newOption,
@@ -56,6 +59,8 @@ export interface EditorSlice extends EditorDocument {
 	setTitle: (title: string) => void;
 	setLanguage: (language: string) => void;
 	setMode: (mode: PresentationMode) => void;
+	/** Author whether a device may go through the deck more than once (REQ083). */
+	setAllowRepeatPasses: (allowRepeatPasses: boolean) => void;
 	setResultsVisibility: (resultsVisibility: ResultsVisibility) => void;
 	/**
 	 * Set the deck's reveal mode **and** apply it to every question slide in one
@@ -72,6 +77,13 @@ export interface EditorSlice extends EditorDocument {
 	setChatEnabled: (chatEnabled: boolean) => void;
 	/** Author whether the room states its names on joining (REQ076). */
 	setRequireParticipantName: (requireParticipantName: boolean) => void;
+	/** Author whether only signed-in participants may join (REQ134). */
+	setRequireParticipantSignIn: (requireParticipantSignIn: boolean) => void;
+	/** Author the profanity filter on free text, and the list it reads (REQ085). */
+	setProfanityFilterEnabled: (profanityFilterEnabled: boolean) => void;
+	setProfanityFilterLanguage: (
+		profanityFilterLanguage: ParticipantLanguage | null,
+	) => void;
 	/** Choose the deck's theme — one of the built-in set, or its own (REQ079/REQ080). */
 	setTheme: (theme: DeckThemeId) => void;
 	/**
@@ -90,12 +102,16 @@ export interface EditorSlice extends EditorDocument {
 		slides: Slide[];
 		language?: string;
 		mode?: PresentationMode;
+		allowRepeatPasses?: boolean;
 		resultsVisibility?: ResultsVisibility;
 		qaEnabled?: boolean;
 		qaVisibility?: QAVisibility;
 		reactionsEnabled?: boolean;
 		chatEnabled?: boolean;
 		requireParticipantName?: boolean;
+		requireParticipantSignIn?: boolean;
+		profanityFilterEnabled?: boolean;
+		profanityFilterLanguage?: ParticipantLanguage | null;
 		theme?: string;
 		themeBrand?: Partial<DeckBrand> | null;
 		themeLogoUrl?: string;
@@ -110,6 +126,17 @@ export interface EditorSlice extends EditorDocument {
 	moveSlide: (slideId: string, direction: -1 | 1) => void;
 	/** Drag-to-reorder: lift a slide (by id) and drop it at an absolute index. */
 	reorderSlide: (slideId: string, toIndex: number) => void;
+	/** Move several slides one step as one block, in their order (REQ127). */
+	moveSlides: (slideIds: string[], direction: -1 | 1) => void;
+	/** Mark several slides skipped, or include them again, at once (REQ127). */
+	setSlidesSkipped: (slideIds: string[], skipped: boolean) => void;
+	/** Delete several slides at once; refused whole if none would be left (REQ127). */
+	removeSlides: (slideIds: string[]) => void;
+	/**
+	 * Copy several slides at once, as one block after the last of them (REQ127).
+	 * Returns the copies' ids in deck order — empty when nothing was copied.
+	 */
+	copySlides: (slideIds: string[]) => string[];
 
 	addOption: (slideId: string) => void;
 	updateOption: (
@@ -130,12 +157,16 @@ export function createEditorSlice(set: AppSet, get: AppGet): EditorSlice {
 			title,
 			language,
 			mode,
+			allowRepeatPasses,
 			resultsVisibility,
 			qaEnabled,
 			qaVisibility,
 			reactionsEnabled,
 			chatEnabled,
 			requireParticipantName,
+			requireParticipantSignIn,
+			profanityFilterEnabled,
+			profanityFilterLanguage,
 			theme,
 			themeBrand,
 			themeLogoUrl,
@@ -148,12 +179,16 @@ export function createEditorSlice(set: AppSet, get: AppGet): EditorSlice {
 					title,
 					language,
 					mode,
+					allowRepeatPasses,
 					resultsVisibility,
 					qaEnabled,
 					qaVisibility,
 					reactionsEnabled,
 					chatEnabled,
 					requireParticipantName,
+					requireParticipantSignIn,
+					profanityFilterEnabled,
+					profanityFilterLanguage,
 					theme,
 					themeBrand,
 					themeLogoUrl,
@@ -172,6 +207,8 @@ export function createEditorSlice(set: AppSet, get: AppGet): EditorSlice {
 		setLanguage: (language) =>
 			dispatch({ type: "set-meta", changes: { language } }),
 		setMode: (mode) => dispatch({ type: "set-meta", changes: { mode } }),
+		setAllowRepeatPasses: (allowRepeatPasses) =>
+			dispatch({ type: "set-meta", changes: { allowRepeatPasses } }),
 		setResultsVisibility: (resultsVisibility) =>
 			dispatch({ type: "set-meta", changes: { resultsVisibility } }),
 
@@ -187,6 +224,12 @@ export function createEditorSlice(set: AppSet, get: AppGet): EditorSlice {
 			dispatch({ type: "set-meta", changes: { chatEnabled } }),
 		setRequireParticipantName: (requireParticipantName) =>
 			dispatch({ type: "set-meta", changes: { requireParticipantName } }),
+		setRequireParticipantSignIn: (requireParticipantSignIn) =>
+			dispatch({ type: "set-meta", changes: { requireParticipantSignIn } }),
+		setProfanityFilterEnabled: (profanityFilterEnabled) =>
+			dispatch({ type: "set-meta", changes: { profanityFilterEnabled } }),
+		setProfanityFilterLanguage: (profanityFilterLanguage) =>
+			dispatch({ type: "set-meta", changes: { profanityFilterLanguage } }),
 		setTheme: (theme) => dispatch({ type: "set-meta", changes: { theme } }),
 		setThemeBrand: (changes) => dispatch({ type: "set-brand", changes }),
 		setThemeLogoUrl: (themeLogoUrl) =>
@@ -199,12 +242,16 @@ export function createEditorSlice(set: AppSet, get: AppGet): EditorSlice {
 			slides,
 			language,
 			mode,
+			allowRepeatPasses,
 			resultsVisibility,
 			qaEnabled,
 			qaVisibility,
 			reactionsEnabled,
 			chatEnabled,
 			requireParticipantName,
+			requireParticipantSignIn,
+			profanityFilterEnabled,
+			profanityFilterLanguage,
 			theme,
 			themeBrand,
 			themeLogoUrl,
@@ -215,6 +262,9 @@ export function createEditorSlice(set: AppSet, get: AppGet): EditorSlice {
 				slides,
 				language: language ?? "en",
 				mode: mode ?? "live",
+				// One set of answers per device is what an unknown deck reads as
+				// (REQ083), as the schema defaults it.
+				allowRepeatPasses: allowRepeatPasses ?? false,
 				resultsVisibility: resultsVisibility ?? "instant",
 				// The theme arrives as a bare string from the wire, so it lands through
 				// the same resolver every render surface uses (REQ079): a deck holding a
@@ -245,6 +295,13 @@ export function createEditorSlice(set: AppSet, get: AppGet): EditorSlice {
 				// else's deck with this switched on would put a question at the door of
 				// a room its organizer never meant to ask.
 				requireParticipantName: requireParticipantName ?? false,
+				// REQ134 — off is what an unknown deck reads as, as the schema defaults
+				// it: an editor must not save a door onto a deck that never had one.
+				requireParticipantSignIn: requireParticipantSignIn ?? false,
+				// REQ085 — off, following the deck's language, is what an unknown deck
+				// reads as, the way the schema defaults it.
+				profanityFilterEnabled: profanityFilterEnabled ?? false,
+				profanityFilterLanguage: profanityFilterLanguage ?? null,
 			}),
 
 		resetEditor: () => set(blankDocument()),
@@ -267,6 +324,24 @@ export function createEditorSlice(set: AppSet, get: AppGet): EditorSlice {
 
 		reorderSlide: (slideId, toIndex) =>
 			dispatch({ type: "reorder-slide", slideId, toIndex }),
+
+		moveSlides: (slideIds, direction) =>
+			dispatch({ type: "move-slides", slideIds, direction }),
+
+		setSlidesSkipped: (slideIds, skipped) =>
+			dispatch({ type: "set-slides-skipped", slideIds, skipped }),
+
+		removeSlides: (slideIds) => dispatch({ type: "remove-slides", slideIds }),
+
+		copySlides: (slideIds) => {
+			const { slides } = get();
+			// Refused whole past SLIDE_LIMIT (REQ159), as `addSlide` is.
+			if (!canCopySlides(slides, slideIds)) return [];
+			const operation = copySlidesOperation(slides, slideIds);
+			if (!operation) return [];
+			dispatch(operation);
+			return operation.copies.map((copy) => copy.id);
+		},
 
 		addOption: (slideId) => {
 			const slide = get().slides.find((candidate) => candidate.id === slideId);

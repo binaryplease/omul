@@ -23,6 +23,12 @@ export const PARTICIPANT_ID_KEY = "omul-participant-id";
 export const PARTICIPANT_NAME_KEY = "omul-participant-names";
 
 /**
+ * Which pass through each deck this browser is answering in (REQ083), as a map
+ * of presentation id → pass number. Absent means the first.
+ */
+export const PARTICIPANT_PASS_KEY = "omul-participant-passes";
+
+/**
  * Every deck this browser saw in `draft` or `live`, as a map of presentation id
  * → when it last did (REQ186, `src/feedback-prompt.ts`).
  */

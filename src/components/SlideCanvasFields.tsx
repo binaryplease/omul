@@ -1,4 +1,5 @@
 import { Check, Plus, X } from "lucide-react";
+import { useState } from "react";
 import { POLL_COLORS } from "../constants";
 import type { Slide, SlideOption } from "../types";
 import {
@@ -10,9 +11,15 @@ import {
 	SLIDE_TEXT_MAX_LENGTH,
 	slideTextSizeFor,
 } from "../types";
+import { accessibilityFieldMarker } from "./AccessibilityFindings";
 import { REMOVE_BUTTON_HOVER } from "./EditorControls";
 import { LEADERBOARD_LABELS_EN } from "./Leaderboard";
-import { SLIDE_TEXT_LEADING, SLIDE_TEXT_SCALE, SlideText } from "./SlideText";
+import {
+	SLIDE_TEXT_LEADING,
+	SLIDE_TEXT_SCALE,
+	SlideText,
+	slideInlineHasMath,
+} from "./SlideText";
 
 // ── Authoring, on the slide itself ────────────────────────────────────
 //
@@ -106,7 +113,8 @@ export function slideQuestionLabel(slide: Slide): string {
 	if (
 		slide.type === "text" ||
 		slide.type === "instruction" ||
-		slide.type === "leaderboard"
+		slide.type === "leaderboard" ||
+		slide.type === "countdown"
 	) {
 		return "Heading";
 	}
@@ -139,7 +147,9 @@ export function slideQuestionLabel(slide: Slide): string {
 export function slideQuestionPlaceholder(slide: Slide): string {
 	if (slide.type === "instruction") return INSTRUCTION_FALLBACK_HEADING;
 	if (slide.type === "leaderboard") return LEADERBOARD_LABELS_EN.title;
-	if (slide.type === "text") return "Optional heading";
+	if (slide.type === "text" || slide.type === "countdown") {
+		return "Optional heading";
+	}
 	if (
 		slide.type === "image" ||
 		slide.type === "video" ||
@@ -268,6 +278,9 @@ export function SlideQuestion({
 	const text = slide.question ?? "";
 	const size = slideTextSizeFor(slide);
 	const scale = `${SLIDE_TEXT_SCALE[size]} ${SLIDE_TEXT_LEADING.inline}`;
+	// Whether the author's caret is in the field — the one time a heading with a
+	// formula in it shows its TeX on the canvas (REQ093).
+	const [typing, setTyping] = useState(false);
 
 	if (editing) {
 		const label = slideQuestionLabel(slide).toLowerCase();
@@ -278,6 +291,10 @@ export function SlideQuestion({
 		// way it happens to be stored. Caret-safe: the displayed string never
 		// changes shape under an edit, because it is already the normalised one.
 		const authored = singleLineQuestion(text);
+		// A field can only show TeX, and the room reads it typeset (REQ093). So a
+		// heading with a formula in it rests typeset on the canvas like everywhere
+		// else, and turns back into its source only under the caret.
+		const typeset = slideInlineHasMath(authored);
 		return (
 			<h3 className={className}>
 				{/* The field and a hidden copy of its value share one grid cell, so the
@@ -293,7 +310,19 @@ export function SlideQuestion({
 				    would render it as ({@link singleLineQuestion}) — a textarea that
 				    kept the break would be showing the author a slide no screen will
 				    draw. Both ends, because a value can arrive by paste, drop or
-				    autofill without a keystroke ever being seen. */}
+				    autofill without a keystroke ever being seen.
+
+				    A typeset heading shares the cell with the field, whose own text goes
+				    transparent at rest. The copy is a picture and takes no pointer —
+				    KaTeX positions its pieces, which would otherwise paint, and catch a
+				    click, above the field — so a click or a Tab still lands in the
+				    field and its outline still answers a pointer. It is `inert` as well,
+				    so a link in the heading is not a Tab stop hidden from a screen
+				    reader. Under the caret the
+				    copy is only made invisible, keeping its height, so the box does
+				    not jump as the author starts and stops typing. The cell has
+				    applied the author's step already, so the copy is drawn at
+				    `medium`, the identity. */}
 				<span className={`grid w-full ${scale}`}>
 					<span
 						aria-hidden="true"
@@ -301,13 +330,29 @@ export function SlideQuestion({
 					>
 						{`${authored || placeholder} `}
 					</span>
+					{typeset && (
+						<span
+							aria-hidden="true"
+							inert
+							className={`pointer-events-none col-start-1 row-start-1 px-1 py-0.5 ${typing ? "invisible" : ""}`}
+						>
+							<SlideText text={authored} size="medium" variant="inline" />
+						</span>
+					)}
 					<textarea
-						className={`col-start-1 row-start-1 w-full resize-none overflow-hidden border-0 bg-transparent px-1 py-0.5 text-inherit [font:inherit] [text-align:inherit] placeholder:text-text-muted placeholder:italic ${CANVAS_FIELD_SURFACE}`}
+						className={`col-start-1 row-start-1 w-full resize-none overflow-hidden border-0 bg-transparent px-1 py-0.5 ${typeset && !typing ? "text-transparent" : "text-inherit"} [font:inherit] [text-align:inherit] placeholder:text-text-muted placeholder:italic ${CANVAS_FIELD_SURFACE}`}
 						rows={1}
 						maxLength={SLIDE_TEXT_MAX_LENGTH}
 						value={authored}
 						placeholder={placeholder}
 						aria-label={`Slide ${label}`}
+						// Where a finding about a missing heading goes (REQ132).
+						{...accessibilityFieldMarker({ scope: "slide", name: "question" })}
+						// Every TeX command is a misspelling, and the marks would be drawn
+						// through the transparent text under the typeset copy.
+						spellCheck={typeset ? false : undefined}
+						onFocus={() => setTyping(true)}
+						onBlur={() => setTyping(false)}
 						onKeyDown={(event) => {
 							if (event.key === "Enter") event.preventDefault();
 						}}

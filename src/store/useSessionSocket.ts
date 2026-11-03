@@ -26,13 +26,15 @@ export function useSessionSocket(
 			applyResultsUpdated,
 			applyParticipantCount,
 			applyStarted,
+			applyJoined,
 			applyEnded,
 			applyReset,
 			applyRevealed,
 			applyDeckResultsVisibility,
 			applySlideStarted,
+			applyCountdown,
 			applyParticipantNameSetting,
-			applyJoinBarSetting,
+			applyRepeatPassesSetting,
 			applyQASettings,
 			applyQAChanged,
 			applyChannelSettings,
@@ -45,6 +47,10 @@ export function useSessionSocket(
 		connectWs(presentationId, role);
 
 		const unsubscribes = [
+			// The answer to every join, the first and each one after a reconnect
+			// (REQ209): where the deck stands, including whatever was broadcast
+			// while this socket was not in the room.
+			onWsEvent("room.joined", (data) => applyJoined(data)),
 			onWsEvent("results.updated", (data) => applyResultsUpdated(data)),
 			onWsEvent("participants.count", (data) => applyParticipantCount(data)),
 			onWsEvent("slide.changed", (data) => applySlideChanged(data)),
@@ -59,6 +65,9 @@ export function useSessionSocket(
 				applyDeckResultsVisibility(data),
 			),
 			onWsEvent("slide.started", (data) => applySlideStarted(data)),
+			// A countdown slide's clock moved (REQ107): every screen reads the same
+			// run the server recorded.
+			onWsEvent("slide.countdown", (data) => applyCountdown(data)),
 			// The live room's two switches (REQ111/REQ109). Both take effect on
 			// every screen at once rather than on the next reload, for the reason
 			// the channel switches do: a phone that had not heard would offer a
@@ -75,10 +84,13 @@ export function useSessionSocket(
 			onWsEvent("presentation.participant-name", (data) =>
 				applyParticipantNameSetting(data),
 			),
-			// Whether the presenter surface draws its join bar (REQ073). Only a
-			// presenter screen reads it, and it rides the socket because the screen
-			// being projected may be a second browser of the same deck.
-			onWsEvent("presentation.join-bar", (data) => applyJoinBarSetting(data)),
+			// Whether a device may go through the deck again (REQ083), for the same
+			// pair of reasons in the same two directions: turned on, a phone at the
+			// end of the deck is otherwise never offered the pass; turned off, it is
+			// otherwise offered one the boundary has started refusing.
+			onWsEvent("presentation.repeat-passes", (data) =>
+				applyRepeatPassesSetting(data),
+			),
 			onWsEvent("qa.settings", (data) => applyQASettings(data)),
 			// Payload-free by design (REQ037): the list itself is fetched, never
 			// broadcast, because who may read it is decided per request from the

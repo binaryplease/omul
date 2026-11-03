@@ -377,6 +377,37 @@ describe("rate limits on create, join and vote (REQ145)", () => {
 		expect((await vote("participant-fresh")).status).toBe(400);
 	});
 
+	test("starting another pass spends the budget a vote does (REQ083)", async () => {
+		const participantId = "participant-passes-exhausted";
+		const context = { request: fabricatedRequest("203.0.113.8"), server: null };
+		for (
+			let attempt = 0;
+			attempt < SUBMISSION_PARTICIPANT_RULE.limit;
+			attempt++
+		) {
+			expect(guardSubmission(context, participantId)).toBeNull();
+		}
+
+		const start = (participant: string) =>
+			fetch(`${baseUrl}/api/presentations/does-not-exist/passes`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Forwarded-For": "203.0.113.9",
+				},
+				body: JSON.stringify({ participantId: participant }),
+			});
+
+		const refused = await start(participantId);
+		expect(refused.status).toBe(429);
+		const body: Any = await refused.json();
+		expect(body.retryAfterSeconds).toBeGreaterThanOrEqual(1);
+
+		// The guard runs before the deck is looked up: with budget left, the
+		// request reaches the handler, which answers for the missing deck.
+		expect((await start("participant-passes-fresh")).status).toBe(404);
+	});
+
 	test("sharing a deck is budgeted, so it cannot be used to probe for accounts", async () => {
 		// `POST …/collaborators` answers `404` for an address with no account and
 		// `201` for one that has — a distinction an invite flow needs and an

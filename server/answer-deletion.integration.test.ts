@@ -31,8 +31,8 @@ process.env.DATABASE_PATH = ":memory:";
 process.env.NODE_ENV = "test";
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { inflateSync } from "node:zlib";
 import ExcelJS from "exceljs";
+import { drawnRuns } from "./deck-pdf.test-support";
 
 let connectDb: () => Promise<void>;
 
@@ -287,10 +287,9 @@ function summaryOf(workbook: ExcelJS.Workbook): Record<string, unknown> {
 }
 
 /**
- * The words the PDF draws, as one searchable string — the same two-step read
- * `deck-pdf.integration.test.ts` uses (inflate the content streams, decode the
- * hex `Tj` operands), because both are properties of the file format rather
- * than of this export.
+ * The words the PDF draws, as one searchable string — the same read
+ * `deck-pdf.integration.test.ts` uses (`deck-pdf.test-support.ts`), which
+ * decodes each run through its font's own `ToUnicode` table.
  */
 async function pdfText(presentationId: string, token: string): Promise<string> {
 	const response = await authed(
@@ -298,29 +297,7 @@ async function pdfText(presentationId: string, token: string): Promise<string> {
 		token,
 	);
 	expect(response.status).toBe(200);
-	const raw = Buffer.from(new Uint8Array(await response.arrayBuffer())).toString(
-		"latin1",
-	);
-	const runs: string[] = [];
-	const pattern = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
-	let match = pattern.exec(raw);
-	while (match !== null) {
-		try {
-			const content = inflateSync(Buffer.from(match[1], "latin1")).toString(
-				"latin1",
-			);
-			const drawn = /<([0-9A-Fa-f]*)>\s*Tj/g;
-			let run = drawn.exec(content);
-			while (run !== null) {
-				runs.push(Buffer.from(run[1], "hex").toString("latin1"));
-				run = drawn.exec(content);
-			}
-		} catch {
-			// Not a deflate stream — nothing to read out of it here.
-		}
-		match = pattern.exec(raw);
-	}
-	return runs.join("\n");
+	return (await drawnRuns(new Uint8Array(await response.arrayBuffer()))).join("\n");
 }
 
 // ── The room's socket ────────────────────────────────────────

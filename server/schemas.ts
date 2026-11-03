@@ -18,12 +18,13 @@ export const SlideTypeEnum = z.enum([
 	"form",
 	// Standings (REQ059) — a slide that reports on the quiz questions around it
 	"leaderboard",
-	// Content slide types (REQ062/063/064/065/118, REQ066/067/068)
+	// Content slide types (REQ062/063/064/065/118, REQ066/067/068, REQ107)
 	"text",
 	"image",
 	"video",
 	"embed",
 	"instruction",
+	"countdown",
 ]);
 
 export type SlideType = z.infer<typeof SlideTypeEnum>;
@@ -82,9 +83,20 @@ export function slideAnswersAreDeletable(type: SlideType): boolean {
 }
 
 /**
+ * Whether an editor may group this slide type's answers into themes (REQ114).
+ *
+ * The same two types as {@link slideAnswersAreDeletable}, for the same reason:
+ * these are the slides whose answers are the room's own text, and text is what
+ * a theme gathers. A choice is already grouped — by the option it picked.
+ */
+export function slideAnswersAreGroupable(type: SlideType): boolean {
+	return slideAnswersAreDeletable(type);
+}
+
+/**
  * The slide types that *show* something rather than ask something
  * (REQ062 text, REQ063 image, REQ064 video, REQ066/REQ067/REQ068 embedded decks
- * and boards, REQ065/REQ118 join instructions).
+ * and boards, REQ065/REQ118 join instructions, REQ107 countdown).
  *
  * Listed rather than derived as "not interactive", because the two are not the
  * same set and a leaderboard is the proof: it asks nothing and is still not
@@ -92,6 +104,9 @@ export function slideAnswersAreDeletable(type: SlideType): boolean {
  * content slide never does. An embed slide is content by the same test: a Miro
  * board is worked in rather than read (REQ068), but nothing the room does to it
  * comes back to this service as an answer, so there is no aggregate to draw.
+ * A countdown is content by the same test (REQ107): the room watches a clock
+ * run down and answers nothing, and the clock is the slide's own authored
+ * length rather than anything the server derives from the deck.
  */
 export const CONTENT_SLIDE_TYPES: readonly SlideType[] = [
 	"text",
@@ -99,6 +114,7 @@ export const CONTENT_SLIDE_TYPES: readonly SlideType[] = [
 	"video",
 	"embed",
 	"instruction",
+	"countdown",
 ];
 
 /**
@@ -147,6 +163,7 @@ export const SLIDE_TYPE_LABELS: Record<SlideType, string> = {
 	video: "Video",
 	embed: "Embedded Deck",
 	instruction: "How to Join",
+	countdown: "Countdown",
 };
 
 // ── Results visibility (REQ102) ──────────────────────────────
@@ -260,6 +277,13 @@ export function tallyVisibleToAudience(
 export type ResultsCaller = {
 	canEdit?: boolean | undefined;
 	hasResultsLink?: boolean | undefined;
+	/**
+	 * Whether an editor asked for the answers the profanity filter withholds
+	 * (REQ085), as written. Honoured only beside `canEdit`, and never set on a
+	 * read that feeds a screen in the room — the presenter's live poll is the
+	 * projector — so the default, like the two above, publishes nothing.
+	 */
+	includeFilteredAnswers?: boolean | undefined;
 };
 
 /**
@@ -439,11 +463,18 @@ export function withSlideParticipation(
  * because both ends of the wire read it: a client left to guess the
  * reason from local state shows the wrong one the moment its state and the
  * server's disagree, which a refusal is *for*.
+ *
+ * `repeat-passes-off` is the one a vote never sends: it is how a request to
+ * start another pass through the deck is turned away once the deck stops
+ * allowing them (REQ083) — the organizer's decision a moment ago, met by a
+ * participant who had every reason to believe the control in front of them
+ * still worked.
  */
 export const VOTE_REFUSAL_CODES = [
 	"quiz-window-closed",
 	"quiz-already-answered",
 	"participation-closed",
+	"repeat-passes-off",
 ] as const;
 
 /** One entry of {@link VOTE_REFUSAL_CODES}. */
@@ -521,11 +552,14 @@ export const MultipleChoiceOptionSchema = z.object({
 	 * Marks this option as (one of) the correct answer(s) — REQ013. Available on
 	 * quiz **and** multiple-choice slides: a knowledge check on a plain choice
 	 * slide wants a solution to reveal, without the scoring a quiz competition
-	 * slide brings (REQ054–REQ059). Left `undefined` on slides whose author never
-	 * marked anything; {@link slideHasCorrectAnswers} is the single read site
-	 * that decides whether a slide has a notion of correctness at all.
+	 * slide brings (REQ054–REQ059). `null` (the default) means the author never
+	 * marked this option, which a plain `false` would not say (REQ184): a slide
+	 * none of whose options is marked has no notion of correctness, and the
+	 * tally and the results export report it as `null` rather than "wrong".
+	 * {@link slideHasCorrectAnswers} is the single read site that decides
+	 * whether a slide has a notion of correctness at all.
 	 */
-	isCorrect: z.boolean().optional(),
+	isCorrect: z.boolean().nullable().default(null),
 });
 
 /**
@@ -579,6 +613,20 @@ export const LEADERBOARD_DEFAULT_SIZE = 5;
  * directory — the same reasoning that caps a guess distribution's columns.
  */
 export const LEADERBOARD_SIZE_LIMIT = 20;
+
+/**
+ * How long a countdown slide runs by default (REQ107), in whole seconds. One
+ * minute: the length a room reads as "a moment to think" or "a short break"
+ * without the author having to decide, and a round number on the clock face.
+ */
+export const COUNTDOWN_DEFAULT_SECONDS = 60;
+
+/**
+ * The longest one countdown slide may run (REQ107) — an hour. Past it the slide
+ * is a session clock rather than a countdown, and the `m:ss` face stops being a
+ * number a room reads at a glance.
+ */
+export const COUNTDOWN_MAX_SECONDS = 3600;
 
 /** A single statement on a Scales slide (REQ029). */
 export const ScaleStatementSchema = z.object({
@@ -1217,6 +1265,24 @@ export const SlideSchema = z.object({
 	 */
 	quizAnswers: z.array(QuizAnswerSchema).max(QUIZ_ANSWER_LIMIT).default([]),
 	/**
+	 * Quiz: the audio track the presenter's screen plays while this question's
+	 * answer window is open (REQ058), or `""` — the default — for a question that
+	 * runs in silence, which is what every quiz authored before this field does.
+	 *
+	 * An address, never a file: nothing in this app uploads, so the track is a
+	 * URL the organizer pasted, held to the grammar every other authored media
+	 * URL is held to. Read it through {@link quizAudioCueFor}, which refuses one
+	 * no `<audio>` should be pointed at and ignores the field on a slide that is
+	 * no longer a quiz.
+	 *
+	 * **Presenter-only, on the wire**, like `notes` (REQ090): the cue sounds on the
+	 * presenter's screen and nowhere else, so {@link withAudienceSlides} empties
+	 * it on every payload that leaves for somebody the deck is not authored for. A
+	 * phone that is never handed the address cannot load it, which is a stronger
+	 * promise than a phone that declines to.
+	 */
+	quizAudioUrl: z.string().default(""),
+	/**
 	 * Leaderboard: how many ranks the board puts on the shared screen (REQ059).
 	 * Capped at {@link LEADERBOARD_SIZE_LIMIT}; read it through
 	 * {@link leaderboardSizeFor}, which is also where a hand-built deck's
@@ -1234,14 +1300,32 @@ export const SlideSchema = z.object({
 		.max(LEADERBOARD_SIZE_LIMIT)
 		.optional()
 		.default(LEADERBOARD_DEFAULT_SIZE),
+	/**
+	 * Countdown: how long the clock runs, in whole seconds (REQ107) — at least 1,
+	 * at most {@link COUNTDOWN_MAX_SECONDS}. Read it through
+	 * {@link countdownSecondsFor}, which is also where a hand-built deck's
+	 * out-of-range number is brought back inside those bounds, and draw it with
+	 * {@link formatCountdown} so every surface spells the same length the same way.
+	 *
+	 * The authored length only: whether the clock is running, and since when, is
+	 * the presenter's live state rather than the deck's.
+	 */
+	countdownSeconds: z
+		.number()
+		.int()
+		.min(1)
+		.max(COUNTDOWN_MAX_SECONDS)
+		.default(COUNTDOWN_DEFAULT_SECONDS),
 	/** Whether to allow multiple votes per participant (legacy; superseded by maxResponses for WC/OE) */
 	allowMultiple: z.boolean().optional().default(false),
 	/**
 	 * Word Cloud / Open Ended: max responses per participant (REQ022, REQ026).
-	 * `0` means unlimited. When unset, falls back to `allowMultiple` semantics
-	 * (false → 1, true → unlimited) for backward compatibility.
+	 * `0` means unlimited, `n` caps at n. `null` (the default) means the author
+	 * never configured it, in which case the legacy `allowMultiple` flag decides
+	 * (false → 1, true → unlimited) — see {@link maxResponsesFor}, the single
+	 * place that resolves the two (REQ184).
 	 */
-	maxResponses: z.number().int().min(0).max(50).optional(),
+	maxResponses: z.number().int().min(0).max(50).nullable().default(null),
 	/** Open Ended result visualization (REQ024). */
 	openTextLayout: z
 		.enum(["speech-bubbles", "grid"])
@@ -1391,9 +1475,43 @@ export const SlideSchema = z.object({
 	 * to resolve this against the deck default.
 	 */
 	resultsVisibility: SlideResultsVisibilityEnum.optional().default("inherit"),
+	/**
+	 * Whether this slide is stepped over by Next and Previous (REQ110) — the
+	 * presenter's and an audience-paced participant's alike. `false`, the
+	 * default, is every slide authored before the field existed.
+	 *
+	 * Navigation only, never deletion: the slide, its content and every answer
+	 * already recorded on it stay where they are, results and exports keep it,
+	 * and a presenter may still open it directly from the rail. Read the next
+	 * stop through {@link steppedSlideIndex}, so every surface that pages steps
+	 * over the same slides.
+	 */
+	skipped: z.boolean().default(false),
 });
 
 export type Slide = z.infer<typeof SlideSchema>;
+
+/**
+ * The slide Next (`1`) or Previous (`-1`) lands on from `fromIndex` (REQ110):
+ * the nearest one in that direction that is not {@link SlideSchema} `skipped`,
+ * or `null` when none is left — the same dead end the deck's first or last
+ * slide is, never a wrap-around. `fromIndex` may be `-1` to ask for the first
+ * slide that is not skipped.
+ */
+export function steppedSlideIndex(
+	slides: readonly { skipped?: boolean | undefined }[],
+	fromIndex: number,
+	direction: -1 | 1,
+): number | null {
+	for (
+		let candidate = fromIndex + direction;
+		candidate >= 0 && candidate < slides.length;
+		candidate += direction
+	) {
+		if (!slides[candidate]?.skipped) return candidate;
+	}
+	return null;
+}
 
 /**
  * The ceiling on one slide's authored text — its `question` and, on a content
@@ -1419,9 +1537,9 @@ export type Slide = z.infer<typeof SlideSchema>;
 export const SLIDE_TEXT_MAX_LENGTH = 5000;
 
 /**
- * The ceiling on a slide's `mediaUrl` and `backgroundImage` (REQ159) — 2048,
- * the length browsers, proxies and server logs have long since settled on as
- * "a URL".
+ * The ceiling on a slide's `mediaUrl` and `backgroundImage` (REQ159), and on a
+ * quiz's `quizAudioUrl` (REQ058) — 2048, the length browsers, proxies and server
+ * logs have long since settled on as "a URL".
  *
  * Separate from {@link SLIDE_TEXT_MAX_LENGTH} because it is not authored prose
  * with a generous allowance: it is an address, and an address that does not fit
@@ -1540,6 +1658,7 @@ export const SlideInputSchema = SlideSchema.extend({
 	mediaUrl: z.string().max(SLIDE_MEDIA_URL_MAX_LENGTH).default(""),
 	mediaAlt: AuthoredRowText.default(""),
 	backgroundImage: z.string().max(SLIDE_MEDIA_URL_MAX_LENGTH).default(""),
+	quizAudioUrl: z.string().max(SLIDE_MEDIA_URL_MAX_LENGTH).default(""),
 	scaleMinLabel: AuthoredRowText.optional().default(""),
 	scaleMaxLabel: AuthoredRowText.optional().default(""),
 	options: z
@@ -1778,7 +1897,7 @@ export function slideAppearanceFor(
  */
 type ChoiceSettings = {
 	type?: SlideType | undefined;
-	options?: { isCorrect?: boolean | undefined }[] | undefined;
+	options?: { isCorrect?: boolean | null | undefined }[] | undefined;
 	mcMaxSelections?: number | null | undefined;
 	allowMultiple?: boolean | undefined;
 };
@@ -1825,8 +1944,8 @@ export type ResponseSettings = {
  * boundary that enforces it, the participant UI that counts against it, and the
  * editor that shows it (and marks its departure, REQ155) must all resolve the
  * legacy fallback identically — a slide authored before `maxResponses` existed
- * carries only `allowMultiple`, where `true` means unlimited and `false` means
- * one answer.
+ * carries `maxResponses: null` and only `allowMultiple` decides, where `true`
+ * means unlimited and `false` means one answer.
  */
 export function maxResponsesFor(slide: ResponseSettings): number {
 	if (typeof slide.maxResponses === "number") return slide.maxResponses;
@@ -3290,7 +3409,7 @@ export const QUIZ_SUBMISSION_GRACE_MS = 1500;
 type QuizSettings = {
 	type?: SlideType | undefined;
 	timeLimit?: number | undefined;
-	options?: { id: string; isCorrect?: boolean | undefined }[] | undefined;
+	options?: { id: string; isCorrect?: boolean | null | undefined }[] | undefined;
 	quizAnswerMode?: QuizAnswerMode | undefined;
 	quizAnswers?: { text: string }[] | undefined;
 };
@@ -3734,6 +3853,218 @@ export function leaderboardSizeFor(slide: {
 	);
 }
 
+/**
+ * How long this countdown slide runs (REQ107), in whole seconds — the one read
+ * site for the setting, and the one place a hand-built deck's missing or
+ * out-of-range number is brought back inside 1…{@link COUNTDOWN_MAX_SECONDS}
+ * rather than each surface clamping its own way.
+ */
+export function countdownSecondsFor(slide: {
+	countdownSeconds?: number | undefined;
+}): number {
+	const authored = slide.countdownSeconds;
+	if (typeof authored !== "number" || !Number.isFinite(authored)) {
+		return COUNTDOWN_DEFAULT_SECONDS;
+	}
+	return Math.min(COUNTDOWN_MAX_SECONDS, Math.max(1, Math.round(authored)));
+}
+
+/**
+ * A countdown length as the clock face spells it (REQ107): `m:ss`, the minutes
+ * unpadded and the seconds always two digits — `0:45`, `1:00`, `60:00`. One
+ * spelling, composed by the editor, the screens and the PDF alike.
+ */
+export function formatCountdown(totalSeconds: number): string {
+	const whole = Math.max(0, Math.floor(totalSeconds));
+	const minutes = Math.floor(whole / 60);
+	const seconds = whole % 60;
+	return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+/**
+ * One countdown slide's run (REQ107): the milliseconds that were left when the
+ * clock last moved, and the server's instant it set off from them. A `null`
+ * `resumedAt` is a clock that is frozen at `remainingMs`.
+ *
+ * Neither field reads the slide's authored length, so an author editing the
+ * length cannot move a run in progress or bring a finished clock back: a run
+ * keeps the length it started with, and only a reset picks up a new one.
+ */
+export const CountdownRunSchema = z.object({
+	remainingMs: z.number().int().min(0).default(0),
+	resumedAt: z.string().nullable().default(null),
+});
+
+export type CountdownRunState = z.infer<typeof CountdownRunSchema>;
+
+/** What a presenter can ask of a countdown slide's clock (REQ107). */
+export const CountdownActionEnum = z.enum(["start", "pause", "reset"]);
+
+export type CountdownAction = z.infer<typeof CountdownActionEnum>;
+
+/**
+ * Where a countdown slide's clock stands at `now` (REQ107). `idle` has no run
+ * and shows the full length; `finished` has reached zero and only a reset leaves
+ * it. `now` has to be the server's clock, the one `resumedAt` was written on.
+ */
+export type CountdownPhase = "idle" | "running" | "paused" | "finished";
+
+/**
+ * The milliseconds a run has left at `now`, floored at zero. Capped at
+ * `remainingMs`, so a device a moment behind the server cannot read more time
+ * than the run holds. An instant that does not parse reads as a frozen clock.
+ */
+function countdownRunRemainingMs(run: CountdownRunState, now: number): number {
+	const resumed = run.resumedAt === null ? Number.NaN : Date.parse(run.resumedAt);
+	if (Number.isNaN(resumed)) return Math.max(0, run.remainingMs);
+	const elapsedMs = Math.max(0, now - resumed);
+	return Math.max(0, run.remainingMs - elapsedMs);
+}
+
+export function countdownPhase(
+	run: CountdownRunState | null | undefined,
+	now: number,
+): CountdownPhase {
+	if (!run) return "idle";
+	if (countdownRunRemainingMs(run, now) <= 0) return "finished";
+	const ticking = run.resumedAt !== null && !Number.isNaN(Date.parse(run.resumedAt));
+	return ticking ? "running" : "paused";
+}
+
+/**
+ * The seconds a countdown slide's face shows at `now` (REQ107): the full authored
+ * length with no run, the frozen time on a paused one, and the time left on a
+ * running one, floored at zero and staying there.
+ *
+ * `run` is the slide's entry in the presentation's `countdownRuns`, written on
+ * the server's clock, so `now` has to be the server's clock too — the same
+ * footing a quiz deadline is read on (REQ057). Rounded up, so a run shows its
+ * full length at the instant it starts and reads `0:00` only once it is really
+ * over.
+ */
+export function countdownRemainingSeconds(
+	slide: { countdownSeconds?: number | undefined },
+	run: CountdownRunState | null | undefined,
+	now: number,
+): number {
+	if (!run) return countdownSecondsFor(slide);
+	return Math.ceil(countdownRunRemainingMs(run, now) / 1000);
+}
+
+/**
+ * The run a presenter's action leaves a countdown slide with (REQ107). `null` is
+ * no run: the clock at its full length, not running.
+ *
+ *  - `start` sets off a clock with no run from its full length and continues a
+ *    paused one from its frozen time.
+ *  - `pause` freezes a running clock at the time left at `now`.
+ *  - `reset` removes the run whatever state it is in.
+ *
+ * Every other pairing returns `run` itself, by identity, which is how a caller
+ * tells that nothing moved: a retried start or pause, and a start or pause on a
+ * finished clock.
+ */
+export function nextCountdownRun(
+	slide: { countdownSeconds?: number | undefined },
+	run: CountdownRunState | null,
+	action: CountdownAction,
+	now: number,
+): CountdownRunState | null {
+	if (action === "reset") return null;
+	const resumedAt = new Date(now).toISOString();
+	if (run === null) {
+		return action === "start"
+			? { remainingMs: countdownSecondsFor(slide) * 1000, resumedAt }
+			: null;
+	}
+	const phase = countdownPhase(run, now);
+	if (action === "start" && phase === "paused") {
+		return { remainingMs: run.remainingMs, resumedAt };
+	}
+	if (action === "pause" && phase === "running") {
+		return { remainingMs: countdownRunRemainingMs(run, now), resumedAt: null };
+	}
+	return run;
+}
+
+/**
+ * The presentation's countdown runs with one slide's replaced (REQ107): `run`
+ * records it and `null` removes it. Every other slide's run is left standing, so
+ * moving to another slide never erases one.
+ *
+ * Pure, and the one place the map is moved — the server writes it with this and
+ * the session store applies the broadcast with it, so a phone cannot come to
+ * believe a different set of clocks stands than the server recorded.
+ */
+export function withCountdownRun(
+	runs: Readonly<Record<string, CountdownRunState>>,
+	slideId: string,
+	run: CountdownRunState | null,
+): Record<string, CountdownRunState> {
+	const next = { ...runs };
+	if (run === null) delete next[slideId];
+	else next[slideId] = run;
+	return next;
+}
+
+// ── Quiz audio cue (REQ058) ──────────────────────────────────
+//
+// A quiz question may carry a track the presenter's screen plays for as long as
+// the room can answer it — the music a quiz runs under its clock. Two things
+// about it are decided here rather than by the surface that plays it, because
+// both are about what a payload may carry rather than about sound:
+//
+//  - **What may be played.** The track is an authored URL, so it meets the
+//    grammar every authored media URL meets ({@link browserSafeAssetUrl}) at one
+//    read site, {@link quizAudioCueFor}: a scheme no browser should be pointed
+//    at resolves to "no cue" rather than being repaired, and a cue left behind
+//    on a slide switched to another type is no cue at all.
+//  - **Who is handed it.** Only the presenter's screen plays a cue, so only a
+//    caller the deck is authored for — its owner, the holder of its edit token,
+//    the accounts it is shared with — receives one: {@link withAudienceSlides}
+//    empties the field for everybody else, the way it empties a note.
+//
+// *When* it sounds — from the window opening to the window closing — is the
+// presenter surface's to decide, off the same window its countdown runs on
+// (`src/components/QuizAudioCue.tsx`).
+
+/**
+ * The track a quiz question's answer window is played over (REQ058), or `""`
+ * for none: a slide that is not a quiz, one whose author set no track, and one
+ * whose address no `<audio>` should be pointed at.
+ *
+ * The single read site for the field. Refused rather than repaired, like a
+ * background image: a track that cannot be loaded is shown to the organizer as
+ * one in the editor, while they can still fix it, rather than discovered in
+ * front of a room.
+ */
+export function quizAudioCueFor(slide: {
+	type?: SlideType | undefined;
+	quizAudioUrl?: string | undefined;
+}): string {
+	if (slide.type !== "quiz") return "";
+	return browserSafeAssetUrl(slide.quizAudioUrl);
+}
+
+/**
+ * The deck's slides with every quiz audio cue emptied (REQ058).
+ *
+ * Unconditional, like {@link withoutPresenterNotes} and for the same reason: a
+ * cue has no reveal to come due. The room does hear it — through the
+ * presenter's speakers — so no moment ever arrives at which a participant's
+ * phone needs the address. Emptied to `""` rather than dropped, so a slide that
+ * carried a cue and one that never did are the same complete shape.
+ *
+ * Every slide, not only quiz slides: a slide switched from a quiz to another
+ * type keeps the address it was authored with (see {@link quizAudioCueFor}),
+ * and an address that is inert on this slide is still an address.
+ */
+export function withoutQuizAudioCues<
+	SlideShape extends { quizAudioUrl?: unknown },
+>(slides: SlideShape[]): SlideShape[] {
+	return slides.map((slide) => ({ ...slide, quizAudioUrl: "" }));
+}
+
 // ── Withholding the answer key (REQ056) ──────────────────────
 //
 // A quiz slide's marked solution is the answer to the question the room is
@@ -3838,11 +4169,12 @@ export function solutionVisibleToAudience(
  * key in the plainest possible form.
  *
  * The marks are **dropped**, not emitted as an explicit `null` (the shape a
- * nullish value would otherwise wear), because here the absence is the point. An
- * unmarked option already carries no `isCorrect`, so a withheld solution is
- * indistinguishable from a slide whose author marked nothing — where a
- * distinct "withheld" marker would announce that a solution exists and which
- * slides are worth watching for it. `quizAnswers` empties to `[]` for the same
+ * nullish value would otherwise wear), because here the absence is the point.
+ * Every option of a withheld question loses the key, marked or not — an
+ * unmarked option's stored `isCorrect: null` (REQ184) included — so a withheld
+ * solution is indistinguishable from a slide whose author marked nothing,
+ * where a distinct "withheld" marker would announce that a solution exists and
+ * which slides are worth watching for it. `quizAnswers` empties to `[]` for the same
  * reason and reads the same way: a question whose author named no accepted
  * answer carries exactly that. The tally reached through
  * {@link solutionVisibleToAudience} keeps the explicit `null`, since
@@ -3858,7 +4190,7 @@ export function withAudienceSolutions<
 		id: string;
 		type?: SlideType | undefined;
 		timeLimit?: number | undefined;
-		options?: { isCorrect?: boolean | undefined }[] | undefined;
+		options?: { isCorrect?: boolean | null | undefined }[] | undefined;
 		quizAnswerMode?: QuizAnswerMode | undefined;
 		quizAnswers?: unknown;
 		resultsVisibility?: SlideResultsVisibility | undefined;
@@ -3914,16 +4246,16 @@ export function withoutPresenterNotes<SlideShape extends { notes?: unknown }>(
 
 /**
  * A deck's slides as everybody who cannot edit it may see them: solutions
- * withheld until their question is over (REQ056/REQ053) and presenter notes
- * emptied outright (REQ090).
+ * withheld until their question is over (REQ056/REQ053), and presenter notes
+ * (REQ090) and quiz audio cues (REQ058) emptied outright.
  *
  * **The one function a slide passes through on its way to somebody else's
- * screen**, and the reason it exists rather than two calls at each site: the
+ * screen**, and the reason it exists rather than several calls at each site: the
  * surfaces that hand out slides — the deck response, the join payload, the
  * `slide.changed` broadcast, the preview's audience pane — must each withhold
  * *everything* presenter-only, and a list of things to remember is a list that
- * grows one forgotten entry at a time. The two projections stay separate
- * functions because they answer different questions; this is where
+ * grows one forgotten entry at a time. The projections stay separate
+ * functions because each answers its own question; this is where
  * they are composed, once, so a new presenter-only field is added in one place
  * and every surface has it.
  */
@@ -3932,15 +4264,18 @@ export function withAudienceSlides<
 		id: string;
 		type?: SlideType | undefined;
 		timeLimit?: number | undefined;
-		options?: { isCorrect?: boolean | undefined }[] | undefined;
+		options?: { isCorrect?: boolean | null | undefined }[] | undefined;
 		quizAnswerMode?: QuizAnswerMode | undefined;
 		quizAnswers?: unknown;
 		resultsVisibility?: SlideResultsVisibility | undefined;
 		pinArea?: unknown;
 		notes?: unknown;
+		quizAudioUrl?: unknown;
 	},
 >(slides: SlideShape[], deck: SolutionRevealState, now: number): SlideShape[] {
-	return withoutPresenterNotes(withAudienceSolutions(slides, deck, now));
+	return withoutQuizAudioCues(
+		withoutPresenterNotes(withAudienceSolutions(slides, deck, now)),
+	);
 }
 
 // ── Q&A layer (REQ036, REQ037, REQ038, REQ060) ───────────────
@@ -4389,6 +4724,55 @@ export function deckRequiresParticipantName(
 ): boolean {
 	return deck.requireParticipantName ?? false;
 }
+
+// ── Signed-in participants (REQ134) ──────────────────────────
+//
+// A deck may require the people in its room to be signed in. Unlike a stated
+// name this one *is* an identity claim, and it is checked: the account is the
+// one `resolveUserId` resolves from the request's own session cookie or API key,
+// never anything the request names. What is stored is a binding — this
+// `participantId`, on this deck, belongs to this account — so every row already
+// keyed by the participant id is attributable without the account being copied
+// onto any of them. The binding never leaves the server: no public schema, no
+// broadcast and no tally declares it.
+
+/** The sign-in switch a deck carries, structurally. */
+export type ParticipantSignInSettings = {
+	requireParticipantSignIn?: boolean | undefined;
+};
+
+/**
+ * Whether this deck refuses participants who are not signed in (REQ134). One
+ * read site for the join route and every participant write; `false` is what an
+ * unset field and a deck written before the field existed both resolve to.
+ */
+export function deckRequiresParticipantSignIn(
+	deck: ParticipantSignInSettings,
+): boolean {
+	return deck.requireParticipantSignIn ?? false;
+}
+
+/**
+ * The stated reasons a participant is turned away from a deck that requires
+ * signing in (REQ134), sent as `refused` beside the English `error`.
+ *
+ * - `sign-in-required` — the request resolves no account at all.
+ * - `participant-account-mismatch` — the request's `participantId` is already
+ *   bound on this deck to a different account, so writing under it would
+ *   attribute one person's answers to another.
+ *
+ * A vocabulary of its own rather than more entries in
+ * {@link VOTE_REFUSAL_CODES}: those are about one submission, these about the
+ * caller, and they are refused on routes a vote never reaches.
+ */
+export const PARTICIPANT_SIGN_IN_REFUSAL_CODES = [
+	"sign-in-required",
+	"participant-account-mismatch",
+] as const;
+
+/** One entry of {@link PARTICIPANT_SIGN_IN_REFUSAL_CODES}. */
+export type ParticipantSignInRefusalCode =
+	(typeof PARTICIPANT_SIGN_IN_REFUSAL_CODES)[number];
 
 /**
  * Stating a name: who is stating it, and what it is.
@@ -5188,6 +5572,111 @@ export type AdminFeedbackPage = z.infer<typeof AdminFeedbackPageSchema>;
 /** What `GET /api/admin/feedback` answers when it has no page to give. */
 export const AdminFeedbackErrorSchema = z.object({ error: z.string() });
 
+// ── The profanity filter on free text (REQ085) ───────────────
+//
+// A deck can hold the room's free text against a word list before any of it
+// reaches a screen. An answer that contains a word on the list is withheld from
+// every payload the room is sent — the projector's included — while the row is
+// stored exactly as it was written and stays readable, marked, to the deck's
+// editors on the results surface and in both exports.
+//
+// What lives here is the vocabulary both ends of the wire share: which slides
+// the filter reads, and which list a deck reads them against. The lists and the
+// matching are `server/profanity-filter.ts`'s alone — no browser ever needs a
+// word list, so none is ever bundled into one.
+
+/**
+ * Whether a slide's answers are free text the profanity filter reads (REQ085):
+ * a word cloud, an open-ended slide and a quiz question answered by typing
+ * (REQ055) — the three whose answers reach a screen as the words somebody
+ * wrote.
+ *
+ * Wider than {@link slideAnswersAreDeletable}, and the typed quiz answer is the
+ * difference: deleting that row would move a competitor's standing, while
+ * withholding its words from the screen moves nothing — the answer is scored
+ * exactly as before. A form slide is not here because its rows never reach the
+ * room in the first place (REQ061), so there is nothing to withhold from it.
+ */
+export function slideAnswersAreFiltered(slide: {
+	type?: SlideType | undefined;
+	quizAnswerMode?: QuizAnswerMode | undefined;
+}): boolean {
+	return (
+		slide.type === "word-cloud" ||
+		slide.type === "open-text" ||
+		quizAnswerModeFor(slide) === "type"
+	);
+}
+
+/**
+ * The participant language a deck's free-form language tag is spoken in: its
+ * primary subtag when that is one of {@link ParticipantLanguageSchema}'s,
+ * English otherwise. The one reading of it: the profanity filter chooses its
+ * list with it (REQ085), and `resolveLang` in `src/i18n.ts` delegates to it to
+ * choose the dictionary a phone is drawn in, so "the deck's language" names one
+ * language on a phone and in the filter.
+ */
+export function participantLanguageFor(
+	tag: string | null | undefined,
+): ParticipantLanguage {
+	const primary = (tag ?? "").toLowerCase().split("-")[0];
+	return isParticipantLanguage(primary) ? primary : "en";
+}
+
+/**
+ * Whether a value names one of the participant languages exactly — `"de"`, not
+ * `"de-AT"` or `"Deutsch"`. What an imported deck's profanity-filter list has to
+ * be before it is sent anywhere (REQ085).
+ */
+export function isParticipantLanguage(
+	value: unknown,
+): value is ParticipantLanguage {
+	return ParticipantLanguageSchema.safeParse(value).success;
+}
+
+/**
+ * The deck state {@link profanityFilterLanguageFor} reads. Structural — like
+ * {@link TallyRevealState} — so a stored document, a parsed response and the
+ * editor's draft all satisfy it without conversion.
+ */
+export type ProfanityFilterState = {
+	profanityFilterEnabled?: boolean | undefined;
+	profanityFilterLanguage?: ParticipantLanguage | null | undefined;
+	language?: string | undefined;
+};
+
+/**
+ * The word list a deck's free text is held against (REQ085), or `null` while
+ * the deck filters nothing — the one reading of its two settings.
+ *
+ * A `null` list is **the deck's own language**, read when it is asked rather
+ * than copied when the filter was switched on: a deck re-authored from English
+ * into German filters against the German list without anybody revisiting the
+ * setting, and a list the organizer picked by name stays put whatever the deck's
+ * language does.
+ */
+export function profanityFilterLanguageFor(
+	deck: ProfanityFilterState,
+): ParticipantLanguage | null {
+	if (deck.profanityFilterEnabled !== true) return null;
+	return deck.profanityFilterLanguage ?? participantLanguageFor(deck.language);
+}
+
+/**
+ * What the two results reads take in their query (REQ085).
+ *
+ * `filtered=withhold` — the default — is the reading every screen in the room
+ * is fed, the presenter's own poll included: that screen is the projector.
+ * `filtered=include` adds the answers the profanity filter withheld, as written,
+ * for a caller who can read the deck's authoring, and changes nothing for
+ * anybody else. A string enum rather than a boolean, for the reason
+ * {@link DeckPdfQuerySchema} gives: a switch whose off position can read as on
+ * is not a switch.
+ */
+export const ResultsQuerySchema = z.object({
+	filtered: z.enum(["withhold", "include"]).default("withhold"),
+});
+
 // ── Presentation schema ──────────────────────────────────────
 
 export const CreatePresentationSchema = z
@@ -5258,6 +5747,12 @@ export const CreatePresentationSchema = z
 		 */
 		mode: z.enum(["live", "survey"]).optional().default("live"),
 		/**
+		 * Whether a device may go through the deck more than once (REQ083). Off by
+		 * default: a client that has never heard of passes creates the deck it
+		 * always did, one set of answers per device.
+		 */
+		allowRepeatPasses: z.boolean().optional().default(false),
+		/**
 		 * Deck-level default for when aggregated results appear on the shared screen
 		 * (REQ102). Each slide may override it; slides set to "inherit" follow this.
 		 */
@@ -5282,6 +5777,20 @@ export const CreatePresentationSchema = z
 		 * reason than either: a deck that did not ask for names collects none.
 		 */
 		requireParticipantName: z.boolean().optional().default(false),
+		/**
+		 * Whether the people joining this deck must be signed in (REQ134). Off by
+		 * default: a client that has never heard of it creates the open room it
+		 * always did.
+		 */
+		requireParticipantSignIn: z.boolean().optional().default(false),
+		/**
+		 * Whether the room's free text is held against a word list (REQ085), and
+		 * which language's — `null` follows the deck's own language. Off by
+		 * default: a client that has never heard of the filter creates the deck it
+		 * always did, every answer on the wall as written.
+		 */
+		profanityFilterEnabled: z.boolean().optional().default(false),
+		profanityFilterLanguage: ParticipantLanguageSchema.nullable().optional().default(null),
 		/**
 		 * The deck's appearance (REQ079, REQ080) and the organizer's own mark
 		 * (REQ136). Authored with the deck, like its language and its pace —
@@ -5372,7 +5881,8 @@ export const CreatePresentationSchema = z
  * Server-managed state is absent by design and is moved by its own routes:
  * `status` (start/end), `activeSlideIndex` (slide), `revealedSlideIds` (reveal),
  * `slideStartedAt` (timer), `sessionStartedAt` / `sessionEndedAt` (start/end,
- * REQ108), `closedSlideIds` (participation, REQ111),
+ * REQ108), `closedSlideIds` (participation, REQ111), `countdownRuns`
+ * (countdown, REQ107),
  * `audienceBlanked` (blank, REQ109), the results link (results-link), the join
  * `code` and `createdAt` (neither is authored at all).
  */
@@ -5387,12 +5897,19 @@ export const UpdatePresentationSchema = z.object({
 	slides: z.array(SlideInputSchema).max(SLIDE_LIMIT).optional(),
 	language: z.string().optional(),
 	mode: z.enum(["live", "survey"]).optional(),
+	/** Whether a device may go through the deck more than once (REQ083). */
+	allowRepeatPasses: z.boolean().optional(),
 	resultsVisibility: ResultsVisibilityEnum.optional(),
 	qaEnabled: z.boolean().optional(),
 	qaVisibility: QAVisibilityEnum.optional(),
 	reactionsEnabled: z.boolean().optional(),
 	chatEnabled: z.boolean().optional(),
 	requireParticipantName: z.boolean().optional(),
+	/** Whether the room must be signed in to join and answer (REQ134). */
+	requireParticipantSignIn: z.boolean().optional(),
+	/** The profanity filter on free text, and the list it reads (REQ085). */
+	profanityFilterEnabled: z.boolean().optional(),
+	profanityFilterLanguage: ParticipantLanguageSchema.nullable().optional(),
 	/**
 	 * Whether the presenter surface draws its join bar (REQ073). Written here and
 	 * nowhere else: it is a decision about the projected screen, and only a caller
@@ -5465,6 +5982,15 @@ export const PresentationSchema = z.object({
 	language: z.string().default("en"),
 	mode: z.enum(["live", "survey"]).default("live"),
 	/**
+	 * Whether one device may go through this deck more than once (REQ083).
+	 *
+	 * Public for the reason the deck's other participant-facing switches are:
+	 * a phone has to know whether to offer another pass before it can draw the
+	 * control, and the switch is no secret. Read it through
+	 * {@link deckAllowsRepeatPasses}, which is where the pace is read with it.
+	 */
+	allowRepeatPasses: z.boolean().default(false),
+	/**
 	 * Deck-level default for when aggregated results appear on the shared screen
 	 * (REQ102). Each slide may override it; slides set to "inherit" follow this.
 	 */
@@ -5502,6 +6028,17 @@ export const PresentationSchema = z.object({
 	 * on when the question closes.
 	 */
 	slideStartedAt: z.record(z.string(), z.string()).default({}),
+	/**
+	 * The countdown slides the presenter has started (REQ107), running, paused or
+	 * finished, keyed by slide id. A slide with no entry shows the full authored
+	 * length; a reset removes its entry. Read it through
+	 * {@link countdownRemainingSeconds} and {@link countdownPhase}.
+	 *
+	 * Server-managed live state like `slideStartedAt` above, moved only by
+	 * `POST /presentations/:id/countdown`, and public for the same reason: the
+	 * shared screen and every phone have to read the same clock.
+	 */
+	countdownRuns: z.record(z.string(), CountdownRunSchema).default({}),
 	/**
 	 * When the current session went live and, once it has, when it ended — ISO
 	 * instants, `null` until each happens (REQ108). The presenter surface's
@@ -5558,6 +6095,25 @@ export const PresentationSchema = z.object({
 	 */
 	requireParticipantName: z.boolean().default(false),
 	/**
+	 * Whether the people joining this deck must be signed in (REQ134). Public
+	 * like the switch above it — a client has to know to ask for a sign-in —
+	 * while which account answered is never on this document. Read it through
+	 * {@link deckRequiresParticipantSignIn}.
+	 */
+	requireParticipantSignIn: z.boolean().default(false),
+	/**
+	 * Whether the room's free text is held against a word list (REQ085), and
+	 * which language's: `null` follows the deck's own `language`. Read the pair
+	 * through {@link profanityFilterLanguageFor}.
+	 *
+	 * Public like the switches above it, though no phone draws anything from it:
+	 * the filtering is the server's, applied before a payload leaves, so knowing
+	 * the setting gives a client nothing to undo — and the lists themselves ship
+	 * in this repository for anyone to read.
+	 */
+	profanityFilterEnabled: z.boolean().default(false),
+	profanityFilterLanguage: ParticipantLanguageSchema.nullable().default(null),
+	/**
 	 * Whether the presenter surface draws the join bar — the join code and the
 	 * share controls beside it (REQ073).
 	 *
@@ -5604,6 +6160,38 @@ export const PresentationSchema = z.object({
 });
 
 export type Presentation = z.infer<typeof PresentationSchema>;
+
+// ── The answer to a socket's join (REQ209) ───────────────────
+
+/**
+ * The `room.joined` frame: where a deck stands at the moment a socket joined
+ * its room — the runtime fields the room's other frames keep in step, every one
+ * of which a participant already receives on the deck itself. Picked from the
+ * deck's own schema, so the frame cannot name a field differently from the
+ * deck it reports on, and parsing a stored deck through it drops everything
+ * else.
+ *
+ * `activeSlideId` is the one field the deck does not store: the id of the slide
+ * at `activeSlideIndex`, or `null` on a deck with no slide there. A client's
+ * copy of the slides can predate an edit, and an index into a stale copy can
+ * land on a slide the deck no longer has; the id is what lets it notice.
+ */
+export const LiveRoomSnapshotSchema = PresentationSchema.pick({
+	status: true,
+	activeSlideIndex: true,
+	sessionStartedAt: true,
+	sessionEndedAt: true,
+	slideStartedAt: true,
+	revealedSlideIds: true,
+	closedSlideIds: true,
+	audienceBlanked: true,
+	countdownRuns: true,
+}).extend({
+	presentationId: z.string(),
+	activeSlideId: z.string().nullable().default(null),
+});
+
+export type LiveRoomSnapshot = z.infer<typeof LiveRoomSnapshotSchema>;
 
 // ── The shareable results link (REQ098) ──────────────────────
 
@@ -5926,6 +6514,47 @@ export const PostSlideCommentSchema = z.object({
 });
 
 export type PostSlideCommentInput = z.infer<typeof PostSlideCommentSchema>;
+
+// ── Themes over a free-text slide's answers (REQ114) ─────────
+
+/** Longest name a theme may carry — a label over a group, not a paragraph. */
+export const ANSWER_THEME_NAME_MAX_LENGTH = 80;
+
+/**
+ * Most themes one slide may hold. Far beyond what a person sorting a wall of
+ * answers by hand reaches, and low enough that one slide's grouping stays a
+ * small read.
+ */
+export const ANSWER_THEMES_PER_SLIDE_MAX = 50;
+
+/**
+ * One theme on one free-text slide, as an editor reads it (REQ114): a name and
+ * the ids of the answers grouped under it — the `responses[].id` / `answers[].id`
+ * the results payload names them by. An answer in no theme is ungrouped, and an
+ * answer is in at most one theme on its slide.
+ */
+export const AnswerThemeSchema = z.object({
+	id: z.string(),
+	slideId: z.string().default(""),
+	name: z.string().default(""),
+	answerIds: z.array(z.string()).default([]),
+	createdAt: z.string().default(""),
+});
+
+export type AnswerTheme = z.infer<typeof AnswerThemeSchema>;
+
+/** Creating or renaming a theme: a name, trimmed, never empty. */
+export const AnswerThemeNameSchema = z.object({
+	name: z.string().trim().min(1).max(ANSWER_THEME_NAME_MAX_LENGTH),
+});
+
+/**
+ * Putting one answer in a theme — moving it there from any other theme on its
+ * slide — or, with `themeId: null`, taking it out of every theme.
+ */
+export const AssignAnswerThemeSchema = z.object({
+	themeId: z.string().min(1).nullable(),
+});
 
 // ── Workspaces (REQ128, REQ129) ──────────────────────────────
 //
@@ -6355,6 +6984,145 @@ export function voteValueLimitFor(type: SlideType): number {
 	return type === "form" ? FORM_VALUE_MAX_LENGTH : VOTE_VALUE_MAX_LENGTH;
 }
 
+// ── Repeat passes (REQ083) ───────────────────────────────────
+//
+// An audience-paced deck can let one device go through it more than once, and
+// each time through — a **pass** — is kept as its own set of answers instead of
+// replacing the last. Every stored answer and response upvote names the pass it
+// belongs to. The first is `1`, which is also what every row written before
+// passes existed reads as, so a deck that never allowed a second pass is exactly
+// the one set of answers per device it always was.
+//
+// What a pass changes downstream is who a *respondent* is. Wherever a tally, a
+// breakdown or an export counts people, it counts respondents — one device's one
+// pass — through {@link respondentIdOf}, never through `participantId` alone. A
+// device's first pass is named by the device's own id, so on a deck without
+// repeat passes the two readings are the same string and every number such a
+// deck reports is unchanged.
+
+/** The pass a device answers in until it starts another — and every legacy row's. */
+export const FIRST_PASS = 1;
+
+/**
+ * A pass number as a request names one: a whole number from {@link FIRST_PASS}.
+ * Bounded only by what a number can name exactly — how many passes a device may
+ * make is deliberately not capped (REQ083).
+ */
+export const PassNumberSchema = z
+	.number()
+	.int()
+	.min(FIRST_PASS)
+	.max(Number.MAX_SAFE_INTEGER);
+
+/** The deck state {@link deckAllowsRepeatPasses} reads. */
+export type RepeatPassSettings = {
+	mode?: "live" | "survey" | undefined;
+	allowRepeatPasses?: boolean | undefined;
+};
+
+/**
+ * Whether this deck lets a device start another pass through it (REQ083).
+ *
+ * Read with the deck's pace, because only an audience-paced deck can: a
+ * presenter-paced room goes through the deck once, at somebody else's pace, and
+ * a second pass would be a second room. On a live deck the switch is stored but
+ * not in effect — the editor says so beside it — so pacing a deck back to the
+ * audience brings back what its author chose.
+ */
+export function deckAllowsRepeatPasses(deck: RepeatPassSettings): boolean {
+	return (deck.mode ?? "live") === "survey" && (deck.allowRepeatPasses ?? false);
+}
+
+/**
+ * The pass a stored row belongs to. A row written before passes existed has no
+ * `pass` at all and reads as the first, and so does anything that is not a pass
+ * number — a row is never counted under a pass nobody could have started.
+ */
+export function passOf(row: { pass?: unknown }): number {
+	const { pass } = row;
+	return typeof pass === "number" && Number.isSafeInteger(pass) && pass > FIRST_PASS
+		? pass
+		: FIRST_PASS;
+}
+
+/** What separates a participant id from a later pass in a respondent id. */
+const RESPONDENT_PASS_SEPARATOR = "#";
+
+/**
+ * The id one respondent — one device's one pass — is counted under (REQ083).
+ *
+ * A first pass is named by the device's own id, which is what makes this change
+ * nothing on a deck that never allowed a second: every count, breakdown,
+ * leaderboard handle and export row such a deck produces is keyed exactly as it
+ * was. A later pass is named by the id and the pass together, so it counts as
+ * somebody else.
+ *
+ * An absent participant id stays absent whatever the pass: it names nobody, and
+ * every reader that leaves an anonymous row out has to go on leaving it out.
+ *
+ * A participant id that itself carries the separator is named with its pass on
+ * its first pass too, so no two respondents can share a name: `a#2` answering
+ * once and `a` answering a second time would otherwise both be `a#2`, merged in
+ * every count. Real clients send UUIDs, which never carry it, so this changes
+ * no name any of them has.
+ *
+ * Only as hard to guess as the participant id it extends, which is the
+ * credential anyway — and it never leaves the server bare: the leaderboard, the
+ * one place a respondent is published, names it by a one-way digest.
+ */
+export function respondentIdFor(participantId: string, pass: number): string {
+	if (!participantId) return participantId;
+	if (pass <= FIRST_PASS && !participantId.includes(RESPONDENT_PASS_SEPARATOR)) {
+		return participantId;
+	}
+	return `${participantId}${RESPONDENT_PASS_SEPARATOR}${Math.max(pass, FIRST_PASS)}`;
+}
+
+/** The respondent a stored row was answered by: {@link respondentIdFor} over its own fields. */
+export function respondentIdOf(row: {
+	participantId?: unknown;
+	pass?: unknown;
+}): string {
+	return respondentIdFor(String(row.participantId ?? ""), passOf(row));
+}
+
+/**
+ * Which pass a request naming `requested` lands in (REQ083), given the latest
+ * pass the server has **opened** for this device on the deck. The one reading
+ * of a requested pass, composed wherever a device names one — an answer, an
+ * upvote, and the scorecard that reads back what they wrote.
+ *
+ * A pass is opened by one act and nothing else: the request to start another
+ * (`POST …/passes`), which records it, and only while the deck allows repeat
+ * passes. An answer never opens one. That is what makes the rule this short:
+ *
+ *  - **The first pass is always open** and needs no lookup. Every client that
+ *    names no pass, and every deck that never allowed another, lands here —
+ *    exactly the one set of answers per device there was before.
+ *  - **A pass the server opened stays open**, whatever the deck says now.
+ *    Turning repeat passes off stops new ones; it does not strand a device in
+ *    the one it was handed — answered in or not yet — nor send its answers over
+ *    the top of an earlier pass, which on a shared kiosk is somebody else's.
+ *  - **Anything else was never opened** — a client that missed a reset, or a
+ *    hand-built request — and is read as the latest pass that was. The answer
+ *    lands rather than bouncing, and in the same place every time: a drifted
+ *    number can never become a pass of its own, so it cannot scatter one
+ *    person's answers over two.
+ */
+export function submissionPassFor(requested: number, latestOpened: number): number {
+	if (requested <= FIRST_PASS) return FIRST_PASS;
+	return requested <= latestOpened
+		? requested
+		: Math.max(latestOpened, FIRST_PASS);
+}
+
+/** Starting another pass through a deck (REQ083): who is asking. */
+export const StartPassSchema = z.object({
+	participantId: z.string().min(1),
+});
+
+export type StartPass = z.infer<typeof StartPassSchema>;
+
 export const VoteSchema = z.object({
 	slideId: z.string(),
 	/**
@@ -6391,6 +7159,13 @@ export const VoteSchema = z.object({
 	 * assessable" (REQ050); `value` is ignored when set.
 	 */
 	skip: z.boolean().default(false),
+	/**
+	 * Which of this device's passes through the deck the answer belongs to
+	 * (REQ083); absent is the first. Where it lands is the server's reading of
+	 * it ({@link submissionPassFor}), so a deck that allows no second pass keeps
+	 * every device on its first however this is set.
+	 */
+	pass: PassNumberSchema.optional(),
 });
 
 export type Vote = z.infer<typeof VoteSchema>;
@@ -6403,6 +7178,11 @@ export const ResponseVoteSchema = z.object({
 	/** The vote id of the response being upvoted. */
 	responseId: z.string(),
 	participantId: z.string().optional(),
+	/**
+	 * The pass this upvote belongs to (REQ083), read like a vote's: a later pass
+	 * is somebody else, and upvotes the response once more on their own account.
+	 */
+	pass: PassNumberSchema.optional(),
 });
 
 export type ResponseVote = z.infer<typeof ResponseVoteSchema>;
@@ -6432,6 +7212,14 @@ export const StoredPresentationSchema = z.object({
 	status: z.enum(["draft", "live", "ended"]).default("draft"),
 	language: z.string().default("en"),
 	mode: z.enum(["live", "survey"]).default("live"),
+	/**
+	 * Whether one device may go through this deck more than once, each pass kept
+	 * as its own set of answers (REQ083). Defaulted off, so every deck written
+	 * before the switch existed keeps the one set of answers per device it
+	 * already had. In effect only on an audience-paced deck — read it through
+	 * {@link deckAllowsRepeatPasses}.
+	 */
+	allowRepeatPasses: z.boolean().default(false),
 	resultsVisibility: ResultsVisibilityEnum.default("instant"),
 	revealedSlideIds: z.array(z.string()).default([]),
 	/**
@@ -6445,6 +7233,12 @@ export const StoredPresentationSchema = z.object({
 	audienceBlanked: z.boolean().default(false),
 	/** When each slide's question was opened, ISO by slide id (REQ057). */
 	slideStartedAt: z.record(z.string(), z.string()).default({}),
+	/**
+	 * Each started countdown slide's run, by slide id (REQ107). Defaulted empty —
+	 * every clock at its full length — which is what every deck written before the
+	 * field existed re-parses forward onto.
+	 */
+	countdownRuns: z.record(z.string(), CountdownRunSchema).default({}),
 	/**
 	 * When the current session went live and when it ended, ISO (REQ108).
 	 * Defaulted `null` — no session recorded — which is what every deck written
@@ -6472,6 +7266,20 @@ export const StoredPresentationSchema = z.object({
 	 * question at its door that its organizer never asked.
 	 */
 	requireParticipantName: z.boolean().default(false),
+	/**
+	 * Whether the people joining this deck must be signed in (REQ134). Defaulted
+	 * off, so every deck written before this field existed re-parses forward onto
+	 * the open room it already had.
+	 */
+	requireParticipantSignIn: z.boolean().default(false),
+	/**
+	 * The profanity filter on free text and the list it reads (REQ085).
+	 * Defaulted off and following the deck's language, so every deck written
+	 * before the filter existed re-parses forward onto the wall it already had,
+	 * every answer on it as written.
+	 */
+	profanityFilterEnabled: z.boolean().default(false),
+	profanityFilterLanguage: ParticipantLanguageSchema.nullable().default(null),
 	/**
 	 * Whether the presenter surface draws its join bar (REQ073). Defaulted
 	 * **shown**, so every deck written before this field existed re-parses
@@ -6730,6 +7538,25 @@ export const StoredSlideCommentSchema = z.object({
 
 export type StoredSlideComment = z.infer<typeof StoredSlideCommentSchema>;
 
+/**
+ * One theme over a free-text slide's answers (REQ114) — stored beside the
+ * answers rather than on them. The vote rows are not touched by grouping, so
+ * every tally, results payload and export reads exactly what it read before;
+ * the membership is the `answerIds` list here. A collection of its own for the
+ * reason the comment threads have one: the deck document is handed to the
+ * room, and no participant-facing surface loads this collection.
+ *
+ * `presentationId` and `slideId` are identity and carry no default.
+ */
+export const StoredAnswerThemeSchema = z.object({
+	id: z.string(),
+	presentationId: z.string(),
+	slideId: z.string(),
+	name: z.string().default(""),
+	answerIds: z.array(z.string()).default([]),
+	createdAt: z.string().default(""),
+});
+
 export const StoredVoteSchema = z.object({
 	id: z.string(),
 	presentationId: z.string(),
@@ -6746,6 +7573,17 @@ export const StoredVoteSchema = z.object({
 	 * not assessable (REQ050).
 	 */
 	skip: z.boolean().default(false),
+	/**
+	 * Which of the device's passes through the deck this answer belongs to
+	 * (REQ083). Defaulted to the first, which is what every answer stored before
+	 * passes existed was — so it reads as a single first pass, with no migration.
+	 *
+	 * Never filtered on in the store for the first pass: a row written before the
+	 * field existed has no `pass` key on disk, and the store's where-clause reads
+	 * the raw document, where that is nothing rather than 1. Rows are narrowed to
+	 * a pass after they are read back, where the default has filled it in.
+	 */
+	pass: z.number().int().min(FIRST_PASS).default(FIRST_PASS),
 	createdAt: z.string().default(""),
 });
 
@@ -6757,6 +7595,8 @@ export const StoredResponseVoteSchema = z.object({
 	slideId: z.string(),
 	responseId: z.string(),
 	participantId: z.string().default(""),
+	/** The upvoter's pass (REQ083), defaulted like an answer's and for its reason. */
+	pass: z.number().int().min(FIRST_PASS).default(FIRST_PASS),
 	createdAt: z.string().default(""),
 });
 
@@ -6853,6 +7693,67 @@ export const StoredParticipantNameSchema = z.object({
 });
 
 export type StoredParticipantName = z.infer<typeof StoredParticipantNameSchema>;
+
+/**
+ * Which account a participant id belongs to on one deck that requires signing
+ * in (REQ134).
+ *
+ * Written the first time a signed-in participant writes under the id, and never
+ * moved afterwards: the id is what every answer row is keyed by, so this one row
+ * attributes all of them, and a second account writing under the same id is
+ * refused rather than rebinding it. All four identity fields carry no default —
+ * a binding missing any of them attributes nothing to anybody.
+ *
+ * No time window: rows stored under the id while the deck's switch was off —
+ * before it went on, or after it went off again — read as this account's too,
+ * though no session of it sent them. Sound only for a deck whose switch stayed
+ * on; a future reader of this collection has to window it first.
+ *
+ * Declared by no public schema and no tally, so the account never reaches a
+ * participant, the room or a results read.
+ */
+export const StoredParticipantAccountSchema = z.object({
+	id: z.string(),
+	presentationId: z.string(),
+	participantId: z.string(),
+	/** The account `resolveUserId` resolved from the first write's own session. */
+	userId: z.string(),
+	createdAt: z.string().default(""),
+});
+
+export type StoredParticipantAccount = z.infer<
+	typeof StoredParticipantAccountSchema
+>;
+
+/**
+ * The latest pass the server has opened for one device on one deck (REQ083).
+ *
+ * A collection of its own because a pass has to exist **before** anything is
+ * answered in it. Read off the answers alone, a pass a device was just handed —
+ * a kiosk sitting at the first slide waiting for the next person — would be
+ * indistinguishable from a number a client made up, and the only safe reading
+ * of that number is "the latest pass you really have", which on a kiosk is the
+ * previous person's. Recording what was opened is what lets every answer land
+ * in the pass it names, or in one the device demonstrably has.
+ *
+ * One row per (deck, participant), moved forward each time another pass is
+ * started — the earlier passes are below it and need no row of their own, and
+ * the first pass is always open, so a device that never started another has no
+ * row at all. `presentationId` and `participantId` are the identity pair and
+ * carry no default. Swept with everything else the room wrote by a reset and a
+ * delete, since it means nothing once the answers it numbered are gone.
+ */
+export const StoredParticipantPassSchema = z.object({
+	id: z.string(),
+	presentationId: z.string(),
+	participantId: z.string(),
+	/** The latest pass started for this device on this deck. */
+	openedPass: z.number().int().min(FIRST_PASS).default(FIRST_PASS),
+	createdAt: z.string().default(""),
+	updatedAt: z.string().default(""),
+});
+
+export type StoredParticipantPass = z.infer<typeof StoredParticipantPassSchema>;
 
 // ── Q&A request schemas ──────────────────────────────────────
 //

@@ -1,0 +1,46 @@
+omul — bundled quiz audio tracks
+================================
+
+The three tracks below are the presets a quiz slide's audio cue offers. They are
+served from /app/audio/ and play only on the presenter's screen.
+
+Source: original work, synthesized for this repository with ffmpeg's aevalsrc
+filter from the mathematical expressions recorded below. They contain no sample,
+loop or recording made by anybody else. The note sequence of the third track is
+four common chords played upward.
+
+License: the same as the rest of this repository,
+AGPL-3.0-only OR LicenseRef-omul-Commercial. See NOTICE.md, section 4.
+
+  public/audio/quiz-cue-1.mp3 — "Ticking clock"
+  public/audio/quiz-cue-2.mp3 — "Heartbeat"
+  public/audio/quiz-cue-3.mp3 — "Plucked notes"
+
+Each track is 8 seconds of mono MP3 at 96 kbit/s and 44.1 kHz. Each starts and
+ends at silence, so the loop point makes no click.
+
+A replacement file goes at the same path, so no code changes. Whoever replaces a
+track updates its entry here with the new source and license. A license that
+forbids redistributing the file on its own cannot be used in this tree.
+
+
+How to rebuild the tracks
+-------------------------
+
+Run from public/audio/. Another ffmpeg version may produce different bytes from
+the same expressions.
+
+quiz-cue-1.mp3, a tick at 2400 Hz and a tock at 1800 Hz, each over 900 Hz, every
+half second:
+
+  ffmpeg -f lavfi -i "aevalsrc='st(0,mod(t,0.5));st(1,if(eq(mod(floor(t/0.5),2),0),2400,1800));0.45*min(1,ld(0)/0.001)*exp(-90*ld(0))*(sin(2*PI*ld(1)*ld(0))+0.6*sin(2*PI*900*ld(0)))':s=44100:c=mono:d=8" -af "volume=3dB" -c:a libmp3lame -b:a 96k -map_metadata -1 -fflags +bitexact -flags:a +bitexact quiz-cue-1.mp3
+
+quiz-cue-2.mp3, a stronger and a weaker thump at 95 Hz with two harmonics, once a
+second:
+
+  ffmpeg -f lavfi -i "aevalsrc='st(0,mod(t,1));st(1,if(lt(ld(0),0.3),ld(0),ld(0)-0.3));st(2,if(lt(ld(0),0.3),1,0.7));if(lt(ld(0),0.6),ld(2)*min(1,ld(1)/0.008)*exp(-14*ld(1))*min(1,(0.3-ld(1))/0.02)*(sin(2*PI*95*ld(1))+0.5*sin(2*PI*190*ld(1))+0.2*sin(2*PI*285*ld(1)))*0.5,0)':s=44100:c=mono:d=8" -af "volume=2dB" -c:a libmp3lame -b:a 96k -map_metadata -1 -fflags +bitexact -flags:a +bitexact quiz-cue-2.mp3
+
+quiz-cue-3.mp3, four plucked notes a second over A minor, F, C and G, two seconds
+each:
+
+  ffmpeg -f lavfi -i "aevalsrc='st(0,mod(t,0.25));st(1,floor(t/0.25));st(2,mod(floor(ld(1)/8),4));st(3,mod(ld(1),4));st(4,if(eq(ld(2),0),57,if(eq(ld(2),1),53,if(eq(ld(2),2),60,55))));st(5,if(eq(ld(3),0),0,if(eq(ld(3),1),if(eq(ld(2),0),3,4),if(eq(ld(3),2),7,12))));st(6,440*pow(2,(ld(4)+ld(5)-69)/12));0.4*min(1,ld(0)/0.003)*exp(-7*ld(0))*min(1,(0.25-ld(0))/0.01)*(sin(2*PI*ld(6)*ld(0))+0.35*sin(4*PI*ld(6)*ld(0))+0.15*sin(6*PI*ld(6)*ld(0)))':s=44100:c=mono:d=8" -af "volume=-2.5dB" -c:a libmp3lame -b:a 96k -map_metadata -1 -fflags +bitexact -flags:a +bitexact quiz-cue-3.mp3

@@ -141,6 +141,81 @@ const guards: Guard[] = [
 			"Slide appearance read straight off the field — resolve it with slideAppearanceFor() or render through <SlideAppearanceScope/> from src/components/SlideAppearance.tsx instead.",
 	},
 	{
+		// A quiz's audio cue (REQ058) is read in exactly two places: the module
+		// that plays it, through quizAudioCueFor() and useQuizAudioCue(), and the
+		// editor, the one surface that *authors* it — which reads what was typed
+		// only to tell its author whether the presenter's screen can play it. The
+		// resolver is what refuses a URL no `<audio>` should be pointed at and
+		// ignores a cue left behind on a slide that is no longer a quiz, so a
+		// surface reading the raw field has stepped around both; and a surface
+		// resolving the cue for itself is one `<video src>` away from playing it
+		// somewhere other than the presenter's screen. Matched as member access,
+		// bracket access, a one-line destructuring declaration and a resolver
+		// call — the spellings a surface reaches it by in this codebase. A
+		// destructuring that spans lines gets past a line-by-line scan; this is a
+		// backstop, not a parser.
+		name: "REQ058 quiz audio cue read off its owner",
+		pattern:
+			/\.quizAudioUrl\b|\[\s*["']quizAudioUrl["']\s*\]|\b(?:const|let|var)\s*\{[^}]*\bquizAudioUrl\b|\bquizAudioCueFor\(/,
+		allowlist: ["components/SlideEditor.tsx", "components/QuizAudioCue.tsx"],
+		skipComments: true,
+		message:
+			"Quiz audio cue read outside the module that plays it — play it through useQuizAudioCue() from src/components/QuizAudioCue.tsx instead.",
+	},
+	{
+		// REQ058: a quiz's audio cue sounds on the presenter's screen and nowhere
+		// else. The means of playing one — an audio element or an audio context —
+		// are made in exactly one module, and the hook that drives a cue is called
+		// by the presenter page alone, so a participant's phone, the dry run or
+		// the editor cannot start a cue without appearing here first. The server
+		// never sends a participant a cue's address either (`withAudienceSlides`).
+		// The editor's preview of a bundled track is `useQuizAudioPreview()` in that
+		// same module: it plays a track once for its author and never a slide's cue,
+		// so it needs no entry here. A video slide's own player is the slide's
+		// content rather than a cue, and is not this guard's business.
+		name: "REQ058 audio played outside the presenter page",
+		pattern:
+			/\bnew\s+(?:window\.)?Audio\s*\(|<audio\b|AudioContext\b|createElement\(\s*["']audio["']|\buseQuizAudioCue\(/,
+		allowlist: ["components/QuizAudioCue.tsx", "pages/PresenterPage.tsx"],
+		skipComments: true,
+		message:
+			"Audio played outside the presenter page — a quiz's audio cue plays through useQuizAudioCue() from src/components/QuizAudioCue.tsx, called by src/pages/PresenterPage.tsx alone.",
+	},
+	{
+		// REQ093: KaTeX is reached from exactly one module, which typesets with
+		// the options that keep authored TeX inert — `trust` off, a refused
+		// command shown as typed — and builds a formula from DOM nodes rather
+		// than from a string. A second caller is a second set of options one edit
+		// from `trust: true`, or a `renderToString` one edit from an HTML sink.
+		// The fragment admits the module's own tests, which call KaTeX directly
+		// to assert what those options allow.
+		name: "REQ093 KaTeX outside its module",
+		pattern:
+			/\bfrom\s+["']katex(?:\/[^"']*)?["']|\bimport\(\s*["']katex(?:\/[^"']*)?["']|\brequire\(\s*["']katex/,
+		allowlist: ["components/SlideMath"],
+		skipComments: true,
+		message:
+			"KaTeX reached outside src/components/SlideMath.tsx — draw a formula through <SlideText/> (or <SlideMath/>), which typesets it with the options that keep authored TeX inert.",
+	},
+	{
+		// REQ093, and REQ088/REQ089 before it: authored text is untrusted input
+		// on every phone in the room, so nothing in the client turns a string
+		// into markup. React escapes every leaf, and a formula is built by
+		// KaTeX's own DOM calls — never by `renderToString` and an `innerHTML`,
+		// which is exactly the shortcut a formula invites. No allowlist: no
+		// surface in this app has a reason to parse HTML.
+		name: "raw HTML sink",
+		// Assignment and appending (`=`, `+=`), by property or by bracket, and the
+		// HTML-parsing methods the platform added later (`setHTMLUnsafe`,
+		// `parseHTMLUnsafe`), as well as the older sinks.
+		pattern:
+			/dangerouslySetInnerHTML|(?:\.|\[\s*["'`])(?:innerHTML|outerHTML)(?:["'`]\s*\])?\s*\+?=(?!=)|\binsertAdjacentHTML\s*\(|\bdocument\.write(?:ln)?\s*\(|\bcreateContextualFragment\s*\(|\b(?:set|parse)HTMLUnsafe\s*\(|\bsrcDoc\b|\bsrcdoc\b/,
+		allowlist: [],
+		skipComments: true,
+		message:
+			"HTML built from a string and handed to the DOM — build elements instead (React escapes every leaf); authored text renders through <SlideText/> from src/components/SlideText.tsx.",
+	},
+	{
 		// REQ152: the editor draws the slide being authored in exactly one
 		// place — the stage — and `<SlideCanvas/>` is it. `SlidePreview` is that
 		// stage's renderer, and the deck theming around it is part of the frame, so
