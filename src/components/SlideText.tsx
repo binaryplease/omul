@@ -1,13 +1,14 @@
 import { Fragment, type ReactNode } from "react";
 import type { SlideTextSize } from "../types";
 import type { ChoiceOption } from "./EditorControls";
+import { SlideMath } from "./SlideMath";
 
 // ── Authored slide text ───────────────────────────────────────────────
 //
-// REQ088 (clickable hyperlinks), REQ089 (markdown), REQ091 (text size). The
-// one place the words an organizer typed become something to look at, worn by
-// every surface that shows them — the editor's preview, the shared screen, the
-// participant's phone and the dry run.
+// REQ088 (clickable hyperlinks), REQ089 (markdown), REQ091 (text size), REQ093
+// (mathematical notation). The one place the words an organizer typed become
+// something to look at, worn by every surface that shows them — the editor's
+// preview, the shared screen, the participant's phone and the dry run.
 //
 // The invariant is the *authored string*, not any one rendering of it:
 // `**bold**` has to mean bold in all four places or the preview is
@@ -27,6 +28,11 @@ import type { ChoiceOption } from "./EditorControls";
 // and {@link safeSlideLinkHref} allowlists the schemes that may reach it. A
 // `javascript:` URL is not sanitised into something harmless; it never becomes
 // a link at all.
+//
+// A formula (REQ093) is found here like any other markup and drawn by
+// `<SlideMath/>`, the one subtree React does not build itself: KaTeX builds it
+// from DOM nodes rather than from a string, with every command that could carry
+// a link, a picture or an attribute switched off — see `SlideMath.tsx`.
 
 /**
  * The size step as a multiplier on whatever base size the surface already sets
@@ -83,7 +89,7 @@ export const SLIDE_TEXT_SIZE_OPTIONS: ChoiceOption<SlideTextSize>[] = [
  * parser does not keep.
  */
 export const SLIDE_MARKDOWN_HINT =
-	"Heading and body take simple markdown: **bold**, *italic*, `code`, # sub-headings, and - or 1. lists. Links are written [like this](https://example.com) — or just paste an address starting with https://. They open in a new tab.";
+	"Heading and body take simple markdown: **bold**, *italic*, `code`, # sub-headings, and - or 1. lists. Links are written [like this](https://example.com) — or just paste an address starting with https://. They open in a new tab. Math is TeX between dollar signs: $x^2$ within a line, $$x^2$$ on a line of its own, and \\$ for a plain dollar sign.";
 
 /** The accent-underlined treatment every link in authored text wears. */
 export const SLIDE_LINK =
@@ -97,7 +103,13 @@ export type SlideInlineNode =
 	| { kind: "strong"; children: SlideInlineNode[] }
 	| { kind: "emphasis"; children: SlideInlineNode[] }
 	| { kind: "code"; text: string }
-	| { kind: "link"; href: string; children: SlideInlineNode[] };
+	| { kind: "link"; href: string; children: SlideInlineNode[] }
+	/**
+	 * A formula (REQ093). `tex` is what KaTeX is handed; `source` is the formula
+	 * exactly as typed, delimiters included — what the slide shows instead when
+	 * KaTeX refuses it.
+	 */
+	| { kind: "math"; tex: string; display: boolean; source: string };
 
 /** One block of authored body text (REQ089: hierarchy and list structure). */
 export type SlideTextBlock =
@@ -109,7 +121,9 @@ export type SlideTextBlock =
 			/** Where a numbered list starts counting — `1.` unless authored otherwise. */
 			start: number;
 			items: SlideInlineNode[][];
-	  };
+	  }
+	/** A display formula on lines of its own (REQ093); `source` spans them all. */
+	| { kind: "math"; tex: string; source: string };
 
 /**
  * The schemes a link in authored text may use.
@@ -148,8 +162,11 @@ export function safeSlideLinkHref(target: string): string | null {
 	return ALLOWED_LINK_SCHEMES.includes(parsed.protocol) ? parsed.href : null;
 }
 
-/** Characters a backslash may turn back into a literal. */
-const ESCAPABLE = "\\`*_{}[]()#+-.!>";
+/**
+ * Characters a backslash may turn back into a literal — the dollar sign among
+ * them (REQ093), so a price can sit beside a formula on the same slide.
+ */
+const ESCAPABLE = "\\`*_{}[]()#+-.!>$";
 
 /** An inline code span: `` `like this` ``, never across a line break. */
 const CODE_SPAN = /^`([^`\n]+)`/;
@@ -166,12 +183,6 @@ const LINK_LABEL = /^\[([^\]\n]*)\]\(/;
  * address from the ones a sentence wrapped around it.
  */
 const BARE_URL = /^https?:\/\/[^\s<>[\]]+/;
-/** `**bold**` / `__bold__`, within one line. */
-const STRONG_STAR = /^\*\*([^\n]+?)\*\*/;
-const STRONG_UNDERSCORE = /^__([^\n]+?)__/;
-/** `*italic*` / `_italic_`, within one line and without nesting the marker. */
-const EMPHASIS_STAR = /^\*([^*\n]+?)\*/;
-const EMPHASIS_UNDERSCORE = /^_([^_\n]+?)_/;
 
 /** Punctuation that ends a sentence rather than an address. */
 const URL_TRAILING_PUNCTUATION = ".,;:!?'\"";
@@ -276,6 +287,176 @@ function trimBareUrlTail(candidate: string): string {
 	return candidate.slice(0, end);
 }
 
+/** A formula found in authored text, and the index just past its delimiter. */
+type FoundFormula = {
+	tex: string;
+	display: boolean;
+	source: string;
+	end: number;
+};
+
+/** Whitespace a delimiter may not sit against, and that a blank line is made of. */
+function isSpace(character: string | undefined): boolean {
+	return character !== undefined && /\s/.test(character);
+}
+
+/** True when the line that starts at `from` holds nothing but spaces. */
+function lineIsBlank(source: string, from: number): boolean {
+	let index = from;
+	while (index < source.length && source[index] !== "\n") {
+		if (!isSpace(source[index])) return false;
+		index += 1;
+	}
+	return true;
+}
+
+/**
+ * True when the backslash at `index` takes the next character with it, as TeX
+ * reads a formula — never across a line break.
+ */
+function isTexEscape(source: string, index: number): boolean {
+	return (
+		source[index] === "\\" &&
+		index + 1 < source.length &&
+		source[index + 1] !== "\n"
+	);
+}
+
+/**
+ * The formula whose opening `$` is at `start`, or `null` when that `$` opens
+ * none and is just a dollar sign on the slide (REQ093).
+ *
+ * The rules are Pandoc's, because they are the ones that keep prose with prices
+ * in it reading as prose. An inline `$…$` opens onto something that is not a
+ * space, closes just after something that is not a space, is not followed by a
+ * digit, and stays on its line — so `$5 or $10` and `$5-$10` stay prices while
+ * `$x$` is a formula. A display `$$…$$` may pad its formula with spaces and
+ * run over several lines, though not across a blank one. Inside either, a
+ * backslash takes the next character with it, as TeX does, so `\$` is a dollar
+ * sign *in* the formula rather than the end of it.
+ */
+function readFormula(source: string, start: number): FoundFormula | null {
+	return source[start + 1] === "$"
+		? readDisplayFormula(source, start)
+		: readInlineFormula(source, start);
+}
+
+function readInlineFormula(
+	source: string,
+	start: number,
+): FoundFormula | null {
+	const opensOnto = source[start + 1];
+	if (opensOnto === undefined || isSpace(opensOnto)) return null;
+
+	let index = start + 1;
+	while (index < source.length) {
+		const character = source[index] as string;
+		if (character === "\n") return null;
+		if (isTexEscape(source, index)) {
+			index += 2;
+			continue;
+		}
+		if (character === "$") {
+			const closesAfterSpace = isSpace(source[index - 1]);
+			const digitFollows = /[0-9]/.test(source[index + 1] ?? "");
+			if (closesAfterSpace || digitFollows) return null;
+			return {
+				tex: source.slice(start + 1, index),
+				display: false,
+				source: source.slice(start, index + 1),
+				end: index + 1,
+			};
+		}
+		index += 1;
+	}
+	return null;
+}
+
+function readDisplayFormula(
+	source: string,
+	start: number,
+): FoundFormula | null {
+	let index = start + 2;
+	while (index < source.length) {
+		const character = source[index] as string;
+		if (character === "\n" && lineIsBlank(source, index + 1)) return null;
+		if (isTexEscape(source, index)) {
+			index += 2;
+			continue;
+		}
+		if (character === "$" && source[index + 1] === "$") {
+			const tex = source.slice(start + 2, index).trim();
+			if (tex.length === 0) return null;
+			return {
+				tex,
+				display: true,
+				source: source.slice(start, index + 2),
+				end: index + 2,
+			};
+		}
+		index += 1;
+	}
+	return null;
+}
+
+/**
+ * Where an emphasis run that `marker` opened closes — the index of its closing
+ * marker — or `-1` when nothing closes it on this line. The run's content
+ * starts at `from` and holds at least one character, and a one-character marker
+ * may not appear inside its own run.
+ *
+ * A formula is stepped over whole (REQ093): `_` and `*` are TeX's subscript and
+ * asterisk as often as they are markdown's emphasis, so `_the root $x_1$ is
+ * real_` is an emphasised sentence with a formula in it, not an emphasised `the
+ * root $x`. Text without a dollar sign in it closes exactly where it always has.
+ */
+function emphasisCloseIndex(
+	source: string,
+	from: number,
+	marker: string,
+): number {
+	let index = from;
+	while (index < source.length) {
+		const character = source[index] as string;
+		if (character === "\n") return -1;
+		// The two escapes that decide what a `$` means, read the way the parser
+		// itself reads them; every other backslash is left to mean what it did.
+		if (
+			character === "\\" &&
+			(source[index + 1] === "\\" || source[index + 1] === "$")
+		) {
+			index += 2;
+			continue;
+		}
+		if (character === "$") {
+			const formula = readFormula(source, index);
+			index = formula?.end ?? index + (source[index + 1] === "$" ? 2 : 1);
+			continue;
+		}
+		if (index > from && source.startsWith(marker, index)) return index;
+		if (marker.length === 1 && character === marker) return -1;
+		index += 1;
+	}
+	return -1;
+}
+
+/**
+ * The `**strong**`, `__strong__`, `*italic*` or `_italic_` run that `marker`
+ * opens at `start`, or `null` when the marker opens nothing.
+ */
+function readEmphasisRun(
+	source: string,
+	start: number,
+	marker: string,
+): { content: string; end: number } | null {
+	if (!source.startsWith(marker, start)) return null;
+	const from = start + marker.length;
+	const close = emphasisCloseIndex(source, from, marker);
+	return close === -1
+		? null
+		: { content: source.slice(from, close), end: close + marker.length };
+}
+
 function parseInlineNodes(source: string, depth: number): SlideInlineNode[] {
 	const nodes: SlideInlineNode[] = [];
 	let literal = "";
@@ -308,6 +489,29 @@ function parseInlineNodes(source: string, depth: number): SlideInlineNode[] {
 			flushLiteral();
 			nodes.push({ kind: "code", text: code[1] as string });
 			position += code[0].length;
+			continue;
+		}
+
+		// After code, so `` `$HOME` `` stays the shell variable it was typed as.
+		if (character === "$") {
+			const formula = readFormula(source, position);
+			if (formula) {
+				flushLiteral();
+				nodes.push({
+					kind: "math",
+					tex: formula.tex,
+					display: formula.display,
+					source: formula.source,
+				});
+				position = formula.end;
+				continue;
+			}
+			// A dollar sign that opens nothing is a dollar sign — and a doubled one
+			// is taken whole, so the `$$` of an unfinished display formula cannot
+			// open an inline one with its second half.
+			const unopened = source[position + 1] === "$" ? "$$" : "$";
+			literal += unopened;
+			position += unopened.length;
 			continue;
 		}
 
@@ -357,14 +561,16 @@ function parseInlineNodes(source: string, depth: number): SlideInlineNode[] {
 		}
 
 		if (depth < INLINE_NESTING_LIMIT) {
-			const strong = STRONG_STAR.exec(rest) ?? STRONG_UNDERSCORE.exec(rest);
+			const strong =
+				readEmphasisRun(source, position, "**") ??
+				readEmphasisRun(source, position, "__");
 			if (strong) {
 				flushLiteral();
 				nodes.push({
 					kind: "strong",
-					children: parseInlineNodes(strong[1] as string, depth + 1),
+					children: parseInlineNodes(strong.content, depth + 1),
 				});
-				position += strong[0].length;
+				position = strong.end;
 				continue;
 			}
 
@@ -374,14 +580,15 @@ function parseInlineNodes(source: string, depth: number): SlideInlineNode[] {
 				character === "_" && isWordCharacter(source[position - 1]);
 			const emphasis = underscoreOpensWord
 				? null
-				: (EMPHASIS_STAR.exec(rest) ?? EMPHASIS_UNDERSCORE.exec(rest));
+				: (readEmphasisRun(source, position, "*") ??
+					readEmphasisRun(source, position, "_"));
 			if (emphasis) {
 				flushLiteral();
 				nodes.push({
 					kind: "emphasis",
-					children: parseInlineNodes(emphasis[1] as string, depth + 1),
+					children: parseInlineNodes(emphasis.content, depth + 1),
 				});
-				position += emphasis[0].length;
+				position = emphasis.end;
 				continue;
 			}
 		}
@@ -406,9 +613,97 @@ export function parseSlideInline(source: string): SlideInlineNode[] {
 	return parseInlineNodes(source, 0);
 }
 
+function inlineHasMath(nodes: SlideInlineNode[]): boolean {
+	return nodes.some(
+		(node) =>
+			node.kind === "math" ||
+			((node.kind === "strong" ||
+				node.kind === "emphasis" ||
+				node.kind === "link") &&
+				inlineHasMath(node.children)),
+	);
+}
+
+/**
+ * Whether a heading holds a formula anywhere in it — inside emphasis or a link
+ * label included (REQ093). Asked by the canvas, whose heading is a field: a
+ * field can only show the TeX, so a heading with a formula in it has to be
+ * drawn typeset beside it for the canvas to show what the room will read.
+ */
+export function slideInlineHasMath(source: string): boolean {
+	return inlineHasMath(parseSlideInline(source));
+}
+
 const HEADING_LINE = /^ {0,3}(#{1,3})\s+(.*)$/;
 const BULLET_LINE = /^ {0,3}[-*+]\s+(.*)$/;
 const NUMBERED_LINE = /^ {0,3}(\d{1,9})[.)]\s+(.*)$/;
+const FORMULA_LINE = /^( {0,3})\$\$/;
+
+/**
+ * A body split into lines, with the offset each one starts at — so a formula
+ * block is read off the text in place rather than off lines joined back
+ * together, which would make a body of many short formulas quadratic.
+ */
+type SlideTextBody = {
+	text: string;
+	lines: readonly string[];
+	lineStarts: readonly number[];
+};
+
+function splitSlideTextBody(source: string): SlideTextBody {
+	const text = source.replace(/\r\n?/g, "\n");
+	const lines = text.split("\n");
+	const lineStarts: number[] = [];
+	let offset = 0;
+	for (const line of lines) {
+		lineStarts.push(offset);
+		offset += line.length + 1;
+	}
+	return { text, lines, lineStarts };
+}
+
+/**
+ * The display formula that opens on line `index` and stands on lines of its own
+ * (REQ093), or `null` when that line opens none: `$$` at the start of the line,
+ * and a closing `$$` that ends its line, before any blank one.
+ *
+ * The lines in between are TeX, not markdown, which is the reason to read them
+ * as a block at all: an equation continued on a line that starts `+ b` or `- c`
+ * is not a list item, and a paragraph does not swallow the formula it precedes.
+ */
+function readFormulaBlock(
+	body: SlideTextBody,
+	index: number,
+): { block: SlideTextBlock; next: number } | null {
+	const opening = FORMULA_LINE.exec(body.lines[index] as string);
+	if (!opening) return null;
+
+	const lineStart = body.lineStarts[index] as number;
+	const formula = readDisplayFormula(
+		body.text,
+		lineStart + (opening[1] as string).length,
+	);
+	if (formula === null) return null;
+
+	// The line the closing `$$` is on, and the rest of it, which has to be empty.
+	let closingLine = index;
+	while ((body.lineStarts[closingLine + 1] ?? Infinity) < formula.end) {
+		closingLine += 1;
+	}
+	const lineEnd =
+		(body.lineStarts[closingLine] as number) +
+		(body.lines[closingLine] as string).length;
+	if (body.text.slice(formula.end, lineEnd).trim().length > 0) return null;
+
+	return {
+		block: {
+			kind: "math",
+			tex: formula.tex,
+			source: body.text.slice(lineStart, lineEnd),
+		},
+		next: closingLine + 1,
+	};
+}
 
 /**
  * A body of authored text, read into blocks (REQ089): paragraphs, up to three
@@ -421,7 +716,8 @@ const NUMBERED_LINE = /^ {0,3}(\d{1,9})[.)]\s+(.*)$/;
  * into a space the way a strict markdown reader would fold it.
  */
 export function parseSlideText(source: string): SlideTextBlock[] {
-	const lines = source.replace(/\r\n?/g, "\n").split("\n");
+	const body = splitSlideTextBody(source);
+	const { lines } = body;
 	const blocks: SlideTextBlock[] = [];
 	let index = 0;
 
@@ -430,6 +726,13 @@ export function parseSlideText(source: string): SlideTextBlock[] {
 
 		if (line.trim().length === 0) {
 			index += 1;
+			continue;
+		}
+
+		const formula = readFormulaBlock(body, index);
+		if (formula) {
+			blocks.push(formula.block);
+			index = formula.next;
 			continue;
 		}
 
@@ -479,7 +782,8 @@ export function parseSlideText(source: string): SlideTextBlock[] {
 				next.trim().length === 0 ||
 				HEADING_LINE.test(next) ||
 				BULLET_LINE.test(next) ||
-				NUMBERED_LINE.test(next)
+				NUMBERED_LINE.test(next) ||
+				readFormulaBlock(body, index) !== null
 			) {
 				break;
 			}
@@ -502,6 +806,8 @@ function inlineToPlain(nodes: SlideInlineNode[]): string {
 				case "text":
 				case "code":
 					return node.text;
+				case "math":
+					return node.tex;
 				default:
 					return inlineToPlain(node.children);
 			}
@@ -515,15 +821,17 @@ function inlineToPlain(nodes: SlideInlineNode[]): string {
  * For the places that show a *gist* rather than the slide — the rail item, a
  * thumbnail, a `title` tooltip — where markup would be read out as the literal
  * stars and brackets it is written with. A link becomes its label, never its
- * target: the rail is naming a slide, not offering a destination.
+ * target: the rail is naming a slide, not offering a destination. A formula
+ * becomes its TeX without the dollar signs (REQ093), the way code loses its
+ * backticks: a row too small to typeset in still says which formula it is.
  */
 export function slideTextToPlain(source: string): string {
 	return parseSlideText(source)
-		.map((block) =>
-			block.kind === "list"
-				? block.items.map(inlineToPlain).join(" ")
-				: inlineToPlain(block.content),
-		)
+		.map((block) => {
+			if (block.kind === "list") return block.items.map(inlineToPlain).join(" ");
+			if (block.kind === "math") return block.tex;
+			return inlineToPlain(block.content);
+		})
 		.join(" ")
 		.replace(/\s+/g, " ")
 		.trim();
@@ -568,6 +876,15 @@ function renderInline(nodes: SlideInlineNode[]): ReactNode[] {
 						{renderInline(node.children)}
 					</a>
 				);
+			case "math":
+				return (
+					<SlideMath
+						key={index}
+						tex={node.tex}
+						display={node.display}
+						source={node.source}
+					/>
+				);
 		}
 	});
 }
@@ -579,6 +896,16 @@ const HEADING_SCALE: Record<1 | 2 | 3, string> = {
 };
 
 function renderBlock(block: SlideTextBlock, index: number): ReactNode {
+	if (block.kind === "math") {
+		// Pre-wrapped like a paragraph for the one case where what is drawn is
+		// the source: a formula KaTeX refused keeps the lines it was typed on.
+		return (
+			<div key={index} className="whitespace-pre-wrap break-words">
+				<SlideMath tex={block.tex} display source={block.source} />
+			</div>
+		);
+	}
+
 	if (block.kind === "heading") {
 		// A sub-heading *inside* a body sits under the slide's own heading — an
 		// `h3` on a content slide — so it starts at `h4` rather than opening a

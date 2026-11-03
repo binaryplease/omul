@@ -11,9 +11,10 @@ priority: high
 ## Context
 Storage was MongoDB (via the `mongodb` driver), reached through the async
 `Store` seam in `server/db.ts` that task/0003 introduced. binp-docstore — a
-native `bun:sqlite` + Zod document store (github.com/binaryplease/binp-docstore)
-— replaces it: in-process, no external database service, Zod-gated on every read
-and write, forward-compatible via field defaults.
+native `bun:sqlite` + Zod document store (published since as
+`@binaryplease/zodstore`, REQ177) — replaces it: in-process, no external
+database service, Zod-gated on every read and write, forward-compatible via
+field defaults.
 
 ## Approach
 - Consume docstore behind the existing `Store` seam so the service/route layer

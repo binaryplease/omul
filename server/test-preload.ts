@@ -21,7 +21,16 @@
  * no build can observe it and no bundler can bake it into a shipped artifact.
  * `server/auth-secret.test.ts` is the exception and clears it for its own cases,
  * because it is the suite whose subject is the switch itself.
+ *
+ * The third is the store. `.mise.toml` exports `DATABASE_PATH` as the
+ * developer's own `data/omul.sqlite`, and `server/db.ts` opens the store the
+ * first time anything imports it, for the whole run — so a test file that
+ * reaches it through a service module, without setting the path itself, would
+ * open the developer's real data whenever test order happened to load it first.
+ * Defaulting the run to `:memory:` here takes the order out of it; a suite that
+ * wants a file of its own still sets one before it imports the store.
  */
 
 process.env.OMUL_RATE_LIMITS_DISABLED = "true";
 process.env.OMUL_ALLOW_INSECURE_DEV_AUTH_SECRET = "true";
+process.env.DATABASE_PATH = ":memory:";

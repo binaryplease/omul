@@ -168,14 +168,30 @@ describe("the legal texts in the app menu, on every route (REQ183)", () => {
 	const SCREENS_PER_PAGE = {
 		PresenterPage: ["error", "blanked screen", "live"],
 		PreviewPage: ["error", "dry run"],
-		ParticipantPage: ["error", "ended", "name gate", "waiting", "slide"],
+		ParticipantPage: [
+			"sign-in gate",
+			"error",
+			"ended",
+			"name gate",
+			"waiting",
+			"slide",
+		],
 		SharedResultsPage: ["unavailable link", "results"],
 	} as const;
+
+	/**
+	 * Screens that mount the menu more than once, each mount drawn at its own
+	 * widths. The presenter's live screen has the plain menu from `sm` and the
+	 * More menu, which leads with the Deck rows, below it (REQ199).
+	 */
+	const EXTRA_MOUNTS_PER_PAGE: Record<string, number> = { PresenterPage: 1 };
 
 	for (const [page, screens] of Object.entries(SCREENS_PER_PAGE)) {
 		test(`${page} mounts the menu on each of its screens: ${screens.join(", ")}`, () => {
 			const source = readSource(`pages/${page}.tsx`);
-			expect(source.match(/<AppMenu \/>/g)).toHaveLength(screens.length);
+			expect(source.match(/<AppMenu[\s/]/g)).toHaveLength(
+				screens.length + (EXTRA_MOUNTS_PER_PAGE[page] ?? 0),
+			);
 		});
 	}
 

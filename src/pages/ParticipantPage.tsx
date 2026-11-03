@@ -1,16 +1,28 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	api,
+	ApiError,
+	forgetParticipantPass,
 	forgetStatedParticipantName,
 	getParticipantId,
+	getParticipantPass,
 	getStatedParticipantName,
+	rememberParticipantPass,
 	rememberStatedParticipantName,
+	SOCKET_PULSE_MS,
+	signInRefusalOf,
 } from "../api";
+import { PasswordResetLanding } from "../auth";
 import {
 	liveVoteTransport,
 	ParticipantSlideView,
+	type ParticipantVoteTransport,
 } from "../components/ParticipantSlideView";
+import {
+	ParticipantSignInGate,
+	participantSignInLabelsFor,
+} from "../components/ParticipantSignIn";
 import { DeckMark, DeckThemeScope } from "../components/DeckTheme";
 import { LegalNotice } from "../components/LegalLinks";
 import { ParticipantFeedbackPrompt } from "../components/ParticipantFeedbackPrompt";
@@ -42,12 +54,23 @@ import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { useToast } from "../components/ui/Toast";
 import { rememberDeckSeenInRoom } from "../feedback-prompt";
-import { getDict } from "../i18n";
+import { browserLanguage, getDict, resolveLang } from "../i18n";
 import type { Route } from "../router";
-import { usePageTitle } from "../router";
+import { urlForRoute, usePageTitle } from "../router";
 import { useSessionSocket, useStore } from "../store";
-import type { ReactionKind, Slide } from "../types";
-import { slideHasResults } from "../types";
+import type {
+	ParticipantSignInRefusalCode,
+	Presentation,
+	ReactionKind,
+	RepeatPassSettings,
+	Slide,
+} from "../types";
+import {
+	deckAllowsRepeatPasses,
+	FIRST_PASS,
+	slideHasResults,
+	steppedSlideIndex,
+} from "../types";
 
 // ── Participant Page ──────────────────────────────────────────
 //
@@ -66,6 +89,163 @@ import { slideHasResults } from "../types";
 // of them belongs to the slide on screen, and putting them inside it would tie
 // them to a question they are not about.
 
+/**
+ * What the control that starts another pass through the deck is doing right
+ * now (REQ083):
+ *
+ *  - `absent` — the deck does not allow another pass. That is the deck's own
+ *    shape rather than a hidden control, like a deck with Q&A switched off
+ *    showing no Q&A box, and it is every presenter-paced deck.
+ *  - `reach-end` — it does, and the participant has not reached the last slide
+ *    yet: drawn disabled, saying so. A control that appeared only at the end
+ *    would leave nobody knowing it was there to aim for.
+ *  - `ready` — at the last slide, which is what having finished the deck means
+ *    on a deck that is free to navigate and free to leave questions unanswered.
+ *    "Last" is the last one Next reaches: past it only skipped slides remain
+ *    (REQ110), which a participant is never paged onto.
+ *
+ * Read off the same predicate the endpoint refuses on, so a phone never offers
+ * a pass the boundary would turn away.
+ */
+export type NewPassControl = "absent" | "reach-end" | "ready";
+
+export function newPassControlFor(
+	deck: RepeatPassSettings & {
+		slides: readonly { skipped?: boolean | undefined }[];
+	},
+	surveyIndex: number,
+): NewPassControl {
+	if (!deckAllowsRepeatPasses(deck)) return "absent";
+	return steppedSlideIndex(deck.slides, surveyIndex, 1) === null
+		? "ready"
+		: "reach-end";
+}
+
+/**
+ * Where an audience-paced pass through the deck starts (REQ110): its first slide
+ * that is not skipped — or the first slide when every one is, so a deck the
+ * organizer skipped end to end still shows the participant something.
+ */
+export function firstSurveySlideIndex(
+	slides: readonly { skipped?: boolean | undefined }[],
+): number {
+	return steppedSlideIndex(slides, -1, 1) ?? 0;
+}
+
+/**
+ * Whether the presenter is live on a slide this browser's copy of the deck does
+ * not have (REQ209) — a slide added to the running deck after this phone read
+ * it, and then navigated to. The socket moves the index and never the slides,
+ * so without a re-read the page has no slide to draw and shows the waiting
+ * screen over a live session.
+ *
+ * Missing too when the server has named the live slide (`liveSlideId`) and the
+ * copy holds a different one at that index: the first slide deleted while the
+ * deck was stopped, then a restart, put a phone's index 0 on the deleted slide.
+ * That slide is not drawn, and a vote on it would be refused.
+ */
+export function liveSlideMissing(
+	deck: Pick<Presentation, "mode" | "status" | "activeSlideIndex"> & {
+		slides: readonly { id?: string }[];
+	},
+	liveSlideId: string | null = null,
+): boolean {
+	if (deck.mode === "survey" || deck.status !== "live") return false;
+	const held = deck.slides[deck.activeSlideIndex ?? 0];
+	if (held === undefined) return true;
+	return liveSlideId !== null && held.id !== liveSlideId;
+}
+
+/**
+ * The slide a phone following the presenter draws: the one at the presenter's
+ * index, or none while {@link liveSlideMissing} has this copy read again.
+ */
+export function drawnLiveSlide<HeldSlide extends { id?: string }>(
+	deck: Pick<Presentation, "mode" | "status" | "activeSlideIndex"> & {
+		slides: readonly HeldSlide[];
+	},
+	liveSlideId: string | null,
+): HeldSlide | null {
+	return liveSlideMissing(deck, liveSlideId)
+		? null
+		: (deck.slides[deck.activeSlideIndex ?? 0] ?? null);
+}
+
+/**
+ * How long to wait before asking again after the given number of re-reads of a
+ * missing live slide failed in a row (REQ209): 1 s, doubling, held at the
+ * socket's heartbeat (`SOCKET_PULSE_MS`), so a phone whose link comes back is
+ * drawing the slide within a beat of it.
+ */
+export function missingSlideRetryDelayMs(failedReads: number): number {
+	return Math.min(1_000 * 2 ** Math.max(failedReads - 1, 0), SOCKET_PULSE_MS);
+}
+
+/** Run `run` after `delayMs`; the returned function cancels it. */
+export type RetryScheduler = (run: () => void, delayMs: number) => () => void;
+
+const scheduleWithTimeout: RetryScheduler = (run, delayMs) => {
+	const timer = setTimeout(run, delayMs);
+	return () => clearTimeout(timer);
+};
+
+/**
+ * Re-read the deck until the read is answered (REQ209), backing off between
+ * failures by {@link missingSlideRetryDelayMs}. A read that fails changes
+ * nothing the page watches — neither the index nor the slide count moves — so
+ * without this a phone whose re-read was lost on a weak link stays on the
+ * waiting screen until the presenter changes slide. Stops at the first answer:
+ * an answered read that still finds no slide there is the deck having lost it,
+ * and asking again would only repeat that answer. The returned function stops
+ * it, and an answer arriving after that is ignored.
+ */
+export function rereadUntilAnswered(
+	reread: () => Promise<boolean>,
+	schedule: RetryScheduler = scheduleWithTimeout,
+): () => void {
+	let stopped = false;
+	let failedReads = 0;
+	let cancelScheduled = () => {};
+	const attempt = () => {
+		reread().then((answered) => {
+			if (stopped || answered) return;
+			failedReads++;
+			cancelScheduled = schedule(attempt, missingSlideRetryDelayMs(failedReads));
+		});
+	};
+	attempt();
+	return () => {
+		stopped = true;
+		cancelScheduled();
+	};
+}
+
+/**
+ * The live transport with every refusal it meets for who the caller is signed
+ * in as (REQ134) reported to `report` before it is rethrown — so an answer a
+ * deck turns away mid-session leads to the same sign-in screen the join door
+ * does. The refusal still reaches the slide view, which owns its own toasts.
+ */
+export function reportingSignInRefusals(
+	transport: ParticipantVoteTransport,
+	report: (refused: ParticipantSignInRefusalCode) => void,
+): ParticipantVoteTransport {
+	const watched = async (sent: Promise<void>) => {
+		try {
+			await sent;
+		} catch (thrown) {
+			const refused = signInRefusalOf(thrown);
+			if (refused) report(refused);
+			throw thrown;
+		}
+	};
+	return {
+		...transport,
+		vote: (submission) => watched(transport.vote(submission)),
+		upvoteResponse: (upvote) => watched(transport.upvoteResponse(upvote)),
+	};
+}
+
 export function ParticipantPage({
 	code,
 	go,
@@ -76,6 +256,7 @@ export function ParticipantPage({
 	// Live-runtime state lives in the session slice (shared with the presenter
 	// page); the per-participant interaction state lives in the slide view.
 	const pres = useStore((state) => state.presentation);
+	const liveSlideId = useStore((state) => state.liveSlideId);
 	const resultsMap = useStore((state) => state.results);
 	const serverClockOffsetMs = useStore((state) => state.serverClockOffsetMs);
 	const loading = useStore((state) => state.loading);
@@ -83,7 +264,13 @@ export function ParticipantPage({
 	const loadByCode = useStore((state) => state.loadByCode);
 	const refreshDeckSlides = useStore((state) => state.refreshDeckSlides);
 	const setResultsFor = useStore((state) => state.setResultsFor);
+	const applyRepeatPassesSetting = useStore(
+		(state) => state.applyRepeatPassesSetting,
+	);
 	const setError = useStore((state) => state.setError);
+	/** Why a deck that requires signing in turned this browser away (REQ134). */
+	const signInRefusal = useStore((state) => state.signInRefusal);
+	const setSignInRefusal = useStore((state) => state.setSignInRefusal);
 	const resetSession = useStore((state) => state.resetSession);
 	/** Bumped when the presenter clears the session (REQ101) — see below. */
 	const sessionResetRevision = useStore((state) => state.sessionResetRevision);
@@ -111,6 +298,27 @@ export function ParticipantPage({
 	/** Whether a name is in flight, and why the last one did not land. */
 	const [statingName, setStatingName] = useState(false);
 	const [nameError, setNameError] = useState("");
+	/**
+	 * The pass through this deck this browser was last handed (REQ083), filed
+	 * under the deck it belongs to. `null` until a pass is started or a reset
+	 * clears one here; until then the pass is read straight out of local storage
+	 * — see `pass` below — so the first render after a reload already answers in
+	 * the right one.
+	 */
+	const [handedPass, setHandedPass] = useState<{
+		deckId: string;
+		pass: number;
+	} | null>(null);
+	/**
+	 * How many passes this page has started (REQ083). Part of the slide view's
+	 * key, so going through again always starts from a blank screen — including
+	 * when the pass the server opens has the number this browser already
+	 * believed it was on, which a browser that missed a reset can (it was on 2,
+	 * and the re-run's second pass is 2 as well).
+	 */
+	const [passesStarted, setPassesStarted] = useState(0);
+	/** Whether a new pass is being asked for, so the control cannot fire twice. */
+	const [startingPass, setStartingPass] = useState(false);
 	const participantId = useRef(getParticipantId());
 	/**
 	 * The projection this browser last read its deck against — see the re-read
@@ -124,24 +332,72 @@ export function ParticipantPage({
 
 	const isSurvey = pres?.mode === "survey";
 
+	/**
+	 * The pass this browser is answering in (REQ083) — the first, on every deck
+	 * that has never handed it another. Read out of local storage while this page
+	 * has not been handed one, which is what lands a reload back in a pass it had
+	 * started and not yet answered anything in: that pass exists nowhere else.
+	 *
+	 * Read once per deck rather than on every render, so a second tab starting a
+	 * pass of its own does not move this one mid-way through the pass it is on.
+	 */
+	const rememberedPass = useMemo(
+		() => (pres?.id ? getParticipantPass(pres.id) : FIRST_PASS),
+		[pres?.id],
+	);
+	const pass =
+		pres && handedPass?.deckId === pres.id ? handedPass.pass : rememberedPass;
+
+	// An audience-paced deck opens on its first slide that is not skipped
+	// (REQ110). Once per deck: a later edit to the deck does not move a
+	// participant off the slide they are answering.
+	useEffect(() => {
+		if (pres) setSurveyIndex(firstSurveySlideIndex(pres.slides));
+	}, [pres?.id]);
+
+	/**
+	 * Whether this copy of the deck lacks the slide the presenter is live on
+	 * (REQ209, `liveSlideMissing`) — none at that index, or another one there
+	 * than the server named.
+	 */
+	const missingLiveSlide = !!pres && liveSlideMissing(pres, liveSlideId);
+
 	// The displayed slide: survey mode is audience-paced (local index); live
-	// mode follows the presenter via the session slice's activeSlideIndex.
+	// mode follows the presenter via the session slice's activeSlideIndex. A
+	// held slide that is not the live one is not drawn while the copy is re-read.
 	const activeSlide: Slide | null = pres
-		? ((isSurvey
-				? pres.slides[surveyIndex]
-				: pres.slides[pres.activeSlideIndex ?? 0]) ?? null)
+		? isSurvey
+			? (pres.slides[surveyIndex] ?? null)
+			: drawnLiveSlide(pres, liveSlideId)
 		: null;
 
 	// Results for the active slide come from the shared per-slide results map.
 	const results = activeSlide ? (resultsMap[activeSlide.id] ?? null) : null;
 
-	// One transport per deck, and stable across renders: the slide view lists it
-	// among the dependencies of its scorecard fetch, and a fresh object every
-	// render would re-fetch that card on every keystroke.
+	// One transport per deck and pass, and stable across renders: the slide view
+	// lists it among the dependencies of its scorecard fetch, and a fresh object
+	// every render would re-fetch that card on every keystroke. A new pass is a
+	// new transport (REQ083), so everything sent from then on is that pass's.
 	const transport = useMemo(
-		() => liveVoteTransport(pres?.id ?? "", participantId.current),
-		[pres?.id],
+		() =>
+			reportingSignInRefusals(
+				liveVoteTransport(pres?.id ?? "", participantId.current, pass),
+				setSignInRefusal,
+			),
+		[pres?.id, pass, setSignInRefusal],
 	);
+
+	/**
+	 * Whether a thrown write was the deck turning this browser away for who it is
+	 * signed in as (REQ134) — recorded, so the page draws the sign-in screen in
+	 * place of the slide, and reported to the caller so it adds no toast of its
+	 * own over it.
+	 */
+	const noteSignInRefusal = (thrown: unknown): boolean => {
+		const refused = signInRefusalOf(thrown);
+		if (refused) setSignInRefusal(refused);
+		return refused !== null;
+	};
 
 	// Join presentation into the session slice; clear it on unmount.
 	useEffect(() => {
@@ -196,6 +452,26 @@ export function ParticipantPage({
 	}, [pres, projectionKey, code, refreshDeckSlides]);
 
 	/**
+	 * Re-read the deck when the presenter is live on a slide this copy does not
+	 * have (REQ209, `liveSlideMissing`). A failed re-read is retried with backoff
+	 * (`rereadUntilAnswered`) for as long as the slide is missing; an answered one
+	 * that still finds no slide there — the deck lost it — asks no more until the
+	 * index or the deck length moves. Either moving, or the slide arriving, stops
+	 * the retries of the read before. So does the server naming another slide.
+	 */
+	useEffect(() => {
+		if (!missingLiveSlide) return;
+		return rereadUntilAnswered(() => refreshDeckSlides(code));
+	}, [
+		missingLiveSlide,
+		pres?.activeSlideIndex,
+		liveSlideId,
+		pres?.slides.length,
+		code,
+		refreshDeckSlides,
+	]);
+
+	/**
 	 * Recall the name this browser stated on *this* deck (REQ076).
 	 *
 	 * An effect rather than a lazy initial state because the deck is joined by
@@ -225,6 +501,10 @@ export function ParticipantPage({
 	 * only the socket frame says the run this name belonged to is gone. The first
 	 * value is recorded rather than acted on, so a phone that joins a deck which
 	 * was reset before it arrived keeps the name it has just stated.
+	 *
+	 * The pass this browser is on goes the same way (REQ083): the reset dropped
+	 * every pass the device made, so the re-run is answered as a first pass again,
+	 * exactly as on a deck this browser has never answered.
 	 */
 	const lastResetRevision = useRef<number | null>(null);
 	useEffect(() => {
@@ -237,6 +517,8 @@ export function ParticipantPage({
 		setStatedName("");
 		setChangingName(false);
 		setNameError("");
+		forgetParticipantPass(pres.id);
+		setHandedPass({ deckId: pres.id, pass: FIRST_PASS });
 	}, [pres?.id, sessionResetRevision]);
 
 	/**
@@ -273,6 +555,7 @@ export function ParticipantPage({
 			setStatedName(stored.name);
 			setChangingName(false);
 		} catch (nameFailure) {
+			if (noteSignInRefusal(nameFailure)) return;
 			setNameError((nameFailure as Error).message);
 		} finally {
 			setStatingName(false);
@@ -334,6 +617,7 @@ export function ParticipantPage({
 				landed ? "success" : "info",
 			);
 		} catch (askError) {
+			if (noteSignInRefusal(askError)) return;
 			addToast((askError as Error).message, "error");
 		} finally {
 			setAskingQuestion(false);
@@ -359,7 +643,10 @@ export function ParticipantPage({
 		setReactionNotice("");
 		api
 			.sendReaction(pres.id, kind, activeSlide?.id ?? null, participantId.current)
-			.catch((reactError) => setReactionNotice((reactError as Error).message));
+			.catch((reactError) => {
+				if (noteSignInRefusal(reactError)) return;
+				setReactionNotice((reactError as Error).message);
+			});
 	};
 
 	/**
@@ -373,9 +660,51 @@ export function ParticipantPage({
 		try {
 			await api.postChatMessage(pres.id, text, participantId.current);
 		} catch (sendError) {
+			if (noteSignInRefusal(sendError)) return;
 			addToast((sendError as Error).message, "error");
 		} finally {
 			setSendingMessage(false);
+		}
+	};
+
+	/**
+	 * Go through the deck again (REQ083).
+	 *
+	 * The pass number is the server's answer, never this browser's own guess: the
+	 * server opens the pass and records it, which is what lets every answer from
+	 * here on land in it — this person's own, never over the last person's. What
+	 * is kept here is a note of it, so a reload lands back in it.
+	 *
+	 * A refusal says the organizer stopped allowing it after this screen drew the
+	 * control — the switch's broadcast never reached this phone — and is named in
+	 * the deck's own language (REQ084) from its code. It is also news about the
+	 * deck this phone holds, so it is applied the way the missed broadcast would
+	 * have been: the control goes, rather than staying to be refused again.
+	 */
+	const handleStartPass = async () => {
+		if (!pres) return;
+		setStartingPass(true);
+		try {
+			const started = await api.startPass(pres.id, participantId.current);
+			rememberParticipantPass(pres.id, started.pass);
+			setHandedPass({ deckId: pres.id, pass: started.pass });
+			setPassesStarted((count) => count + 1);
+			setSurveyIndex(firstSurveySlideIndex(pres.slides));
+			addToast(getDict(pres.language).passStarted, "success");
+		} catch (passError) {
+			if (noteSignInRefusal(passError)) return;
+			const refused = passError instanceof ApiError ? passError.refused : null;
+			if (refused === "repeat-passes-off") {
+				applyRepeatPassesSetting({ allowRepeatPasses: false });
+			}
+			addToast(
+				refused === "repeat-passes-off"
+					? getDict(pres.language).passOff
+					: (passError as Error).message,
+				"error",
+			);
+		} finally {
+			setStartingPass(false);
 		}
 	};
 
@@ -385,6 +714,7 @@ export function ParticipantPage({
 		try {
 			await api.upvoteQuestion(pres.id, questionId, participantId.current);
 		} catch (upvoteError) {
+			if (noteSignInRefusal(upvoteError)) return;
 			addToast((upvoteError as Error).message, "error");
 		}
 	};
@@ -404,11 +734,17 @@ export function ParticipantPage({
 	 * what a screen reader pronounces them by, and what the app menu records as
 	 * the language a feedback entry was sent from (REQ185). A box-less wrapper,
 	 * so the layout is the scope's as before.
+	 *
+	 * A password reset started from the sign-in screen lands back on this page
+	 * (REQ134), so its landing is drawn here, on every screen alike: the reset
+	 * signs the participant in, and the dialog must not vanish with the sign-in
+	 * screen it was opened over.
 	 */
 	const themed = (screen: React.ReactNode) => (
 		<DeckThemeScope deck={pres}>
 			<div lang={pres?.language || undefined} className="contents">
 				{screen}
+				<PasswordResetLanding />
 			</div>
 		</DeckThemeScope>
 	);
@@ -419,6 +755,43 @@ export function ParticipantPage({
 				<LoadingState />
 			</div>,
 		);
+	/**
+	 * REQ134 — a deck that requires signing in turned this browser away: at the
+	 * door, where the server sent nothing of the deck, or on a write since. Ahead
+	 * of the error screen, because this is not a failure but a door, and it says
+	 * how to walk through it.
+	 *
+	 * Signing in finishes on this page, and the page joins again as the account
+	 * that just signed in — so the participant lands back on this very deck, at
+	 * this very URL. The words are the deck's language once it is known, and the
+	 * browser's until then: a refused join carries no deck to read one from.
+	 */
+	if (signInRefusal) {
+		const promptLanguage = resolveLang(pres?.language ?? browserLanguage());
+		return themed(
+			<div className="participant-view bg-void bg-noise">
+				<div className="absolute top-4 right-4 z-20">
+					<AppMenu />
+				</div>
+				<div
+					lang={promptLanguage}
+					className="relative z-10 flex flex-col items-center px-4"
+				>
+					{pres && <DeckMark deck={pres} className="mb-6" />}
+					<ParticipantSignInGate
+						refused={signInRefusal}
+						labels={participantSignInLabelsFor(getDict(promptLanguage))}
+						returnTo={urlForRoute(
+							{ page: "participate", code },
+							window.location.search,
+						)}
+						onSignedIn={() => loadByCode(code)}
+						onSignedOut={() => setSignInRefusal("sign-in-required")}
+					/>
+				</div>
+			</div>,
+		);
+	}
 	if (error)
 		return themed(
 			<div className="participant-view bg-void bg-noise">
@@ -583,11 +956,18 @@ export function ParticipantPage({
 
 	if (!activeSlide) return null;
 
-	const goToSurveySlide = (idx: number) => {
-		if (!pres.slides || idx < 0 || idx >= pres.slides.length) return;
+	const goToSurveySlide = (idx: number | null) => {
+		if (idx === null || !pres.slides || idx < 0 || idx >= pres.slides.length) {
+			return;
+		}
 		// Input reset and results lookup follow from the derived active slide.
 		setSurveyIndex(idx);
 	};
+	// Skipped slides are stepped over (REQ110); `null` is the end that way.
+	const previousSurveyIndex = steppedSlideIndex(pres.slides, surveyIndex, -1);
+	const nextSurveyIndex = steppedSlideIndex(pres.slides, surveyIndex, 1);
+
+	const newPassControl = newPassControlFor(pres, surveyIndex);
 
 	return themed(
 		/* The slide's own appearance over the deck's theme (REQ087), around the
@@ -640,7 +1020,11 @@ export function ParticipantPage({
 						{nameBadge}
 					</div>
 
+					{/* Keyed by pass (REQ083): everything the view remembers about what
+					    this browser answered — the cards it locked, the counts it kept —
+					    belongs to one pass, and a new one starts from a blank screen. */}
 					<ParticipantSlideView
+						key={`${pass}:${passesStarted}`}
 						pres={pres}
 						slide={activeSlide}
 						results={results}
@@ -658,8 +1042,8 @@ export function ParticipantPage({
 							<button
 								type="button"
 								className="btn-secondary px-5 flex items-center gap-2"
-								onClick={() => goToSurveySlide(surveyIndex - 1)}
-								disabled={surveyIndex === 0}
+								onClick={() => goToSurveySlide(previousSurveyIndex)}
+								disabled={previousSurveyIndex === null}
 							>
 								<ChevronLeft size={16} />
 								Previous
@@ -670,12 +1054,36 @@ export function ParticipantPage({
 							<button
 								type="button"
 								className="btn-primary px-5 flex items-center gap-2"
-								onClick={() => goToSurveySlide(surveyIndex + 1)}
-								disabled={surveyIndex >= pres.slides.length - 1}
+								onClick={() => goToSurveySlide(nextSurveyIndex)}
+								disabled={nextSurveyIndex === null}
 							>
 								Next
 								<ChevronRight size={16} />
 							</button>
+						</div>
+					)}
+
+					{/* Going through again (REQ083), directly under the navigation it
+					    carries on from — see `newPassControlFor` for when it is drawn
+					    and when it is drawn disabled. */}
+					{newPassControl !== "absent" && (
+						<div className="w-full mt-4 flex flex-col items-center gap-2 text-center">
+							{newPassControl === "ready" && (
+								<p className="text-sm text-text-muted">{t.passIntro}</p>
+							)}
+							<button
+								type="button"
+								className="btn-secondary px-5 flex items-center gap-2"
+								onClick={handleStartPass}
+								disabled={newPassControl !== "ready" || startingPass}
+								title={newPassControl === "reach-end" ? t.passReachEnd : undefined}
+							>
+								<RotateCcw size={16} />
+								{t.passStartAgain}
+							</button>
+							{newPassControl === "reach-end" && (
+								<p className="text-xs text-text-dim">{t.passReachEnd}</p>
+							)}
 						</div>
 					)}
 

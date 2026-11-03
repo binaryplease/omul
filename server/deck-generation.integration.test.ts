@@ -342,13 +342,16 @@ describe("Deck generation integration (REQ007)", () => {
 			expect(quiz).toBeDefined();
 			expect(quiz.options).toHaveLength(4);
 			for (const option of quiz.options) {
-				expect(option.isCorrect).toBeUndefined();
+				// The schema's declared "never marked" (REQ184), never `false`.
+				expect(option.isCorrect).toBe(null);
 			}
 			expect(quiz.quizAnswers).toEqual([]);
 			// Nothing anywhere in the deck asserts a right answer — checked over the
 			// whole payload rather than the one slide, because the promise is about
-			// the deck rather than about quiz slides.
-			expect(JSON.stringify(deck)).not.toContain('"isCorrect"');
+			// the deck rather than about quiz slides. Every option carries the key —
+			// its declared "never marked" is `null` (REQ184) — so what is refused is
+			// any mark other than that one.
+			expect(JSON.stringify(deck)).not.toMatch(/"isCorrect":(?!null)/);
 		});
 
 		test("a marked answer is the organizer's own edit, and it lands", async () => {

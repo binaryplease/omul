@@ -37,6 +37,7 @@ export const SLIDE_TYPE_HINTS: Record<SlideType, string> = {
 	video: "Play a video from a link",
 	embed: "Frame a PowerPoint, Google Slides or Miro link",
 	instruction: "Join code & QR for the audience",
+	countdown: "A clock counting down a set length",
 };
 
 /**
@@ -207,6 +208,13 @@ export const SLIDE_TYPE_SECTIONS: Record<SlideType, SlideSettingsSections> = {
 	},
 	instruction: {
 		content: "Content",
+		answers: null,
+		scoring: null,
+		results: null,
+		scrolls: false,
+	},
+	countdown: {
+		content: "Countdown",
 		answers: null,
 		scoring: null,
 		results: null,

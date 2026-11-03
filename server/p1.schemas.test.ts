@@ -16,13 +16,13 @@ import { describe, expect, test } from "bun:test";
 import { ResponseVoteSchema, SlideSchema, VoteSchema } from "./schemas";
 
 describe("SlideSchema — P1 Word Cloud / Open Ended settings", () => {
-	test("word-cloud: applies sensible defaults (maxResponses undefined, layout default irrelevant)", () => {
+	test("word-cloud: applies sensible defaults (maxResponses null, layout default irrelevant)", () => {
 		const slide = SlideSchema.parse({
 			id: "wc",
 			type: "word-cloud",
 			question: "Q",
 		});
-		expect(slide.maxResponses).toBeUndefined();
+		expect(slide.maxResponses).toBe(null);
 		expect(slide.allowResponseVotes).toBe(false);
 	});
 

@@ -5,6 +5,8 @@
 // localize UI strings. English is the fallback for any missing key or
 // unknown language tag.
 
+import { participantLanguageFor } from "./types";
+
 export type Lang = "en" | "de" | "fr" | "es" | "it" | "pt" | "nl";
 
 export type Dict = {
@@ -26,8 +28,28 @@ export type Dict = {
 	waitingForResponses: string;
 	resultsPrivate: string;
 	resultsHidden: string;
+	/**
+	 * The profanity filter's line under a free-text tally (REQ085), followed by
+	 * the count: "Answers withheld by the profanity filter: 2". A label and a
+	 * number rather than a sentence, so no language needs a plural form.
+	 */
+	answersFiltered: string;
 	answerIndependent: string;
 	completeAllToSeeResults: string;
+	/**
+	 * Going through an audience-paced deck again (REQ083). `passIntro` is what
+	 * the end of the deck says when the organizer allows it — that what was just
+	 * answered is kept, so answering again cannot read as starting over;
+	 * `passReachEnd` is why the control is disabled until the participant gets
+	 * there, never a hidden button; `passStarted` confirms the new pass; and
+	 * `passOff` is what a phone is told when the organizer has just stopped
+	 * allowing it, rather than a control that silently does nothing.
+	 */
+	passIntro: string;
+	passStartAgain: string;
+	passReachEnd: string;
+	passStarted: string;
+	passOff: string;
 	/** 2x2 Grid (REQ046): what a participant is asked to do with the items. */
 	gridInstruction: string;
 	/** 2x2 Grid (REQ050): the "I can't judge this one" control and its badge. */
@@ -284,6 +306,19 @@ export type Dict = {
 	emailRecoverySignInText: string;
 	emailRecoverySignInAction: string;
 	emailRecoveryDismiss: string;
+	/**
+	 * A deck that requires signing in (REQ134), turning away a participant with
+	 * no account: what it asks, and the control that opens the sign-in dialog —
+	 * which brings them back to this deck. `signInMismatch*` is what a device is
+	 * told when it already took part here under another account, and
+	 * `signInSwitchAccount` signs out so the right one can sign in.
+	 */
+	signInTitle: string;
+	signInIntro: string;
+	signInAction: string;
+	signInMismatchTitle: string;
+	signInMismatchIntro: string;
+	signInSwitchAccount: string;
 };
 
 const en: Dict = {
@@ -300,8 +335,15 @@ const en: Dict = {
 	waitingForResponses: "Waiting for responses...",
 	resultsPrivate: "Results are private",
 	resultsHidden: "Results are hidden",
+	answersFiltered: "Answers withheld by the profanity filter",
 	answerIndependent: "Answer independently",
 	completeAllToSeeResults: "Answer all questions to see results",
+	passIntro:
+		"You've reached the end. Your answers are saved — you can go through this presentation again, and your new answers are kept as a separate response.",
+	passStartAgain: "Answer again",
+	passReachEnd: "Reach the last slide to answer again",
+	passStarted: "Starting again — your earlier answers are kept",
+	passOff: "The organizer no longer allows answering again",
 	gridInstruction: "Place each item on the grid",
 	gridNotAssessable: "Not assessable",
 	gridSkipped: "Skipped",
@@ -423,6 +465,14 @@ const en: Dict = {
 		"These presentations are saved only in this browser. If its data is cleared, they are gone for good. Sign in to keep them in your account.",
 	emailRecoverySignInAction: "Sign in",
 	emailRecoveryDismiss: "Hide this notice",
+	signInTitle: "Sign in to take part",
+	signInIntro:
+		"This presentation is open to signed-in participants only. Sign in or create an account, and you will come straight back here.",
+	signInAction: "Sign in",
+	signInMismatchTitle: "Signed in as someone else",
+	signInMismatchIntro:
+		"This device already took part in this presentation under a different account. Switch to that account to continue.",
+	signInSwitchAccount: "Switch account",
 };
 
 const de: Dict = {
@@ -439,8 +489,15 @@ const de: Dict = {
 	waitingForResponses: "Warte auf Antworten...",
 	resultsPrivate: "Ergebnisse sind privat",
 	resultsHidden: "Ergebnisse ausgeblendet",
+	answersFiltered: "Vom Schimpfwortfilter zurückgehaltene Antworten",
 	answerIndependent: "Unabhängig antworten",
 	completeAllToSeeResults: "Beantworte alle Fragen, um die Ergebnisse zu sehen",
+	passIntro:
+		"Du bist am Ende angekommen. Deine Antworten sind gespeichert – du kannst die Präsentation noch einmal durchgehen, und deine neuen Antworten werden getrennt davon gespeichert.",
+	passStartAgain: "Erneut antworten",
+	passReachEnd: "Geh bis zur letzten Folie, um erneut zu antworten",
+	passStarted: "Neuer Durchgang – deine bisherigen Antworten bleiben erhalten",
+	passOff: "Der Veranstalter erlaubt kein erneutes Antworten mehr",
 	gridInstruction: "Ordne jedes Element im Raster ein",
 	gridNotAssessable: "Nicht bewertbar",
 	gridSkipped: "Übersprungen",
@@ -564,6 +621,14 @@ const de: Dict = {
 		"Diese Präsentationen sind nur in diesem Browser gespeichert. Werden seine Daten gelöscht, sind sie unwiederbringlich verloren. Melde dich an, um sie in deinem Konto zu behalten.",
 	emailRecoverySignInAction: "Anmelden",
 	emailRecoveryDismiss: "Hinweis ausblenden",
+	signInTitle: "Melde dich an, um teilzunehmen",
+	signInIntro:
+		"An dieser Präsentation können nur angemeldete Personen teilnehmen. Melde dich an oder erstelle ein Konto, dann kommst du direkt hierher zurück.",
+	signInAction: "Anmelden",
+	signInMismatchTitle: "Mit einem anderen Konto angemeldet",
+	signInMismatchIntro:
+		"Dieses Gerät hat an dieser Präsentation bereits mit einem anderen Konto teilgenommen. Wechsle zu diesem Konto, um fortzufahren.",
+	signInSwitchAccount: "Konto wechseln",
 };
 
 const fr: Dict = {
@@ -580,9 +645,16 @@ const fr: Dict = {
 	waitingForResponses: "En attente de réponses...",
 	resultsPrivate: "Les résultats sont privés",
 	resultsHidden: "Résultats masqués",
+	answersFiltered: "Réponses retenues par le filtre anti-grossièretés",
 	answerIndependent: "Répondez de façon indépendante",
 	completeAllToSeeResults:
 		"Répondez à toutes les questions pour voir les résultats",
+	passIntro:
+		"Vous êtes arrivé à la fin. Vos réponses sont enregistrées — vous pouvez parcourir à nouveau cette présentation, et vos nouvelles réponses seront conservées séparément.",
+	passStartAgain: "Répondre à nouveau",
+	passReachEnd: "Allez jusqu'à la dernière diapositive pour répondre à nouveau",
+	passStarted: "Nouveau passage — vos réponses précédentes sont conservées",
+	passOff: "L'organisateur ne permet plus de répondre à nouveau",
 	gridInstruction: "Placez chaque élément sur la grille",
 	gridNotAssessable: "Non évaluable",
 	gridSkipped: "Ignoré",
@@ -706,6 +778,14 @@ const fr: Dict = {
 		"Ces présentations sont enregistrées uniquement dans ce navigateur. Si ses données sont effacées, elles sont perdues définitivement. Connectez-vous pour les conserver dans votre compte.",
 	emailRecoverySignInAction: "Se connecter",
 	emailRecoveryDismiss: "Masquer ce message",
+	signInTitle: "Connectez-vous pour participer",
+	signInIntro:
+		"Cette présentation est réservée aux participants connectés. Connectez-vous ou créez un compte, puis vous reviendrez directement ici.",
+	signInAction: "Se connecter",
+	signInMismatchTitle: "Connecté avec un autre compte",
+	signInMismatchIntro:
+		"Cet appareil a déjà participé à cette présentation avec un autre compte. Passez à ce compte pour continuer.",
+	signInSwitchAccount: "Changer de compte",
 };
 
 const es: Dict = {
@@ -722,9 +802,16 @@ const es: Dict = {
 	waitingForResponses: "Esperando respuestas...",
 	resultsPrivate: "Los resultados son privados",
 	resultsHidden: "Resultados ocultos",
+	answersFiltered: "Respuestas retenidas por el filtro de palabrotas",
 	answerIndependent: "Responde de forma independiente",
 	completeAllToSeeResults:
 		"Responde todas las preguntas para ver los resultados",
+	passIntro:
+		"Has llegado al final. Tus respuestas están guardadas: puedes recorrer de nuevo esta presentación y tus nuevas respuestas se guardarán por separado.",
+	passStartAgain: "Responder de nuevo",
+	passReachEnd: "Llega a la última diapositiva para responder de nuevo",
+	passStarted: "Nueva ronda: tus respuestas anteriores se conservan",
+	passOff: "El organizador ya no permite responder de nuevo",
 	gridInstruction: "Coloca cada elemento en la cuadrícula",
 	gridNotAssessable: "No evaluable",
 	gridSkipped: "Omitido",
@@ -848,6 +935,14 @@ const es: Dict = {
 		"Estas presentaciones solo se guardan en este navegador. Si se borran sus datos, se pierden para siempre. Inicia sesión para conservarlas en tu cuenta.",
 	emailRecoverySignInAction: "Iniciar sesión",
 	emailRecoveryDismiss: "Ocultar este aviso",
+	signInTitle: "Inicia sesión para participar",
+	signInIntro:
+		"Esta presentación solo está abierta a participantes con sesión iniciada. Inicia sesión o crea una cuenta y volverás directamente aquí.",
+	signInAction: "Iniciar sesión",
+	signInMismatchTitle: "Sesión iniciada con otra cuenta",
+	signInMismatchIntro:
+		"Este dispositivo ya participó en esta presentación con otra cuenta. Cambia a esa cuenta para continuar.",
+	signInSwitchAccount: "Cambiar de cuenta",
 };
 
 const it: Dict = {
@@ -864,8 +959,15 @@ const it: Dict = {
 	waitingForResponses: "In attesa di risposte...",
 	resultsPrivate: "I risultati sono privati",
 	resultsHidden: "Risultati nascosti",
+	answersFiltered: "Risposte trattenute dal filtro antivolgarità",
 	answerIndependent: "Rispondi in modo indipendente",
 	completeAllToSeeResults: "Rispondi a tutte le domande per vedere i risultati",
+	passIntro:
+		"Sei arrivato alla fine. Le tue risposte sono salvate: puoi ripercorrere questa presentazione e le nuove risposte verranno conservate separatamente.",
+	passStartAgain: "Rispondi di nuovo",
+	passReachEnd: "Arriva all'ultima slide per rispondere di nuovo",
+	passStarted: "Nuovo giro: le tue risposte precedenti restano salvate",
+	passOff: "L'organizzatore non consente più di rispondere di nuovo",
 	gridInstruction: "Posiziona ogni elemento sulla griglia",
 	gridNotAssessable: "Non valutabile",
 	gridSkipped: "Saltato",
@@ -989,6 +1091,14 @@ const it: Dict = {
 		"Queste presentazioni sono salvate solo in questo browser. Se i suoi dati vengono cancellati, sono perse per sempre. Accedi per conservarle nel tuo account.",
 	emailRecoverySignInAction: "Accedi",
 	emailRecoveryDismiss: "Nascondi questo avviso",
+	signInTitle: "Accedi per partecipare",
+	signInIntro:
+		"Questa presentazione è aperta solo ai partecipanti che hanno effettuato l'accesso. Accedi o crea un account e tornerai direttamente qui.",
+	signInAction: "Accedi",
+	signInMismatchTitle: "Accesso con un altro account",
+	signInMismatchIntro:
+		"Questo dispositivo ha già partecipato a questa presentazione con un altro account. Passa a quell'account per continuare.",
+	signInSwitchAccount: "Cambia account",
 };
 
 const pt: Dict = {
@@ -1005,8 +1115,15 @@ const pt: Dict = {
 	waitingForResponses: "Aguardando respostas...",
 	resultsPrivate: "Os resultados são privados",
 	resultsHidden: "Resultados ocultos",
+	answersFiltered: "Respostas retidas pelo filtro de palavrões",
 	answerIndependent: "Responda de forma independente",
 	completeAllToSeeResults: "Responda todas as perguntas para ver os resultados",
+	passIntro:
+		"Chegou ao fim. As suas respostas estão guardadas — pode percorrer esta apresentação novamente, e as suas novas respostas são guardadas à parte.",
+	passStartAgain: "Responder novamente",
+	passReachEnd: "Chegue ao último diapositivo para responder novamente",
+	passStarted: "Nova ronda — as suas respostas anteriores ficam guardadas",
+	passOff: "O organizador já não permite responder novamente",
 	gridInstruction: "Posicione cada item na grade",
 	gridNotAssessable: "Não avaliável",
 	gridSkipped: "Ignorado",
@@ -1130,6 +1247,14 @@ const pt: Dict = {
 		"Estas apresentações estão guardadas apenas neste navegador. Se os dados dele forem apagados, perdem-se para sempre. Inicia sessão para as guardar na tua conta.",
 	emailRecoverySignInAction: "Iniciar sessão",
 	emailRecoveryDismiss: "Ocultar este aviso",
+	signInTitle: "Inicie sessão para participar",
+	signInIntro:
+		"Esta apresentação está aberta apenas a participantes com sessão iniciada. Inicie sessão ou crie uma conta e voltará diretamente aqui.",
+	signInAction: "Iniciar sessão",
+	signInMismatchTitle: "Sessão iniciada com outra conta",
+	signInMismatchIntro:
+		"Este dispositivo já participou nesta apresentação com outra conta. Mude para essa conta para continuar.",
+	signInSwitchAccount: "Mudar de conta",
 };
 
 const nl: Dict = {
@@ -1146,8 +1271,15 @@ const nl: Dict = {
 	waitingForResponses: "Wachten op antwoorden...",
 	resultsPrivate: "Resultaten zijn privé",
 	resultsHidden: "Resultaten verborgen",
+	answersFiltered: "Antwoorden tegengehouden door het scheldwoordenfilter",
 	answerIndependent: "Onafhankelijk antwoorden",
 	completeAllToSeeResults: "Beantwoord alle vragen om de resultaten te zien",
+	passIntro:
+		"Je bent aan het einde. Je antwoorden zijn opgeslagen — je kunt deze presentatie nog een keer doorlopen, en je nieuwe antwoorden worden apart bewaard.",
+	passStartAgain: "Opnieuw antwoorden",
+	passReachEnd: "Ga naar de laatste dia om opnieuw te antwoorden",
+	passStarted: "Nieuwe ronde — je eerdere antwoorden blijven bewaard",
+	passOff: "De organisator staat opnieuw antwoorden niet meer toe",
 	gridInstruction: "Plaats elk item in het raster",
 	gridNotAssessable: "Niet te beoordelen",
 	gridSkipped: "Overgeslagen",
@@ -1270,6 +1402,14 @@ const nl: Dict = {
 		"Deze presentaties zijn alleen in deze browser opgeslagen. Als de gegevens ervan worden gewist, ben je ze voorgoed kwijt. Log in om ze in je account te bewaren.",
 	emailRecoverySignInAction: "Inloggen",
 	emailRecoveryDismiss: "Melding verbergen",
+	signInTitle: "Meld je aan om mee te doen",
+	signInIntro:
+		"Aan deze presentatie kunnen alleen aangemelde deelnemers meedoen. Meld je aan of maak een account aan, dan kom je direct hier terug.",
+	signInAction: "Aanmelden",
+	signInMismatchTitle: "Aangemeld met een ander account",
+	signInMismatchIntro:
+		"Dit apparaat heeft al aan deze presentatie meegedaan met een ander account. Wissel naar dat account om verder te gaan.",
+	signInSwitchAccount: "Account wisselen",
 };
 
 const dicts: Record<Lang, Dict> = { en, de, fr, es, it, pt, nl };
@@ -1279,12 +1419,22 @@ const dicts: Record<Lang, Dict> = { en, de, fr, es, it, pt, nl };
  * that is one of ours, English otherwise — the same reading `getDict` makes, so
  * a value recorded as "the deck's language" names the dictionary its screen
  * was actually drawn in.
+ *
+ * The reading itself is `participantLanguageFor` in `server/schemas.ts`, which
+ * the profanity filter chooses its list with (REQ085): one function, so a phone
+ * drawn in German is never in a room filtered against the English list.
  */
 export function resolveLang(lang?: string): Lang {
-	if (!lang) return "en";
-	// Accept both "en" and "en-US" style tags.
-	const primary = lang.toLowerCase().split("-")[0];
-	return Object.hasOwn(dicts, primary) ? (primary as Lang) : "en";
+	return participantLanguageFor(lang);
+}
+
+/**
+ * The browser's language tag, for words drawn before any deck is known (REQ134),
+ * and `undefined` outside a browser. It chooses words only: where the ended
+ * screen's control leads is the deck's language alone (REQ200).
+ */
+export function browserLanguage(): string | undefined {
+	return typeof navigator === "undefined" ? undefined : navigator.language;
 }
 
 /** Resolve a translation dictionary for a BCP-47-ish language tag. */

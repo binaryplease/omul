@@ -254,6 +254,7 @@ describe("WebSocket integration", () => {
 		connectDb = db.connectDb;
 		const { presentationRoutes } = await import("./routes/presentations");
 		const ws = await import("./ws");
+		const presentationService = await import("./services/presentations");
 		const { Elysia } = await import("elysia");
 
 		await connectDb();
@@ -276,17 +277,19 @@ describe("WebSocket integration", () => {
 					try {
 						const msg =
 							typeof message === "string" ? JSON.parse(message) : message;
+						// see open() above
+						const clientId = (wsConn.raw as any).data?.clientId as
+							| string
+							| undefined;
+						if (!clientId) return;
 						if (msg.type === "join") {
-							// see open() above
-							const clientId = (wsConn.raw as any).data?.clientId as
-								| string
-								| undefined;
-							if (!clientId) return;
-							ws.joinRoom(
+							presentationService.joinLiveRoom(
 								clientId,
 								msg.presentationId,
 								msg.role || "participant",
 							);
+						} else if (msg.type === "ping") {
+							ws.sendToClient(clientId, "pong", {});
 						}
 					} catch {
 						// ignore malformed
@@ -446,10 +449,133 @@ describe("WebSocket integration", () => {
 		expect(env.data).toEqual({
 			presentationId: pres.id,
 			startedAt: started.sessionStartedAt,
+			slideIndex: 0,
+			slideId: "s1",
 		});
 		expect(typeof env.data.startedAt).toBe("string");
 
 		await client.close();
+	});
+
+	test("a restart after End tells the room the deck is back on the first slide", async () => {
+		// The tester's report: after a restart the presenter stood on slide 1
+		// while the audience stayed on the slide shown last. Ending leaves the
+		// deck parked mid-way, and going live again moves it to the first slide
+		// — so the start frame is the only word a participant gets of that move.
+		const pres = await createPresentation();
+		const participant = openWs();
+		await participant.ready;
+		await join(participant, pres.id);
+
+		const post = (path: string, body?: unknown) =>
+			authed(`/api/presentations/${pres.id}${path}`, pres.creatorToken, {
+				method: "POST",
+				...(body === undefined ? {} : { body: JSON.stringify(body) }),
+			});
+
+		expect((await post("/start")).status).toBe(200);
+		expect((await post("/slide", { index: 1 })).status).toBe(200);
+		await participant.waitForCount(
+			"slide.changed",
+			(env) => env.data.slideIndex === 1,
+		);
+		expect((await post("/end")).status).toBe(200);
+		await participant.waitFor("presentation.ended");
+
+		const restart = await post("/start");
+		expect(restart.status).toBe(200);
+		const restarted = await restart.json();
+		expect(restarted.activeSlideIndex).toBe(0);
+
+		// The second start frame is the restart's own.
+		const restartFrame = await participant.waitForCount(
+			"presentation.started",
+			(env) =>
+				participant.received
+					.filter((candidate) => candidate.event === "presentation.started")
+					.indexOf(env) === 1,
+		);
+		expect(restartFrame.data.slideIndex).toBe(restarted.activeSlideIndex);
+
+		await participant.close();
+	});
+
+	test("a restart after deleting the slide the deck stopped on puts no phone on the deleted slide", async () => {
+		// The tester's report: three questions, live, stopped on the first, the
+		// first deleted, restarted — and the participants stood on a slide that
+		// no longer existed, and voting on it failed. The phone holds the deck it
+		// read before the delete, so index 0 of its copy is the deleted slide.
+		const { createAppStore } = await import("../src/store/store");
+		const { drawnLiveSlide, liveSlideMissing } = await import(
+			"../src/pages/ParticipantPage"
+		);
+		const question = (id: string) => ({
+			id,
+			type: "multiple-choice",
+			question: id,
+			options: [{ id: "a", text: "A" }],
+		});
+		const created = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ title: "T", slides: ["s1", "s2", "s3"].map(question) }),
+		});
+		const pres = (await created.json()) as { id: string; code: string; creatorToken: string };
+		const write = (path: string, method = "POST", body?: unknown) =>
+			authed(`/api/presentations/${pres.id}${path}`, pres.creatorToken, {
+				method,
+				...(body === undefined ? {} : { body: JSON.stringify(body) }),
+			});
+
+		// The participant's page reads the deck through the store's own fetch.
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+			originalFetch(
+				typeof input === "string" && input.startsWith("/") ? `${baseUrl}${input}` : input,
+				init,
+			)) as typeof fetch;
+		try {
+			const phone = createAppStore();
+			await phone.getState().loadByCode(pres.code);
+			const participant = openWs();
+			await participant.ready;
+			await join(participant, pres.id);
+
+			expect((await write("/start")).status).toBe(200);
+			expect((await write("/end")).status).toBe(200);
+			const slides = { slides: ["s2", "s3"].map(question) };
+			expect((await write("", "PATCH", slides)).status).toBe(200);
+			const restarted = await (await write("/start")).json();
+			expect(restarted.slides[restarted.activeSlideIndex].id).toBe("s2");
+
+			const starts = () =>
+				participant.received.filter((frame) => frame.event === "presentation.started");
+			await participant.waitForCount("presentation.started", () => starts().length === 2);
+			const reducers: Record<string, (data: never) => void> = {
+				"room.joined": phone.getState().applyJoined,
+				"presentation.started": phone.getState().applyStarted,
+				"presentation.ended": phone.getState().applyEnded,
+			};
+			for (const frame of participant.received) {
+				reducers[frame.event]?.(frame.data as never);
+			}
+			await participant.close();
+
+			const copy = () => phone.getState().presentation as never;
+			const drawn = () =>
+				drawnLiveSlide<{ id: string }>(copy(), phone.getState().liveSlideId);
+			// The held copy is not drawn: the deleted slide never shows.
+			expect(drawn()).toBeNull();
+			// The page re-reads a copy that lacks the live slide (REQ209), and the
+			// re-read brings the phone onto the presenter's slide.
+			if (liveSlideMissing(copy(), phone.getState().liveSlideId)) {
+				expect(await phone.getState().refreshDeckSlides(pres.code)).toBe(true);
+			}
+			expect(drawn()?.id).toBe("s2");
+			await castVote(pres.id, drawn()?.id ?? "", "phone-1", "a");
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
 	});
 
 	test("slide.changed carries the new slide payload", async () => {
@@ -640,6 +766,124 @@ describe("WebSocket integration", () => {
 		);
 		expect((env.data.results as { type: string }).type).toBe("leaderboard");
 
+		await viewer.close();
+	});
+
+	test("start, pause, resume and reset broadcast slide.countdown to the room (REQ107)", async () => {
+		const created = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "WS Countdown",
+				slides: [
+					{ id: "cd", type: "countdown", question: "Break", countdownSeconds: 120 },
+				],
+			}),
+		});
+		expect(created.status).toBe(201);
+		const pres = (await created.json()) as any;
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+
+		const send = async (action: string) => {
+			const response = await authed(
+				`/api/presentations/${pres.id}/countdown`,
+				pres.creatorToken,
+				{ method: "POST", body: JSON.stringify({ slideId: "cd", action }) },
+			);
+			expect(response.status).toBe(200);
+			return (await response.json()).countdownRuns.cd ?? null;
+		};
+		const frames = () =>
+			viewer.received.filter((env) => env.event === "slide.countdown");
+		const resumedAtOf = (env: { data: Record<string, unknown> }) =>
+			(env.data.run as { resumedAt: string | null } | null)?.resumedAt;
+
+		// The frame carries the very run the server recorded, so every screen reads
+		// the same clock.
+		const started = await send("start");
+		const startFrame = await viewer.waitForCount(
+			"slide.countdown",
+			(candidate) => resumedAtOf(candidate) === started.resumedAt,
+		);
+		expect(startFrame.data).toEqual({
+			presentationId: pres.id,
+			slideId: "cd",
+			run: started,
+		});
+
+		const paused = await send("pause");
+		expect(paused.resumedAt).toBeNull();
+		const pauseFrame = await viewer.waitForCount(
+			"slide.countdown",
+			(candidate) => resumedAtOf(candidate) === null,
+		);
+		expect(pauseFrame.data.run).toEqual(paused);
+
+		// A newcomer's `room.joined` answer holds the same frozen run.
+		const late = openWs();
+		await late.ready;
+		await join(late, pres.id, "participant");
+		const snapshot = await late.waitForCount("room.joined", () => true);
+		expect(snapshot.data.countdownRuns).toEqual({ cd: paused });
+		await late.close();
+
+		// A retried pause moves nothing, so the room hears nothing.
+		const framesBefore = frames().length;
+		expect(await send("pause")).toEqual(paused);
+
+		const resumed = await send("start");
+		expect(resumed.remainingMs).toBe(paused.remainingMs);
+		const resumeFrame = await viewer.waitForCount(
+			"slide.countdown",
+			(candidate) => resumedAtOf(candidate) === resumed.resumedAt,
+		);
+		expect(resumeFrame.data.run).toEqual(resumed);
+		// The resume is the next frame after the pause: the retry sent none.
+		expect(frames().length).toBe(framesBefore + 1);
+
+		// A retried start is silent too.
+		expect(await send("start")).toEqual(resumed);
+
+		expect(await send("reset")).toBeNull();
+		// A cleared clock is an explicit `null`, never an omitted key.
+		const resetFrame = await viewer.waitForCount(
+			"slide.countdown",
+			(candidate) => candidate.data.run === null,
+		);
+		expect(resetFrame.data).toEqual({
+			presentationId: pres.id,
+			slideId: "cd",
+			run: null,
+		});
+		expect(frames().length).toBe(framesBefore + 2);
+
+		await viewer.close();
+	});
+
+	test("a refused countdown start broadcasts nothing (REQ107)", async () => {
+		const pres = await createPresentation();
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+		const refused = await fetch(`${baseUrl}/api/presentations/${pres.id}/countdown`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ slideId: "s1", action: "start" }),
+		});
+		expect(refused.status).toBe(401);
+		const wrongType = await authed(
+			`/api/presentations/${pres.id}/countdown`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "s1", action: "start" }) },
+		);
+		expect(wrongType.status).toBe(400);
+		// Give the broadcast a tick it could have arrived in.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(viewer.received.some((env) => env.event === "slide.countdown")).toBe(
+			false,
+		);
 		await viewer.close();
 	});
 
@@ -1202,6 +1446,90 @@ describe("WebSocket integration", () => {
 			),
 		).toBe(false);
 
+		await client.close();
+	});
+
+	// ── A participant never waits on a live deck (REQ209) ──────
+
+	test("a join is answered with the live state, so a start broadcast before it is not lost (REQ209)", async () => {
+		// The failure this guards: a phone reads the deck by code while it is
+		// still a draft, the presenter starts it, and only then does the phone's
+		// socket join. The `presentation.started` frame went to a room the phone
+		// was not in, so it sat on "Waiting for presenter" for the whole session.
+		const pres = await createPresentation();
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		await authed(`/api/presentations/${pres.id}/slide`, pres.creatorToken, {
+			method: "POST",
+			body: JSON.stringify({ index: 1 }),
+		});
+
+		const client = openWs();
+		await client.ready;
+		client.socket.send(
+			JSON.stringify({ type: "join", presentationId: pres.id, role: "participant" }),
+		);
+		const env = await client.waitFor("room.joined");
+		expect(env.data.presentationId).toBe(pres.id);
+		expect(env.data.status).toBe("live");
+		expect(env.data.activeSlideIndex).toBe(1);
+		expect(env.data.activeSlideId).toBe("s2");
+		expect(typeof env.data.sessionStartedAt).toBe("string");
+		expect(env.data.sessionEndedAt).toBeNull();
+		expect(Object.keys(env.data.slideStartedAt as object).sort()).toEqual([
+			"s1",
+			"s2",
+		]);
+
+		await client.close();
+	});
+
+	test("a socket that re-joins after a drop hears what changed while it was gone (REQ209)", async () => {
+		// A dropped socket, a phone that slept, a server restart: the client
+		// reconnects and joins again, and every frame sent in between is gone.
+		const pres = await createPresentation();
+		const first = openWs();
+		await first.ready;
+		first.socket.send(
+			JSON.stringify({ type: "join", presentationId: pres.id, role: "participant" }),
+		);
+		expect((await first.waitFor("room.joined")).data.status).toBe("draft");
+		await first.close();
+
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+
+		const again = openWs();
+		await again.ready;
+		again.socket.send(
+			JSON.stringify({ type: "join", presentationId: pres.id, role: "participant" }),
+		);
+		const env = await again.waitFor("room.joined");
+		expect(env.data.status).toBe("live");
+		expect(env.data.activeSlideIndex).toBe(0);
+
+		await again.close();
+	});
+
+	test("a join on a deck that does not exist is answered with nothing (REQ209)", async () => {
+		const client = openWs();
+		await client.ready;
+		await join(client, crypto.randomUUID());
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(client.received.some((env) => env.event === "room.joined")).toBe(
+			false,
+		);
+		await client.close();
+	});
+
+	test("a ping is answered with a pong, so a client can tell a dead socket (REQ209)", async () => {
+		const client = openWs();
+		await client.ready;
+		client.socket.send(JSON.stringify({ type: "ping" }));
+		const env = await client.waitFor("pong");
+		expect(env.data).toEqual({});
 		await client.close();
 	});
 });

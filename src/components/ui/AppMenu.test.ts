@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { appMenuPlacement } from "./AppMenu";
+import { appMenuPlacement, appMenuTriggerLabel } from "./AppMenu";
 
 const PANEL = { width: 248, height: 260 };
 const PHONE = { width: 390, height: 844 };
@@ -54,5 +54,21 @@ describe("app menu placement", () => {
 			height: 400,
 		});
 		expect(placement.top).toBe(242);
+	});
+});
+
+describe("app menu trigger name (REQ199)", () => {
+	test("without a leading section it is the menu's own name", () => {
+		expect(appMenuTriggerLabel(false)).toBe("Appearance and legal");
+		expect(appMenuTriggerLabel(true)).toBe("Appearance, feedback and legal");
+	});
+
+	test("a leading section's name is followed by what the menu holds, feedback included where it is on", () => {
+		expect(appMenuTriggerLabel(false, "More — preview, export")).toBe(
+			"More — preview, export, appearance and legal",
+		);
+		expect(appMenuTriggerLabel(true, "More — preview, export")).toBe(
+			"More — preview, export, appearance, feedback and legal",
+		);
 	});
 });

@@ -16,20 +16,25 @@
  *   - **A stored value is never printed as storage.** A slide type is named
  *     ("Guess the Number"), authored markdown is reduced to the words it marked
  *     up, and an absent number is an explicit mark rather than a blank.
- *   - **Nothing the fonts cannot draw reaches the page.** {@link winAnsiText} is
- *     what stands between a participant's emoji and a `drawText` that throws.
+ *   - **Nothing the faces cannot draw reaches the page.** {@link faceText} is
+ *     what stands between a participant's Arabic or Thai and a blank box or a
+ *     `drawText` that throws (REQ158).
  *
  * Pure: no store, no app, no clock beyond the instant handed in.
  */
 
 import { describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { inflateSync } from "node:zlib";
 import {
+	bodyTextWrapper,
 	buildDeckDocument,
 	cellText,
 	deckPdfFilename,
 	type DeckPdfInput,
 	EMPTY_VALUE,
+	faceText,
 	PDF_CONTENT_TYPE,
 	type PdfBlock,
 	type PdfDocument,
@@ -37,8 +42,8 @@ import {
 	questionBlocksFor,
 	renderDeckDocument,
 	resultBlocksFor,
-	winAnsiText,
 } from "./deck-pdf";
+import { drawnFontNames, drawnLines, drawnRuns } from "./deck-pdf.test-support";
 import type { SlideResultsPayload } from "./results-export";
 import {
 	type Presentation,
@@ -116,6 +121,35 @@ function allText(document: PdfDocument): string[] {
 }
 
 /**
+ * Render a slide whose question and body are each one unbroken run of `length`
+ * characters, and say how long the render took in milliseconds.
+ */
+async function renderUnbrokenRun(
+	questionCharacter: string,
+	bodyCharacter: string,
+	length: number,
+): Promise<number> {
+	const document = buildDeckDocument(
+		input(
+			deck([
+				slide({
+					id: "s1",
+					type: "text",
+					question: questionCharacter.repeat(length),
+					body: bodyCharacter.repeat(length),
+				}),
+			]),
+			{ includeResults: false },
+		),
+	);
+	const startedAt = Date.now();
+	const bytes = await renderDeckDocument(document);
+	const elapsed = Date.now() - startedAt;
+	expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
+	return elapsed;
+}
+
+/**
  * Every baseline the rendered document draws text at, in PDF points from the
  * foot of its page.
  *
@@ -147,39 +181,6 @@ function textBaselinesIn(bytes: Uint8Array): number[] {
 		stream = streams.exec(raw);
 	}
 	return baselines;
-}
-
-/**
- * Every run of text the rendered document draws, in the order it draws them.
- *
- * The sibling of {@link textBaselinesIn}, reading the same deflated content
- * streams for the other half of the operator pdf-lib emits: `<hex> Tj` is the
- * text, `Tm` before it is where. One entry per `drawText` call, so a line the
- * wrapper produced is an entry — which is what lets a test ask whether breaking
- * a run kept the run.
- */
-function drawnRunsIn(bytes: Uint8Array): string[] {
-	const raw = Buffer.from(bytes).toString("latin1");
-	const runs: string[] = [];
-	const streams = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
-	let stream = streams.exec(raw);
-	while (stream !== null) {
-		try {
-			const content = inflateSync(Buffer.from(stream[1], "latin1")).toString(
-				"latin1",
-			);
-			const drawn = /<([0-9A-Fa-f]*)>\s*Tj/g;
-			let piece = drawn.exec(content);
-			while (piece !== null) {
-				runs.push(Buffer.from(piece[1], "hex").toString("latin1"));
-				piece = drawn.exec(content);
-			}
-		} catch {
-			// Not a deflate stream — it carries no drawing operators to read.
-		}
-		stream = streams.exec(raw);
-	}
-	return runs;
 }
 
 /** The blocks of the section that renders slide `index` (the cover is 0). */
@@ -408,8 +409,8 @@ describe("REQ096 — what a slide asked", () => {
 		);
 		const text = blocks.flatMap(textIn).join(" ");
 		expect(text).toContain("Scale 1 to 5 (1 = Poor, 5 = Great)");
-		// An arrow is not a character the standard fonts encode, so none is written.
-		expect(winAnsiText(text)).toBe(text);
+		// An arrow is not a character the embedded face draws, so none is written.
+		expect(faceText(text)).toBe(text);
 	});
 
 	test("a slide's media is named, never fetched", () => {
@@ -672,34 +673,133 @@ describe("REQ096 — reading a value into words", () => {
 	});
 });
 
-describe("REQ096 — nothing reaches the page the fonts cannot draw", () => {
-	test("what WinAnsi has is kept, byte for byte", () => {
+describe("REQ158 — nothing reaches the page the face cannot draw", () => {
+	test("Latin-1 and its typographic marks are kept, character for character", () => {
 		const text = "Voilà — “quoted”, 50% • café…";
-		expect(winAnsiText(text)).toBe(text);
+		expect(faceText(text)).toBe(text);
 	});
 
-	test("Latin beyond WinAnsi is folded rather than lost", () => {
-		// `š` is one of the handful of Latin Extended letters WinAnsi does carry,
-		// so it survives untouched; `č` and `ż` do not, and decompose to their base
-		// letter rather than to nothing.
-		expect(winAnsiText("čeština")).toBe("ceština");
-		expect(winAnsiText("ważne")).toBe("wazne");
+	test("Latin Extended, Greek and Cyrillic are kept as authored", () => {
+		// What the standard fonts folded before REQ158: `č` and `ż` printed as `c`
+		// and `z`, and a Greek or Cyrillic word as a single `?`.
+		for (const text of [
+			"čeština",
+			"Zażółć gęślą jaźń",
+			"Łódź, Őrség, Şişli, Đặng",
+			"Ελληνικά καλημέρα",
+			"Привіт, світе — Їжак, Ґанок",
+		]) {
+			expect(faceText(text)).toBe(text);
+		}
 	});
 
-	test("a script the fonts cannot express collapses to one mark", () => {
-		expect(winAnsiText("日本語")).toBe("?");
-		expect(winAnsiText("A日本語B")).toBe("A?B");
-		// An emoji is the ordinary case — a participant typed it into a word cloud.
-		expect(winAnsiText("nice 🎉")).toBe("nice ?");
+	test("a letter typed as base plus accent is drawn from its composed glyph", () => {
+		expect(faceText("c\u030Ceština")).toBe("čeština");
+	});
+
+	test("Chinese, Japanese and Korean are kept as authored", () => {
+		// Drawn from the CJK face since REQ158's second slice; before it each of
+		// these printed as a single `?`.
+		for (const text of [
+			"中文汉字，繁體中文。",
+			"日本語のテキスト「こんにちは」ー・",
+			"한국어 텍스트입니다",
+			"Mixed 中文 and English, 日本語 and 한국어",
+		]) {
+			expect(faceText(text)).toBe(text);
+		}
+	});
+
+	test("a script no face can express collapses to one mark", () => {
+		// The emoji face has Arabic, Hebrew and Thai glyphs of its own, and draws
+		// none of them: it is the emoji face and nothing else.
+		expect(faceText("مرحبا")).toBe("?");
+		expect(faceText("AשלוםB")).toBe("A?B");
+		expect(faceText("สวัสดี and नमस्ते")).toBe("? and ?");
+	});
+
+	test("emoji are kept as authored", () => {
+		// Drawn from the emoji face since REQ158's third slice; before it each run
+		// of these printed as a single `?`. The ordinary case — a participant typed
+		// one into a word cloud — and the ones the text face's own plane holds.
+		expect(faceText("nice 🎉")).toBe("nice 🎉");
+		expect(faceText("中文🎉")).toBe("中文🎉");
+		expect(faceText("😀👍🔥🚀 ❤ ✅ ⭐ ☕ ✨")).toBe("😀👍🔥🚀 ❤ ✅ ⭐ ☕ ✨");
+	});
+
+	test("an emoji sequence keeps the parts the faces draw, and no mark between them", () => {
+		// Joined by zero-width joiners, the members are kept and the joiners
+		// dropped: the faces draw no ligature for a joiner to ask for.
+		expect(faceText("👨\u200D👩\u200D👧")).toBe("👨👩👧");
+		// A skin tone is a colour the monochrome face cannot show: dropped.
+		expect(faceText("hi 👋🏽 there")).toBe("hi 👋 there");
+		// A keycap is drawn as its digit: the face's keycap mark has no width and
+		// would box the character before the digit too.
+		expect(faceText("1\uFE0F\u20E3")).toBe("1");
+		// A flag is its two regional indicators; a subdivision flag's tags are
+		// invisible and dropped, leaving the black flag they qualified.
+		expect(faceText("🇩🇪")).toBe("🇩🇪");
+		expect(faceText("🏴\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}!")).toBe("🏴!");
+	});
+
+	test("a variation selector after a drawn character leaves no mark behind", () => {
+		// Invisible by design: a Japanese name's Han variant, an emoji-style
+		// presentation. Folded on their own they put a `?` mid-word.
+		expect(faceText("葛\u{E0100}飾区")).toBe("葛飾区");
+		expect(faceText("㊗\uFE0F")).toBe("㊗");
+		expect(faceText("中文\uFE0F中文")).toBe("中文中文");
+		expect(faceText("I ❤\uFE0F it")).toBe("I ❤ it");
+	});
+
+	test("an emoji the face has only a hex-code placeholder for folds", () => {
+		// Unifont 15.0.06 maps every code point of its planes; what Unicode had not
+		// assigned by 15.0 is mapped to the code point's hex digits in a box. Read
+		// as coverage, `🫩` printed as a box reading `01F AE9` rather than as `?`.
+		expect(faceText("\u{1FAE9}")).toBe("?");
+		expect(faceText("hi \u{1FAEA}!")).toBe("hi ?!");
+		expect(faceText("\u{1FC45}")).toBe("?");
+		// Every emoji Unicode 16.0 and 17.0 added, and every code point still
+		// reserved in the emoji blocks — the ones a later Unicode may assign.
+		const added = [
+			0x1f6d8, 0x1fa89, 0x1fa8a, 0x1fa8e, 0x1fa8f, 0x1fabe, 0x1fac6, 0x1fac8, 0x1facd,
+			0x1fadc, 0x1fadf, 0x1fae9, 0x1faea, 0x1faef,
+		];
+		const reserved: number[] = [];
+		for (let codePoint = 0x1f000; codePoint <= 0x1fffd; codePoint++) {
+			const character = String.fromCodePoint(codePoint);
+			if (/\p{Cn}/u.test(character) && /\p{Extended_Pictographic}/u.test(character)) {
+				reserved.push(codePoint);
+			}
+		}
+		expect(reserved.length).toBeGreaterThan(1_000);
+		for (const codePoint of [...added, ...reserved]) {
+			expect({ codePoint, drawn: faceText(String.fromCodePoint(codePoint)) }).toEqual({
+				codePoint,
+				drawn: "?",
+			});
+		}
+		// The emoji Unicode 15.0 had are drawn, beside them.
+		expect(faceText("\u{1FAE0}\u{1FAF6}\u{1FA77}")).toBe("\u{1FAE0}\u{1FAF6}\u{1FA77}");
+	});
+
+	test("the CJK and emoji faces draw CJK and emoji and nothing else", () => {
+		// Both have Latin, arrows and symbols of their own; drawing those from them
+		// would set one sentence in two designs. An arrow still folds as it did.
+		expect(faceText("0 → 10")).toBe("0 ? 10");
+	});
+
+	test("what the face lacks still folds to the nearest form it has", () => {
+		// A full-width letter decomposes to the plain one the face does draw.
+		expect(faceText("ＡＢ")).toBe("AB");
 	});
 
 	test("a control character is whitespace, not an unencodable script", () => {
 		// A tab is ordinary in an indented markdown list and a `\r` rides every
-		// CRLF-authored deck. Read as "not in WinAnsi" they would print as a
+		// CRLF-authored deck. Read as "not in the face" they would print as a
 		// literal `?` in the middle of a sentence.
-		expect(winAnsiText("one\ttwo")).toBe("one two");
-		expect(winAnsiText("one\r")).toBe("one ");
-		expect(winAnsiText("\t- indented item")).toBe(" - indented item");
+		expect(faceText("one\ttwo")).toBe("one two");
+		expect(faceText("one\r")).toBe("one ");
+		expect(faceText("\t- indented item")).toBe(" - indented item");
 	});
 });
 
@@ -761,10 +861,10 @@ describe("REQ096 — rendering", () => {
 					slide({
 						id: "s1",
 						type: "multiple-choice",
-						// Text the standard fonts cannot encode: the render must fold it
-						// rather than throw, which is the whole reason `winAnsiText` runs
-						// at the drawing site rather than at the building one.
-						question: "日本語 — which one? 🎉",
+						// Text the embedded faces cannot draw: the render must fold the
+						// Arabic rather than throw, which is the whole reason `faceText`
+						// runs at the drawing site rather than at the building one.
+						question: "日本語 — which one? 🎉 مرحبا",
 						options: [{ id: "a", text: "čeština" }],
 					}),
 					slide({ id: "s2", type: "text", question: "Welcome", body: "# Hello" }),
@@ -851,42 +951,59 @@ describe("REQ096 — rendering", () => {
 		// The claim is the *shape*, so it is asserted as one: quadruple the input
 		// and quadratic time goes up ~16×, linear ~4×. A ratio is what survives
 		// being run on a slower machine than this was written on, where an absolute
-		// budget only says how fast the box is.
-		async function renderRunOf(length: number): Promise<number> {
-			const document = buildDeckDocument(
-				input(
-					deck([
-						slide({
-							id: "s1",
-							type: "text",
-							question: "x".repeat(length),
-							body: "y".repeat(length),
-						}),
-					]),
-					{ includeResults: false },
-				),
-			);
-			const startedAt = Date.now();
-			const bytes = await renderDeckDocument(document);
-			const elapsed = Date.now() - startedAt;
-			expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
-			return elapsed;
-		}
-
-		const small = await renderRunOf(40_000);
-		const large = await renderRunOf(160_000);
+		// budget only says how fast the box is. A short run first pays the one-off
+		// costs — parsing the faces, warming the JIT — so `small` carries none the
+		// larger run does not, and the ratio compares like with like.
+		await renderUnbrokenRun("x", "y", 1_000);
+		const small = await renderUnbrokenRun("x", "y", 40_000);
+		const large = await renderUnbrokenRun("x", "y", 160_000);
 
 		// The ratio is the assertion that carries this test; the absolute bar below
 		// it is a backstop, not a second independent catch. Measured at these two
-		// sizes: linear 120ms and 480ms, a ratio of 4.0, against quadratic 136ms
-		// and 2,417ms, a ratio of 17.8. So the shape is what separates them by an
-		// order of magnitude, while the wall-clock of the larger render alone
-		// (~4.8s quadratic) sits close enough to the 5s bar that a faster box could
-		// slip under it. Read a failure of the ratio as the regression; read a
-		// failure of the budget as either that or a machine under load.
-		expect(large).toBeLessThan(5_000);
+		// sizes before the text was shaped: linear 120ms and 480ms, a ratio of 4.0,
+		// against quadratic 136ms and 2,417ms, a ratio of 17.8. So the shape is what
+		// separates them by an order of magnitude. Since deck PDFs shape their text
+		// in Noto Sans (REQ158) a run costs about twice that: 261ms and 926–1,002ms
+		// locally, a ratio of 3.5–3.8, and a shared CI runner is several times
+		// slower again — it once took 5,093ms over the larger run and failed a 5s
+		// bar with the ratio well inside 8. So the backstop is 15s, as for the CJK
+		// run below, and the timeout is set as for its siblings rather than left at
+		// bun's 5s, which is a second wall-clock budget nobody chose. Read a
+		// failure of the ratio as the regression; read a failure of the budget as
+		// either that or a machine under load. Shaping also dilutes the ratio: with
+		// the window removed this render measured 351ms and 2,327ms, 6.6, which
+		// passes — so the next test times the wrap alone, and carries the claim.
+		expect(large).toBeLessThan(15_000);
 		expect(large / Math.max(small, 1)).toBeLessThan(8);
-	});
+	}, 30_000);
+
+	test("the wrap itself is linear in the run it breaks", async () => {
+		// The render above times the wrap together with drawing, and drawing
+		// shapes every line (REQ158): a linear cost that, at 40,000 characters, is
+		// most of the time. With the window removed (WRAP_PROBE_CHARACTERS at
+		// Infinity) that dilution held the render's ratio to 6.3–6.8 — under 8, so
+		// the regression it exists for passed. Timed alone, the wrap shows its
+		// shape plainly: measured over ten wraps of each size, linear 11–12ms and
+		// 40–43ms, a ratio of 3.6–3.7, against quadratic 329ms and 5,097ms, 15.5.
+		// Ten of each, because one linear wrap of 40,000 characters takes about a
+		// millisecond, where a pause of the runner's would decide the ratio.
+		const wrap = await bodyTextWrapper();
+		const time = (length: number) => {
+			const run = "x".repeat(length);
+			let elapsed = 0;
+			for (let round = 0; round < 10; round++) {
+				const startedAt = performance.now();
+				const lines = wrap(run);
+				elapsed += performance.now() - startedAt;
+				expect(lines.join("")).toBe(run);
+			}
+			return elapsed;
+		};
+		time(1_000);
+		const small = time(40_000);
+		const large = time(160_000);
+		expect(large / Math.max(small, 1)).toBeLessThan(8);
+	}, 60_000);
 
 	test("breaking an over-wide run keeps every character, in order, once", async () => {
 		// The other half of bounding the search: a window has two seams, and an
@@ -916,7 +1033,7 @@ describe("REQ096 — rendering", () => {
 		);
 
 		const bytes = await renderDeckDocument(document);
-		const lines = drawnRunsIn(bytes).filter((piece) => /^[~|]+$/.test(piece));
+		const lines = (await drawnRuns(bytes)).filter((piece) => /^[~|]+$/.test(piece));
 
 		expect(lines.join("")).toBe(run);
 		// And it really was broken up, rather than drawn off the edge of the page
@@ -971,5 +1088,346 @@ describe("REQ096 — rendering", () => {
 		const baselines = textBaselinesIn(await renderDeckDocument(document));
 		expect(baselines.length).toBeGreaterThan(60);
 		expect(Math.min(...baselines)).toBeGreaterThan(0);
+	});
+});
+
+describe("REQ158 — the embedded faces on the page", () => {
+	/** A deck and its responses in every script the faces cover, and one they do not. */
+	function multiScriptDocument(): PdfDocument {
+		return buildDeckDocument(
+			input(
+				deck(
+					[
+						slide({
+							id: "s1",
+							type: "multiple-choice",
+							question: "Która opcja? Ποια επιλογή; Який варіант?",
+							options: [
+								{ id: "a", text: "Łódź" },
+								{ id: "b", text: "Αθήνα" },
+								{ id: "c", text: "Київ" },
+							],
+						}),
+						slide({
+							id: "s2",
+							type: "multiple-choice",
+							question: "你最喜欢哪个城市？どの都市が好き？어느 도시를 좋아해요?",
+							options: [
+								{ id: "a", text: "北京" },
+								{ id: "b", text: "東京" },
+								{ id: "c", text: "서울" },
+							],
+						}),
+						slide({ id: "s3", type: "open-text", question: "Thoughts?" }),
+					],
+					{ title: "Огляд — 季度回顾 — 분기 검토" },
+				),
+				{
+					results: [
+						{
+							slideId: "s1",
+							type: "multiple-choice",
+							totalVotes: 3,
+							respondentCount: 3,
+							options: [
+								{ id: "a", text: "Łódź", count: 1, isCorrect: null },
+								{ id: "b", text: "Αθήνα", count: 1, isCorrect: null },
+								{ id: "c", text: "Київ", count: 1, isCorrect: null },
+							],
+						},
+						{
+							slideId: "s2",
+							type: "multiple-choice",
+							totalVotes: 3,
+							respondentCount: 3,
+							options: [
+								{ id: "a", text: "北京", count: 1, isCorrect: null },
+								{ id: "b", text: "東京", count: 1, isCorrect: null },
+								{ id: "c", text: "서울", count: 1, isCorrect: null },
+							],
+						},
+						{
+							slideId: "s3",
+							type: "open-text",
+							totalVotes: 7,
+							responses: [
+								{ id: "r1", text: "Dziękuję, było świetnie", upvotes: 2 },
+								{ id: "r2", text: "Ευχαριστώ πολύ", upvotes: 1 },
+								{ id: "r3", text: "Дякую, все зрозуміло", upvotes: 0 },
+								{ id: "r4", text: "谢谢，讲得非常好。", upvotes: 0 },
+								{ id: "r5", text: "とても良かったです「最高」", upvotes: 0 },
+								{ id: "r6", text: "정말 좋았어요", upvotes: 0 },
+								{ id: "r7", text: "ありがとう 🎉 done", upvotes: 0 },
+								{ id: "r8", text: "thanks شكرا!", upvotes: 0 },
+							],
+						},
+					],
+				},
+			),
+		);
+	}
+
+	/**
+	 * A document of Latin, Greek and Cyrillic alone — nothing the CJK or the
+	 * emoji face draws.
+	 */
+	function noCjkDocument(): PdfDocument {
+		return buildDeckDocument(
+			input(
+				deck([slide({ id: "s1", type: "open-text", question: "Która opcja? Який?" })], {
+					title: "Přehled — Ελληνικά — Огляд",
+				}),
+			),
+		);
+	}
+
+	test("deck text and responses in Latin Extended, Greek and Cyrillic reach the page as authored", async () => {
+		const drawn = await drawnLines(await renderDeckDocument(multiScriptDocument()));
+		for (const authored of [
+			"Która opcja? Ποια επιλογή; Який варіант?",
+			"Łódź",
+			"Αθήνα",
+			"Київ",
+			"Dziękuję, było świetnie",
+			"Ευχαριστώ πολύ",
+			"Дякую, все зрозуміло",
+		]) {
+			expect(drawn.join("\n")).toContain(authored);
+		}
+	});
+
+	test("deck text and responses in Chinese, Japanese and Korean reach the page as authored", async () => {
+		const drawn = await drawnLines(await renderDeckDocument(multiScriptDocument()));
+		// Whole lines, not fragments: a line that mixes scripts is drawn one run
+		// per face, and these read the runs back joined on their baseline — so the
+		// title is asserted as the one line it was authored as, Latin and CJK alike.
+		expect(drawn).toContain("Огляд — 季度回顾 — 분기 검토");
+		expect(drawn).toContain("你最喜欢哪个城市？どの都市が好き？어느 도시를 좋아해요?");
+		const text = drawn.join("\n");
+		for (const authored of [
+			"• 北京",
+			"• 東京",
+			"• 서울",
+			"谢谢，讲得非常好。",
+			"とても良かったです「最高」",
+			"정말 좋았어요",
+		]) {
+			expect(text).toContain(authored);
+		}
+	});
+
+	test("CJK runs are drawn from the CJK face and the rest from Noto Sans", async () => {
+		const bytes = await renderDeckDocument(multiScriptDocument());
+		const fonts = await drawnFontNames(bytes);
+		expect(fonts.some((name) => name.includes("Sarasa-Gothic-SC-Regular"))).toBe(true);
+		expect(fonts.some((name) => name.includes("NotoSans-Regular"))).toBe(true);
+		expect(fonts.some((name) => name.includes("NotoSans-Bold"))).toBe(true);
+		// And a run is one face's: a CJK title is several runs, not one.
+		const runs = await drawnRuns(bytes);
+		expect(runs).toContain("季度回顾");
+		expect(runs).toContain("Огляд — ");
+	});
+
+	test("emoji in responses reach the page, drawn from the emoji face", async () => {
+		const bytes = await renderDeckDocument(multiScriptDocument());
+		expect((await drawnLines(bytes)).join("\n")).toContain("ありがとう 🎉 done");
+		expect(await drawnRuns(bytes)).toContain("🎉");
+		// `🎉` is above the Basic Multilingual Plane, so the upper file draws it.
+		const fonts = await drawnFontNames(bytes);
+		expect(fonts.some((name) => name.includes("UnifontUpper"))).toBe(true);
+	});
+
+	test("a script no face draws still folds, and the line it rides on still draws", async () => {
+		const drawn = await drawnLines(await renderDeckDocument(multiScriptDocument()));
+		expect(drawn.join("\n")).toContain("thanks ?!");
+	});
+
+	test("an emoji newer than the face reaches the page as a mark, not a placeholder box", async () => {
+		const document = buildDeckDocument(
+			input(
+				deck([
+					slide({
+						id: "s1",
+						type: "text",
+						question: "Plain",
+						body: "new \u{1FAE9} \u{1FAEA} \u{1FC45} old \u{1F600}",
+					}),
+				]),
+				{ includeResults: false },
+			),
+		);
+		const bytes = await renderDeckDocument(document);
+		expect(await drawnLines(bytes)).toContain("new ? ? ? old \u{1F600}");
+		// Only the emoji the face draws was taken from it: one glyph, one run.
+		expect((await drawnRuns(bytes)).filter((run) => /\p{Extended_Pictographic}/u.test(run))).toEqual([
+			"\u{1F600}",
+		]);
+	});
+
+	test("an emoji sequence draws as its parts, with no mark between them", async () => {
+		const document = buildDeckDocument(
+			input(
+				deck([
+					slide({
+						id: "s1",
+						type: "text",
+						question: "Plain",
+						body: "family 👨\u200D👩\u200D👧 wave 👋🏽 key 1\uFE0F\u20E3 flag 🇩🇪 🏴\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F} love ❤\uFE0F",
+					}),
+				]),
+				{ includeResults: false },
+			),
+		);
+		const bytes = await renderDeckDocument(document);
+		expect(await drawnLines(bytes)).toContain(
+			"family 👨👩👧 wave 👋 key 1 flag 🇩🇪 🏴 love ❤",
+		);
+		// `❤` is in the Basic Multilingual Plane, the rest above it:
+		// both of the emoji face's files are embedded, and nothing else.
+		const fonts = await drawnFontNames(bytes);
+		expect(fonts.some((name) => name.includes("UnifontMedium"))).toBe(true);
+		expect(fonts.some((name) => name.includes("UnifontUpper"))).toBe(true);
+		expect(fonts.some((name) => name.includes("Sarasa"))).toBe(false);
+	});
+
+	test("an unbroken run mixing Latin and emoji breaks without losing a character", async () => {
+		// Every emoji here is a surrogate pair, so a break placed by UTF-16 unit
+		// that split one would read back as two broken halves, or not at all.
+		const run = Array.from({ length: 4_001 }, (_unused, index) =>
+			index % 5 < 2 ? "~" : "😀",
+		).join("");
+		const document = buildDeckDocument(
+			input(
+				deck([slide({ id: "s1", type: "text", question: "Plain", body: run })]),
+				{ includeResults: false },
+			),
+		);
+		const lines = (await drawnLines(await renderDeckDocument(document))).filter((line) =>
+			/^[~😀]+$/u.test(line),
+		);
+		expect(lines.join("")).toBe(run);
+		expect(lines.length).toBeGreaterThan(20);
+	});
+
+	test("a line mixing Latin and CJK wraps at its words and draws them in order", async () => {
+		// Written in an alphabet the rest of the document never draws, so every
+		// line of the body is recognisably its own (see the over-wide run test).
+		const words = Array.from({ length: 300 }, (_unused, index) =>
+			["zq中文", "한국zq", "日本語", "zz", "qz테스트"][index % 5],
+		);
+		const document = buildDeckDocument(
+			input(
+				deck([slide({ id: "s1", type: "text", question: "Plain", body: words.join(" ") })]),
+				{ includeResults: false },
+			),
+		);
+		const lines = (await drawnLines(await renderDeckDocument(document))).filter((line) =>
+			/^[zq中文한국日本語테스트 ]+$/u.test(line),
+		);
+		expect(lines.join(" ")).toBe(words.join(" "));
+		expect(lines.length).toBeGreaterThan(10);
+	});
+
+	test("an unbroken run mixing Latin and CJK breaks without losing a character", async () => {
+		const run = Array.from({ length: 4_001 }, (_unused, index) =>
+			index % 5 < 2 ? "~" : "漢",
+		).join("");
+		const document = buildDeckDocument(
+			input(
+				deck([slide({ id: "s1", type: "text", question: "Plain", body: run })]),
+				{ includeResults: false },
+			),
+		);
+		const lines = (await drawnLines(await renderDeckDocument(document))).filter((line) =>
+			/^[~漢]+$/u.test(line),
+		);
+		expect(lines.join("")).toBe(run);
+		expect(lines.length).toBeGreaterThan(20);
+	});
+
+	test("an unbroken run of CJK wraps in linear time too", async () => {
+		// The REQ159 shape again, through the second face: every character of the
+		// run is measured and drawn from the CJK face, so a per-face path that
+		// measured whole strings again would show here first. The ratio carries the
+		// test, as it does above. The budget is wider than the Latin one because
+		// the work is: a CJK character is about twice as wide, so the same run is
+		// twice the lines, and the shaping pass `drawText` makes over each costs
+		// about three times as much per character in the CJK face as in Noto Sans.
+		// Measured at these sizes: 783ms and 3,131ms, a ratio of 4.0.
+		const small = await renderUnbrokenRun("漢", "字", 40_000);
+		const large = await renderUnbrokenRun("漢", "字", 160_000);
+		expect(large).toBeLessThan(15_000);
+		expect(large / Math.max(small, 1)).toBeLessThan(8);
+	}, 30_000);
+
+	test("an unbroken run of emoji wraps in linear time too", async () => {
+		// The same shape through the emoji face: every character of the run is
+		// measured and drawn from it, as a surrogate pair, so a per-face path that
+		// measured whole strings again — or a break search that walked off a pair —
+		// would show here first. The ratio carries the test, as it does above. An
+		// emoji is a full em wide, about twice a Latin letter, so the same run is
+		// twice the lines — but the face has no shaping tables, so the pass
+		// `drawText` makes over each line costs next to nothing, and the run is
+		// quicker than a Latin one. Measured at these sizes: 127ms and 378ms, a
+		// ratio of 3.0, against 261ms and 916ms for Latin on the same machine.
+		const small = await renderUnbrokenRun("😀", "🎉", 40_000);
+		const large = await renderUnbrokenRun("😀", "🎉", 160_000);
+		expect(large).toBeLessThan(5_000);
+		expect(large / Math.max(small, 1)).toBeLessThan(8);
+	}, 30_000);
+
+	test("an export with no CJK or emoji in it carries neither face", async () => {
+		const fonts = await drawnFontNames(await renderDeckDocument(noCjkDocument()));
+		expect(fonts.some((name) => name.includes("NotoSans"))).toBe(true);
+		expect(fonts.some((name) => name.includes("Sarasa"))).toBe(false);
+		expect(fonts.some((name) => name.includes("Unifont"))).toBe(false);
+	});
+
+	test("the faces are subset, not carried whole, into every export", async () => {
+		// Each weight of Noto Sans is over 600 KB, the CJK face about 24 MB and the
+		// emoji face's two files about 25 MB between them; an export that carried
+		// any of them whole would say nothing in under a megabyte.
+		expect((await renderDeckDocument(noCjkDocument())).byteLength).toBeLessThan(60_000);
+		expect((await renderDeckDocument(multiScriptDocument())).byteLength).toBeLessThan(150_000);
+	});
+});
+
+describe("REQ158 — a vendored face the subsetter can write", () => {
+	/**
+	 * Where each glyph's record starts in a TrueType face, from its `loca` table
+	 * — read off the bytes, because fontkit's typings do not expose the table.
+	 */
+	function glyphOffsets(face: Buffer): number[] {
+		const tables = new Map<string, number>();
+		for (let index = 0; index < face.readUInt16BE(4); index++) {
+			const entry = 12 + index * 16;
+			tables.set(face.toString("latin1", entry, entry + 4), face.readUInt32BE(entry + 8));
+		}
+		const head = tables.get("head") ?? 0;
+		const maxp = tables.get("maxp") ?? 0;
+		const loca = tables.get("loca") ?? 0;
+		const long = face.readInt16BE(head + 50) === 1;
+		return Array.from({ length: face.readUInt16BE(maxp + 4) + 1 }, (_unused, index) =>
+			long ? face.readUInt32BE(loca + index * 4) : face.readUInt16BE(loca + index * 2) * 2,
+		);
+	}
+
+	test("every face under server/fonts/ starts each glyph on an even byte", () => {
+		// `@pdf-lib/fontkit` writes a subset's glyph offsets in the short `loca`
+		// format whenever they fit — halved — without padding the records to make
+		// that exact. A face with an odd-length glyph record subsets into glyphs
+		// that start a byte off, which readers draw blank while the text still
+		// extracts, so nothing but a rendered page would show it. That is what
+		// ruled out the unhinted Noto Sans, Google's static Noto Sans SC and KR, and
+		// Droid Sans Fallback; this is the check that would catch the next one.
+		const directory = resolve(import.meta.dir, "fonts");
+		const faces = readdirSync(directory).filter((name) => name.endsWith(".ttf"));
+		expect(faces.length).toBeGreaterThanOrEqual(3);
+		for (const name of faces) {
+			const odd = glyphOffsets(readFileSync(resolve(directory, name))).filter(
+				(offset) => offset % 2 !== 0,
+			);
+			expect({ name, odd: odd.length }).toEqual({ name, odd: 0 });
+		}
 	});
 });

@@ -84,3 +84,38 @@ describe("the deck's colour fields state the deck's own inherited colours", () =
 		expect(placeholderAfter("Text")).toBe(inherited["--color-text"]);
 	});
 });
+
+/**
+ * The repeat-passes switch (REQ083) is drawn only under Audience pace, with no
+ * disabled control or reason line under Presenter pace. That deviates from
+ * ADR-0025 rules 1 and 4 by the owner's decision, recorded in REQ083's Notes.
+ * The Audience pace card names the option so it can be found from the other
+ * pace. Read off the source because this repo renders no DOM in tests.
+ */
+describe("the repeat-passes switch appears only under Audience pace (REQ083)", () => {
+	const source = readFileSync(
+		join(import.meta.dir, "CreatePage.tsx"),
+		"utf8",
+	);
+	const toggleLabel = "Let a device answer more than once";
+
+	test("the toggle is drawn once, inside the Audience pace condition", () => {
+		expect(source.split(`label="${toggleLabel}"`).length - 1).toBe(1);
+		expect(source).toMatch(
+			new RegExp(
+				`\\{mode === "survey" && \\(\\s*<div[^>]*>\\s*<Toggle\\s+label="${toggleLabel}"`,
+			),
+		);
+	});
+
+	test("the presenter-paced banner is gone", () => {
+		expect(source).not.toContain("Not in effect");
+		expect(source).not.toContain('mode === "live"');
+	});
+
+	test("the Audience pace card's description names the option", () => {
+		const card = source.slice(source.indexOf('label: "Audience pace"'));
+		const description = card.match(/description:\s*"([^"]+)"/)?.[1];
+		expect(description?.toLowerCase()).toContain(toggleLabel.toLowerCase());
+	});
+});

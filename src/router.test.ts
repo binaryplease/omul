@@ -18,12 +18,15 @@ import {
 	LANDING_QUERY_PARAMS,
 } from "../server/kept-query-params";
 import {
+	appReturnUrl,
 	filterQuery,
 	navigate,
 	passThroughSearch,
 	pathForRoute,
 	type Route,
 	routeForLocation,
+	sameOriginAppPath,
+	urlForRoute,
 } from "./router";
 
 /** Every route the app has, with the URL it is written to the bar as. */
@@ -226,5 +229,66 @@ describe("the operator's kept query parameters survive in-app navigation (REQ203
 		).toBe("?campaign_source=news%20letter&ref=a+b");
 		expect(filterQuery("?mode=verify-email&error=X", withoutLanding)).toBe("");
 		expect(filterQuery("", withoutLanding)).toBe("");
+	});
+});
+
+describe("a sign-in round trip comes back only to this app (REQ134)", () => {
+	const origin = "https://omul.example";
+
+	test("the deck's own join path, query included, is a return target", () => {
+		expect(sameOriginAppPath("/join/ABC123", origin)).toBe("/join/ABC123");
+		expect(sameOriginAppPath("/join/ABC123?ref=room-4", origin)).toBe(
+			"/join/ABC123?ref=room-4",
+		);
+		expect(sameOriginAppPath(APP_BASE_PATH, origin)).toBe(APP_BASE_PATH);
+	});
+
+	test("the join URL the page hands out keeps the operator's parameters and passes", () => {
+		const returnTo = urlForRoute(
+			{ page: "participate", code: "ABC123" },
+			"?ref=room-4&mode=reset-password&token=secret",
+			["ref"],
+		);
+		expect(returnTo).toBe("/join/ABC123?ref=room-4");
+		expect(sameOriginAppPath(returnTo, origin)).toBe(returnTo);
+	});
+
+	test("an absolute, protocol-relative or backslashed target is refused", () => {
+		for (const candidate of [
+			"https://elsewhere.example/join/ABC123",
+			"//elsewhere.example/join/ABC123",
+			"/\\elsewhere.example/join/ABC123",
+			"\\\\elsewhere.example",
+			"/\t/elsewhere.example/join/ABC123",
+			"javascript:alert(1)",
+			"join/ABC123",
+			"",
+		]) {
+			expect(sameOriginAppPath(candidate, origin)).toBeNull();
+		}
+	});
+
+	test("a same-origin path this app does not serve is refused", () => {
+		expect(sameOriginAppPath("/not-a-page", origin)).toBeNull();
+		// Resolved the way a browser would load it: the dots climb out of /join.
+		expect(sameOriginAppPath("/join/../../api/auth/sign-out", origin)).toBeNull();
+	});
+
+	test("the reset link lands on the deck, or on the home page when it may not", () => {
+		expect(
+			appReturnUrl("/join/ABC123?ref=room-4", "mode=reset-password", origin),
+		).toBe(`${origin}/join/ABC123?ref=room-4&mode=reset-password`);
+		expect(appReturnUrl("/join/ABC123", "mode=reset-password", origin)).toBe(
+			`${origin}/join/ABC123?mode=reset-password`,
+		);
+		for (const returnTo of [
+			undefined,
+			"https://elsewhere.example/join/ABC123",
+			"//elsewhere.example/join/ABC123",
+		]) {
+			expect(appReturnUrl(returnTo, "mode=reset-password", origin)).toBe(
+				`${origin}${APP_BASE_PATH}?mode=reset-password`,
+			);
+		}
 	});
 });

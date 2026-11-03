@@ -25,12 +25,15 @@
  *  1. **Summary** — what deck this is, and how much of it there is.
  *  2. **Slides** — one row per slide: what was asked, and how many answered.
  *  3. **Responses** — the long table. One row per stored submission, decoded
- *     into something readable, carrying the participant id it was cast under
- *     and — where the deck asked the room for one (REQ076) — the name behind it.
- *  4. **Participants** — the same data as a matrix: one row per participant,
- *     one column per interactive slide. This is the "responses per participant
+ *     into something readable, carrying the participant id it was cast under,
+ *     the pass it belongs to (REQ083) and — where the deck asked the room for
+ *     one (REQ076) — the name behind it.
+ *  4. **Participants** — the same data as a matrix: one row per respondent, one
+ *     column per interactive slide. This is the "responses per participant
  *     ID and per slide" table the requirement names, with the stated name beside
- *     the id.
+ *     the id. A respondent is one device's one pass through the deck (REQ083),
+ *     so a device that went through an audience-paced deck twice has two rows,
+ *     told apart by their `Pass`.
  *  5. **Aggregates** — the tallies, in tidy long form: one row per
  *     (slide, entry, metric, value). Every number keeps its own name, so a
  *     column never means "count here and average there" depending on the slide
@@ -45,7 +48,9 @@
  */
 
 import ExcelJS from "exceljs";
+import { answerFilterFor, type ProfanityMatcher } from "./profanity-filter";
 import {
+	deckAllowsRepeatPasses,
 	deckFilenameSlug,
 	decodeGridPoint,
 	decodeGuess,
@@ -58,9 +63,12 @@ import {
 	gridAxesFor,
 	guessRangeFor,
 	isInteractiveSlideType,
+	passOf,
 	type Presentation,
+	profanityFilterLanguageFor,
 	quizAnswerModeFor,
 	readFormSubmission,
+	respondentIdOf,
 	type Slide,
 	type StoredResponseVote,
 	type StoredVote,
@@ -311,9 +319,42 @@ export type AggregateRow = {
  */
 export const SHARE_METRIC = "Share %";
 
+/**
+ * What the count of answers the profanity filter withheld is called (REQ085) —
+ * a slide-level metric on the Aggregates sheet and among the PDF's totals,
+ * written only while the deck filters, so a deck that never turned the filter on
+ * exports exactly the rows it always did.
+ */
+export const FILTERED_METRIC = "Withheld by profanity filter";
+
 /** A slide-level metric. */
 function slideMetric(metric: string, value: SheetCell): AggregateRow {
 	return { entry: null, metric, value };
+}
+
+/** The withheld count, as a row, where the filter read this payload (REQ085). */
+function filteredMetricRows(payload: AggregateEntry | null): AggregateRow[] {
+	const filteredCount = payload ? numberField(payload, "filteredCount") : null;
+	return filteredCount === null ? [] : [slideMetric(FILTERED_METRIC, filteredCount)];
+}
+
+/**
+ * The answers the profanity filter withheld on one slide (REQ085), as written —
+ * read out of the payload the aggregation built for an editor who asked for
+ * them, which is how an export gathers its results. Empty where there are none,
+ * and on a payload gathered without them.
+ */
+export function filteredAnswerTextsFor(
+	slide: Slide,
+	payload: SlideResultsPayload,
+): string[] {
+	const block =
+		slide.type === "quiz" ? objectField(payload, "typedAnswers") : payload;
+	return block
+		? listField(block, "filteredAnswers").map(
+				(filtered) => stringField(filtered, "text") ?? "",
+			)
+		: [];
 }
 
 /** A metric about one option / word / item / statement / bucket. */
@@ -382,6 +423,7 @@ export function aggregateRowsFor(
 						"Distinct answers",
 						numberField(typedAnswers, "distinctCount"),
 					),
+					...filteredMetricRows(typedAnswers),
 				);
 				for (const entry of listField(typedAnswers, "entries")) {
 					const text = stringField(entry, "text") ?? "";
@@ -422,7 +464,10 @@ export function aggregateRowsFor(
 		}
 
 		case "word-cloud": {
-			const rows: AggregateRow[] = [slideMetric("Responses", totalVotes)];
+			const rows: AggregateRow[] = [
+				slideMetric("Responses", totalVotes),
+				...filteredMetricRows(payload),
+			];
 			for (const word of listField(payload, "words")) {
 				const text = stringField(word, "text") ?? "";
 				const count = numberField(word, "count");
@@ -441,7 +486,10 @@ export function aggregateRowsFor(
 		}
 
 		case "open-text": {
-			const rows: AggregateRow[] = [slideMetric("Responses", totalVotes)];
+			const rows: AggregateRow[] = [
+				slideMetric("Responses", totalVotes),
+				...filteredMetricRows(payload),
+			];
 			for (const response of listField(payload, "responses")) {
 				const text = stringField(response, "text") ?? "";
 				rows.push(entryMetric(text, "Upvotes", numberField(response, "upvotes")));
@@ -638,31 +686,63 @@ function slideLabel(slide: Slide, index: number): string {
 }
 
 /**
- * Distinct participant ids behind a pile of rows, in first-seen order.
- *
- * Exported because the PDF export (REQ096) puts the same count on its cover
- * that the Summary sheet puts in its `Participants` row, and "how many people
- * answered?" is one fact rather than two implementations that happen to agree
- * today — the same reason {@link SHARE_METRIC} is a name.
+ * One respondent behind a pile of rows: one device's one pass through the deck
+ * (REQ083). `respondentId` is what they are counted and joined under; the
+ * participant id and the pass are what a sheet prints, since a respondent id is
+ * a key rather than something to show anybody.
  */
-export function participantIdsIn(
+export type Respondent = {
+	respondentId: string;
+	participantId: string;
+	pass: number;
+};
+
+/**
+ * Distinct respondents behind a pile of rows, in first-seen order.
+ *
+ * A row with no participant id is nobody's and is left out, as it always was.
+ * On a deck that never allowed a second pass every respondent is a first pass,
+ * named by the participant id itself, so this is exactly the set of participants
+ * it was before passes existed.
+ */
+export function respondentsIn(
 	/**
-	 * Stored rows, read for one field. Typed as the field rather than as
-	 * {@link StoredVote} because the third caller (the segmented read, REQ020)
-	 * holds the aggregation's untyped rows rather than parsed ones, and a count
-	 * of "how many people are behind these rows" must be the same count there.
+	 * Stored rows, read for two fields. Typed as the fields rather than as
+	 * {@link StoredVote} because the segmented read (REQ020) holds the
+	 * aggregation's untyped rows rather than parsed ones, and a count of "how many
+	 * people are behind these rows" must be the same count there.
 	 */
-	votes: readonly { participantId?: unknown }[],
-): string[] {
-	const seen: string[] = [];
+	votes: readonly { participantId?: unknown; pass?: unknown }[],
+): Respondent[] {
+	const seen: Respondent[] = [];
 	const known = new Set<string>();
 	for (const vote of votes) {
-		const participantId = String(vote.participantId ?? "");
-		if (!participantId || known.has(participantId)) continue;
-		known.add(participantId);
-		seen.push(participantId);
+		const respondentId = respondentIdOf(vote);
+		if (!respondentId || known.has(respondentId)) continue;
+		known.add(respondentId);
+		seen.push({
+			respondentId,
+			participantId: String(vote.participantId ?? ""),
+			pass: passOf(vote),
+		});
 	}
 	return seen;
+}
+
+/**
+ * The respondent ids behind a pile of rows — how many people answered, counting
+ * each pass through the deck as somebody (REQ083).
+ *
+ * Exported because the PDF export (REQ096) puts the same count on its cover
+ * that the Summary sheet puts in its `Participants` row, and the segmented read
+ * (REQ020) divides the room by the same reading, so "how many people answered?"
+ * is one fact rather than three implementations that happen to agree today —
+ * the same reason {@link SHARE_METRIC} is a name.
+ */
+export function respondentIdsIn(
+	votes: readonly { participantId?: unknown; pass?: unknown }[],
+): string[] {
+	return respondentsIn(votes).map((respondent) => respondent.respondentId);
 }
 
 /**
@@ -711,7 +791,7 @@ export function buildResultsWorkbook(input: ResultsExportInput): WorkbookModel {
 		votesBySlideId.set(vote.slideId, rows);
 	}
 
-	const participantIds = participantIdsIn(votes);
+	const respondents = respondentsIn(votes);
 
 	return {
 		sheets: [
@@ -719,13 +799,13 @@ export function buildResultsWorkbook(input: ResultsExportInput): WorkbookModel {
 				presentation,
 				votes,
 				responseVotes,
-				participantIds,
+				respondents,
 				participantNames,
 				exportedAt,
 			),
 			slidesSheet(slides, votesBySlideId),
-			responsesSheet(slides, slideIndexById, votes, participantNames),
-			participantsSheet(slides, participantIds, votes, participantNames),
+			responsesSheet(presentation, slideIndexById, votes, participantNames),
+			participantsSheet(slides, respondents, votes, participantNames),
 			aggregatesSheet(slides, resultsBySlideId),
 		],
 	};
@@ -735,7 +815,7 @@ function summarySheet(
 	presentation: Presentation,
 	votes: StoredVote[],
 	responseVotes: StoredResponseVote[],
-	participantIds: string[],
+	respondents: Respondent[],
 	participantNames: Record<string, string>,
 	exportedAt: string,
 ): SheetModel {
@@ -753,13 +833,27 @@ function summarySheet(
 			["Join code", presentation.code],
 			["Status", presentation.status],
 			["Mode", presentation.mode],
+			// REQ083 — beside the mode it only works under, and as the deck reads it
+			// rather than as stored: a presenter-paced deck carrying the switch opens
+			// no new pass, and the row says so. Like every setting on this sheet it
+			// is the deck as of the export, so rows from a second pass can sit under
+			// a `false` once the switch has gone off.
+			["Repeat passes", deckAllowsRepeatPasses(presentation)],
 			["Language", presentation.language],
 			["Results visibility", presentation.resultsVisibility],
 			["Q&A enabled", presentation.qaEnabled],
 			["Q&A visibility", presentation.qaVisibility],
+			// REQ085 — the switch, and the list it reads as the deck resolves it: the
+			// deck's own language when none was chosen, and nothing while it is off.
+			// As of the export, like every setting here, which is also what the
+			// Responses sheet's Filtered column was judged against.
+			["Profanity filter", presentation.profanityFilterEnabled],
+			["Profanity filter list", profanityFilterLanguageFor(presentation)],
 			["Slides", presentation.slides.length],
 			["Interactive slides", interactiveCount],
-			["Participants", participantIds.length],
+			// Respondents, so each pass a device made through the deck counts once
+			// (REQ083) — the same count every tally in the workbook divides by.
+			["Participants", respondents.length],
 			// REQ076 — both halves, because on their own neither is readable. The
 			// switch says what the deck asked for; the count says how many of the
 			// people who answered actually said, which is the number that tells an
@@ -767,9 +861,10 @@ function summarySheet(
 			["Names required", presentation.requireParticipantName],
 			[
 				"Participants named",
-				participantIds.filter(
-					(participantId) =>
-						participantNameFor(participantNames, participantId) !== null,
+				respondents.filter(
+					(respondent) =>
+						participantNameFor(participantNames, respondent.participantId) !==
+						null,
 				).length,
 			],
 			["Responses", votes.length],
@@ -801,7 +896,7 @@ function slidesSheet(
 				slide.id,
 				slide.type,
 				slide.question,
-				participantIdsIn(slideVotes).length,
+				respondentIdsIn(slideVotes).length,
 				slideVotes.length,
 			];
 		}),
@@ -809,12 +904,19 @@ function slidesSheet(
 }
 
 function responsesSheet(
-	slides: Slide[],
+	presentation: Presentation,
 	slideIndexById: Map<string, number>,
 	votes: StoredVote[],
 	participantNames: Record<string, string>,
 ): SheetModel {
+	const slides = presentation.slides;
 	const slideById = new Map(slides.map((slide) => [slide.id, slide]));
+	// REQ085 — the filter each slide is read through, decided once per slide by
+	// the one function the aggregation asks: `null` where the deck filters
+	// nothing or the slide's answers are not free text.
+	const filterBySlideId = new Map<string, ProfanityMatcher | null>(
+		slides.map((slide) => [slide.id, answerFilterFor(presentation, slide)]),
+	);
 	// Slide order first, submission order within it: the sheet reads as a walk
 	// through the deck rather than as the arrival log the store keeps.
 	const ordered = [...votes].sort((left, right) => {
@@ -846,7 +948,16 @@ function responsesSheet(
 			// organizer read on screen, and it is the only handle a row cast before
 			// the deck started asking for names has at all.
 			participantNameFor(participantNames, vote.participantId),
+			// REQ083 — which time through the deck this answer was given on. With
+			// the id it names the Participants row this answer is a cell of; a row
+			// stored before passes existed reads as the first.
+			passOf(vote),
 			described.answer,
+			// REQ085 — whether the room was kept from this answer: `true` beside the
+			// raw words the filter withheld, `false` for an answer it read and let
+			// through, and an empty cell where it read nothing — a deck with the
+			// filter off, or a slide whose answers are not free text.
+			filteredMarkFor(filterBySlideId.get(vote.slideId) ?? null, vote),
 			vote.skip,
 			vote.createdAt,
 		]);
@@ -862,7 +973,9 @@ function responsesSheet(
 			{ header: "Item", width: 28 },
 			{ header: "Participant", width: 38 },
 			{ header: "Name", width: 26 },
+			{ header: "Pass", width: 8 },
 			{ header: "Answer", width: 52 },
+			{ header: "Filtered", width: 10 },
 			{ header: "Skipped", width: 10 },
 			{ header: "Submitted at", width: 26 },
 		],
@@ -870,15 +983,29 @@ function responsesSheet(
 	};
 }
 
+/** One row's filter mark (REQ085): its verdict, or `null` where no filter read it. */
+function filteredMarkFor(
+	filter: ProfanityMatcher | null,
+	vote: StoredVote,
+): boolean | null {
+	if (!filter) return null;
+	return filter(String(vote.value ?? ""));
+}
+
 /**
- * The matrix REQ095 names: one row per participant, one column per interactive
+ * The matrix REQ095 names: one row per respondent, one column per interactive
  * slide. A participant who answered several parts of one slide — a multi-select
  * (REQ014), a per-statement scale (REQ029), a grid (REQ047) — has all of it in
  * the one cell, joined, because the column is the slide.
+ *
+ * A respondent is one device's one pass (REQ083), so a device that went through
+ * the deck twice is two rows — the same participant id and name, a different
+ * `Pass` — and each pass's answers stay in their own row rather than being
+ * joined into one cell that would read as somebody answering twice at once.
  */
 function participantsSheet(
 	slides: Slide[],
-	participantIds: string[],
+	respondents: Respondent[],
 	votes: StoredVote[],
 	participantNames: Record<string, string>,
 ): SheetModel {
@@ -886,8 +1013,8 @@ function participantsSheet(
 		.map((slide, index) => ({ slide, index }))
 		.filter(({ slide }) => isInteractiveSlideType(slide.type));
 
-	// (participantId, slideId) → the answers that participant gave on that slide.
-	const answersByParticipant = new Map<string, Map<string, string[]>>();
+	// (respondentId, slideId) → the answers that respondent gave on that slide.
+	const answersByRespondent = new Map<string, Map<string, string[]>>();
 	const slideById = new Map(slides.map((slide) => [slide.id, slide]));
 	for (const vote of votes) {
 		const slide = slideById.get(vote.slideId);
@@ -895,11 +1022,12 @@ function participantsSheet(
 		const described = describeAnswer(slide, vote);
 		const spelled = described.answer ?? (vote.skip ? "(skipped)" : null);
 		if (spelled === null) continue;
-		const bySlide = answersByParticipant.get(vote.participantId) ?? new Map();
+		const respondentId = respondentIdOf(vote);
+		const bySlide = answersByRespondent.get(respondentId) ?? new Map();
 		const cell = bySlide.get(vote.slideId) ?? [];
 		cell.push(described.item ? `${described.item}: ${spelled}` : spelled);
 		bySlide.set(vote.slideId, cell);
-		answersByParticipant.set(vote.participantId, bySlide);
+		answersByRespondent.set(respondentId, bySlide);
 	}
 
 	return {
@@ -911,16 +1039,21 @@ function participantsSheet(
 			// thing every row is guaranteed to have: a deck that asked no names, and
 			// a person who answered before it started asking, both belong on it.
 			{ header: "Name", width: 26 },
+			// REQ083 — which time through the deck this row is. A column on every
+			// export, like `Name`, because a column is a schema: on a deck that
+			// allowed no second pass it reads 1 all the way down.
+			{ header: "Pass", width: 8 },
 			...columns.map(({ slide, index }) => ({
 				header: slideLabel(slide, index),
 				width: 34,
 			})),
 		],
-		rows: participantIds.map((participantId) => {
-			const bySlide = answersByParticipant.get(participantId);
+		rows: respondents.map(({ respondentId, participantId, pass }) => {
+			const bySlide = answersByRespondent.get(respondentId);
 			return [
 				participantId,
 				participantNameFor(participantNames, participantId),
+				pass,
 				...columns.map(({ slide }) => {
 					const cell = bySlide?.get(slide.id);
 					// An explicit `null` for "this participant did not answer this

@@ -46,25 +46,40 @@
  *    and an exporter that downloaded them would be a signed-in caller making
  *    this server issue requests to an address they chose. The document prints
  *    the address instead.
- *  - **The text is set in the PDF standard fonts**, so nothing is embedded and
- *    every reader draws the file the same way. Their encoding is WinAnsi, which
- *    covers Latin-1 and no more, so text outside it is folded to its nearest
- *    unaccented form and, failing that, marked — see {@link winAnsiText}.
- *    REQ158 is the entry that widens this.
+ *  - **The text is set in embedded faces** — Noto Sans, vendored under
+ *    `server/fonts/` and subset into each export, so the file carries only the
+ *    glyphs it draws and every reader draws it the same way (REQ158). The face
+ *    covers Latin, Latin Extended, Greek and Cyrillic, so text in those scripts
+ *    reaches the page as authored. Chinese, Japanese and Korean are drawn from
+ *    a second vendored face, Sarasa Gothic, and emoji from a third, GNU
+ *    Unifont's monochrome pictographs — each chosen per run of text and
+ *    embedded only into an export that has some. What none of them has a glyph
+ *    for — Arabic, Hebrew, Devanagari, Thai and every other script — is folded
+ *    to its nearest form the faces can draw and, failing that, marked — see
+ *    {@link faceText}.
  */
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import fontkit, { type Font } from "@pdf-lib/fontkit";
 import {
 	PDFDocument,
 	type PDFFont,
 	type PDFPage,
 	rgb,
 	type RGB,
-	StandardFonts,
 } from "pdf-lib";
+import boldFacePath from "./fonts/NotoSans-Bold.ttf" with { type: "file" };
+import regularFacePath from "./fonts/NotoSans-Regular.ttf" with { type: "file" };
+import cjkFacePath from "./fonts/SarasaGothicSC-Regular.ttf" with { type: "file" };
+import emojiFacePath from "./fonts/unifont-15.0.06.ttf" with { type: "file" };
+import emojiUpperFacePath from "./fonts/unifont_upper-15.0.06.ttf" with { type: "file" };
 import {
 	aggregateRowsFor,
-	participantIdsIn,
+	filteredAnswerTextsFor,
 	participantNameFor,
+	respondentIdsIn,
+	respondentsIn,
 	type ResultsExportInput,
 	SHARE_METRIC,
 	type SheetCell,
@@ -72,7 +87,10 @@ import {
 } from "./results-export";
 import {
 	acceptedQuizAnswers,
+	countdownSecondsFor,
 	deckFilenameSlug,
+	FIRST_PASS,
+	formatCountdown,
 	formFieldsFor,
 	type GridAxis,
 	gridAxesFor,
@@ -85,6 +103,7 @@ import {
 	type Presentation,
 	quizAnswerModeFor,
 	quizTimeLimitFor,
+	respondentIdOf,
 	type Slide,
 	SLIDE_TYPE_LABELS,
 	slideHasCorrectAnswers,
@@ -328,8 +347,8 @@ function selectionRule(slide: Slide): string {
  *
  * Spelled `0 = Slow, 10 = Fast` rather than with an arrow between them, and
  * that is a rendering decision rather than a stylistic one: an arrow is not a
- * character the PDF standard fonts can encode, so it would reach the page as
- * the mark {@link winAnsiText} folds it to (the client refuses arrows as icons
+ * character the embedded face has a glyph for, so it would reach the page as
+ * the mark {@link faceText} folds it to (the client refuses arrows as icons
  * for its own reasons; here they simply cannot be drawn).
  */
 function endLabels(
@@ -373,7 +392,8 @@ function axisLine(name: string, axis: GridAxis): string {
  *
  * Every branch reads the slide through the same resolvers the live surfaces do
  * (`formFieldsFor`, `gridAxesFor`, `guessRangeFor`, `maxSelectionsFor`,
- * `quizAnswerModeFor`, `acceptedQuizAnswers`, `leaderboardSizeFor`), so a
+ * `quizAnswerModeFor`, `acceptedQuizAnswers`, `leaderboardSizeFor`,
+ * `countdownSecondsFor`), so a
  * hand-built deck's out-of-range value is folded here exactly as it is on the
  * phone rather than printed raw.
  */
@@ -556,9 +576,47 @@ export function questionBlocksFor(slide: Slide): PdfBlock[] {
 				),
 			];
 
+		case "countdown":
+			return [
+				...blocks,
+				...notes(`Counts down from ${formatCountdown(countdownSecondsFor(slide))}.`),
+			];
+
 		default:
 			return blocks;
 	}
+}
+
+/**
+ * One slide's results, as blocks: its tally, then whatever the profanity filter
+ * withheld from the room (REQ085).
+ */
+export function resultBlocksFor(
+	slide: Slide,
+	payload: SlideResultsPayload,
+): PdfBlock[] {
+	return [
+		...tallyBlocksFor(slide, payload),
+		...filteredAnswerBlocksFor(slide, payload),
+	];
+}
+
+/**
+ * The answers the profanity filter kept off the wall (REQ085), as written and
+ * under a label that says so — after the tally the room saw, never inside it,
+ * so the numbers above stay the numbers the screen drew. Nothing at all on a
+ * slide where the filter withheld nothing.
+ */
+function filteredAnswerBlocksFor(
+	slide: Slide,
+	payload: SlideResultsPayload,
+): PdfBlock[] {
+	const withheld = filteredAnswerTextsFor(slide, payload);
+	if (withheld.length === 0) return [];
+	return [
+		{ kind: "label", text: "Withheld from the room by the profanity filter" },
+		...bullets(withheld.map((text) => (text.length > 0 ? text : EMPTY_VALUE))),
+	];
 }
 
 /**
@@ -571,10 +629,7 @@ export function questionBlocksFor(slide: Slide): PdfBlock[] {
  * back per entry and drawn as bars when the aggregation published a share of
  * the whole for them, as a table when it did not.
  */
-export function resultBlocksFor(
-	slide: Slide,
-	payload: SlideResultsPayload,
-): PdfBlock[] {
+function tallyBlocksFor(slide: Slide, payload: SlideResultsPayload): PdfBlock[] {
 	const rows = aggregateRowsFor(slide, payload);
 	const blocks: PdfBlock[] = [{ kind: "label", text: "Results" }];
 
@@ -718,13 +773,18 @@ function coverSection(
  * "any name was stated" already implies the deck asked.
  *
  * Built from the **votes**, not from the roster alone, and joined the way the
- * Participants sheet is (`participantIdsIn`): the count on the cover and the
+ * Participants sheet is (`respondentsIn`): the count on the cover and the
  * rows here then answer the same question — how many people answered — so a
  * handout cannot say twelve at the front and list nine at the back. Somebody
  * who stated a name and then answered nothing is not on it, for that reason;
  * somebody who answered without stating one is, under an explicit
  * {@link EMPTY_VALUE}, because dropping them would make the page a shorter list
  * than the number beside it.
+ *
+ * A device that went through the deck more than once (REQ083) is one row per
+ * pass, for the same reason — the cover counted each pass — and the name it
+ * stated once is carried by each of them, the later ones marked with their pass
+ * so the page does not read as the same person listed twice by mistake.
  *
  * **No participant id is printed.** This codebase treats one as that
  * participant's only credential — it is what a vote, a question, a chat message
@@ -743,30 +803,34 @@ function coverSection(
 function participantsSection(input: DeckPdfInput): PdfSection | null {
 	if (!input.includeResults) return null;
 
-	const participantIds = participantIdsIn(input.votes);
-	if (participantIds.length === 0) return null;
-	const namedAnyone = participantIds.some(
-		(participantId) =>
-			participantNameFor(input.participantNames, participantId) !== null,
+	const respondents = respondentsIn(input.votes);
+	if (respondents.length === 0) return null;
+	const namedAnyone = respondents.some(
+		(respondent) =>
+			participantNameFor(input.participantNames, respondent.participantId) !==
+			null,
 	);
 	if (!namedAnyone) return null;
 
 	const answeredSlides = new Map<string, Set<string>>();
 	for (const vote of input.votes) {
-		const seen = answeredSlides.get(vote.participantId) ?? new Set<string>();
+		const respondentId = respondentIdOf(vote);
+		const seen = answeredSlides.get(respondentId) ?? new Set<string>();
 		seen.add(vote.slideId);
-		answeredSlides.set(vote.participantId, seen);
+		answeredSlides.set(respondentId, seen);
 	}
 
-	const rows = participantIds
-		.map((participantId) => ({
+	const rows = respondents
+		.map(({ respondentId, participantId, pass }) => ({
 			participantId,
+			pass,
 			name: participantNameFor(input.participantNames, participantId),
-			answered: answeredSlides.get(participantId)?.size ?? 0,
+			answered: answeredSlides.get(respondentId)?.size ?? 0,
 		}))
 		// By name, as the roster on screen is ordered (`orderParticipantRoster`) —
 		// with the unnamed rows last rather than first, since a page of dashes is
-		// not what somebody opens this section to read.
+		// not what somebody opens this section to read. One device's passes stay
+		// together, in the order they were made.
 		.sort((left, right) => {
 			if ((left.name === null) !== (right.name === null)) {
 				return left.name === null ? 1 : -1;
@@ -774,7 +838,11 @@ function participantsSection(input: DeckPdfInput): PdfSection | null {
 			const byName = (left.name ?? "").localeCompare(right.name ?? "", undefined, {
 				sensitivity: "base",
 			});
-			return byName || left.participantId.localeCompare(right.participantId);
+			return (
+				byName ||
+				left.participantId.localeCompare(right.participantId) ||
+				left.pass - right.pass
+			);
 		});
 
 	return {
@@ -789,10 +857,22 @@ function participantsSection(input: DeckPdfInput): PdfSection | null {
 			{
 				kind: "table",
 				columns: ["Name", "Slides answered"],
-				rows: rows.map((row) => [row.name ?? EMPTY_VALUE, String(row.answered)]),
+				rows: rows.map((row) => [
+					rosterLabel(row.name ?? EMPTY_VALUE, row.pass),
+					String(row.answered),
+				]),
 			},
 		],
 	};
+}
+
+/**
+ * What one roster row is called (REQ076): the stated name, and — for a device's
+ * second or later pass through the deck (REQ083) — which pass it is. A first pass
+ * is the name alone, which is every row on a deck that never allowed another.
+ */
+export function rosterLabel(name: string, pass: number): string {
+	return pass > FIRST_PASS ? `${name} (pass ${pass})` : name;
 }
 
 /**
@@ -812,8 +892,8 @@ export function buildDeckDocument(input: DeckPdfInput): PdfDocument {
 		sections: [
 			// The workbook's own reading of "how many people answered?", composed
 			// rather than re-derived, so the cover and the Summary sheet cannot come
-			// to disagree.
-			coverSection(presentation, input, participantIdsIn(input.votes).length),
+			// to disagree — each pass a device made counting once (REQ083).
+			coverSection(presentation, input, respondentIdsIn(input.votes).length),
 			// REQ076 — directly behind the cover, ahead of the slides: it is a fact
 			// about the session rather than about any one question, and the cover has
 			// just said how many people there were.
@@ -874,61 +954,283 @@ const BAR_TRACK: RGB = rgb(0.93, 0.93, 0.94);
 const LINE_HEIGHT = 1.36;
 
 /**
- * The code points the PDF standard fonts can encode: printable ASCII, the
- * Latin-1 supplement, and the typographic characters WinAnsi puts in the C1
- * range (curly quotes, dashes, the bullet, the ellipsis).
+ * The face the export is set in, as bytes: Noto Sans, regular and bold (SIL OFL
+ * 1.1 — the notice travels in `public/licenses/OFL-1.1-fonts.txt`, see
+ * `NOTICE.md` §3). It covers Latin, Latin Extended, Greek and Cyrillic.
+ *
+ * The hinted build, not the smaller unhinted one, and that is not about hinting:
+ * pdf-lib's subsetter writes the unhinted build's glyphs out unreadable — every
+ * reader tried drew blank boxes where the letters were — while the hinted build
+ * subsets cleanly. Subsetting is what keeps an export at tens of kilobytes of
+ * font rather than the whole face, so the face follows the subsetter.
+ *
+ * Imported as files so `bun build` carries them beside the bundled server; the
+ * path is resolved against this module because the bundle names it relative to
+ * itself, not to the working directory. Read when this module loads, so a server
+ * whose fonts are missing fails at boot rather than at somebody's first export.
  */
-const WIN_ANSI_EXTRAS = new Set(
-	"€‚ƒ„…†‡ˆ‰Š‹Œ Ž‘’“”•–—˜™š›œžŸ".split("").filter((character) => character !== " "),
-);
+const FACE_BYTES = {
+	regular: readFileSync(resolve(import.meta.dir, regularFacePath)),
+	bold: readFileSync(resolve(import.meta.dir, boldFacePath)),
+};
+
+/**
+ * The face Chinese, Japanese and Korean are drawn in, as bytes: Sarasa Gothic
+ * SC, regular (SIL OFL 1.1, same notice file as above). One file covers all
+ * three — Han, kana and Hangul — and its CJK glyphs are Source Han Sans', the
+ * design Noto Sans CJK is too, so it sits beside Noto Sans without a seam.
+ *
+ * One weight: a bold run draws its CJK characters in this regular face. In the
+ * Simplified Chinese orthography, so a Japanese or Korean Han character whose
+ * regional form differs is drawn in the Chinese one — legible, and the same
+ * character, but not the local glyph.
+ *
+ * Chosen for the subsetter, the way the hinted Noto Sans was.
+ * `@pdf-lib/fontkit` writes a subset's glyph offsets in the short `loca` format
+ * whenever they fit, which halves them, and does not pad the glyph records to
+ * make that exact — so a face whose glyph records have odd lengths subsets into
+ * glyphs that start a byte off, and readers draw them blank or not at all.
+ * Noto Sans CJK ships only CFF outlines, whose subsets poppler refuses outright,
+ * and Google's static Noto Sans SC / KR TTFs have odd-length records; Sarasa's
+ * hinted build goes through ttfautohint, which aligns every record, and it
+ * subsets cleanly. A face that replaces it has to pass the same check on a
+ * rendered page, and the even-offset test in `deck-pdf.schemas.test.ts`.
+ *
+ * About 24 MB, read when this module loads for the reason the faces above are.
+ * Never embedded whole: an export with no CJK in it does not embed it at all,
+ * and one that has some carries the glyphs it draws.
+ */
+const CJK_FACE_BYTES = readFileSync(resolve(import.meta.dir, cjkFacePath));
+
+/**
+ * The face emoji are drawn in, as bytes: GNU Unifont 15.0.06 (dual-licensed
+ * SIL OFL 1.1 and GPLv2+ with the font embedding exception, used under the
+ * OFL; same notice file as above). One face in two files, split where Unifont
+ * splits it: the Basic Multilingual Plane (`❤`, `✅`, `⭐`, `☕`) and the planes
+ * above it, where nearly all emoji live (`😀`, `👍`, `🎉`).
+ *
+ * Monochrome, drawn on a 16-pixel grid — each emoji is a legible black
+ * pictograph rather than the picture a phone shows, and one weight, so a bold
+ * run draws its emoji in this face as it draws its CJK in the regular one.
+ *
+ * Chosen for the subsetter, as the faces above were. The monochrome emoji faces
+ * with outline designs — Noto Emoji, in its current and its 2020 builds, and
+ * OpenMoji's black build — all have odd-length glyph records, and poppler drew
+ * them blank or in fragments; Unifont's records are all even, and it draws
+ * cleanly in poppler and macOS Quartz. 15.0.06 is its last release with
+ * TrueType outlines — later ones ship CFF only, whose subsets poppler refuses —
+ * so it draws the emoji of Unicode 15.0 and earlier. One added since (`🫩`,
+ * `🫪`) has only a hex-code placeholder in it, which is not drawn: it folds like
+ * any character no face has (see {@link isUnifontPlaceholder}).
+ *
+ * About 25 MB between the two files, read when this module loads for the reason
+ * the faces above are. Never embedded whole: an export with no emoji does not
+ * embed either file, and one that has some carries the glyphs it draws.
+ */
+const EMOJI_FACE_BYTES = [
+	readFileSync(resolve(import.meta.dir, emojiFacePath)),
+	readFileSync(resolve(import.meta.dir, emojiUpperFacePath)),
+];
+
+/**
+ * The code points both weights of the face have a glyph for. One set for both,
+ * so a run folds the same way whichever weight it is drawn in.
+ */
+const FACE_COVERAGE: ReadonlySet<number> = (() => {
+	const bold = new Set(fontkit.create(FACE_BYTES.bold).characterSet);
+	return new Set(
+		fontkit
+			.create(FACE_BYTES.regular)
+			.characterSet.filter((codePoint) => bold.has(codePoint)),
+	);
+})();
 
 /**
  * The C0 controls and DEL — whitespace and formatting, never letters. Folded to
- * a space before the encoding question is asked; see {@link winAnsiText}.
+ * a space before the coverage question is asked; see {@link faceText}.
  */
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/g;
 
-function isWinAnsi(character: string): boolean {
-	const code = character.codePointAt(0) ?? 0;
-	if (code >= 0x20 && code <= 0x7e) return true;
-	if (code >= 0xa0 && code <= 0xff) return true;
-	return WIN_ANSI_EXTRAS.has(character);
+/**
+ * Variation selectors — invisible by design, picking a glyph variant of the
+ * character before them (a Japanese name's Han variant, emoji presentation).
+ * Dropped before the fold: no face draws them, and folded on their own they
+ * would put a `?` straight after a CJK character or an emoji a face does draw.
+ */
+const VARIATION_SELECTORS = /[︀-️\u{E0100}-\u{E01EF}]/gu;
+
+/**
+ * The parts of an emoji sequence that only join, colour or enclose the emoji
+ * around them, dropped for the reason variation selectors are: the zero-width
+ * joiner, the five skin tones, the enclosing keycap, and the tag characters that
+ * spell a subdivision flag after `🏴` (England's is `🏴` and `gbeng` in tags).
+ *
+ * The emoji face draws no ligatures, so a joiner has nothing to join, and the
+ * shaping pass `drawText` makes swaps it for a space glyph — a gap on the page
+ * and a space in copied text, where the width measured was zero. The face is
+ * monochrome, so a tone has nothing to show: Unifont draws one standing alone as
+ * a swatch, which after a `👋` would read as a stray box. Its keycap is a mark
+ * with no width that is drawn a full emoji's width back from where it stands, so
+ * after a digit narrower than that it boxes the space or the character before
+ * it too. Tags are invisible by design. What they joined, coloured or enclosed
+ * is drawn plain: a family as its members side by side, `👋🏽` as `👋`, a keycap
+ * as its digit, England's flag as `🏴`. Dropping the joiner everywhere costs
+ * nothing elsewhere: the scripts that use it outside emoji are ones no face
+ * draws, which fold whole.
+ */
+const EMOJI_SEQUENCE_MARKS = /[\u200D\u20E3\u{1F3FB}-\u{1F3FF}\u{E0020}-\u{E007F}]/gu;
+
+function isInFace(character: string): boolean {
+	return FACE_COVERAGE.has(character.codePointAt(0) ?? 0);
 }
 
 /**
- * Fold text into what the standard fonts can draw.
+ * The characters of the Chinese, Japanese and Korean writing systems: Han,
+ * kana, Hangul and Bopomofo, with the punctuation Unicode files under those
+ * scripts (`、`, `。`, `「」`, `ー`); the rest of the CJK Symbols and Punctuation
+ * block; and the full-width punctuation CJK text is typed with (`，`, `？`,
+ * `（）`). Not the full-width letters and digits: `Ａ` and `１` still fold to
+ * the `A` and `1` the text face draws.
+ */
+const CJK_SCRIPT =
+	/[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Hangul}\p{scx=Bopomofo}　-〿！-／：-＠［-｀｛-･]/u;
+
+/**
+ * Emoji: the pictographs (`\p{Extended_Pictographic}` — `😀`, `❤`, `✈`), and
+ * the characters drawn as emoji by default (`\p{Emoji_Presentation}`, which adds
+ * the regional indicators a flag is spelled in). Not the digits, `#` and `*` a
+ * keycap encloses, which the text face draws.
+ */
+const EMOJI = /[\p{Extended_Pictographic}\p{Emoji_Presentation}]/u;
+
+/**
+ * A face a character is drawn in when the text face has no glyph for it: its
+ * bytes, embedded only into a document that needs them, and the code points it
+ * draws.
+ */
+type FallbackFace = { bytes: Buffer; coverage: ReadonlySet<number> };
+
+/**
+ * The code points of `bytes` that `draws` admits, and only those.
  *
- * Three steps, weakest loss first. A character WinAnsi has is kept. One it does
- * not is decomposed and stripped of its combining marks — which is what carries
- * most of Latin Extended-A through, so `č` prints as `c` and `ą` as `a` rather
- * than as nothing. What survives neither is a script these fonts cannot express
- * at all, and a run of it collapses to a single `?`: seven question marks in a
- * row say no more than one does, and the alternative — `drawText` throwing on
- * the first character it cannot encode — would fail the whole export over one
- * word somebody typed. REQ158 is the entry that replaces this with an embedded
- * face.
+ * Each fallback face has Latin, arrows and symbols too, and drawing those from
+ * it would set a deck's Latin text in two designs at once and widen what that
+ * face is for; outside its own set the fold decides, as it did before.
+ */
+function fallbackFace(
+	bytes: Buffer,
+	draws: (face: Font, codePoint: number) => boolean,
+): FallbackFace {
+	const face = fontkit.create(bytes);
+	return {
+		bytes,
+		coverage: new Set(face.characterSet.filter((codePoint) => draws(face, codePoint))),
+	};
+}
+
+/**
+ * The outline of a solid square filling Unifont's whole cell, from its top-left
+ * corner (0, 832) to its bottom-right (1024, -64), as fontkit writes it.
+ */
+const UNIFONT_PLACEHOLDER_CELL = "M0 832Q0 832 0 -64L1024 -64Q1024 -64 1024 832Z";
+
+/**
+ * Whether Unifont's glyph for `codePoint` is a placeholder rather than a
+ * drawing: the code point's hex digits knocked out of a solid square.
+ *
+ * Unifont maps every code point of its planes, and 15.0.06 has a drawing only
+ * for what Unicode had assigned by 15.0. The rest is mapped too, to that square
+ * — every reserved code point in the emoji blocks, and the emoji Unicode 16.0
+ * and 17.0 added later (`🫩`, `🫪`, …) — so a cmap lookup says the face draws
+ * them, and the page would show `01F` over `AE9` where an emoji was written. No
+ * emoji drawing in either file traces the whole cell, so the square is the
+ * test; a placeholder's code point is left out of the face and folds like any
+ * other character no face has.
+ */
+function isUnifontPlaceholder(face: Font, codePoint: number): boolean {
+	return face.glyphForCodePoint(codePoint).path.toSVG().includes(UNIFONT_PLACEHOLDER_CELL);
+}
+
+/**
+ * The fallback faces, in the order a character is offered to them: the CJK
+ * face first, so the few characters both it and the emoji face claim (`〰`,
+ * `㊗`) are drawn as they were before the emoji face existed, then the emoji
+ * face's two files.
+ */
+const FALLBACK_FACES: readonly FallbackFace[] = [
+	fallbackFace(CJK_FACE_BYTES, (_face, codePoint) =>
+		CJK_SCRIPT.test(String.fromCodePoint(codePoint)),
+	),
+	...EMOJI_FACE_BYTES.map((bytes) =>
+		fallbackFace(
+			bytes,
+			(face, codePoint) =>
+				EMOJI.test(String.fromCodePoint(codePoint)) && !isUnifontPlaceholder(face, codePoint),
+		),
+	),
+];
+
+/** The fallback face that draws `character`, if one does. */
+function fallbackFaceFor(character: string): FallbackFace | undefined {
+	const codePoint = character.codePointAt(0) ?? 0;
+	return FALLBACK_FACES.find((face) => face.coverage.has(codePoint));
+}
+
+function isDrawable(character: string): boolean {
+	return isInFace(character) || fallbackFaceFor(character) !== undefined;
+}
+
+/**
+ * Fold text into what the embedded faces can draw.
+ *
+ * Composed first (NFC), so a letter typed as base-plus-accent is drawn from the
+ * face's own precomposed glyph rather than as two glyphs stacked by guesswork.
+ * Then three steps, weakest loss first. A character any face has is kept — all
+ * of Latin, Latin Extended, Greek and Cyrillic from Noto Sans, so `ł`, `č`, `Ω`
+ * and `Ї` print as authored, Chinese, Japanese and Korean from the CJK face,
+ * and emoji from the emoji face. One none has is decomposed and stripped of its
+ * combining marks, keeping whatever of it they can draw — a full-width `Ａ`
+ * prints as `A`. What survives none is a script these faces cannot express at
+ * all — Arabic, Hebrew, Devanagari, Thai and every other script beyond the ones
+ * above, and an emoji newer than Unicode 15.0 — and a run of it collapses to
+ * a single `?`: seven question marks in a row say no more than one does, and
+ * the alternative — `drawText` drawing a blank box, or throwing on a character
+ * it cannot encode — would put nothing legible on the page, or fail the whole
+ * export over one word somebody typed.
+ *
+ * An emoji written as a sequence is drawn as its parts, each from the face that
+ * has it: the face draws no ligatures, so a family joined by zero-width joiners
+ * prints as its members side by side, a flag as the two boxed letters of its
+ * regional indicators, and a keycap as its digit. Joiners, skin tones, keycaps
+ * and flag tags are dropped with the variation selectors, before any of this —
+ * see {@link EMOJI_SEQUENCE_MARKS}.
+ *
+ * Which face draws what this keeps is {@link fontFor}'s question, not this one's.
  *
  * Control characters are **whitespace, not an unencodable script**, and are
  * folded to a space before any of that: a tab is ordinary in an indented
  * markdown list and a stray `\r` rides every CRLF-authored deck, and neither is
- * a character somebody meant to print. Read as "not in WinAnsi" they would come
- * out as a literal `?` in the middle of a sentence; read as space they are
+ * a character somebody meant to print. Read as "not in the face" they would
+ * come out as a literal `?` in the middle of a sentence; read as space they are
  * collapsed by the wrapper's own whitespace split, which is what they are.
  */
-export function winAnsiText(text: string): string {
+export function faceText(text: string): string {
 	let output = "";
 	let dropped = false;
-	for (const character of text.replace(CONTROL_CHARACTERS, " ")) {
-		if (isWinAnsi(character)) {
+	const visible = text
+		.replace(CONTROL_CHARACTERS, " ")
+		.replace(VARIATION_SELECTORS, "")
+		.replace(EMOJI_SEQUENCE_MARKS, "");
+	for (const character of visible.normalize("NFC")) {
+		if (isDrawable(character)) {
 			output += character;
 			dropped = false;
 			continue;
 		}
-		const folded = character
-			.normalize("NFKD")
-			.replace(/\p{M}/gu, "")
-			.split("")
-			.filter(isWinAnsi)
+		const folded = Array.from(
+			character.normalize("NFKD").replace(/\p{M}/gu, ""),
+		)
+			.filter(isDrawable)
 			.join("");
 		if (folded.length > 0) {
 			output += folded;
@@ -942,10 +1244,107 @@ export function winAnsiText(text: string): string {
 }
 
 /**
+ * One weight of the text face, and the fallback faces the rest of its
+ * characters are drawn in — only those the document needs, so one with no CJK
+ * or no emoji does not embed that face at all (see {@link renderDeckDocument}).
+ */
+type Typeface = { text: PDFFont; fallbacks: ReadonlyMap<FallbackFace, PDFFont> };
+
+/**
+ * The font a character is drawn in: the text face for whatever it has, and the
+ * fallback face that has it for the rest of what {@link faceText} kept — which,
+ * past that fold, is only ever CJK or emoji.
+ */
+function fontFor(character: string, typeface: Typeface): PDFFont {
+	if (isInFace(character)) return typeface.text;
+	const fallback = fallbackFaceFor(character);
+	return (fallback && typeface.fallbacks.get(fallback)) ?? typeface.text;
+}
+
+/**
+ * Split text into the runs each face draws — `drawText` takes one font, so a
+ * line that mixes scripts is drawn as several calls at advancing x.
+ */
+function faceRuns(
+	text: string,
+	typeface: Typeface,
+): { text: string; font: PDFFont }[] {
+	const runs: { text: string; font: PDFFont }[] = [];
+	for (const character of text) {
+		const font = fontFor(character, typeface);
+		const current = runs.at(-1);
+		if (current !== undefined && current.font === font) {
+			current.text += character;
+		} else {
+			runs.push({ text: character, font });
+		}
+	}
+	return runs;
+}
+
+/** Each typeface's width of every character it has measured, at size 1. */
+const CHARACTER_WIDTHS = new WeakMap<Typeface, Map<string, number>>();
+
+/**
+ * How wide `text` is drawn in `typeface` at `size` — the sum of its characters'
+ * widths, each asked of `pdf-lib` once per typeface, in the face that character
+ * is drawn in, and remembered.
+ *
+ * Not `widthOfTextAtSize` on the whole string, because for an embedded face that
+ * runs the font's full shaping pass over every character it is handed, and the
+ * wrapper below measures the same text many times over: a 160,000-character run
+ * took 6.8s to render that way, against half a second with the standard fonts.
+ * Summed per character it is a table lookup, and the same render takes 0.9s,
+ * most of it the one shaping pass `drawText` makes per line. The faces draw each
+ * character with its own advance — no kerning reaches the page — so the sum is
+ * the width `drawText` puts down, and a line drawn from two faces is measured
+ * per segment, each in its own face, by the same sum.
+ */
+function textWidth(text: string, typeface: Typeface, size: number): number {
+	let widths = CHARACTER_WIDTHS.get(typeface);
+	if (!widths) {
+		widths = new Map();
+		CHARACTER_WIDTHS.set(typeface, widths);
+	}
+	let total = 0;
+	for (const character of text) {
+		let width = widths.get(character);
+		if (width === undefined) {
+			width = fontFor(character, typeface).widthOfTextAtSize(character, 1);
+			widths.set(character, width);
+		}
+		total += width;
+	}
+	return total * size;
+}
+
+/**
+ * Draw one line of folded text, each run in the face that has it, starting at
+ * `x` and advancing by what each run measured.
+ */
+function drawFaceText(
+	page: PDFPage,
+	text: string,
+	options: { x: number; y: number; size: number; font: Typeface; color: RGB },
+): void {
+	let x = options.x;
+	for (const run of faceRuns(text, options.font)) {
+		page.drawText(run.text, {
+			x,
+			y: options.y,
+			size: options.size,
+			font: run.font,
+			color: options.color,
+		});
+		x += textWidth(run.text, options.font, options.size);
+	}
+}
+
+/**
  * How much of `text` fits in `width` — the longest prefix, never fewer than one
  * character so a caller breaking a run into chunks always advances.
  *
- * **Binary search, not a walk down from the end.** `widthOfTextAtSize` measures
+ * **Binary search, not a walk down from the end.** {@link textWidth} measures
  * the whole string it is handed, so probing one character at a time costs
  * O(n) measurements of O(n) each. Bun serves on one thread, so a quadratic wrap
  * here is not a slow request but a wedged process: measured before this was a
@@ -956,10 +1355,14 @@ export function winAnsiText(text: string): string {
  * emitted, is Θ(n²·log n) again. What bounds it is the caller — `wrapLine`
  * hands this a window of {@link WRAP_PROBE_CHARACTERS}, never the whole tail —
  * so `text` here is short by construction and the two together are linear.
+ *
+ * Counted in UTF-16 units, so the answer is moved off the middle of a surrogate
+ * pair: the face draws a few letters beyond the Basic Multilingual Plane, and a
+ * pair broken across two lines would print as two boxes.
  */
 function fittingPrefix(
 	text: string,
-	font: PDFFont,
+	typeface: Typeface,
 	size: number,
 	width: number,
 ): number {
@@ -967,11 +1370,15 @@ function fittingPrefix(
 	let high = text.length;
 	while (low < high) {
 		const middle = Math.ceil((low + high) / 2);
-		if (font.widthOfTextAtSize(text.slice(0, middle), size) <= width) {
+		if (textWidth(text.slice(0, middle), typeface, size) <= width) {
 			low = middle;
 		} else {
 			high = middle - 1;
 		}
+	}
+	const last = text.charCodeAt(low - 1);
+	if (low < text.length && last >= 0xd800 && last <= 0xdbff) {
+		return low > 1 ? low - 1 : low + 1;
 	}
 	return low;
 }
@@ -998,7 +1405,7 @@ const WRAP_PROBE_CHARACTERS = 64;
 /** Break one line into as many as it takes to fit `width`. */
 function wrapLine(
 	text: string,
-	font: PDFFont,
+	typeface: Typeface,
 	size: number,
 	width: number,
 ): string[] {
@@ -1010,7 +1417,7 @@ function wrapLine(
 		// unmeasured — the first on a line — is never measured. It is the only
 		// candidate here that can be arbitrarily long, and measuring it would be an
 		// O(n) pass whose answer is discarded.
-		if (current.length === 0 || font.widthOfTextAtSize(candidate, size) <= width) {
+		if (current.length === 0 || textWidth(candidate, typeface, size) <= width) {
 			current = candidate;
 			continue;
 		}
@@ -1037,11 +1444,11 @@ function wrapLine(
 		let windowSize = WRAP_PROBE_CHARACTERS;
 		while (start < line.length) {
 			let windowText = line.slice(start, start + windowSize);
-			let cut = fittingPrefix(windowText, font, size, width);
+			let cut = fittingPrefix(windowText, typeface, size, width);
 			while (cut === windowText.length && start + windowText.length < line.length) {
 				windowSize *= 2;
 				windowText = line.slice(start, start + windowSize);
-				cut = fittingPrefix(windowText, font, size, width);
+				cut = fittingPrefix(windowText, typeface, size, width);
 			}
 			broken.push(windowText.slice(0, cut));
 			start += cut;
@@ -1050,7 +1457,23 @@ function wrapLine(
 	return broken.length > 0 ? broken : [""];
 }
 
-type Fonts = { regular: PDFFont; bold: PDFFont };
+/**
+ * The export's line breaking alone, for body text across the content column,
+ * without drawing a line of it — so the linear-time test (REQ096) can time the
+ * wrap by itself. A render's wall-clock cannot: drawing shapes every line in
+ * Noto Sans (REQ158), a linear cost large enough to hide a quadratic wrap.
+ */
+export async function bodyTextWrapper(): Promise<(text: string) => string[]> {
+	const document = await PDFDocument.create();
+	document.registerFontkit(fontkit);
+	const typeface: Typeface = {
+		text: await document.embedFont(FACE_BYTES.regular, { subset: true }),
+		fallbacks: new Map(),
+	};
+	return (text) => wrapLine(text, typeface, 11, CONTENT_WIDTH);
+}
+
+type Fonts = { regular: Typeface; bold: Typeface };
 
 /**
  * How long the renderer works before it hands the thread back (REQ213).
@@ -1116,7 +1539,7 @@ function createFlow(
 		lines: string[],
 		options: {
 			size: number;
-			font: PDFFont;
+			font: Typeface;
 			color: RGB;
 			indent?: number;
 			gapBefore?: number;
@@ -1127,7 +1550,7 @@ function createFlow(
 		cursorY -= options.gapBefore ?? 0;
 		for (const line of lines) {
 			const target = fit(step);
-			target.drawText(line, {
+			drawFaceText(target, line, {
 				x: MARGIN_X + (options.indent ?? 0),
 				y: cursorY - options.size,
 				size: options.size,
@@ -1156,7 +1579,7 @@ function createFlow(
 			body: string,
 			options: {
 				size: number;
-				font: PDFFont;
+				font: Typeface;
 				color: RGB;
 				indent?: number;
 				gapBefore?: number;
@@ -1169,7 +1592,7 @@ function createFlow(
 				.flatMap((line) =>
 					line.trim().length === 0
 						? [""]
-						: wrapLine(winAnsiText(line), options.font, options.size, width),
+						: wrapLine(faceText(line), options.font, options.size, width),
 				);
 			text(lines, options);
 		},
@@ -1198,7 +1621,7 @@ function createFlow(
 			const labelWidth = 150;
 			const step = 10 * LINE_HEIGHT;
 			const valueLines = wrapLine(
-				winAnsiText(fact.value),
+				faceText(fact.value),
 				fonts.regular,
 				10,
 				CONTENT_WIDTH - labelWidth,
@@ -1207,7 +1630,7 @@ function createFlow(
 				const target = fit(step);
 				// The label rides the value's first line, so a break carries both.
 				if (index === 0) {
-					target.drawText(winAnsiText(fact.label), {
+					drawFaceText(target, faceText(fact.label), {
 						x: MARGIN_X,
 						y: cursorY - 10,
 						size: 9.5,
@@ -1215,7 +1638,7 @@ function createFlow(
 						color: MUTED,
 					});
 				}
-				target.drawText(line, {
+				drawFaceText(target, line, {
 					x: MARGIN_X + labelWidth,
 					y: cursorY - 10,
 					size: 10,
@@ -1236,23 +1659,23 @@ function createFlow(
 		 */
 		bar(bar: PdfBar): void {
 			const shareText = bar.share === null ? EMPTY_VALUE : `${bar.share}%`;
-			const shareWidth = fonts.bold.widthOfTextAtSize(shareText, 9.5) + 8;
+			const shareWidth = textWidth(shareText, fonts.bold, 9.5) + 8;
 			const labelStep = 10 * LINE_HEIGHT;
 			const captionStep = 8.5 * LINE_HEIGHT;
 			const labelLines = wrapLine(
-				winAnsiText(bar.label),
+				faceText(bar.label),
 				fonts.regular,
 				10,
 				CONTENT_WIDTH - shareWidth,
 			);
 			const captionLines =
 				bar.caption.length > 0
-					? wrapLine(winAnsiText(bar.caption), fonts.regular, 8.5, CONTENT_WIDTH)
+					? wrapLine(faceText(bar.caption), fonts.regular, 8.5, CONTENT_WIDTH)
 					: [];
 
 			labelLines.forEach((line, index) => {
 				const target = fit(labelStep);
-				target.drawText(line, {
+				drawFaceText(target, line, {
 					x: MARGIN_X,
 					y: cursorY - 10,
 					size: 10,
@@ -1261,7 +1684,7 @@ function createFlow(
 				});
 				// The share rides the label's first line, so a break carries both.
 				if (index === 0) {
-					target.drawText(shareText, {
+					drawFaceText(target, shareText, {
 						x: PAGE_WIDTH - MARGIN_X - shareWidth + 8,
 						y: cursorY - 10,
 						size: 9.5,
@@ -1294,7 +1717,7 @@ function createFlow(
 
 			for (const line of captionLines) {
 				const target = fit(captionStep);
-				target.drawText(line, {
+				drawFaceText(target, line, {
 					x: MARGIN_X,
 					y: cursorY - 8.5,
 					size: 8.5,
@@ -1330,13 +1753,13 @@ function createFlow(
 				// Truncated to one line those two columns both read `Average`, which
 				// is worse than the bare numbers this heading exists to explain.
 				const headings = columns.map((column, index) =>
-					wrapLine(winAnsiText(column), fonts.bold, 9, widthOf(index) - 6),
+					wrapLine(faceText(column), fonts.bold, 9, widthOf(index) - 6),
 				);
 				const lineCount = Math.max(...headings.map((lines) => lines.length), 1);
 				const target = fit(lineCount * 9 * LINE_HEIGHT + 6);
 				headings.forEach((lines, index) => {
 					lines.forEach((line, lineIndex) => {
-						target.drawText(line, {
+						drawFaceText(target, line, {
 							x: xOf(index),
 							y: cursorY - 9 - lineIndex * 9 * LINE_HEIGHT,
 							size: 9,
@@ -1359,7 +1782,7 @@ function createFlow(
 			for (const row of rows) {
 				await yieldIfDue();
 				const cells = row.map((cell, index) =>
-					wrapLine(winAnsiText(cell), fonts.regular, 9.5, widthOf(index) - 6),
+					wrapLine(faceText(cell), fonts.regular, 9.5, widthOf(index) - 6),
 				);
 				const lineCount = Math.max(...cells.map((lines) => lines.length), 1);
 				const height = lineCount * 9.5 * LINE_HEIGHT + 3;
@@ -1375,7 +1798,7 @@ function createFlow(
 				}
 				cells.forEach((lines, index) => {
 					lines.forEach((line, lineIndex) => {
-						target.drawText(line, {
+						drawFaceText(target, line, {
 							x: xOf(index),
 							y: cursorY - 9.5 - lineIndex * 9.5 * LINE_HEIGHT,
 							size: 9.5,
@@ -1392,6 +1815,30 @@ function createFlow(
 }
 
 /**
+ * The fallback faces anything the document draws comes from — asked before
+ * drawing, because embedding is asynchronous and the flow is not, and asked so
+ * that a document without CJK or without emoji embeds no such face at all: even
+ * an empty subset of the CJK face carries its hinting programs, about 9 KB.
+ *
+ * Read off the model serialised whole, so a block kind added later is covered
+ * without this being edited, and through the very fold the drawing makes, so a
+ * face is in the answer exactly when some character reaches {@link fontFor}
+ * needing it. `JSON.stringify` writes every drawable character through as itself
+ * (it escapes only ASCII controls and lone surrogates, which fold anyway), and
+ * the one transform the renderer adds, upper-casing a label, never produces a
+ * CJK character or an emoji.
+ */
+function fallbackFacesDrawn(model: PdfDocument): ReadonlySet<FallbackFace> {
+	const faces = new Set<FallbackFace>();
+	for (const character of faceText(JSON.stringify(model))) {
+		if (isInFace(character)) continue;
+		const fallback = fallbackFaceFor(character);
+		if (fallback) faces.add(fallback);
+	}
+	return faces;
+}
+
+/**
  * Turn a document model into PDF bytes.
  *
  * The only place `pdf-lib` is used. Nothing here reads a slide, a vote or an
@@ -1403,9 +1850,20 @@ export async function renderDeckDocument(
 	const document = await PDFDocument.create();
 	document.setProducer("omul");
 	document.setCreator("omul");
+	document.registerFontkit(fontkit);
+	const fallbacks = new Map<FallbackFace, PDFFont>();
+	for (const fallback of fallbackFacesDrawn(model)) {
+		fallbacks.set(fallback, await document.embedFont(fallback.bytes, { subset: true }));
+	}
 	const fonts: Fonts = {
-		regular: await document.embedFont(StandardFonts.Helvetica),
-		bold: await document.embedFont(StandardFonts.HelveticaBold),
+		regular: {
+			text: await document.embedFont(FACE_BYTES.regular, { subset: true }),
+			fallbacks,
+		},
+		bold: {
+			text: await document.embedFont(FACE_BYTES.bold, { subset: true }),
+			fallbacks,
+		},
 	};
 	const yieldIfDue = createYielder(RENDER_SLICE_MS);
 	const flow = createFlow(document, fonts, yieldIfDue);
@@ -1502,25 +1960,25 @@ export async function renderDeckDocument(
 	// The running footer is written last, because "page 3 of 11" is not knowable
 	// while page 3 is being filled.
 	const pages = document.getPages();
-	const footer = winAnsiText(model.footer);
+	const footer = faceText(model.footer);
 	for (const [index, page] of pages.entries()) {
 		await yieldIfDue();
 		const counter = `${index + 1} / ${pages.length}`;
-		const counterWidth = fonts.regular.widthOfTextAtSize(counter, 8.5);
+		const counterWidth = textWidth(counter, fonts.regular, 8.5);
 		const footerText = wrapLine(
 			footer,
 			fonts.regular,
 			8.5,
 			CONTENT_WIDTH - counterWidth - 16,
 		)[0];
-		page.drawText(footerText, {
+		drawFaceText(page, footerText, {
 			x: MARGIN_X,
 			y: MARGIN_BOTTOM - 26,
 			size: 8.5,
 			font: fonts.regular,
 			color: DIM,
 		});
-		page.drawText(counter, {
+		drawFaceText(page, counter, {
 			x: PAGE_WIDTH - MARGIN_X - counterWidth,
 			y: MARGIN_BOTTOM - 26,
 			size: 8.5,

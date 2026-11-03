@@ -23,11 +23,14 @@
 // operation is dispatched so they are identical across every replica.
 
 import {
+	COUNTDOWN_DEFAULT_SECONDS,
 	DEFAULT_DECK_THEME,
 	EMPTY_DECK_BRAND,
 	effectiveResultsVisibility,
 	LEADERBOARD_DEFAULT_SIZE,
 	PIN_COORDINATE_MAX,
+	SLIDE_LIMIT,
+	withFreshSlideIds,
 	withInheritedResultsVisibility,
 } from "../types";
 import type {
@@ -37,6 +40,7 @@ import type {
 	FormFieldOptionInput,
 	FormFieldType,
 	GridItem,
+	ParticipantLanguage,
 	PinAreaInput,
 	PointsItem,
 	PresentationMode,
@@ -55,6 +59,13 @@ export interface EditorDocument {
 	title: string;
 	language: string;
 	mode: PresentationMode;
+	/**
+	 * Whether one device may go through the deck more than once, each pass kept
+	 * as its own set of answers (REQ083). Authored beside the pace, which is the
+	 * only thing it depends on: on a presenter-paced deck it is stored but not in
+	 * effect.
+	 */
+	allowRepeatPasses: boolean;
 	/** Deck-level default for results visibility; each slide may override it. */
 	resultsVisibility: ResultsVisibility;
 	/**
@@ -77,6 +88,19 @@ export interface EditorDocument {
 	 * door, and no slide can ask it for itself.
 	 */
 	requireParticipantName: boolean;
+	/**
+	 * Whether only signed-in people may join this deck (REQ134). Deck-level and
+	 * asked at the same door as the name, and the one switch here the server
+	 * enforces against an account rather than taking the room's word for it.
+	 */
+	requireParticipantSignIn: boolean;
+	/**
+	 * Whether the room's free text is held against a word list (REQ085), and
+	 * which language's — `null` follows the deck's `language`. Deck-level, because
+	 * what may reach the wall is a decision about the whole room's answers.
+	 */
+	profanityFilterEnabled: boolean;
+	profanityFilterLanguage: ParticipantLanguage | null;
 	/**
 	 * The theme the deck is drawn in (REQ079/REQ080) — a built-in one, or the one
 	 * authored in `themeBrand` — and the organizer's own mark (REQ136), an image
@@ -110,6 +134,15 @@ export type EditorOperation =
 	| { type: "remove-slide"; slideId: string }
 	| { type: "move-slide"; slideId: string; direction: -1 | 1 }
 	| { type: "reorder-slide"; slideId: string; toIndex: number }
+	// REQ127 — several slides in one operation. Each is a single variant rather
+	// than a run of single-slide ones, so a CRDT binding sees the bulk change as
+	// the one intent it was and nothing is ever applied halfway.
+	| { type: "move-slides"; slideIds: string[]; direction: -1 | 1 }
+	| { type: "set-slides-skipped"; slideIds: string[]; skipped: boolean }
+	| { type: "remove-slides"; slideIds: string[] }
+	// The copies arrive built (see `copySlidesOperation`) and land as one block
+	// right after `afterSlideId`, the last slide of the selection they copy.
+	| { type: "copy-slides"; afterSlideId: string; copies: Slide[] }
 	| { type: "add-option"; slideId: string; option: SlideOption }
 	| {
 			type: "update-option";
@@ -122,14 +155,15 @@ export type EditorOperation =
 /**
  * A blank answer option for a choice slide. Choice slides carry an explicit
  * `isCorrect: false` because either type can have its solution marked (REQ013);
- * any other slide type has no options at all, so the flag stays absent.
+ * any other slide type has no options at all, so the flag stays `null` — the
+ * schema's declared "never marked" (REQ184).
  */
 export function newOption(type: SlideType): SlideOption {
 	const isChoice = type === "multiple-choice" || type === "quiz";
 	return {
 		id: crypto.randomUUID(),
 		text: "",
-		isCorrect: isChoice ? false : undefined,
+		isCorrect: isChoice ? false : null,
 	};
 }
 
@@ -363,6 +397,11 @@ export function newSlide(type: SlideType): Slide {
 		// and even loosened it only publishes counts.
 		slide.resultsVisibility = FORM_RESULTS_VISIBILITY;
 	}
+	if (type === "countdown") {
+		// One minute (REQ107) — the length the schema defaults to, seeded so the
+		// length field opens on the number the clock will actually show.
+		slide.countdownSeconds = COUNTDOWN_DEFAULT_SECONDS;
+	}
 	if (type === "leaderboard") {
 		// The top five (REQ059) — the board's default size, seeded so the setting
 		// opens on the number the slide actually shows rather than on nothing.
@@ -387,6 +426,9 @@ export function blankDocument(): EditorDocument {
 		title: "",
 		language: "en",
 		mode: "live",
+		// REQ083 — one set of answers per device, the default the schema and the
+		// create endpoint hold.
+		allowRepeatPasses: false,
 		resultsVisibility: "instant",
 		qaEnabled: false,
 		qaVisibility: "presenter",
@@ -398,6 +440,12 @@ export function blankDocument(): EditorDocument {
 		// the schema and the create endpoint hold and the only one that fails safe:
 		// a deck that was never authored to collect names collects none.
 		requireParticipantName: false,
+		// REQ134 — a fresh deck lets anybody in, the default the schema holds.
+		requireParticipantSignIn: false,
+		// REQ085 — off, and following the deck's language once switched on: the
+		// defaults the schema and the create endpoint hold.
+		profanityFilterEnabled: false,
+		profanityFilterLanguage: null,
 		// The house theme, no authored brand and no logo — what an unstated theme
 		// means everywhere else too, read from the schema rather than restated here
 		// (REQ079/REQ080/REQ136).
@@ -453,6 +501,79 @@ function reorderSlideById(
 	const [moved] = next.splice(fromIndex, 1);
 	next.splice(target, 0, moved);
 	return next;
+}
+
+/**
+ * Move the slides carrying `slideIds` one step as a single block (REQ127): they
+ * keep their relative order and close up behind the first of them, and the block
+ * lands one position up or down from where that first slide stood among the
+ * others. A selection with gaps is therefore gathered as it moves. Returns the
+ * input array itself when nothing would change — the block is already at that
+ * end, or no id matches — so a caller can ask whether a move is possible by
+ * identity.
+ */
+export function moveSlideBlock(
+	slides: Slide[],
+	slideIds: readonly string[],
+	direction: -1 | 1,
+): Slide[] {
+	const moving = new Set(slideIds);
+	const block = slides.filter((slide) => moving.has(slide.id));
+	if (block.length === 0) return slides;
+	const rest = slides.filter((slide) => !moving.has(slide.id));
+	// Every slide ahead of the block's first is one of the rest, so its index is
+	// also how many of the rest stand before the block.
+	const firstIndex = slides.indexOf(block[0]);
+	const target = Math.max(0, Math.min(firstIndex + direction, rest.length));
+	const next = [...rest.slice(0, target), ...block, ...rest.slice(target)];
+	const unchanged = next.every((slide, index) => slide === slides[index]);
+	return unchanged ? slides : next;
+}
+
+/**
+ * Whether removing the slides carrying `slideIds` leaves the deck at least one
+ * slide (REQ127) — the floor `remove-slide` holds, asked of a selection.
+ */
+export function canRemoveSlides(
+	slides: readonly Slide[],
+	slideIds: readonly string[],
+): boolean {
+	const removing = new Set(slideIds);
+	const matched = slides.filter((slide) => removing.has(slide.id)).length;
+	return matched > 0 && matched < slides.length;
+}
+
+/**
+ * Whether copying the slides carrying `slideIds` stays inside the deck's slide
+ * cap (REQ127/REQ159) — the ceiling `addSlide` holds, asked of a selection.
+ */
+export function canCopySlides(
+	slides: readonly Slide[],
+	slideIds: readonly string[],
+): boolean {
+	const copying = new Set(slideIds);
+	const matched = slides.filter((slide) => copying.has(slide.id)).length;
+	return matched > 0 && slides.length + matched <= SLIDE_LIMIT;
+}
+
+/**
+ * The `copy-slides` operation for the slides carrying `slideIds` (REQ127): the
+ * selection in deck order, re-identified by `withFreshSlideIds` — the one
+ * definition of a copy — before anything is dispatched, so every replica lands
+ * the same ids. `null` when no id matches, which is nothing to copy.
+ */
+export function copySlidesOperation(
+	slides: readonly Slide[],
+	slideIds: readonly string[],
+): Extract<EditorOperation, { type: "copy-slides" }> | null {
+	const copying = new Set(slideIds);
+	const selection = slides.filter((slide) => copying.has(slide.id));
+	if (selection.length === 0) return null;
+	return {
+		type: "copy-slides",
+		afterSlideId: selection[selection.length - 1].id,
+		copies: withFreshSlideIds(selection),
+	};
 }
 
 /**
@@ -535,6 +656,58 @@ export function applyEditorOperation(
 					operation.toIndex,
 				),
 			};
+
+		case "move-slides": {
+			const slides = moveSlideBlock(
+				document.slides,
+				operation.slideIds,
+				operation.direction,
+			);
+			return slides === document.slides ? document : { ...document, slides };
+		}
+
+		case "set-slides-skipped": {
+			const skipping = new Set(operation.slideIds);
+			return {
+				...document,
+				slides: document.slides.map((slide) =>
+					skipping.has(slide.id)
+						? { ...slide, skipped: operation.skipped }
+						: slide,
+				),
+			};
+		}
+
+		case "remove-slides": {
+			// All or nothing: a selection covering every slide is refused whole
+			// rather than trimmed to leave one, so the deck never empties and the
+			// author is never left with a deletion they did not ask for.
+			if (!canRemoveSlides(document.slides, operation.slideIds)) {
+				return document;
+			}
+			const removing = new Set(operation.slideIds);
+			return {
+				...document,
+				slides: document.slides.filter((slide) => !removing.has(slide.id)),
+			};
+		}
+
+		case "copy-slides": {
+			// Anchored on a slide id rather than an index, so a copy merged after
+			// another editor's move still lands behind the slide it followed.
+			const anchorIndex = document.slides.findIndex(
+				(slide) => slide.id === operation.afterSlideId,
+			);
+			if (anchorIndex === -1 || operation.copies.length === 0) return document;
+			return {
+				...document,
+				slides: [
+					...document.slides.slice(0, anchorIndex + 1),
+					...operation.copies,
+					...document.slides.slice(anchorIndex + 1),
+				],
+			};
+		}
 
 		case "add-option":
 			return {

@@ -59,12 +59,57 @@ const MIME_TYPES: Record<string, string> = {
 	// opaque blob — without this entry it falls through to
 	// application/octet-stream (NOTICE.md §3).
 	".txt": "text/plain; charset=utf-8",
+	// The bundled quiz audio tracks, public/audio/*.mp3 (REQ058).
+	".mp3": "audio/mpeg",
 };
 
-/** The three things {@link serveStatic} takes beyond the path itself. */
+/**
+ * The answer to a `HEAD` asking for one byte range of a file, or `null` when the
+ * header is not a single satisfiable `bytes` range and the ordinary answer stands.
+ *
+ * A `GET` needs nothing here: Bun answers one with `206` for a `Response` holding
+ * a `Bun.file`, which is what the quiz audio cue's seek uses (REQ058). HTTP defines
+ * range handling for `GET` only, and Elysia's `HEAD` answers `200` without this. No
+ * browser needs this branch. It lets `curl -I` read a track's range answer without
+ * downloading the track.
+ */
+async function headRangeResponse(
+	rangeHeader: string,
+	file: ReturnType<typeof Bun.file>,
+	contentType: string,
+): Promise<Response | null> {
+	const fileSize = file.size;
+	const range = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+	if (!range || fileSize === 0) return null;
+	const [, firstText = "", lastText = ""] = range;
+	if (firstText === "" && lastText === "") return null;
+	// `bytes=-500` is the last 500 bytes of the file.
+	const first =
+		firstText === "" ? Math.max(0, fileSize - Number(lastText)) : Number(firstText);
+	const last =
+		firstText === "" || lastText === ""
+			? fileSize - 1
+			: Math.min(Number(lastText), fileSize - 1);
+	if (first > last) return null;
+	// Bytes rather than a sliced file: Elysia answers a `HEAD` by reading the body
+	// to measure it and sending none, and on Bun 1.3.13 the stream of `slice(0, n)`
+	// runs to the end of the file, which would report the whole file's length.
+	return new Response(await file.slice(first, last + 1).bytes(), {
+		status: 206,
+		headers: {
+			"Content-Type": contentType,
+			"Content-Range": `bytes ${first}-${last}/${fileSize}`,
+			"Accept-Ranges": "bytes",
+		},
+	});
+}
+
+/** The things {@link serveStatic} takes beyond the path itself. */
 interface ServeStaticOptions {
 	/** The request's query string, leading `?` included. */
 	search?: string;
+	/** The `Range` header of a `HEAD` request; a `GET`'s range is Bun's to answer. */
+	headRange?: string | null;
 	/** The built client directory; the tests point it at a fixture. */
 	staticDir?: string;
 	/**
@@ -127,7 +172,12 @@ function resolveStaticFile(pathname: string, staticDir: string): string | null {
  */
 export async function serveStatic(
 	requestPath: string,
-	{ search = "", staticDir = STATIC_DIR, keptQueryParams }: ServeStaticOptions = {},
+	{
+		search = "",
+		headRange = null,
+		staticDir = STATIC_DIR,
+		keptQueryParams,
+	}: ServeStaticOptions = {},
 ): Promise<Response> {
 	// Decode first, and decide everything on the decoded path. Percent-escapes
 	// are the reason: `%2f` is a `/` the router never split on, so a path that
@@ -182,7 +232,14 @@ export async function serveStatic(
 		if (await file.exists()) {
 			const contentType =
 				MIME_TYPES[extname(filePath)] ?? "application/octet-stream";
-			return new Response(file, { headers: { "Content-Type": contentType } });
+			const partial =
+				headRange === null
+					? null
+					: await headRangeResponse(headRange, file, contentType);
+			return (
+				partial ??
+				new Response(file, { headers: { "Content-Type": contentType } })
+			);
 		}
 	}
 
@@ -197,5 +254,8 @@ export async function serveStatic(
 }
 
 export const staticRoutes = new Elysia().get("/*", ({ path, request }) =>
-	serveStatic(path, { search: new URL(request.url).search }),
+	serveStatic(path, {
+		search: new URL(request.url).search,
+		headRange: request.method === "HEAD" ? request.headers.get("range") : null,
+	}),
 );

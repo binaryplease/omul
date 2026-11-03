@@ -36,6 +36,7 @@ import {
 	isStandingQuizAnswer,
 	type QuizAnswerMode,
 	quizAnswerModeFor,
+	respondentIdOf,
 	type ResultsCaller,
 	slideHasResults,
 	type SlideType,
@@ -60,6 +61,13 @@ import {
  * segment whatever its size — they may already download every row beside the
  * participant id it was cast under (REQ095), so withholding it here would
  * protect nobody from anybody.
+ *
+ * "People" means **devices**, never passes (REQ083): on a deck a device may go
+ * through more than once, five passes can be one person, and a floor that
+ * counted them would publish that person's answers as a group of five. The
+ * service hands {@link segmentDisclosure} the distinct devices behind each
+ * group, which on a shared kiosk undercounts people and so only ever holds back
+ * more.
  */
 export const SEGMENT_MIN_RESPONDENTS = 5;
 
@@ -223,7 +231,7 @@ export type SegmentSlide = {
 	type: SlideType;
 	question?: string | undefined;
 	options?:
-		| { id: string; text?: string | undefined; isCorrect?: boolean | undefined }[]
+		| { id: string; text?: string | undefined; isCorrect?: boolean | null | undefined }[]
 		| undefined;
 	mcMaxSelections?: number | null | undefined;
 	allowMultiple?: boolean | undefined;
@@ -363,6 +371,8 @@ export function segmentRefusalFor(
  */
 export type SegmentVoteRow = {
 	participantId?: unknown;
+	/** Which pass through the deck the row was answered on (REQ083). */
+	pass?: unknown;
 	value?: unknown;
 	skip?: unknown;
 };
@@ -376,7 +386,12 @@ export type SegmentBucket = {
 	key: string | null;
 	/** What the group is called on screen: the option's own text. */
 	label: string;
-	/** Everyone in it, in the order the deck and the store put them. */
+	/**
+	 * Everyone in it, in the order the deck and the store put them — as
+	 * respondents (`respondentIdOf`), so on an audience-paced deck a device's
+	 * later pass through it is its own member (REQ083). A first pass is named by
+	 * the participant id itself, so on every other deck these are participant ids.
+	 */
 	participantIds: string[];
 };
 
@@ -407,6 +422,11 @@ export const SEGMENT_UNANSWERED_LABEL = "Did not answer";
  * slide itself heard from. It only decides the membership of the final group:
  * somebody who answered neither slide is in no group here, because they are not
  * in the tally being broken down either.
+ *
+ * The join is on the respondent rather than on the device (REQ083): a device
+ * that went through the deck twice joins its second pass's answer here to its
+ * second pass's answer there, which is the only join that means anything — the
+ * same person might well have answered both slides differently the second time.
  */
 export function segmentBucketsFor(
 	slide: SegmentSlide,
@@ -434,14 +454,14 @@ export function segmentBucketsFor(
 	const grouped = new Set<string>();
 	for (const sourceVote of sourceVotes) {
 		if (sourceVote.skip === true) continue;
-		const participantId = String(sourceVote.participantId ?? "");
-		if (participantId.length === 0 || grouped.has(participantId)) continue;
+		const respondentId = respondentIdOf(sourceVote);
+		if (respondentId.length === 0 || grouped.has(respondentId)) continue;
 		const value = String(sourceVote.value ?? "");
 		if (!isStandingQuizAnswer(slide, value)) continue;
 		const bucket = buckets.get(value);
 		if (!bucket) continue;
-		grouped.add(participantId);
-		bucket.participantIds.push(participantId);
+		grouped.add(respondentId);
+		bucket.participantIds.push(respondentId);
 	}
 
 	const unanswered: string[] = [];

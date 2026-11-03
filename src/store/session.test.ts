@@ -100,6 +100,26 @@ describe("session slice — WebSocket reducers", () => {
 		expect(store.getState().presentation?.sessionEndedAt).toBe(ENDED_AT);
 	});
 
+	test("a restart moves every screen to the slide the presenter's start landed on", () => {
+		// The tester's report: after a restart the presenter stood on slide 1 and
+		// the audience on the slide shown last. The presenter who clicked takes the
+		// first slide in `startPresentation`; every other screen hears only the
+		// frame, so the frame must move it there too.
+		const participant = seededStore({ status: "ended", activeSlideIndex: 1 });
+		participant
+			.getState()
+			.applyStarted({ startedAt: SECOND_OPENED, slideIndex: 0 });
+
+		expect(participant.getState().presentation?.status).toBe("live");
+		expect(participant.getState().presentation?.activeSlideIndex).toBe(0);
+	});
+
+	test("a start frame without a slide leaves the slide this screen holds", () => {
+		const store = seededStore({ activeSlideIndex: 1 });
+		store.getState().applyStarted({ startedAt: SECOND_OPENED });
+		expect(store.getState().presentation?.activeSlideIndex).toBe(1);
+	});
+
 	test("a start frame without an instant leaves the clock it holds", () => {
 		const store = seededStore({
 			status: "live",
@@ -108,6 +128,81 @@ describe("session slice — WebSocket reducers", () => {
 		});
 		store.getState().applyStarted();
 		expect(store.getState().presentation?.sessionStartedAt).toBe(FIRST_OPENED);
+	});
+
+	/** A `room.joined` frame for the seeded deck (REQ209). */
+	function joinedFrame(overrides: Record<string, unknown> = {}) {
+		return {
+			presentationId: "pres-1",
+			status: "live",
+			activeSlideIndex: 1,
+			sessionStartedAt: FIRST_OPENED,
+			sessionEndedAt: null,
+			slideStartedAt: { "slide-a": FIRST_OPENED, "slide-b": SECOND_OPENED },
+			revealedSlideIds: [],
+			closedSlideIds: [],
+			audienceBlanked: false,
+			countdownRuns: {},
+			...overrides,
+		};
+	}
+
+	test("a join answered live takes a phone that read the deck as a draft off the waiting screen (REQ209)", () => {
+		// The tester's report: a participant was told "Waiting for presenter"
+		// while the presenter was live. The phone read the deck before the start
+		// and its socket joined after it, so the start frame never reached it.
+		const store = seededStore({ status: "draft", activeSlideIndex: 0 });
+		store.getState().applyJoined(joinedFrame());
+
+		const deck = store.getState().presentation;
+		expect(deck?.status).toBe("live");
+		expect(deck?.activeSlideIndex).toBe(1);
+		expect(deck?.sessionStartedAt).toBe(FIRST_OPENED);
+		expect(deck?.slideStartedAt).toEqual({
+			"slide-a": FIRST_OPENED,
+			"slide-b": SECOND_OPENED,
+		});
+	});
+
+	test("a join after a drop brings back what the frames missed (REQ209)", () => {
+		// Ended and restarted, blanked and brought back, while the socket was down.
+		const store = seededStore({
+			status: "ended",
+			activeSlideIndex: 1,
+			audienceBlanked: true,
+		});
+		store.getState().applyJoined(joinedFrame({ activeSlideIndex: 0 }));
+
+		const deck = store.getState().presentation;
+		expect(deck?.status).toBe("live");
+		expect(deck?.activeSlideIndex).toBe(0);
+		expect(deck?.audienceBlanked).toBe(false);
+	});
+
+	test("a join frame for another deck, or one that does not parse, is dropped (REQ209)", () => {
+		const store = seededStore({ status: "draft" });
+		store.getState().applyJoined(joinedFrame({ presentationId: "pres-2" }));
+		store.getState().applyJoined(joinedFrame({ status: "paused" }));
+		store.getState().applyJoined(null);
+		expect(store.getState().presentation?.status).toBe("draft");
+	});
+
+	test("every frame that moves the index names the live slide, and one that names none forgets it", () => {
+		// A copy read before an edit resolves the right index to the wrong slide;
+		// the id is what lets the participant surface notice and re-read it.
+		const store = seededStore({ status: "ended" });
+		store.getState().applyStarted({ slideIndex: 0, slideId: "slide-b" });
+		expect(store.getState().liveSlideId).toBe("slide-b");
+		store.getState().applySlideChanged({ slideIndex: 1, slide: { id: "slide-c" } });
+		expect(store.getState().liveSlideId).toBe("slide-c");
+		store.getState().applyJoined(joinedFrame({ activeSlideId: "slide-a" }));
+		expect(store.getState().liveSlideId).toBe("slide-a");
+		expect(store.getState().presentation).not.toHaveProperty("activeSlideId");
+		store.getState().applySlideChanged({ slideIndex: 0 });
+		expect(store.getState().liveSlideId).toBeNull();
+		store.getState().applyStarted({ slideIndex: 0, slideId: "slide-a" });
+		store.getState().applyReset();
+		expect(store.getState().liveSlideId).toBeNull();
 	});
 
 	test("applyReset clears the session clock (REQ108)", () => {
@@ -358,6 +453,55 @@ describe("session slice — WebSocket reducers", () => {
 		expect(store.getState().results).toEqual({});
 	});
 
+	test("applyCountdown records a pause and a resume and drops a reset run (REQ107)", () => {
+		const elsewhere = { remainingMs: 1_000, resumedAt: FIRST_OPENED };
+		const store = seededStore({ countdownRuns: { "slide-b": elsewhere } });
+		const running = { remainingMs: 300_000, resumedAt: SECOND_OPENED };
+		store.getState().applyCountdown({ slideId: "slide-a", run: running });
+		// Another slide's run is never disturbed by this one's.
+		expect(store.getState().presentation?.countdownRuns).toEqual({
+			"slide-a": running,
+			"slide-b": elsewhere,
+		});
+		const paused = { remainingMs: 209_500, resumedAt: null };
+		store.getState().applyCountdown({ slideId: "slide-a", run: paused });
+		expect(store.getState().presentation?.countdownRuns["slide-a"]).toEqual(paused);
+		const resumed = { remainingMs: 209_500, resumedAt: SECOND_OPENED };
+		store.getState().applyCountdown({ slideId: "slide-a", run: resumed });
+		expect(store.getState().presentation?.countdownRuns["slide-a"]).toEqual(resumed);
+		store.getState().applyCountdown({ slideId: "slide-a", run: null });
+		expect(store.getState().presentation?.countdownRuns).toEqual({
+			"slide-b": elsewhere,
+		});
+	});
+
+	test("applyReset clears running and paused countdowns (REQ107)", () => {
+		const store = seededStore({
+			countdownRuns: {
+				"slide-a": { remainingMs: 300_000, resumedAt: FIRST_OPENED },
+				"slide-b": { remainingMs: 209_500, resumedAt: null },
+			},
+		});
+		store.getState().applyReset();
+		expect(store.getState().presentation?.countdownRuns).toEqual({});
+	});
+
+	test("applyJoined hands a late joiner the frozen run (REQ107)", () => {
+		const store = seededStore({ countdownRuns: {} });
+		const paused = { remainingMs: 209_500, resumedAt: null };
+		const deck = store.getState().presentation;
+		store.getState().applyJoined({
+			presentationId: deck?.id,
+			status: "live",
+			activeSlideIndex: 0,
+			activeSlideId: null,
+			countdownRuns: { "slide-a": paused },
+		});
+		expect(store.getState().presentation?.countdownRuns).toEqual({
+			"slide-a": paused,
+		});
+	});
+
 	test("reducers are no-ops when no presentation is loaded", () => {
 		const store = createAppStore();
 		store.getState().applySlideChanged({ slideIndex: 3 });
@@ -366,6 +510,7 @@ describe("session slice — WebSocket reducers", () => {
 		store
 			.getState()
 			.applySlideStarted({ slideId: "x", startedAt: FIRST_OPENED });
+		store.getState().applyCountdown({ slideId: "x", run: null });
 		expect(store.getState().presentation).toBeNull();
 	});
 });
@@ -484,6 +629,19 @@ describe("session slice — refreshDeckSlides (REQ053)", () => {
 		await store.getState().refreshDeckSlides("123456");
 		expect(store.getState().presentation?.slides[0].pinArea).toBe(null);
 		expect(store.getState().error).toBe("");
+	});
+
+	test("it reports whether the answer's slides landed (REQ209)", async () => {
+		// The participant page retries a missing live slide on `false`.
+		const store = seededStore();
+		stubJoinFetch({ slides: [] });
+		expect(await store.getState().refreshDeckSlides("123456")).toBe(true);
+		stubJoinFetch({ error: "Presentation not found" });
+		expect(await store.getState().refreshDeckSlides("123456")).toBe(false);
+		globalThis.fetch = (() => {
+			throw new Error("offline");
+		}) as unknown as typeof fetch;
+		expect(await store.getState().refreshDeckSlides("123456")).toBe(false);
 	});
 
 	test("a response with no slides at all changes nothing", async () => {
@@ -632,6 +790,40 @@ describe("session slice — participant names (REQ076)", () => {
 		store.getState().applyChatChanged();
 		store.getState().applyQAChanged();
 		expect(store.getState().sessionResetRevision).toBe(0);
+	});
+});
+
+describe("session slice — repeat passes (REQ083)", () => {
+	test("turned on mid-session, the switch lands on the deck a phone draws from", () => {
+		// Without the frame a participant already at the end of the deck is never
+		// offered the pass the organizer has just allowed.
+		const store = seededStore({ mode: "survey", allowRepeatPasses: false });
+		store.getState().applyRepeatPassesSetting({ allowRepeatPasses: true });
+		expect(store.getState().presentation?.allowRepeatPasses).toBe(true);
+	});
+
+	test("turned off, it lands too, so the control is not offered against a refusal", () => {
+		const store = seededStore({ mode: "survey", allowRepeatPasses: true });
+		store.getState().applyRepeatPassesSetting({ allowRepeatPasses: false });
+		expect(store.getState().presentation?.allowRepeatPasses).toBe(false);
+	});
+
+	test("the switch before a deck has loaded is a no-op", () => {
+		const store = createAppStore();
+		store.getState().applyRepeatPassesSetting({ allowRepeatPasses: true });
+		expect(store.getState().presentation).toBeNull();
+	});
+
+	test("the frame moves the switch and nothing else", () => {
+		const store = seededStore({
+			mode: "survey",
+			allowRepeatPasses: false,
+			requireParticipantName: true,
+		});
+		store.getState().applyRepeatPassesSetting({ allowRepeatPasses: true });
+		const deck = store.getState().presentation;
+		expect(deck?.mode).toBe("survey");
+		expect(deck?.requireParticipantName).toBe(true);
 	});
 });
 

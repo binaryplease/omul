@@ -16,17 +16,27 @@
  *     about the tap in front of it, and the predicate it tells that truth with
  *     is the server's own (asserted here so a second client-side reading cannot
  *     creep in).
+ *   - **Where the presenter's control stands.** The wrapper's classes decide it,
+ *     so the view is rendered and those classes are read.
  */
 
 import { describe, expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
 	audienceBlankToggleLabel,
 	AUDIENCE_BLANK_TITLE,
+	closedAtStartNotice,
 	participationLabelsFor,
 	sharedScreenView,
+	slideParticipationControlText,
+	slideParticipationToast,
 	slideParticipationToggleLabel,
 } from "./LiveRoom";
+import { PresenterSlideView } from "./PresenterSlideView";
 import { getDict } from "../i18n";
+import { newSlide } from "../store/editorDocument";
+import type { Presentation, SlideLayout, SlideType } from "../types";
 import { audienceViewBlanked, slideAcceptsSubmissions } from "../types";
 
 describe("participationLabelsFor — the participant's reason (REQ111/REQ084)", () => {
@@ -57,10 +67,18 @@ describe("participationLabelsFor — the participant's reason (REQ111/REQ084)", 
 describe("slideParticipationToggleLabel — the presenter's control (REQ111)", () => {
 	test("names the action it would take, in each direction", () => {
 		expect(
-			slideParticipationToggleLabel({ open: true, canControl: true }),
+			slideParticipationToggleLabel({
+				open: true,
+				canControl: true,
+				live: true,
+			}),
 		).toContain("Close this slide");
 		expect(
-			slideParticipationToggleLabel({ open: false, canControl: true }),
+			slideParticipationToggleLabel({
+				open: false,
+				canControl: true,
+				live: true,
+			}),
 		).toContain("Reopen this slide");
 	});
 
@@ -68,7 +86,11 @@ describe("slideParticipationToggleLabel — the presenter's control (REQ111)", (
 		// The reason this is a one-tap switch rather than a confirmed gesture:
 		// the label has to carry that, or it reads like Reset.
 		expect(
-			slideParticipationToggleLabel({ open: true, canControl: true }),
+			slideParticipationToggleLabel({
+				open: true,
+				canControl: true,
+				live: true,
+			}),
 		).toContain("every answer already given is kept");
 	});
 
@@ -76,10 +98,12 @@ describe("slideParticipationToggleLabel — the presenter's control (REQ111)", (
 		const openToSpectator = slideParticipationToggleLabel({
 			open: true,
 			canControl: false,
+			live: true,
 		});
 		const closedToSpectator = slideParticipationToggleLabel({
 			open: false,
 			canControl: false,
+			live: true,
 		});
 		expect(openToSpectator).toContain("open to submissions");
 		expect(closedToSpectator).toContain("closed to submissions");
@@ -89,6 +113,129 @@ describe("slideParticipationToggleLabel — the presenter's control (REQ111)", (
 		expect(openToSpectator).toContain("cannot edit this presentation");
 		expect(closedToSpectator).toContain("cannot edit this presentation");
 		expect(openToSpectator).not.toBe(closedToSpectator);
+	});
+});
+
+describe("the participation control before the deck is live (REQ198)", () => {
+	const states = [
+		{ open: true, canControl: true },
+		{ open: false, canControl: true },
+		{ open: true, canControl: false },
+		{ open: false, canControl: false },
+	];
+
+	test("on a live deck it reads exactly as it always has", () => {
+		expect(slideParticipationControlText({ open: true, live: true })).toBe(
+			"Close submissions",
+		);
+		expect(slideParticipationControlText({ open: false, live: true })).toBe(
+			"Submissions closed — reopen",
+		);
+		expect(
+			slideParticipationToggleLabel({
+				open: true,
+				canControl: true,
+				live: true,
+			}),
+		).toBe(
+			"Close this slide — the room stops being able to answer it, and every answer already given is kept",
+		);
+		expect(
+			slideParticipationToggleLabel({
+				open: false,
+				canControl: true,
+				live: true,
+			}),
+		).toBe(
+			"Reopen this slide — the room can answer it again, alongside the answers already collected",
+		);
+		expect(slideParticipationToast({ open: false, live: true })).toBe(
+			"Submissions closed on this slide — the answers already given are kept",
+		);
+		expect(slideParticipationToast({ open: true, live: true })).toBe(
+			"Submissions reopened on this slide",
+		);
+	});
+
+	test("on a draft or ended deck the slide is said to go live closed", () => {
+		expect(slideParticipationControlText({ open: true, live: false })).toBe(
+			"Go live closed",
+		);
+		expect(
+			slideParticipationControlText({ open: false, live: false }),
+		).toContain("Goes live closed");
+		expect(
+			slideParticipationToggleLabel({
+				open: true,
+				canControl: true,
+				live: false,
+			}),
+		).toContain("it will go live closed");
+		expect(
+			slideParticipationToggleLabel({
+				open: false,
+				canControl: false,
+				live: false,
+			}),
+		).toContain("will go live closed");
+		expect(slideParticipationToast({ open: false, live: false })).toContain(
+			"will go live closed",
+		);
+	});
+
+	test("with no room yet, nothing claims answers already given", () => {
+		const said = [
+			...states.map((state) =>
+				slideParticipationToggleLabel({ ...state, live: false }),
+			),
+			...states.map((state) =>
+				slideParticipationControlText({ open: state.open, live: false }),
+			),
+			slideParticipationToast({ open: true, live: false }),
+			slideParticipationToast({ open: false, live: false }),
+		];
+		for (const line of said) {
+			expect(line).not.toContain("already");
+			expect(line).not.toContain("answers");
+		}
+	});
+
+	test("every state still names a distinct thing", () => {
+		const labels = states.map((state) =>
+			slideParticipationToggleLabel({ ...state, live: false }),
+		);
+		expect(new Set(labels).size).toBe(labels.length);
+	});
+});
+
+describe("closedAtStartNotice — what starting a deck says (REQ198)", () => {
+	const slides = ["q1", "q2", "q3", "q4"].map((slideId) => ({ id: slideId }));
+	const deck = (closedSlideIds: string[]) =>
+		({ slides, closedSlideIds }) as unknown as Parameters<
+			typeof closedAtStartNotice
+		>[0];
+
+	test("a deck with nothing closed says nothing", () => {
+		expect(closedAtStartNotice(deck([]))).toBeNull();
+	});
+
+	test("names the one slide that starts closed by its number", () => {
+		expect(closedAtStartNotice(deck(["q3"]))).toBe(
+			"Slide 3 starts closed — reopen it when you want the room to answer",
+		);
+	});
+
+	test("names several in deck order, whatever order they were closed in", () => {
+		expect(closedAtStartNotice(deck(["q4", "q1", "q2"]))).toBe(
+			"Slides 1, 2 and 4 start closed — reopen each when you want the room to answer",
+		);
+	});
+
+	test("a closed id whose slide is gone names nothing", () => {
+		expect(closedAtStartNotice(deck(["deleted"]))).toBeNull();
+		expect(closedAtStartNotice(deck(["deleted", "q2"]))).toBe(
+			"Slide 2 starts closed — reopen it when you want the room to answer",
+		);
 	});
 });
 
@@ -199,4 +346,71 @@ describe("what the surfaces read the two states with", () => {
 		expect(slideAcceptsSubmissions({ audienceBlanked: true }, "q1")).toBe(true);
 		expect(audienceViewBlanked({ closedSlideIds: ["q1"] })).toBe(false);
 	});
+});
+
+describe("the participation control's alignment on the presenter screen (REQ111)", () => {
+	/** The classes on the box directly around the control, as the view draws it. */
+	function controlWrapperClasses(type: SlideType, layout: SlideLayout) {
+		const slide = { ...newSlide(type), id: "q1", layout };
+		const markup = renderToStaticMarkup(
+			createElement(PresenterSlideView, {
+				slide,
+				pres: {
+					id: "deck-1",
+					status: "live",
+					language: "en",
+					resultsVisibility: "instant",
+					revealedSlideIds: [],
+					closedSlideIds: [],
+					slides: [slide],
+				} as unknown as Presentation,
+				results: null,
+				serverClockOffsetMs: 0,
+				controls: {
+					canControl: true,
+					onReveal: () => {},
+					onRestartTimer: () => {},
+					onSetParticipation: () => {},
+					onSetCountdown: () => {},
+					onDeleteAnswer: null,
+					audioCue: null,
+				},
+				joinUrl: "https://omul.test/join/123456",
+			}),
+		);
+		const wrapper = markup.match(/<div class="([^"]*)"><button[^>]*aria-pressed/);
+		expect(wrapper).not.toBeNull();
+		return (wrapper?.[1] ?? "").split(" ");
+	}
+
+	const SLIDE_TYPES: SlideType[] = [
+		"multiple-choice",
+		"word-cloud",
+		"open-text",
+		"scale",
+		"ranking",
+		"grid",
+		"points",
+		"guess-number",
+		"pin-image",
+		"quiz",
+		"form",
+	];
+	const ALIGNMENT_BY_LAYOUT: [SlideLayout, string][] = [
+		["center", "items-center"],
+		["left", "items-start"],
+		["right", "items-end"],
+	];
+
+	for (const type of SLIDE_TYPES) {
+		for (const [layout, alignment] of ALIGNMENT_BY_LAYOUT) {
+			test(`a ${layout}-placed ${type} slide draws it with ${alignment} across a column`, () => {
+				// `items-*` moves a child horizontally only in a column. In a row it
+				// moves the child vertically, and the control stands at the left.
+				const classes = controlWrapperClasses(type, layout);
+				expect(classes).toContain("flex-col");
+				expect(classes).toContain(alignment);
+			});
+		}
+	}
 });

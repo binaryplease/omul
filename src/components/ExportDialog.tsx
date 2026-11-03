@@ -13,8 +13,7 @@ import { useToast } from "./ui/Toast";
 // to read or hand round — and "which shape?" is one question with several
 // answers rather than several unrelated buttons. So the formats are a single
 // descriptor and this dialog is the single surface that composes it:
-// a format added later (REQ097's slide images, say) is a row in the
-// list below and nothing else.
+// a format added later is a row in the list below and nothing else.
 //
 // It sits behind a control on the presenter's own results surface —
 // what an export takes out is the session, so it belongs beside it rather than

@@ -1,22 +1,27 @@
 import {
+	AlertTriangle,
 	GripVertical,
 	Image as ImageIcon,
 	PlayCircle,
 	Presentation,
 	QrCode,
+	Timer,
 } from "lucide-react";
-import type { DragEvent } from "react";
+import type { DragEvent, MouseEvent } from "react";
 import { POLL_COLORS } from "../constants";
 import type { Slide } from "../types";
 import {
+	countdownSecondsFor,
 	EMBED_PROVIDERS,
+	formatCountdown,
 	quizAnswerModeFor,
 	slideAppearanceFor,
 	slideEmbedFor,
 } from "../types";
+import { accessibilityFindingCountLabel } from "./AccessibilityFindings";
 import { SLIDE_PLACEMENT_CLASSES } from "./SlideAppearance";
 import { SLIDE_TYPE_LABELS } from "./SlideEditor";
-import { slideRailItemSurface } from "./SlideRail";
+import { SkippedSlideMarker, slideRailItemSurface } from "./SlideRail";
 import { slideTextToPlain } from "./SlideText";
 import { SlideTypeIcon } from "./SlideTypeIcon";
 
@@ -252,6 +257,17 @@ function ThumbnailGist({ slide }: { slide: Slide }) {
 				</div>
 			);
 		}
+		case "countdown":
+			// REQ107 — the clock face at the length the author set, which is the
+			// one thing that tells two countdown slides apart in the rail.
+			return (
+				<div className="flex items-center gap-1 text-text-dim">
+					<Timer size={12} />
+					<span className="font-mono text-[9px] tabular-nums">
+						{formatCountdown(countdownSecondsFor(slide))}
+					</span>
+				</div>
+			);
 		case "instruction":
 			return (
 				<div className="flex items-center gap-1 text-text-dim">
@@ -274,9 +290,11 @@ export function SlideThumbnail({
 	index,
 	slide,
 	active,
+	bulkSelected = false,
 	onClick,
 	dragging = false,
 	dropTarget = false,
+	accessibilityFindingCount = 0,
 	onDragStart,
 	onDragEnter,
 	onDragOver,
@@ -286,11 +304,16 @@ export function SlideThumbnail({
 	index: number;
 	slide: Slide;
 	active: boolean;
-	onClick: () => void;
+	/** Ticked for a bulk operation in the rail (REQ127), apart from `active`. */
+	bulkSelected?: boolean;
+	/** The event rides along so a modifier-click can select instead (REQ127). */
+	onClick: (event: MouseEvent<HTMLButtonElement>) => void;
 	/** This thumbnail is the one currently being dragged. */
 	dragging?: boolean;
 	/** A dragged slide is hovering this thumbnail — it is the pending drop slot. */
 	dropTarget?: boolean;
+	/** How many accessibility findings the slide carries (REQ132). */
+	accessibilityFindingCount?: number;
 	onDragStart?: (event: DragEvent<HTMLButtonElement>) => void;
 	onDragEnter?: (event: DragEvent<HTMLButtonElement>) => void;
 	onDragOver?: (event: DragEvent<HTMLButtonElement>) => void;
@@ -318,11 +341,15 @@ export function SlideThumbnail({
 	// Drag interaction states are local to this editor-only rail (no second
 	// surface drags slides), so they live here rather than in a shared token:
 	// the lifted slide fades; the pending drop slot wears an accent ring.
+	// A slide ticked for a bulk operation (REQ127) wears a softer ring than the
+	// drop slot, and gives way to it while a drag is in progress.
 	const dragState = dragging
 		? "opacity-40"
 		: dropTarget
 			? "ring-2 ring-accent ring-offset-2 ring-offset-surface"
-			: "";
+			: bulkSelected
+				? "ring-2 ring-accent/50"
+				: "";
 
 	return (
 		<button
@@ -339,20 +366,36 @@ export function SlideThumbnail({
 			)}`}
 			title={title}
 		>
-			{/* Meta row: ordinal + type icon + drag handle */}
+			{/* Meta row: ordinal + type icon + accessibility findings + drag handle */}
 			<div className="flex items-center gap-1.5 px-0.5 pb-1">
 				<span className="font-mono text-[11px] text-text-muted">{index + 1}</span>
 				<SlideTypeIcon type={slide.type} />
+				{slide.skipped && <SkippedSlideMarker />}
+				{accessibilityFindingCount > 0 && (
+					<span
+						className="ml-auto inline-flex items-center gap-0.5 font-mono text-[11px] text-warning"
+						title={accessibilityFindingCountLabel(accessibilityFindingCount)}
+					>
+						<AlertTriangle size={11} aria-hidden />
+						<span aria-hidden="true">{accessibilityFindingCount}</span>
+						<span className="sr-only">
+							{`, ${accessibilityFindingCountLabel(accessibilityFindingCount)}`}
+						</span>
+					</span>
+				)}
 				<GripVertical
 					size={13}
-					className="ml-auto text-text-dim opacity-0 transition-opacity group-hover:opacity-100"
+					className={`${accessibilityFindingCount > 0 ? "" : "ml-auto "}text-text-dim opacity-0 transition-opacity group-hover:opacity-100`}
 					aria-hidden
 				/>
 			</div>
 
-			{/* Mini canvas */}
+			{/* Mini canvas — faded on a skipped slide (REQ110), which is still in
+			    the deck but not on the way through it. */}
 			<div
-				className="relative h-16 overflow-hidden rounded-md border border-border-subtle bg-void/70 p-2"
+				className={`relative h-16 overflow-hidden rounded-md border border-border-subtle bg-void/70 p-2 ${
+					slide.skipped ? "opacity-50" : ""
+				}`}
 				style={{
 					...(appearance.backgroundColor !== ""
 						? { backgroundColor: appearance.backgroundColor }

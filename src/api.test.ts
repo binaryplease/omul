@@ -1,9 +1,9 @@
 /**
  * Unit tests for the pieces of `src/api.ts` that are more than a `fetch`: the
  * one translation of the withheld-tally marker (REQ016/REQ017), the name this
- * browser remembers having stated on a deck (REQ076), and which edit tokens this
- * browser forgets once the signed-in account adopts their decks (REQ194, at the
- * end of the file).
+ * browser remembers having stated on a deck (REQ076), the pass through a deck it
+ * is answering in (REQ083), and which edit tokens this browser forgets once the
+ * signed-in account adopts their decks (REQ194, at the end of the file).
  *
  * Deliberately narrow on both counts. The rest of the module is `fetch` against
  * endpoints the server suites already drive end to end, and re-asserting a
@@ -39,15 +39,32 @@
  * inside each function rather than at load, so one stub covers all three.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	jest,
+	setSystemTime,
+	test,
+} from "bun:test";
 import {
 	api,
 	buildExportPayload,
 	claimLocalPresentations,
+	connectWs,
+	disconnectWs,
+	forgetParticipantPass,
 	forgetStatedParticipantName,
+	getParticipantPass,
 	getStatedParticipantName,
+	rememberParticipantPass,
+	onWsEvent,
+	pulseWs,
 	rememberStatedParticipantName,
+	SOCKET_PULSE_MS,
 } from "./api";
+import { RESULTS_TOKEN_KEY, TOKEN_KEY } from "./storage";
 
 const realFetch = globalThis.fetch;
 
@@ -216,6 +233,222 @@ describe("a stored value this browser did not write (REQ076)", () => {
 		storage.set(PARTICIPANT_NAME_KEY, "null");
 		forgetStatedParticipantName("deck-1");
 		expect(getStatedParticipantName("deck-1")).toBe("");
+	});
+});
+
+// ── The pass this browser is on (REQ083) ─────────────────────
+//
+// Local state like the name above, and for a sharper reason: a browser that
+// forgot which pass it is on would answer on into its first one and replace
+// what it said the first time through — on a shared kiosk, what somebody else
+// said. And the one property of the request bodies below that the server cannot
+// correct is that the pass rides them at all: an answer that left it off would
+// land in the first pass for exactly that reason.
+
+const PARTICIPANT_PASS_KEY = "omul-participant-passes";
+
+/** Answer every request with `body`, and record each one's URL and init. */
+function captureFetch(
+	body: unknown,
+): { url: string; init: RequestInit | undefined }[] {
+	const calls: { url: string; init: RequestInit | undefined }[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		calls.push({ url: String(input), init });
+		return new Response(JSON.stringify(body), {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}) as typeof fetch;
+	return calls;
+}
+
+function bodyOf(call: { init: RequestInit | undefined }): Record<string, unknown> {
+	return JSON.parse(String(call.init?.body ?? "{}"));
+}
+
+describe("the pass this browser is on (REQ083)", () => {
+	test("a deck this browser never went through again is on its first pass", () => {
+		expect(getParticipantPass("deck-1")).toBe(1);
+	});
+
+	test("the pass the server handed out comes back, keyed by deck", () => {
+		rememberParticipantPass("deck-1", 3);
+		rememberParticipantPass("deck-2", 2);
+		expect(getParticipantPass("deck-1")).toBe(3);
+		expect(getParticipantPass("deck-2")).toBe(2);
+		expect(getParticipantPass("deck-3")).toBe(1);
+	});
+
+	test("forgetting one deck puts it back on the first pass and leaves the others", () => {
+		// The reset case (REQ101): the server has dropped every pass this device
+		// made, so the re-run's first answer is a first pass again.
+		rememberParticipantPass("deck-1", 3);
+		rememberParticipantPass("deck-2", 2);
+		forgetParticipantPass("deck-1");
+		expect(getParticipantPass("deck-1")).toBe(1);
+		expect(getParticipantPass("deck-2")).toBe(2);
+	});
+
+	test("anything stored that is not a pass reads as the first", () => {
+		for (const stored of [
+			"{not json",
+			"null",
+			"[2]",
+			JSON.stringify({ "deck-1": "2" }),
+			JSON.stringify({ "deck-1": 0 }),
+			JSON.stringify({ "deck-1": 2.5 }),
+			JSON.stringify({ "deck-1": -4 }),
+		]) {
+			storage.set(PARTICIPANT_PASS_KEY, stored);
+			expect(getParticipantPass("deck-1")).toBe(1);
+		}
+	});
+
+	test("a bad map is replaced rather than inherited on the next write", () => {
+		storage.set(PARTICIPANT_PASS_KEY, "null");
+		rememberParticipantPass("deck-1", 2);
+		expect(getParticipantPass("deck-1")).toBe(2);
+		forgetParticipantPass("deck-1");
+		expect(getParticipantPass("deck-1")).toBe(1);
+	});
+
+	test("an answer names its pass past the first, and only past it", async () => {
+		const calls = captureFetch({});
+		await api.vote("deck-1", "s1", "a", "p1", { pass: 2 });
+		await api.vote("deck-1", "s1", "a", "p1", { pass: 1 });
+		await api.vote("deck-1", "s1", "a", "p1");
+		expect(bodyOf(calls[0]).pass).toBe(2);
+		// The first pass is what an answer naming none already is, so the request
+		// a deck without repeat passes sends is the one it always sent.
+		expect("pass" in bodyOf(calls[1])).toBe(false);
+		expect("pass" in bodyOf(calls[2])).toBe(false);
+	});
+
+	test("an upvote and the scorecard name the pass the same way", async () => {
+		const calls = captureFetch({});
+		await api.voteOnResponse("deck-1", "s1", "r1", "p1", 3);
+		await api.voteOnResponse("deck-1", "s1", "r1", "p1");
+		await api.getScorecard("deck-1", "p1", 2);
+		await api.getScorecard("deck-1", "p1");
+		expect(bodyOf(calls[0]).pass).toBe(3);
+		expect("pass" in bodyOf(calls[1])).toBe(false);
+		expect(new URL(calls[2].url, "http://omul.test").searchParams.get("pass")).toBe(
+			"2",
+		);
+		expect(new URL(calls[3].url, "http://omul.test").searchParams.has("pass")).toBe(
+			false,
+		);
+	});
+
+	test("starting a pass asks the server, and reads the pass it opened", async () => {
+		const calls = captureFetch({ pass: 4 });
+		const started = await api.startPass("deck-1", "p1");
+		expect(started.pass).toBe(4);
+		expect(calls[0].url).toBe("/api/presentations/deck-1/passes");
+		expect(calls[0].init?.method).toBe("POST");
+		// Which pass comes next is the server's to say: this browser states who
+		// it is and nothing else.
+		expect(bodyOf(calls[0])).toEqual({ participantId: "p1" });
+	});
+
+	test("the switch travels with an exported deck, and imports only when it says true", async () => {
+		const exported = buildExportPayload({
+			title: "Kiosk",
+			mode: "survey",
+			allowRepeatPasses: true,
+			slides: [],
+		});
+		expect(exported.allowRepeatPasses).toBe(true);
+
+		const calls = captureFetch({ id: "new-1", title: "Kiosk", slides: [] });
+		await api.importPresentation(exported);
+		await api.importPresentation({ ...exported, allowRepeatPasses: "yes" });
+		await api.importPresentation({ title: "Old file", slides: [] });
+		expect(bodyOf(calls[0]).allowRepeatPasses).toBe(true);
+		expect(bodyOf(calls[1]).allowRepeatPasses).toBe(false);
+		expect(bodyOf(calls[2]).allowRepeatPasses).toBe(false);
+	});
+
+	test("a duplicate keeps the switch its source had", async () => {
+		const calls = captureFetch({
+			id: "source",
+			title: "Kiosk",
+			mode: "survey",
+			allowRepeatPasses: true,
+			slides: [],
+		});
+		await api.duplicatePresentation("source");
+		const created = calls.find((call) => call.init?.method === "POST");
+		expect(created && bodyOf(created).allowRepeatPasses).toBe(true);
+	});
+});
+
+// ── The profanity filter (REQ085) ────────────────────────────
+//
+// Two promises the client keeps. The setting travels with the deck wherever a
+// copy is made of it, and an imported file can only ever name a list the
+// server has words for. And of every results read the browser makes, exactly
+// one asks for what the filter withheld — the results surface's — while the
+// presenter's poll, which feeds the projector, never does.
+
+describe("the profanity filter (REQ085)", () => {
+	test("travels with an exported deck, and imports only what the server accepts", async () => {
+		const exported = buildExportPayload({
+			title: "Town hall",
+			profanityFilterEnabled: true,
+			profanityFilterLanguage: "de",
+			slides: [],
+		});
+		expect(exported.profanityFilterEnabled).toBe(true);
+		expect(exported.profanityFilterLanguage).toBe("de");
+
+		const calls = captureFetch({ id: "new-1", title: "Town hall", slides: [] });
+		await api.importPresentation(exported);
+		await api.importPresentation({
+			...exported,
+			profanityFilterEnabled: "yes",
+			profanityFilterLanguage: "de-AT",
+		});
+		await api.importPresentation({ ...exported, profanityFilterLanguage: "xx" });
+		await api.importPresentation({ ...exported, profanityFilterLanguage: 42 });
+		await api.importPresentation({ title: "Old file", slides: [] });
+		expect(bodyOf(calls[0]).profanityFilterEnabled).toBe(true);
+		expect(bodyOf(calls[0]).profanityFilterLanguage).toBe("de");
+		// Only an explicit `true` switches it on, and a list must be one of the
+		// seven by name — anything else follows the deck's language.
+		expect(bodyOf(calls[1]).profanityFilterEnabled).toBe(false);
+		expect(bodyOf(calls[1]).profanityFilterLanguage).toBeNull();
+		expect(bodyOf(calls[2]).profanityFilterLanguage).toBeNull();
+		expect(bodyOf(calls[3]).profanityFilterLanguage).toBeNull();
+		expect(bodyOf(calls[4]).profanityFilterEnabled).toBe(false);
+		expect(bodyOf(calls[4]).profanityFilterLanguage).toBeNull();
+	});
+
+	test("a duplicate keeps the filter its source had", async () => {
+		const calls = captureFetch({
+			id: "source",
+			title: "Town hall",
+			profanityFilterEnabled: true,
+			profanityFilterLanguage: "nl",
+			slides: [],
+		});
+		await api.duplicatePresentation("source");
+		const created = calls.find((call) => call.init?.method === "POST");
+		expect(created && bodyOf(created).profanityFilterEnabled).toBe(true);
+		expect(created && bodyOf(created).profanityFilterLanguage).toBe("nl");
+	});
+
+	test("only the results surface asks for the withheld answers", async () => {
+		const calls = captureFetch([]);
+		await api.getSharedResults("deck-1");
+		await api.getAllResults("deck-1");
+		await api.getResults("deck-1", "wc");
+		const filteredOf = (call: { url: string }) =>
+			new URL(call.url, "http://omul.test").searchParams.get("filtered");
+		expect(filteredOf(calls[0])).toBe("include");
+		// The presenter's poll is the projector: it never asks.
+		expect(filteredOf(calls[1])).toBeNull();
+		expect(filteredOf(calls[2])).toBeNull();
 	});
 });
 
@@ -426,5 +659,141 @@ describe("keeping the edit token a create returns (REQ194)", () => {
 		});
 		expect(asked.some((url) => url.endsWith("/claim"))).toBe(false);
 		expect(heldTokens()).toEqual({});
+	});
+});
+
+// ── The live socket (REQ209) ──────────────────────────────────
+
+/** A WebSocket stand-in that records what is sent and opens on demand. */
+class FakeSocket {
+	static CONNECTING = 0;
+	static OPEN = 1;
+	static CLOSING = 2;
+	static CLOSED = 3;
+	static created: FakeSocket[] = [];
+	readyState = FakeSocket.CONNECTING;
+	sent: Record<string, unknown>[] = [];
+	onopen: (() => void) | null = null;
+	onmessage: ((message: { data: string }) => void) | null = null;
+	onclose: (() => void) | null = null;
+	constructor(readonly url: string) {
+		FakeSocket.created.push(this);
+	}
+	send(data: string) {
+		this.sent.push(JSON.parse(data));
+	}
+	/** A socket that died without telling anyone closes without an event. */
+	close() {
+		this.readyState = FakeSocket.CLOSED;
+	}
+	open() {
+		this.readyState = FakeSocket.OPEN;
+		this.onopen?.();
+	}
+	hear(event: string, data: unknown) {
+		this.onmessage?.({ data: JSON.stringify({ event, data }) });
+	}
+}
+
+describe("the live socket (REQ209)", () => {
+	const realWebSocket = globalThis.WebSocket;
+	const visibilityHandlers: (() => void)[] = [];
+	const fakeDocument = {
+		visibilityState: "visible",
+		addEventListener: (_event: string, handler: () => void) =>
+			visibilityHandlers.push(handler),
+		removeEventListener: (_event: string, handler: () => void) =>
+			visibilityHandlers.splice(visibilityHandlers.indexOf(handler), 1),
+	};
+
+	beforeEach(() => {
+		FakeSocket.created = [];
+		globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+		Object.assign(globalThis, {
+			location: { protocol: "http:", host: "localhost:5173" },
+			document: fakeDocument,
+		});
+		jest.useFakeTimers();
+	});
+
+	afterEach(() => {
+		disconnectWs();
+		jest.useRealTimers();
+		setSystemTime();
+		globalThis.WebSocket = realWebSocket;
+		Reflect.deleteProperty(globalThis, "location");
+		Reflect.deleteProperty(globalThis, "document");
+	});
+
+	const JOIN = { type: "join", presentationId: "deck-1", role: "participant" };
+
+	test("a socket that stops answering is replaced, and the new one joins again", () => {
+		// A phone that moved from Wi-Fi to cellular: the browser still calls the
+		// socket open, nothing reaches it, and no close event ever fires.
+		connectWs("deck-1", "participant");
+		const first = FakeSocket.created[0];
+		first.open();
+		expect(first.sent).toEqual([JOIN]);
+
+		jest.advanceTimersByTime(SOCKET_PULSE_MS);
+		expect(first.sent).toEqual([JOIN, { type: "ping" }]);
+		jest.advanceTimersByTime(SOCKET_PULSE_MS);
+
+		expect(FakeSocket.created).toHaveLength(2);
+		const second = FakeSocket.created[1];
+		second.open();
+		expect(second.sent).toEqual([JOIN]);
+	});
+
+	test("a socket that answers its ping is kept", () => {
+		connectWs("deck-1", "participant");
+		const socket = FakeSocket.created[0];
+		socket.open();
+		for (let beat = 0; beat < 3; beat++) {
+			jest.advanceTimersByTime(SOCKET_PULSE_MS);
+			socket.hear("pong", {});
+		}
+		expect(FakeSocket.created).toHaveLength(1);
+		expect(socket.sent.filter((frame) => frame.type === "ping")).toHaveLength(3);
+	});
+
+	test("a page back from sleep opens a fresh socket at once", () => {
+		const asleepAt = new Date("2026-10-23T12:00:00.000Z");
+		setSystemTime(asleepAt);
+		connectWs("deck-1", "participant");
+		FakeSocket.created[0].open();
+
+		setSystemTime(new Date(asleepAt.getTime() + 5 * 60_000));
+		for (const handler of visibilityHandlers) handler();
+
+		expect(FakeSocket.created).toHaveLength(2);
+	});
+
+	test("a socket replaced by a fresh one reconnects nothing when it closes", () => {
+		connectWs("deck-1", "participant");
+		const first = FakeSocket.created[0];
+		first.open();
+		pulseWs();
+		pulseWs();
+		expect(FakeSocket.created).toHaveLength(2);
+
+		first.onclose?.();
+		jest.advanceTimersByTime(1000);
+		expect(FakeSocket.created).toHaveLength(2);
+	});
+
+	test("frames from a replaced socket are not delivered", () => {
+		const heard: unknown[] = [];
+		connectWs("deck-1", "participant");
+		onWsEvent("presentation.reset", (data) => heard.push(data));
+		const first = FakeSocket.created[0];
+		first.open();
+		pulseWs();
+		pulseWs();
+
+		first.hear("presentation.reset", { presentationId: "deck-1" });
+		expect(heard).toEqual([]);
+		FakeSocket.created[1].hear("presentation.reset", { presentationId: "deck-1" });
+		expect(heard).toEqual([{ presentationId: "deck-1" }]);
 	});
 });

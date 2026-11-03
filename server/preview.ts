@@ -44,6 +44,7 @@ import {
 	guessReferenceFor,
 	isUsableGuessRange,
 	matchesQuizAnswer,
+	maxResponsesFor,
 	maxSelectionsFor,
 	middleGuessValue,
 	normalizeQuestionText,
@@ -402,16 +403,10 @@ function quizVotes(slide: Slide, run: TestVoteRun): StoredVote[] {
 	);
 }
 
-/** The response cap on a word-cloud / open-text slide (REQ022, REQ026). */
-function responseCapFor(slide: Slide): number {
-	if (typeof slide.maxResponses === "number") return slide.maxResponses;
-	return slide.allowMultiple ? 0 : 1;
-}
-
 function wordCloudVotes(slide: Slide, run: TestVoteRun): StoredVote[] {
 	const random = createRandom(seedForSlide(run.seed, slide.id));
 	const weights = popularityWeights(random, PREVIEW_WORDS.length);
-	const cap = responseCapFor(slide);
+	const cap = maxResponsesFor(slide);
 	// Three is the ceiling on an unlimited slide: a cloud wants repetition, and
 	// past a handful per person the sizes say more about the generator than the
 	// slide.
@@ -436,7 +431,7 @@ function wordCloudVotes(slide: Slide, run: TestVoteRun): StoredVote[] {
 function openTextVotes(slide: Slide, run: TestVoteRun): TestVoteSet {
 	const random = createRandom(seedForSlide(run.seed, slide.id));
 	const weights = popularityWeights(random, PREVIEW_SENTENCES.length);
-	const cap = responseCapFor(slide);
+	const cap = maxResponsesFor(slide);
 	const perParticipant = cap === 0 ? 2 : Math.min(cap, 2);
 	const foldsDuplicates = !!slide.allowResponseVotes;
 

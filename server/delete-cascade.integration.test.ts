@@ -33,7 +33,7 @@ let server: {
 	port: number;
 } | null = null;
 
-/** Direct handles on the six collections a room writes into. */
+/** Direct handles on the seven collections a room writes into. */
 let stores: {
 	votes: import("./db").Store;
 	responseVotes: import("./db").Store;
@@ -41,6 +41,7 @@ let stores: {
 	qaUpvotes: import("./db").Store;
 	chatMessages: import("./db").Store;
 	participantNames: import("./db").Store;
+	participantPasses: import("./db").Store;
 };
 
 // API response is loosely typed
@@ -66,6 +67,8 @@ async function authed(
  * slide taking responses and their upvotes (REQ025), a published Q&A layer so
  * the room may both ask and upvote (REQ037 `everyone` — a moderated list refuses
  * upvotes on questions it never showed), and the live chat open (REQ078).
+ * Audience-paced with repeat passes on, so a device can start another pass and
+ * leave the record of it behind too (REQ083).
  */
 async function createCollectingDeck(title: string): Promise<AnyJson> {
 	const res = await fetch(`${baseUrl}/api/presentations`, {
@@ -86,6 +89,8 @@ async function createCollectingDeck(title: string): Promise<AnyJson> {
 			qaVisibility: "everyone",
 			chatEnabled: true,
 			requireParticipantName: true,
+			mode: "survey",
+			allowRepeatPasses: true,
 		}),
 	});
 	expect(res.status).toBe(201);
@@ -190,9 +195,18 @@ async function fillRoomRecords(pres: AnyJson): Promise<void> {
 		}),
 	});
 	expect(chatRes.status).toBe(200);
+
+	// And another pass through the deck started (REQ083) — the record of it
+	// names the device, so it is the room's as much as its answers are.
+	const passRes = await fetch(`${baseUrl}/api/presentations/${pres.id}/passes`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ participantId: "participant-a" }),
+	});
+	expect(passRes.status).toBe(200);
 }
 
-/** What each of the six collections still holds for one presentation id. */
+/** What each of the seven collections still holds for one presentation id. */
 async function storedCounts(presentationId: string): Promise<{
 	votes: number;
 	responseVotes: number;
@@ -200,6 +214,7 @@ async function storedCounts(presentationId: string): Promise<{
 	qaUpvotes: number;
 	chatMessages: number;
 	participantNames: number;
+	participantPasses: number;
 }> {
 	return {
 		votes: (await stores.votes.find({ presentationId })).length,
@@ -208,6 +223,8 @@ async function storedCounts(presentationId: string): Promise<{
 		qaUpvotes: (await stores.qaUpvotes.find({ presentationId })).length,
 		chatMessages: (await stores.chatMessages.find({ presentationId })).length,
 		participantNames: (await stores.participantNames.find({ presentationId }))
+			.length,
+		participantPasses: (await stores.participantPasses.find({ presentationId }))
 			.length,
 	};
 }
@@ -239,6 +256,10 @@ describe("deleting a presentation erases what the room submitted (REQ146)", () =
 				"participantNames",
 				schemas.StoredParticipantNameSchema,
 			),
+			participantPasses: db.createStore(
+				"participantPasses",
+				schemas.StoredParticipantPassSchema,
+			),
 		};
 
 		const app = new Elysia()
@@ -268,11 +289,11 @@ describe("deleting a presentation erases what the room submitted (REQ146)", () =
 		if (server) await server.stop();
 	});
 
-	test("all six record types survive nothing of the deck they were written in", async () => {
+	test("all seven record types survive nothing of the deck they were written in", async () => {
 		const pres = await createCollectingDeck("Deletion Test");
 		await fillRoomRecords(pres);
 
-		// Guard the test itself: a cascade assertion over six empty collections
+		// Guard the test itself: a cascade assertion over seven empty collections
 		// would pass against the very defect it exists to catch.
 		expect(await storedCounts(pres.id)).toEqual({
 			votes: 1,
@@ -281,6 +302,7 @@ describe("deleting a presentation erases what the room submitted (REQ146)", () =
 			qaUpvotes: 1,
 			chatMessages: 1,
 			participantNames: 1,
+			participantPasses: 1,
 		});
 
 		const deleteRes = await authed(
@@ -298,6 +320,7 @@ describe("deleting a presentation erases what the room submitted (REQ146)", () =
 			qaUpvotes: 0,
 			chatMessages: 0,
 			participantNames: 0,
+			participantPasses: 0,
 		});
 
 		// And the deck itself is gone, which is what made the rows above
@@ -326,6 +349,7 @@ describe("deleting a presentation erases what the room submitted (REQ146)", () =
 			qaUpvotes: 0,
 			chatMessages: 0,
 			participantNames: 0,
+			participantPasses: 0,
 		});
 		expect(await storedCounts(kept.id)).toEqual({
 			votes: 1,
@@ -334,6 +358,7 @@ describe("deleting a presentation erases what the room submitted (REQ146)", () =
 			qaUpvotes: 1,
 			chatMessages: 1,
 			participantNames: 1,
+			participantPasses: 1,
 		});
 	});
 
@@ -358,6 +383,7 @@ describe("deleting a presentation erases what the room submitted (REQ146)", () =
 			qaUpvotes: 1,
 			chatMessages: 1,
 			participantNames: 1,
+			participantPasses: 1,
 		});
 	});
 });

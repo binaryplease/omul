@@ -1,7 +1,7 @@
 import { EyeOff, Lock, LockOpen } from "lucide-react";
 import { DeckMark } from "./DeckTheme";
 import type { LiveRoomState, Presentation } from "../types";
-import { audienceViewBlanked } from "../types";
+import { audienceViewBlanked, slideAcceptsSubmissions } from "../types";
 import type { getDict } from "../i18n";
 
 // ── The live room's two switches (REQ111, REQ109) ─────────────
@@ -69,42 +69,118 @@ export function participationLabelsFor(
  * spectator rather than dropped: whether the room can answer is a
  * fact about this session, and a control that vanished would leave a
  * `view` collaborator unable to tell a closed question from an open one.
+ *
+ * `live` is whether the deck is running (REQ198). Before the start, or after
+ * the end, there is no room and nothing collected to keep: a slide closed then
+ * goes live closed and opens on the presenter's cue, so that is what it says.
  */
 export function slideParticipationToggleLabel({
 	open,
 	canControl,
+	live,
 }: {
 	open: boolean;
 	canControl: boolean;
+	live: boolean;
 }): string {
 	if (!canControl) {
+		if (!live) {
+			return open
+				? "This slide will go live open to submissions — you cannot edit this presentation, so it is not yours to close"
+				: "This slide will go live closed to submissions — you cannot edit this presentation, so it is not yours to reopen";
+		}
 		return open
 			? "This slide is open to submissions — you cannot edit this presentation, so it is not yours to close"
 			: "This slide is closed to submissions — you cannot edit this presentation, so it is not yours to reopen";
+	}
+	if (!live) {
+		return open
+			? "Close this slide before the start — it will go live closed, and the room can answer it only once you reopen it"
+			: "Reopen this slide — it will go live open, so the room can answer it from the start";
 	}
 	return open
 		? "Close this slide — the room stops being able to answer it, and every answer already given is kept"
 		: "Reopen this slide — the room can answer it again, alongside the answers already collected";
 }
 
+/** The words on the control itself, in the same two readings (REQ198). */
+export function slideParticipationControlText({
+	open,
+	live,
+}: {
+	open: boolean;
+	live: boolean;
+}): string {
+	if (!live) return open ? "Go live closed" : "Goes live closed — reopen";
+	return open ? "Close submissions" : "Submissions closed — reopen";
+}
+
+/**
+ * What the presenter is told once the switch has been thrown — the control's
+ * own wording, so the toast cannot promise what the control did not say.
+ */
+export function slideParticipationToast({
+	open,
+	live,
+}: {
+	open: boolean;
+	live: boolean;
+}): string {
+	if (!live) {
+		return open
+			? "This slide will go live open to submissions"
+			: "This slide will go live closed — reopen it when you want the room to answer";
+	}
+	return open
+		? "Submissions reopened on this slide"
+		: "Submissions closed on this slide — the answers already given are kept";
+}
+
+/**
+ * What starting a deck tells the presenter about the slides that begin closed
+ * (REQ198), or `null` when none do. A slide closed on the draft — or left closed
+ * by the last session, since End keeps them — refuses every answer until it is
+ * reopened, and that is the one moment the presenter must hear it.
+ *
+ * Slides are named by the number the presenter's counter shows, in deck order;
+ * a closed id whose slide has since been deleted names nothing and is skipped.
+ */
+export function closedAtStartNotice(
+	deck: Pick<Presentation, "slides" | "closedSlideIds">,
+): string | null {
+	const closedNumbers = deck.slides.flatMap((slide, slideIndex) =>
+		slideAcceptsSubmissions(deck, slide.id) ? [] : [slideIndex + 1],
+	);
+	if (closedNumbers.length === 0) return null;
+	if (closedNumbers.length === 1) {
+		return `Slide ${closedNumbers[0]} starts closed — reopen it when you want the room to answer`;
+	}
+	const leading = closedNumbers.slice(0, -1).join(", ");
+	const last = closedNumbers[closedNumbers.length - 1];
+	return `Slides ${leading} and ${last} start closed — reopen each when you want the room to answer`;
+}
+
 /**
  * The presenter's open/close control, on the slide it governs.
  *
  * It sits beside the reveal and the timer restart rather than in the page's
- * chrome, because all three are decisions about *this question* — and unlike
- * the deck's reveal mode, which is authored, this one only ever means anything
- * with a room in front of you.
+ * chrome, because all three are decisions about *this question*. It is drawn
+ * before the start as well: a slide closed on a draft goes live closed and
+ * opens on the presenter's cue (REQ198), which is why its wording follows
+ * `live`.
  */
 export function SlideParticipationControl({
 	open,
 	canControl,
+	live,
 	onChange,
 }: {
 	open: boolean;
 	canControl: boolean;
+	live: boolean;
 	onChange: (open: boolean) => void;
 }) {
-	const label = slideParticipationToggleLabel({ open, canControl });
+	const label = slideParticipationToggleLabel({ open, canControl, live });
 	return (
 		<button
 			type="button"
@@ -118,7 +194,7 @@ export function SlideParticipationControl({
 			}`}
 		>
 			{open ? <LockOpen size={13} /> : <Lock size={13} />}
-			{open ? "Close submissions" : "Submissions closed — reopen"}
+			{slideParticipationControlText({ open, live })}
 		</button>
 	);
 }

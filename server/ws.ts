@@ -4,11 +4,17 @@
  * Clients are organized into rooms (by presentationId).
  * Events:
  *   slide.changed     – presenter moved to a new slide
+ *   presentation.started
+ *                     – the deck went live, or live again after End; carries
+ *                       the session clock's start (REQ108) and the slide it
+ *                       landed on (`slideIndex`, always the first)
  *   vote.received     – a participant submitted a vote
  *   results.updated   – aggregated results changed
  *   participants.count – participant count changed
  *   slide.revealed    – results for one slide were revealed/hidden (REQ102)
  *   slide.started     – a slide's question was opened (REQ057)
+ *   slide.countdown   – a countdown slide's clock was started, paused, resumed
+ *                       or reset; carries the run it now has (REQ107)
  *   slide.participation
  *                     – one slide was opened or closed to submissions (REQ111)
  *   presentation.blanked
@@ -26,14 +32,21 @@
  *   reaction.sent     – somebody reacted to what is on screen (REQ077)
  *   chat.updated      – the live chat has a new message (REQ078)
  *
+ * Two frames go to one client rather than to a room (REQ209):
+ *   room.joined       – the answer to every `join`: where the deck stands now
+ *                       (`joinLiveRoom` in services/presentations.ts)
+ *   pong              – the answer to a `ping`, which is how a client tells a
+ *                       live socket from one that died without closing
+ *
  * Every frame here is read by **every** client in the room: a room is broadcast
  * to by presentation, and the `role` below is whatever the connecting client
  * said it was. So a broadcast carries only what the audience may see — the
  * `slide.changed` slide is projected through `withAudienceSlides` before it is
- * sent (REQ056 answer keys, REQ090 presenter notes), the `results.updated`
- * tally through the deck's reveal mode (`tallyVisibleToAudience`, REQ015–REQ017)
- * so a slide collecting silently broadcasts a `withheld` marker and not its
- * numbers, and the Q&A frames below carry no question text at all.
+ * sent (REQ056 answer keys, REQ090 presenter notes, REQ058 quiz audio cues),
+ * the `results.updated` tally through the deck's reveal mode
+ * (`tallyVisibleToAudience`, REQ015–REQ017) so a slide collecting silently
+ * broadcasts a `withheld` marker and not its numbers, and the Q&A frames below
+ * carry no question text at all.
  *
  * `qa.updated` carries the presentation id and **nothing else** — no text, no
  * counts. A room is broadcast to by presentation, and the `role` below is
@@ -128,6 +141,15 @@ export function broadcastToPresentation(
 			client.ws.send(msg);
 		}
 	}
+}
+
+/** Send one event to one client, wherever its room is (`room.joined`). */
+export function sendToClient(
+	clientId: string,
+	event: string,
+	data: unknown,
+): void {
+	clients.get(clientId)?.ws.send(JSON.stringify({ event, data }));
 }
 
 /** Broadcast event to all connected clients */

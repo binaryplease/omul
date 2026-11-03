@@ -1,6 +1,15 @@
-import { ArrowUp, Check, Hash, Percent, Trash2 } from "lucide-react";
-import { type CSSProperties, useEffect, useRef } from "react";
+import {
+	ArrowUp,
+	Check,
+	ChevronDown,
+	Hash,
+	Percent,
+	ShieldAlert,
+	Trash2,
+} from "lucide-react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { POLL_COLORS } from "../constants";
+import { getDict } from "../i18n";
 import type {
 	FormFieldType,
 	GridAxis,
@@ -194,6 +203,120 @@ export function WordCloudAnswerList({
 	);
 }
 
+// ── What the profanity filter kept off the wall (REQ085) ──────
+//
+// The filtering is the server's. An answer it withholds never reaches this
+// module on any surface the room can see — the presenter's own poll included,
+// since that screen is the projector — so nothing here filters, masks or hides
+// anything, and a component that did would be a second, weaker copy of a rule
+// already settled on the wire. What a surface can do is say so: how many
+// answers the wall is not showing, in words that name none of them. Only the
+// results surface is handed the words themselves (an editor's read that asks
+// for them), and there they wait behind a disclosure somebody opens on purpose
+// — that page, too, may be the one on a projector.
+
+/** One answer the filter withheld, as an editor who asked for it reads it. */
+export type FilteredAnswer = { id: string; text: string; createdAt: string };
+
+/** What one tally says about the filter. */
+export type AnswerFilterReport = {
+	/** How many answers that arrived the room is not shown. */
+	count: number;
+	/** The words themselves, on a read an editor asked for — `null` on every other. */
+	answers: FilteredAnswer[] | null;
+};
+
+/**
+ * The shared screen's wording — the presenter's surface is not translated, so it
+ * reads the English dictionary's line rather than holding a second copy of it.
+ */
+export const ANSWER_FILTER_LABEL_EN = getDict("en").answersFiltered;
+
+/**
+ * Read a tally's filter block wherever its slide type keeps it — beside a word
+ * cloud's `words` and an open-ended slide's `responses`, inside a typed quiz
+ * question's `typedAnswers` — or `null` where the deck filters nothing, which is
+ * the one reading every renderer below composes.
+ */
+export function answerFilterReportOf(
+	slide: Slide,
+	results: any,
+): AnswerFilterReport | null {
+	const block = slide.type === "quiz" ? results?.typedAnswers : results;
+	if (typeof block?.filteredCount !== "number") return null;
+	return {
+		count: block.filteredCount,
+		answers: Array.isArray(block.filteredAnswers) ? block.filteredAnswers : null,
+	};
+}
+
+/**
+ * The filter's line under the tally it withheld from: a count on every
+ * surface, and — where the payload carries them — the words, closed until
+ * opened, each marked as filtered. Nothing at all while nothing was withheld.
+ */
+export function AnswerFilterNotice({
+	report,
+	label,
+}: {
+	report: AnswerFilterReport | null;
+	/** "Answers withheld by the profanity filter", in this surface's language. */
+	label: string;
+}) {
+	const [open, setOpen] = useState(false);
+	if (!report || report.count === 0) return null;
+	const heading = `${label}: ${report.count}`;
+	if (!report.answers || report.answers.length === 0) {
+		return (
+			<p className="mt-4 flex items-center justify-center gap-1.5 text-center text-xs text-text-dim">
+				<ShieldAlert size={13} className="flex-shrink-0" />
+				{heading}
+			</p>
+		);
+	}
+	return (
+		<div className="mt-4 rounded-lg border border-border bg-surface-raised">
+			<button
+				type="button"
+				aria-expanded={open}
+				onClick={() => setOpen((current) => !current)}
+				className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm"
+			>
+				<span className="flex items-center gap-2">
+					<ShieldAlert size={14} className="flex-shrink-0 text-warning" />
+					{heading}
+				</span>
+				<span className="flex flex-shrink-0 items-center gap-1 text-xs text-text-muted">
+					{open ? "Hide" : "Show"}
+					<ChevronDown
+						size={14}
+						className={`transition-transform ${open ? "rotate-180" : ""}`}
+					/>
+				</span>
+			</button>
+			{open && (
+				<div className="border-t border-border px-3 py-2">
+					<p className="mb-2 text-xs text-text-dim">
+						Shown to you because this presentation is yours or shared with you.
+						The room, and anyone reading it through a results link, sees only
+						the count.
+					</p>
+					<ul className="space-y-1.5">
+						{report.answers.map((answer) => (
+							<li key={answer.id} className="flex items-start gap-2 text-sm">
+								<span className="mt-0.5 flex-shrink-0 rounded border border-warning/40 bg-warning/10 px-1.5 text-[10px] font-medium uppercase tracking-wide text-warning">
+									Filtered
+								</span>
+								<span className="min-w-0 break-words">{answer.text}</span>
+							</li>
+						))}
+					</ul>
+				</div>
+			)}
+		</div>
+	);
+}
+
 // ── Results display ──────────────────────────────────────────
 
 export function ResultsDisplay({
@@ -205,6 +328,7 @@ export function ResultsDisplay({
 	valueDisplay,
 	leaderboardLabels = LEADERBOARD_LABELS_EN,
 	highlightEntryId = null,
+	answerFilterLabel = ANSWER_FILTER_LABEL_EN,
 }: {
 	slide: Slide;
 	results: any;
@@ -235,7 +359,19 @@ export function ResultsDisplay({
 	 * shared screen, which has nobody to pick out.
 	 */
 	highlightEntryId?: string | null;
+	/**
+	 * How the profanity filter's line reads (REQ085). The shared screen keeps the
+	 * English default; a participant's phone passes the deck's language (REQ084).
+	 */
+	answerFilterLabel?: string;
 }) {
+	// REQ085 — what the filter withheld from this tally, read once; `null` on
+	// every slide it does not read and on a deck that has it off.
+	const filterReport = answerFilterReportOf(slide, results);
+	const filterNotice = (
+		<AnswerFilterNotice report={filterReport} label={answerFilterLabel} />
+	);
+	const withheldCount = filterReport ? filterReport.count : 0;
 	switch (slide.type) {
 		case "multiple-choice":
 		case "quiz":
@@ -243,7 +379,12 @@ export function ResultsDisplay({
 			// its result is what the room wrote. The score note underneath is the
 			// same one either way, so both go through the same block.
 			if (quizAnswerModeFor(slide) === "type") {
-				return <TypedQuizResults results={results} />;
+				return (
+					<>
+						<TypedQuizResults results={results} withheldCount={withheldCount} />
+						{filterNotice}
+					</>
+				);
 			}
 			return (
 				<ChoiceResults
@@ -255,28 +396,36 @@ export function ResultsDisplay({
 			);
 		case "word-cloud":
 			return (
-				<WordCloudResults
-					words={results.words}
-					// The per-answer list is on the payload only for a caller who can
-					// edit the deck, so a moderation surface reading a tally it fetched
-					// without credentials simply has no list to draw (the
-					// key is there and null, not missing).
-					answers={results.answers ?? null}
-					moderation={moderation}
-				/>
+				<>
+					<WordCloudResults
+						words={results.words}
+						// The per-answer list is on the payload only for a caller who can
+						// edit the deck, so a moderation surface reading a tally it fetched
+						// without credentials simply has no list to draw (the
+						// key is there and null, not missing).
+						answers={results.answers ?? null}
+						moderation={moderation}
+						withheldCount={withheldCount}
+					/>
+					{filterNotice}
+				</>
 			);
 		case "open-text":
 			return (
-				<OpenTextResults
-					responses={results.responses}
-					layout={results.layout ?? slide.openTextLayout ?? "speech-bubbles"}
-					allowVotes={
-						!!(results.allowResponseVotes ?? slide.allowResponseVotes)
-					}
-					onUpvote={onUpvote}
-					upvotedIds={upvotedIds}
-					moderation={moderation}
-				/>
+				<>
+					<OpenTextResults
+						responses={results.responses}
+						layout={results.layout ?? slide.openTextLayout ?? "speech-bubbles"}
+						allowVotes={
+							!!(results.allowResponseVotes ?? slide.allowResponseVotes)
+						}
+						onUpvote={onUpvote}
+						upvotedIds={upvotedIds}
+						moderation={moderation}
+						withheldCount={withheldCount}
+					/>
+					{filterNotice}
+				</>
 			);
 		case "scale":
 			return <ScaleResults results={results} />;
@@ -309,6 +458,7 @@ export function ResultsDisplay({
 		case "video":
 		case "embed":
 		case "instruction":
+		case "countdown":
 			// Content slides have no aggregated results — presenter/participant
 			// render the slide body directly.
 			return null;
@@ -397,7 +547,7 @@ type ChoiceTallyPayload = Partial<ChoiceTally> | null | undefined;
  */
 function readChoiceTally(
 	results: ChoiceTallyPayload,
-	authored: { id: string; isCorrect?: boolean | undefined }[] = [],
+	authored: { id: string; isCorrect?: boolean | null | undefined }[] = [],
 ): ChoiceTally {
 	const totalVotes = results?.totalVotes ?? 0;
 	const authoredCorrect = new Map(
@@ -535,7 +685,7 @@ export function ChoiceResults({
 	results: ChoiceTallyPayload;
 	valueDisplay: McValueDisplay;
 	/** The slide's own options — the fallback for a withheld solution (REQ056). */
-	authoredOptions?: { id: string; isCorrect?: boolean | undefined }[];
+	authoredOptions?: { id: string; isCorrect?: boolean | null | undefined }[];
 }) {
 	const tally = readChoiceTally(results, authoredOptions);
 	return (
@@ -588,7 +738,18 @@ type TypedQuizTally = {
  * line still reports how many have answered, which is what a presenter is
  * actually watching for.
  */
-function TypedQuizResults({ results }: { results: any }) {
+function TypedQuizResults({
+	results,
+	withheldCount = 0,
+}: {
+	results: any;
+	/**
+	 * Answers the profanity filter left out of the entries (REQ085). When every
+	 * answer that arrived was withheld the list is empty, and "No answers yet"
+	 * would be untrue — the filter's line under it says what happened instead.
+	 */
+	withheldCount?: number;
+}) {
 	const tally: TypedQuizTally = results?.typedAnswers ?? {
 		accepted: null,
 		entries: null,
@@ -614,7 +775,9 @@ function TypedQuizResults({ results }: { results: any }) {
 	return (
 		<div>
 			{tally.entries.length === 0 ? (
-				<p className="py-10 text-center text-text-dim">No answers yet</p>
+				withheldCount === 0 && (
+					<p className="py-10 text-center text-text-dim">No answers yet</p>
+				)
 			) : (
 				<div className="space-y-3">
 					{tally.entries.map((entry) => (
@@ -1118,6 +1281,7 @@ export function WordCloudResults({
 	words,
 	answers = null,
 	moderation,
+	withheldCount = 0,
 }: {
 	words: { text: string; count: number }[];
 	/**
@@ -1126,8 +1290,15 @@ export function WordCloudResults({
 	 */
 	answers?: WordCloudAnswer[] | null;
 	moderation?: AnswerModeration;
+	/**
+	 * Answers the profanity filter kept out of the cloud (REQ085). A cloud left
+	 * empty by them is not waiting for anything, so it draws nothing and lets the
+	 * filter's line beneath it speak.
+	 */
+	withheldCount?: number;
 }) {
 	if (!words || words.length === 0) {
+		if (withheldCount > 0) return null;
 		return (
 			<div className="text-center text-text-dim py-8">
 				Waiting for responses...
@@ -1203,6 +1374,7 @@ export function OpenTextResults({
 	onUpvote,
 	upvotedIds,
 	moderation,
+	withheldCount = 0,
 }: {
 	responses: OpenTextResponse[];
 	layout: "speech-bubbles" | "grid";
@@ -1216,8 +1388,11 @@ export function OpenTextResults({
 	 * it draws no individual answer to hang one on.
 	 */
 	moderation?: AnswerModeration;
+	/** Responses the profanity filter kept off the wall (REQ085) — see the cloud's. */
+	withheldCount?: number;
 }) {
 	if (!responses || responses.length === 0) {
+		if (withheldCount > 0) return null;
 		return (
 			<div className="text-center text-text-dim py-8">
 				Waiting for responses...

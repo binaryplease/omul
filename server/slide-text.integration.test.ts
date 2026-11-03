@@ -1,6 +1,6 @@
 /**
  * Integration tests for formatted slide text (REQ088 hyperlinks, REQ089
- * markdown, REQ091 text size).
+ * markdown, REQ091 text size, REQ093 mathematical notation).
  *
  * Exercises the real Elysia app against a throw-away in-memory zodstore.
  * What is worth an integration test here is not the formatting — that is the
@@ -14,6 +14,8 @@
  *   - editing them through PATCH replaces them
  *   - a size no surface implements is refused at the boundary rather than
  *     stored for a projector to trip over
+ *   - TeX — backslashes, braces, dollar signs and line breaks — reaches the
+ *     participant's phone exactly as typed, and only an editor can change it
  *
  * The store is in-process (bun:sqlite ":memory:"), matching the pin / grid /
  * guess harnesses.
@@ -52,6 +54,18 @@ const MARKDOWN_BODY = [
 ].join("\n");
 
 const MARKDOWN_QUESTION = "**Q3** — see [the report](https://example.com/q3)";
+
+/** A heading and a body carrying every shape of formula REQ093 reads. */
+const FORMULA_QUESTION = "What is $\\int_0^1 x^2\\,dx$?";
+const FORMULA_BODY = [
+	"For $a \\neq 0$, the roots of $ax^2 + bx + c = 0$ are:",
+	"",
+	"$$",
+	"x_{1,2} = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}",
+	"$$",
+	"",
+	"Tickets cost \\$5, and $\\href{javascript:alert(1)}{this}$ stays text.",
+].join("\n");
 
 async function authed(
 	path: string,
@@ -236,5 +250,61 @@ describe("formatted slide text integration", () => {
 			await fetch(`${baseUrl}/api/presentations/${pres.id}`)
 		).json();
 		expect(fetched.slides[0].textSize).toBe("large");
+	});
+
+	// ── REQ093 — a formula is the TeX that was typed ───────────
+
+	test("TeX round-trips byte for byte, to the owner and to the phone that joined", async () => {
+		// The server neither typesets nor sanitises a formula: it is markup like
+		// the rest, resolved where it is rendered. A boundary that unescaped a
+		// backslash or dropped a dollar sign would be a formula that typesets on
+		// the projector and falls apart in the room's hands.
+		const pres = await createOk([
+			textSlide({ question: FORMULA_QUESTION, body: FORMULA_BODY }),
+		]);
+		const fetched = await (
+			await fetch(`${baseUrl}/api/presentations/${pres.id}`)
+		).json();
+		expect(fetched.slides[0].question).toBe(FORMULA_QUESTION);
+		expect(fetched.slides[0].body).toBe(FORMULA_BODY);
+
+		const byCode = await (
+			await fetch(`${baseUrl}/api/join/${pres.code}`)
+		).json();
+		expect(byCode.slides[0].question).toBe(FORMULA_QUESTION);
+		expect(byCode.slides[0].body).toBe(FORMULA_BODY);
+	});
+
+	test("a formula changes through the deck's edit, and only through it", async () => {
+		const pres = await createOk([textSlide({ question: FORMULA_QUESTION })]);
+		const other = await createOk([textSlide()]);
+		const path = `/api/presentations/${pres.id}`;
+		const rewritten = JSON.stringify({
+			slides: [textSlide({ question: "Now $e^{i\\pi} + 1 = 0$" })],
+		});
+
+		// No credential, and another deck's edit token: both refused, and the
+		// formula the room is reading stays the one its editor wrote.
+		const anonymous = await fetch(`${baseUrl}${path}`, {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: rewritten,
+		});
+		expect(anonymous.status).toBe(401);
+		const impostor = await authed(path, other.creatorToken, {
+			method: "PATCH",
+			body: rewritten,
+		});
+		expect(impostor.status).toBe(401);
+		let fetched = await (await fetch(`${baseUrl}${path}`)).json();
+		expect(fetched.slides[0].question).toBe(FORMULA_QUESTION);
+
+		const edited = await authed(path, pres.creatorToken, {
+			method: "PATCH",
+			body: rewritten,
+		});
+		expect(edited.status).toBe(200);
+		fetched = await (await fetch(`${baseUrl}${path}`)).json();
+		expect(fetched.slides[0].question).toBe("Now $e^{i\\pi} + 1 = 0$");
 	});
 });

@@ -75,7 +75,7 @@ Prose outside the markers is preserved.
 | [REQ055.md](requirements/REQ055.md) | Quiz question, typed answer | Quiz & Scoring | P1 | done | BR055 |
 | [REQ056.md](requirements/REQ056.md) | Automatic scoring | Quiz & Scoring | P1 | done | BR056 |
 | [REQ057.md](requirements/REQ057.md) | Answer window per quiz question | Quiz & Scoring | P1 | done | BR057 |
-| [REQ058.md](requirements/REQ058.md) | Quiz audio cue | Quiz & Scoring | P3 | pending | BR058 |
+| [REQ058.md](requirements/REQ058.md) | Quiz audio cue | Quiz & Scoring | P3 | in-progress | BR058 |
 | [REQ059.md](requirements/REQ059.md) | Leaderboard slide | Quiz & Scoring | P1 | done | BR059 |
 | [REQ060.md](requirements/REQ060.md) | Question upvotes and answered state | Q&A | P1 | done | BR060 |
 | [REQ061.md](requirements/REQ061.md) | Form slide | Question Types | P1 | done | BR061 |
@@ -100,9 +100,9 @@ Prose outside the markers is preserved.
 | [REQ080.md](requirements/REQ080.md) | Custom themes | Rendering & Theming | P2 | done | BR080 |
 | [REQ081.md](requirements/REQ081.md) | Presenter-paced mode | Live Session | P0 | done | BR081 |
 | [REQ082.md](requirements/REQ082.md) | Audience-paced mode | Live Session | P0 | done | BR082 |
-| [REQ083.md](requirements/REQ083.md) | Repeat runs per device in audience-paced mode | Live Session | P2 | pending | BR083 |
+| [REQ083.md](requirements/REQ083.md) | Repeat runs per device in audience-paced mode | Live Session | P2 | done | BR083 |
 | [REQ084.md](requirements/REQ084.md) | Presentation language | Rendering & Theming | P0 | done | BR084 |
-| [REQ085.md](requirements/REQ085.md) | Profanity filter on free text | Live Session | P2 | pending | BR085 |
+| [REQ085.md](requirements/REQ085.md) | Profanity filter on free text | Live Session | P2 | done | BR085 |
 | [REQ086.md](requirements/REQ086.md) | Workspace default theme | Accounts & Workspaces | P2 | done | BR086 |
 | [REQ087.md](requirements/REQ087.md) | Per-slide layout | Rendering & Theming | P1 | done | BR087 |
 | [REQ088.md](requirements/REQ088.md) | Links in slide text | Rendering & Theming | P1 | done | BR088 |
@@ -110,7 +110,7 @@ Prose outside the markers is preserved.
 | [REQ090.md](requirements/REQ090.md) | Presenter notes | Deck & Slides | P1 | done | BR090 |
 | [REQ091.md](requirements/REQ091.md) | Text size | Rendering & Theming | P1 | done | BR091 |
 | [REQ092.md](requirements/REQ092.md) | Font family | Rendering & Theming | P2 | done | BR092 |
-| [REQ093.md](requirements/REQ093.md) | Math notation | Rendering & Theming | P2 | pending | BR093 |
+| [REQ093.md](requirements/REQ093.md) | Math notation | Rendering & Theming | P2 | done | BR093 |
 | [REQ094.md](requirements/REQ094.md) | Results surface | Results & Export | P0 | done | BR094 |
 | [REQ095.md](requirements/REQ095.md) | Spreadsheet export | Results & Export | P1 | done | BR095 |
 | [REQ096.md](requirements/REQ096.md) | PDF export | Results & Export | P1 | done | BR096 |
@@ -124,14 +124,14 @@ Prose outside the markers is preserved.
 | [REQ104.md](requirements/REQ104.md) | Test answers | Live Session | P1 | done | BR104 |
 | [REQ105.md](requirements/REQ105.md) | Presenter surface | Live Session | P0 | done | BR105 |
 | [REQ106.md](requirements/REQ106.md) | Mobile presenter remote | Live Session | P2 | pending | BR106 |
-| [REQ107.md](requirements/REQ107.md) | Countdown slide | Deck & Slides | P2 | pending | BR107 |
+| [REQ107.md](requirements/REQ107.md) | Countdown slide | Deck & Slides | P2 | done | BR107 |
 | [REQ108.md](requirements/REQ108.md) | Session timer | Live Session | P2 | done | BR108 |
 | [REQ109.md](requirements/REQ109.md) | Blank the audience view | Live Session | P3 | done | BR109 |
-| [REQ110.md](requirements/REQ110.md) | Skip a slide | Deck & Slides | P3 | pending | BR110 |
+| [REQ110.md](requirements/REQ110.md) | Skip a slide | Deck & Slides | P3 | done | BR110 |
 | [REQ111.md](requirements/REQ111.md) | Open and close participation per slide | Live Session | P2 | done | BR111 |
 | [REQ112.md](requirements/REQ112.md) | Join code lifetime | Access & Sharing | P3 | pending | BR112 |
 | [REQ113.md](requirements/REQ113.md) | Insights over collected answers | Results & Export | P2 | pending | BR113 |
-| [REQ114.md](requirements/REQ114.md) | Group free-text answers | Results & Export | P2 | pending | BR114 |
+| [REQ114.md](requirements/REQ114.md) | Group free-text answers | Results & Export | P2 | in-progress | BR114 |
 | [REQ115.md](requirements/REQ115.md) | Summarize free-text answers | Results & Export | P2 | pending | BR115 |
 | [REQ116.md](requirements/REQ116.md) | Segmented result views | Results & Export | P2 | done | BR116 |
 | [REQ117.md](requirements/REQ117.md) | Direct join link | Access & Sharing | P0 | done | BR117 |
@@ -144,14 +144,14 @@ Prose outside the markers is preserved.
 | [REQ124.md](requirements/REQ124.md) | Screen-shared remote sessions | Live Session | P2 | pending | BR124 |
 | [REQ125.md](requirements/REQ125.md) | Concurrent sessions | Live Session | P3 | pending | BR125 |
 | [REQ126.md](requirements/REQ126.md) | Shared editing of decks and folders | Accounts & Workspaces | P1 | pending | BR126 |
-| [REQ127.md](requirements/REQ127.md) | Bulk slide operations | Deck & Slides | P2 | pending | BR127 |
+| [REQ127.md](requirements/REQ127.md) | Bulk slide operations | Deck & Slides | P2 | done | BR127 |
 | [REQ128.md](requirements/REQ128.md) | Workspace-owned decks | Accounts & Workspaces | P2 | done | BR128 |
 | [REQ129.md](requirements/REQ129.md) | Workspace roles | Accounts & Workspaces | P2 | done | BR129 |
 | [REQ130.md](requirements/REQ130.md) | Workspace settings | Accounts & Workspaces | P2 | pending | BR130 |
 | [REQ131.md](requirements/REQ131.md) | Reduced-capability member role | Accounts & Workspaces | P2 | pending | BR131 |
-| [REQ132.md](requirements/REQ132.md) | Accessibility check | Rendering & Theming | P2 | pending | BR132 |
+| [REQ132.md](requirements/REQ132.md) | Accessibility check | Rendering & Theming | P2 | done | BR132 |
 | [REQ133.md](requirements/REQ133.md) | Per-passage language marking | Rendering & Theming | P3 | pending | BR133 |
-| [REQ134.md](requirements/REQ134.md) | Require an authenticated participant | Access & Sharing | P2 | pending | BR134 |
+| [REQ134.md](requirements/REQ134.md) | Require an authenticated participant | Access & Sharing | P2 | done | BR134 |
 | [REQ135.md](requirements/REQ135.md) | Organization branding on a deck | Rendering & Theming | P1 | done | BR135 |
 | [REQ136.md](requirements/REQ136.md) | Custom logo | Rendering & Theming | P1 | done | BR136 |
 | [REQ137.md](requirements/REQ137.md) | Single sign-on | Accounts & Workspaces | P1 | pending | BR137 |
@@ -173,7 +173,7 @@ Prose outside the markers is preserved.
 | [REQ155.md](requirements/REQ155.md) | Slide settings compact to a single side column | Deck & Slides | P1 | done | BR145 |
 | [REQ156.md](requirements/REQ156.md) | Presenter notes are a strip under the canvas | Deck & Slides | P2 | done | BR145 |
 | [REQ157.md](requirements/REQ157.md) | Editor structural text meets AA contrast | Rendering & Theming | P1 | done | internal |
-| [REQ158.md](requirements/REQ158.md) | PDF export renders text outside Latin-1 | Results & Export | P2 | pending | internal |
+| [REQ158.md](requirements/REQ158.md) | PDF export renders text outside Latin-1 | Results & Export | P2 | done | internal |
 | [REQ159.md](requirements/REQ159.md) | Rendering a deck must cost time proportional to what a deck may hold | Platform & Operations | P0 | done | internal |
 | [REQ160.md](requirements/REQ160.md) | A slide comment lands on the slide it was written about | Accounts & Workspaces | P0 | done | internal |
 | [REQ161.md](requirements/REQ161.md) | The repository carries a license and a provenance claim it can stand behind | Platform & Operations | P0 | done | internal |
@@ -199,18 +199,29 @@ Prose outside the markers is preserved.
 | [REQ181.md](requirements/REQ181.md) | The repository carries an agent skill that teaches an agent to drive omul through the command-line client | Platform & Operations | P2 | done | internal |
 | [REQ182.md](requirements/REQ182.md) | Deleting an account must resolve the presentations that ran under it | Platform & Operations | P1 | pending | internal |
 | [REQ183.md](requirements/REQ183.md) | Legal texts must be reachable in the app and named where a contract is concluded | Platform & Operations | P0 | done | internal |
-| [REQ184.md](requirements/REQ184.md) | The two bare optional slide fields must declare what their absence means | Platform & Operations | P3 | pending | internal |
+| [REQ184.md](requirements/REQ184.md) | The two bare optional slide fields must declare what their absence means | Platform & Operations | P3 | done | internal |
 | [REQ185.md](requirements/REQ185.md) | Anyone in the app can send feedback about omul to the instance operator from the app menu, stored in omul's own feedback database | Platform & Operations | P2 | done | BR148 |
 | [REQ186.md](requirements/REQ186.md) | A sampled participant is asked once, after the session ends and outside the deck, what they think of omul | Platform & Operations | P2 | done | BR148 |
 | [REQ187.md](requirements/REQ187.md) | An explicit `:memory:` in OMUL_AUTH_DB or OMUL_ADMIN_DB opens an in-memory database, never a file named `:memory:` | Platform & Operations | P2 | done | internal |
 | [REQ188.md](requirements/REQ188.md) | Presentation cards on the home page show a readable title and a legible metadata row | Rendering & Theming | P1 | done | internal |
-| [REQ189.md](requirements/REQ189.md) | The presenter top bar shows every control and the Back link without horizontal scrolling, at every viewport width | Live Session | P1 | pending | internal |
-| [REQ192.md](requirements/REQ192.md) | Every control in the presenter top bar renders at one shared height | Live Session | P2 | pending | internal |
+| [REQ189.md](requirements/REQ189.md) | The presenter top bar shows every control and the Back link without horizontal scrolling, at every viewport width | Live Session | P1 | done | internal |
+| [REQ190.md](requirements/REQ190.md) | The presenter top bar reads as calm and ordered, with every control it offers today still reachable | Live Session | P1 | done | internal |
+| [REQ191.md](requirements/REQ191.md) | The presenter screen gives the room its way in through one deliberate design for inviting the audience to join and vote | Live Session | P1 | done | internal |
+| [REQ192.md](requirements/REQ192.md) | Every control in the presenter top bar renders at one shared height | Live Session | P2 | done | internal |
 | [REQ193.md](requirements/REQ193.md) | A fork runs none of the maintainers' private-copy setup | Platform & Operations | P2 | done | internal |
 | [REQ194.md](requirements/REQ194.md) | The home page offers a signed-out browser that holds presentations to add an email, so they survive cleared browser data | Accounts & Workspaces | P2 | done | internal |
+| [REQ198.md](requirements/REQ198.md) | Before a deck goes live, the participation control says the slide will go live closed, and going live names the slides that start closed | Live Session | P2 | done | internal |
+| [REQ199.md](requirements/REQ199.md) | Below 1280px the presenter top bar is laid out for whoever holds the screen — a phone used as a remote with the console docked in thumb reach, and two edge-aligned lines from 640px — at one control height per width | Live Session | P1 | done | internal |
 | [REQ200.md](requirements/REQ200.md) | The participant's ended screen offers home in the deck's language, linking to the product website's home in that language when the instance names one | Live Session | P2 | done | internal |
 | [REQ203.md](requirements/REQ203.md) | The query parameters the operator lists stay in the address bar across in-app navigation | Platform & Operations | P2 | done | BR150 |
+| [REQ206.md](requirements/REQ206.md) | The deck PDF export reads as a finished handout, not a data dump | Results & Export | P2 | pending | internal |
+| [REQ207.md](requirements/REQ207.md) | Decide whether a deck can be edited while it is live, and make every way into the editor follow that decision | Live Session | P2 | pending | internal |
+| [REQ208.md](requirements/REQ208.md) | Restarting an ended deck puts the presenter and every participant on the same slide | Live Session | P1 | done | internal |
+| [REQ209.md](requirements/REQ209.md) | A participant never sees "Waiting for presenter" while the deck is live | Live Session | P1 | done | internal |
+| [REQ211.md](requirements/REQ211.md) | Every dialog and popover keeps one keyboard contract — Escape closes it, focus goes in and comes back, Tab stays inside, and it fits the viewport | Rendering & Theming | P2 | pending | internal |
+| [REQ212.md](requirements/REQ212.md) | The app renders when served over plain HTTP on a LAN address, where the browser offers no `crypto.randomUUID` | Platform & Operations | P2 | pending | internal |
 | [REQ213.md](requirements/REQ213.md) | The PDF export's markdown reduction must be linear in the text, the export must be rate-limited, and rendering must neither hold the server's thread nor pile up | Platform & Operations | P1 | done | internal |
+| [REQ245.md](requirements/REQ245.md) | A slide's body text can be edited directly on the editor canvas, as its question already can | Deck & Slides | P2 | pending | internal |
 
-_193 entries — one row per file in `requirements/`._
+_204 entries — one row per file in `requirements/`._
 <!-- index:end -->

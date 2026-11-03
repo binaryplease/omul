@@ -3,7 +3,10 @@
 import { filenameFromContentDisposition } from "./download";
 import {
 	type AdminFeedbackPage,
+	type AnswerTheme,
+	AnswerThemeSchema,
 	type BuiltInDeckThemeId,
+	type CountdownAction,
 	type DeckAccessLevel,
 	type DeckBrand,
 	type DeckCollaborator,
@@ -13,11 +16,16 @@ import {
 	type DeckThemeId,
 	type FeedbackChannel,
 	type FeedbackConfig,
+	FIRST_PASS,
 	isVoteRefusalCode,
 	isWithheldTally,
 	type LegalLinks,
+	isParticipantLanguage,
+	PARTICIPANT_SIGN_IN_REFUSAL_CODES,
 	type ParticipantFeedbackSubmission,
+	type ParticipantLanguage,
 	type ParticipantRosterEntry,
+	type ParticipantSignInRefusalCode,
 	type ReactionKind,
 	RESULTS_TOKEN_HEADER,
 	type ResultsLink,
@@ -35,6 +43,7 @@ import {
 import {
 	PARTICIPANT_ID_KEY,
 	PARTICIPANT_NAME_KEY,
+	PARTICIPANT_PASS_KEY,
 	RESULTS_TOKEN_KEY,
 	TOKEN_KEY,
 } from "./storage";
@@ -48,7 +57,12 @@ const BASE = "";
  * the deck's own language (REQ084) instead of guessing it from local state.
  */
 export class ApiError extends Error {
-	readonly refused: VoteRefusalCode | null;
+	/**
+	 * A deck that requires signing in (REQ134) states why it turned the caller
+	 * away in the same field, from a vocabulary of its own — see
+	 * {@link signInRefusalOf}.
+	 */
+	readonly refused: VoteRefusalCode | ParticipantSignInRefusalCode | null;
 	/**
 	 * The HTTP status the refusal came with, for a surface whose answer depends
 	 * on *which* refusal it was rather than on its prose — the administrators'
@@ -57,7 +71,11 @@ export class ApiError extends Error {
 	 */
 	readonly status: number;
 
-	constructor(message: string, refused: VoteRefusalCode | null, status = 0) {
+	constructor(
+		message: string,
+		refused: VoteRefusalCode | ParticipantSignInRefusalCode | null,
+		status = 0,
+	) {
 		super(message);
 		this.name = "ApiError";
 		this.refused = refused;
@@ -81,11 +99,35 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 		// own in front of the write.
 		throw new ApiError(
 			err.error || err.summary || err.message || res.statusText,
-			isVoteRefusalCode(err.refused) ? err.refused : null,
+			isVoteRefusalCode(err.refused) || isSignInRefusalCode(err.refused)
+				? err.refused
+				: null,
 			res.status,
 		);
 	}
 	return res.json();
+}
+
+function isSignInRefusalCode(
+	value: unknown,
+): value is ParticipantSignInRefusalCode {
+	return PARTICIPANT_SIGN_IN_REFUSAL_CODES.includes(
+		value as ParticipantSignInRefusalCode,
+	);
+}
+
+/**
+ * Whether a thrown error is a deck turning its participant away for who they
+ * are signed in as (REQ134) rather than for what they sent, and which of the two
+ * reasons it gave — `null` for anything else. The participant page asks this of
+ * every request it makes, so the join door and a vote refused mid-session lead
+ * to the same screen.
+ */
+export function signInRefusalOf(
+	thrown: unknown,
+): ParticipantSignInRefusalCode | null {
+	if (!(thrown instanceof ApiError)) return null;
+	return isSignInRefusalCode(thrown.refused) ? thrown.refused : null;
 }
 
 // ── Creator token storage ─────────────────────────────────────
@@ -379,12 +421,19 @@ export const api = {
 		workspaceId?: string;
 		language?: string;
 		mode?: "live" | "survey";
+		/** Whether a device may go through the deck more than once (REQ083). */
+		allowRepeatPasses?: boolean;
 		resultsVisibility?: "instant" | "on-click" | "private";
 		qaEnabled?: boolean;
 		qaVisibility?: "presenter" | "everyone";
 		reactionsEnabled?: boolean;
 		chatEnabled?: boolean;
 		requireParticipantName?: boolean;
+		/** Whether only signed-in participants may join (REQ134), default off. */
+		requireParticipantSignIn?: boolean;
+		/** The profanity filter on free text, and the list it reads (REQ085). */
+		profanityFilterEnabled?: boolean;
+		profanityFilterLanguage?: ParticipantLanguage | null;
 		theme?: DeckThemeId;
 		themeBrand?: DeckBrand;
 		themeLogoUrl?: string;
@@ -526,14 +575,16 @@ export const api = {
 			slides?: any[];
 			language?: string;
 			mode?: "live" | "survey";
+			allowRepeatPasses?: boolean;
 			resultsVisibility?: "instant" | "on-click" | "private";
 			qaEnabled?: boolean;
 			qaVisibility?: "presenter" | "everyone";
 			reactionsEnabled?: boolean;
 			chatEnabled?: boolean;
 			requireParticipantName?: boolean;
-			/** Whether the presenter surface draws its join bar (REQ073). */
-			showJoinBar?: boolean;
+			requireParticipantSignIn?: boolean;
+			profanityFilterEnabled?: boolean;
+			profanityFilterLanguage?: ParticipantLanguage | null;
 			theme?: DeckThemeId;
 			themeBrand?: DeckBrand;
 			themeLogoUrl?: string;
@@ -609,12 +660,23 @@ export const api = {
 			headers: authHeaders(id),
 		}),
 
+	/**
+	 * Start, pause or reset a countdown slide's clock (REQ107). `start` continues
+	 * a paused clock, and `reset` returns it to the full authored length.
+	 */
+	controlCountdown: (id: string, slideId: string, action: CountdownAction) =>
+		request<any>(`/presentations/${id}/countdown`, {
+			method: "POST",
+			body: JSON.stringify({ slideId, action }),
+			headers: authHeaders(id),
+		}),
+
 	vote: (
 		presentationId: string,
 		slideId: string,
 		value: string,
 		participantId: string,
-		opts: { statementId?: string; skip?: boolean } = {},
+		opts: { statementId?: string; skip?: boolean; pass?: number } = {},
 	) =>
 		request<any>(`/presentations/${presentationId}/vote`, {
 			method: "POST",
@@ -624,6 +686,9 @@ export const api = {
 				participantId,
 				...(opts.statementId ? { statementId: opts.statementId } : {}),
 				...(opts.skip ? { skip: true } : {}),
+				// REQ083 — named only past the first pass, which is what an answer
+				// that names none already is.
+				...(opts.pass && opts.pass > FIRST_PASS ? { pass: opts.pass } : {}),
 			}),
 		}),
 
@@ -642,16 +707,105 @@ export const api = {
 			{ method: "DELETE", headers: authHeaders(presentationId) },
 		),
 
-	/** Upvote (or toggle off) an open-ended response (REQ025). */
+	// ── Themes over a free-text slide's answers (REQ114) ────────
+	//
+	// Every call — the read included — is an edit: the stored edit token rides
+	// it, and an `edit` grant proves itself with the session cookie as on every
+	// other mutation. Nothing is broadcast when a theme changes, so the surface
+	// re-reads after its own write. Each answer is parsed through the schema the
+	// server stores themes by, so a field the server adds later arrives defaulted
+	// rather than missing.
+
+	/** The themes one slide's answers are grouped into, oldest first. */
+	listAnswerThemes: (presentationId: string, slideId: string) =>
+		request<{ themes: unknown }>(
+			`/presentations/${presentationId}/slides/${slideId}/answer-themes`,
+			{ headers: authHeaders(presentationId) },
+		).then(({ themes }) => AnswerThemeSchema.array().parse(themes)),
+
+	/** Add an empty theme to a slide; the server trims and bounds the name. */
+	createAnswerTheme: (presentationId: string, slideId: string, name: string) =>
+		request<unknown>(
+			`/presentations/${presentationId}/slides/${slideId}/answer-themes`,
+			{
+				method: "POST",
+				body: JSON.stringify({ name }),
+				headers: authHeaders(presentationId),
+			},
+		).then((created): AnswerTheme => AnswerThemeSchema.parse(created)),
+
+	/** Rename one theme, on the same terms as creating one. */
+	renameAnswerTheme: (
+		presentationId: string,
+		slideId: string,
+		themeId: string,
+		name: string,
+	) =>
+		request<unknown>(
+			`/presentations/${presentationId}/slides/${slideId}/answer-themes/${themeId}`,
+			{
+				method: "PATCH",
+				body: JSON.stringify({ name }),
+				headers: authHeaders(presentationId),
+			},
+		).then((renamed): AnswerTheme => AnswerThemeSchema.parse(renamed)),
+
+	/** Delete one theme. Its answers become ungrouped; none is touched. */
+	deleteAnswerTheme: (presentationId: string, slideId: string, themeId: string) =>
+		request<{ ok: true }>(
+			`/presentations/${presentationId}/slides/${slideId}/answer-themes/${themeId}`,
+			{ method: "DELETE", headers: authHeaders(presentationId) },
+		),
+
+	/**
+	 * Put one answer in a theme on its slide — moving it out of any other, since
+	 * an answer is in at most one — or, with `null`, in none.
+	 */
+	assignAnswerTheme: (
+		presentationId: string,
+		answerId: string,
+		themeId: string | null,
+	) =>
+		request<{ answerId: string; themeId: string | null; slideId: string }>(
+			`/presentations/${presentationId}/answers/${answerId}/answer-theme`,
+			{
+				method: "PUT",
+				body: JSON.stringify({ themeId }),
+				headers: authHeaders(presentationId),
+			},
+		),
+
+	/**
+	 * Upvote (or toggle off) an open-ended response (REQ025) — on the account of
+	 * the pass this browser is on (REQ083).
+	 */
 	voteOnResponse: (
 		presentationId: string,
 		slideId: string,
 		responseId: string,
 		participantId: string,
+		pass: number = FIRST_PASS,
 	) =>
 		request<any>(`/presentations/${presentationId}/response-vote`, {
 			method: "POST",
-			body: JSON.stringify({ slideId, responseId, participantId }),
+			body: JSON.stringify({
+				slideId,
+				responseId,
+				participantId,
+				...(pass > FIRST_PASS ? { pass } : {}),
+			}),
+		}),
+
+	/**
+	 * Start another pass through an audience-paced deck (REQ083). The server
+	 * opens it and answers with its number — the pass the next answers are to
+	 * carry, never one this browser made up — or refuses with `repeat-passes-off`
+	 * once the deck no longer allows another.
+	 */
+	startPass: (presentationId: string, participantId: string) =>
+		request<{ pass: number }>(`/presentations/${presentationId}/passes`, {
+			method: "POST",
+			body: JSON.stringify({ participantId }),
 		}),
 
 	// ── Q&A layer (REQ036, REQ037, REQ060) ──────────────────────
@@ -835,10 +989,17 @@ export const api = {
 	 * Fetch this participant's own quiz scorecard (REQ056) — what they answered,
 	 * whether it was right, and what it scored. The room's results payload
 	 * reports scores anonymously, so this is how a participant learns their own.
+	 * One pass's card (REQ083): a later pass through the deck starts blank.
 	 */
-	getScorecard: (presentationId: string, participantId: string) =>
+	getScorecard: (
+		presentationId: string,
+		participantId: string,
+		pass: number = FIRST_PASS,
+	) =>
 		request<any>(
-			`/presentations/${presentationId}/scorecard?participantId=${encodeURIComponent(participantId)}`,
+			`/presentations/${presentationId}/scorecard?participantId=${encodeURIComponent(participantId)}${
+				pass > FIRST_PASS ? `&pass=${pass}` : ""
+			}`,
 		),
 
 	/**
@@ -953,9 +1114,16 @@ export const api = {
 	 * A withheld entry reads back as `null` exactly as it does on `getAllResults`
 	 * — a deck whose organizer never minted a link is still openable at this URL,
 	 * and what it shows is what the public endpoint publishes.
+	 *
+	 * It is the one read that asks for what the profanity filter withheld
+	 * (`filtered=include`, REQ085): this page is the results surface those
+	 * answers stay reachable on. The server answers that only for a caller who
+	 * can edit the deck — a link holder and a stranger get the count alone — and
+	 * no read that feeds the presenter's screen ever asks, since that screen is
+	 * the projector.
 	 */
 	getSharedResults: (id: string) =>
-		request<any[]>(`/presentations/${id}/results`, {
+		request<any[]>(`/presentations/${id}/results?filtered=include`, {
 			headers: { ...authHeaders(id), ...resultsLinkHeaders(id) },
 		}).then(readResultsRows),
 
@@ -1239,6 +1407,9 @@ export const api = {
 			slides: withFreshSlideIds(source.slides ?? []),
 			language: source.language,
 			mode: source.mode,
+			// How the deck is taken travels with its pace (REQ083): a copy of a deck
+			// a device could go through again is one it can go through again.
+			allowRepeatPasses: source.allowRepeatPasses,
 			resultsVisibility: source.resultsVisibility,
 			qaEnabled: source.qaEnabled,
 			qaVisibility: source.qaVisibility,
@@ -1246,6 +1417,10 @@ export const api = {
 			// a copy of a deck that ran with a chat is a deck with a chat.
 			reactionsEnabled: source.reactionsEnabled,
 			chatEnabled: source.chatEnabled,
+			// And so does its profanity filter (REQ085): a copy made to run the same
+			// session again must not put back on the wall what the original kept off.
+			profanityFilterEnabled: source.profanityFilterEnabled,
+			profanityFilterLanguage: source.profanityFilterLanguage,
 		});
 	},
 
@@ -1268,6 +1443,9 @@ export const api = {
 			slides: withFreshSlideIds(d.slides),
 			language: typeof d.language === "string" ? d.language : undefined,
 			mode: d.mode === "survey" ? "survey" : "live",
+			// Only an explicit `true` allows repeat passes (REQ083), so a file that
+			// says nothing about them imports as one set of answers per device.
+			allowRepeatPasses: d.allowRepeatPasses === true,
 			resultsVisibility:
 				d.resultsVisibility === "on-click" || d.resultsVisibility === "private"
 					? d.resultsVisibility
@@ -1285,6 +1463,12 @@ export const api = {
 			// hand-edited export cannot open a room's chat by mistake.
 			reactionsEnabled: d.reactionsEnabled === true,
 			chatEnabled: d.chatEnabled === true,
+			// The profanity filter travels with the deck (REQ085): an explicit
+			// `true` turns it on, and a list is honoured only when it names one of
+			// the seven — anything else follows the deck's language rather than
+			// handing the server a value its schema refuses.
+			profanityFilterEnabled: d.profanityFilterEnabled === true,
+			profanityFilterLanguage: importedFilterLanguage(d.profanityFilterLanguage),
 		});
 	},
 };
@@ -1418,6 +1602,9 @@ export function buildExportPayload(pres: any): Record<string, unknown> {
 		title: pres.title,
 		language: pres.language,
 		mode: pres.mode,
+		// Authored with the pace, and exported with it (REQ083). The passes a room
+		// made are session data and stay behind, like every vote does.
+		allowRepeatPasses: pres.allowRepeatPasses,
 		resultsVisibility: pres.resultsVisibility,
 		// The Q&A layer is authored deck state (REQ036/REQ037), so it exports with
 		// the deck. The questions themselves are session data and stay behind, like
@@ -1429,33 +1616,126 @@ export function buildExportPayload(pres: any): Record<string, unknown> {
 		// behind, like every vote and every question does.
 		reactionsEnabled: pres.reactionsEnabled,
 		chatEnabled: pres.chatEnabled,
+		// The profanity filter is authored deck state (REQ085), so it exports with
+		// the deck. What it withheld is session data and stays behind.
+		profanityFilterEnabled: pres.profanityFilterEnabled,
+		profanityFilterLanguage: pres.profanityFilterLanguage,
 		slides: pres.slides ?? [],
 	};
+}
+
+/**
+ * The profanity filter's list as an imported file states it (REQ085): one of
+ * the seven participant languages, or `null` — follow the deck's language —
+ * for anything else, including a list this build has no words for.
+ */
+function importedFilterLanguage(value: unknown): ParticipantLanguage | null {
+	return isParticipantLanguage(value) ? value : null;
 }
 
 // ── WebSocket ─────────────────────────────────────────────────
 
 type EventHandler = (data: any) => void;
 
+/**
+ * How long a socket may go without hearing from the server before it is
+ * replaced (REQ209). Each beat sends a `ping` the server answers with `pong`;
+ * a beat that finds nothing heard since the last one — the ping unanswered, or
+ * the handshake still hanging — opens a fresh socket.
+ *
+ * The heartbeat exists for the socket that dies without closing: a phone that
+ * slept, or moved from Wi-Fi to cellular, can hold a socket the browser still
+ * calls open while nothing reaches it. No close event fires, so nothing
+ * reconnects, and a participant waiting for the start never hears it.
+ */
+export const SOCKET_PULSE_MS = 15_000;
+
 let ws: WebSocket | null = null;
 const listeners = new Map<string, Set<EventHandler>>();
+/** The room the socket is for, which every reconnect joins again. */
+let room: { presentationId: string; role: "presenter" | "participant" } | null =
+	null;
+/** When the current socket last heard anything from the server. */
+let lastHeardAt = 0;
+/** Whether a beat has passed with nothing heard since (see SOCKET_PULSE_MS). */
+let awaitingAnswer = false;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let pulseTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Back in the foreground after longer than a beat: the socket may have died
+ * while the page was asleep, so do not wait for the next beat to find out.
+ */
+function reopenIfQuietOnReturn() {
+	if (document.visibilityState !== "visible") return;
+	if (Date.now() - lastHeardAt > SOCKET_PULSE_MS) openSocket();
+}
 
 export function connectWs(
 	presentationId: string,
 	role: "presenter" | "participant",
 ) {
-	if (ws) {
-		ws.close();
+	room = { presentationId, role };
+	openSocket();
+	if (pulseTimer) return;
+	pulseTimer = setInterval(pulseWs, SOCKET_PULSE_MS);
+	if (typeof document !== "undefined") {
+		document.addEventListener("visibilitychange", reopenIfQuietOnReturn);
 	}
+	// A network that came back is a new path: the socket on the old one is gone.
+	if (typeof window !== "undefined") {
+		window.addEventListener("online", openSocket);
+	}
+}
 
+/**
+ * One heartbeat (REQ209): replace a socket that heard nothing in a whole beat,
+ * otherwise ask it whether it is still there. Run on an interval by
+ * `connectWs`; exported so its two outcomes can be tested beat by beat.
+ */
+export function pulseWs() {
+	const socket = ws;
+	if (!socket || !room) return;
+	if (awaitingAnswer) {
+		openSocket();
+		return;
+	}
+	awaitingAnswer = true;
+	if (socket.readyState === WebSocket.OPEN) {
+		socket.send(JSON.stringify({ type: "ping" }));
+	}
+}
+
+/**
+ * Open a socket for the current room, replacing any other. Every open joins the
+ * room again, and the server answers each join with where the deck stands
+ * (`room.joined`), so a reconnect catches up on whatever it missed.
+ */
+function openSocket() {
+	const joining = room;
+	if (!joining) return;
+	if (reconnectTimer) {
+		clearTimeout(reconnectTimer);
+		reconnectTimer = null;
+	}
+	const previous = ws;
 	const proto = location.protocol === "https:" ? "wss:" : "ws:";
-	ws = new WebSocket(`${proto}//${location.host}/ws`);
+	const socket = new WebSocket(`${proto}//${location.host}/ws`);
+	ws = socket;
+	previous?.close();
+	lastHeardAt = Date.now();
+	awaitingAnswer = false;
 
-	ws.onopen = () => {
-		ws?.send(JSON.stringify({ type: "join", presentationId, role }));
+	socket.onopen = () => {
+		socket.send(JSON.stringify({ type: "join", ...joining }));
 	};
 
-	ws.onmessage = (evt) => {
+	socket.onmessage = (evt) => {
+		// A socket already replaced speaks for nothing: its frames may be older
+		// than the join answer the new one has already applied.
+		if (socket !== ws) return;
+		lastHeardAt = Date.now();
+		awaitingAnswer = false;
 		try {
 			const msg = JSON.parse(evt.data);
 			const handlers = listeners.get(msg.event);
@@ -1473,13 +1753,12 @@ export function connectWs(
 		}
 	};
 
-	ws.onclose = () => {
-		// Auto-reconnect after 1s
-		setTimeout(() => {
-			if (ws?.readyState === WebSocket.CLOSED) {
-				connectWs(presentationId, role);
-			}
-		}, 1000);
+	socket.onclose = () => {
+		// Reconnect after 1s — only the current socket, though: one this module
+		// replaced or let go of is nobody's to reopen, and reopening it would
+		// start a second chain of sockets beside the first.
+		if (socket !== ws) return;
+		reconnectTimer = setTimeout(openSocket, 1000);
 	};
 }
 
@@ -1490,8 +1769,20 @@ export function onWsEvent(event: string, handler: EventHandler): () => void {
 }
 
 export function disconnectWs() {
-	ws?.close();
+	const socket = ws;
 	ws = null;
+	room = null;
+	socket?.close();
+	if (reconnectTimer) clearTimeout(reconnectTimer);
+	reconnectTimer = null;
+	if (pulseTimer) clearInterval(pulseTimer);
+	pulseTimer = null;
+	if (typeof document !== "undefined") {
+		document.removeEventListener("visibilitychange", reopenIfQuietOnReturn);
+	}
+	if (typeof window !== "undefined") {
+		window.removeEventListener("online", openSocket);
+	}
 	listeners.clear();
 }
 
@@ -1578,6 +1869,74 @@ export function forgetStatedParticipantName(presentationId: string): void {
 		const map = getParticipantNameMap();
 		delete map[presentationId];
 		localStorage.setItem(PARTICIPANT_NAME_KEY, JSON.stringify(map));
+	} catch {
+		// Storage denied — there was nothing remembered to forget.
+	}
+}
+
+// ── The pass this browser is on, per deck (REQ083) ────────────
+//
+// Kept locally so a reload lands back in the pass this browser was answering
+// in: a browser that forgot it would answer on into its *first* pass and
+// replace what it said the first time through — on a shared kiosk, what
+// somebody else said.
+//
+// A note to self rather than a claim. The server records which passes it
+// opened for this device, and every route reads the pass it is handed against
+// that (`submissionPassFor`), so a number that has drifted — a reset this
+// browser missed — lands in a pass the device really has rather than inventing
+// one.
+
+/** Every deck's pass, or `{}` where there is nothing usable to read one out of. */
+function getParticipantPassMap(): Record<string, number> {
+	try {
+		const parsed = JSON.parse(localStorage.getItem(PARTICIPANT_PASS_KEY) || "{}");
+		return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+			? (parsed as Record<string, number>)
+			: {};
+	} catch {
+		return {};
+	}
+}
+
+/**
+ * The pass this browser is on in a deck — the first until it starts another.
+ * Anything stored that is not a pass number reads as the first.
+ */
+export function getParticipantPass(presentationId: string): number {
+	const stored = getParticipantPassMap()[presentationId];
+	return typeof stored === "number" &&
+		Number.isSafeInteger(stored) &&
+		stored > FIRST_PASS
+		? stored
+		: FIRST_PASS;
+}
+
+/** Remember the pass the server handed this browser for a deck. */
+export function rememberParticipantPass(
+	presentationId: string,
+	pass: number,
+): void {
+	try {
+		const map = getParticipantPassMap();
+		map[presentationId] = pass;
+		localStorage.setItem(PARTICIPANT_PASS_KEY, JSON.stringify(map));
+	} catch {
+		// Storage denied. The pass still holds for this page; what a reload loses
+		// is this browser's memory of it, exactly as it loses its participant id.
+	}
+}
+
+/**
+ * Forget the pass on one deck — what a **reset** leaves behind otherwise
+ * (REQ101). The server has dropped every pass the device made, so the next
+ * answer is a first pass again, exactly as it is on a deck never answered.
+ */
+export function forgetParticipantPass(presentationId: string): void {
+	try {
+		const map = getParticipantPassMap();
+		delete map[presentationId];
+		localStorage.setItem(PARTICIPANT_PASS_KEY, JSON.stringify(map));
 	} catch {
 		// Storage denied — there was nothing remembered to forget.
 	}

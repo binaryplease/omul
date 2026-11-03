@@ -28,6 +28,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { inflateSync } from "node:zlib";
 import { PDFDocument } from "pdf-lib";
 import { PDF_CONTENT_TYPE } from "./deck-pdf";
+import { drawnLines, drawnRuns } from "./deck-pdf.test-support";
 
 let baseUrl = "";
 let server: {
@@ -78,12 +79,9 @@ async function castVote(
 /**
  * The words the document draws, as one searchable string.
  *
- * Enough of a PDF reader to assert on, and no more — this repository has no PDF
- * parser and does not need one to check that a number reached the page. Two
- * steps: inflate every `stream … endstream` payload (pdf-lib deflates its
- * content streams), then decode the `<hex> Tj` operands it writes text as. Both
- * are properties of the *file format* rather than of this export, so the helper
- * does not go stale when the layout moves.
+ * Read back through each font's `ToUnicode` table by the helper the unit suite
+ * shares (`deck-pdf.test-support.ts`), because the export's text is glyph ids in
+ * an embedded face (REQ158) rather than bytes in a standard encoding.
  */
 async function pdfText(response: Response): Promise<string> {
 	return (await pdfRuns(response)).join("\n");
@@ -96,26 +94,7 @@ async function pdfText(response: Response): Promise<string> {
  * that is simply not there, which searching a concatenated blob cannot tell you.
  */
 async function pdfRuns(response: Response): Promise<string[]> {
-	const bytes = new Uint8Array(await response.arrayBuffer());
-	const raw = Buffer.from(bytes).toString("latin1");
-	const runs: string[] = [];
-	const pattern = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
-	let match = pattern.exec(raw);
-	while (match !== null) {
-		try {
-			const content = inflateSync(Buffer.from(match[1], "latin1")).toString("latin1");
-			const drawn = /<([0-9A-Fa-f]*)>\s*Tj/g;
-			let run = drawn.exec(content);
-			while (run !== null) {
-				runs.push(Buffer.from(run[1], "hex").toString("latin1"));
-				run = drawn.exec(content);
-			}
-		} catch {
-			// Not a deflate stream — nothing to read out of it here.
-		}
-		match = pattern.exec(raw);
-	}
-	return runs;
+	return drawnRuns(new Uint8Array(await response.arrayBuffer()));
 }
 
 /**
@@ -452,6 +431,52 @@ describe("PDF export (REQ096)", () => {
 			expect(text).toContain("Which release train?");
 			expect(text).not.toContain("Do not mention the outage");
 		}
+	});
+
+	test("what the room wrote in Latin Extended, Greek, Cyrillic, CJK and emoji reaches the page as authored", async () => {
+		// REQ158 — under the standard fonts `ł` printed as `l` and a Greek,
+		// Cyrillic, Chinese, Japanese or Korean answer, or an emoji, as `?`. A
+		// script no face draws still folds, and must not fail the export: the
+		// whole file is lost over one answer otherwise.
+		const pres = await create([
+			{
+				id: "ot",
+				type: "open-text",
+				question: "Co sądzicie? Τι πιστεύετε; Що думаєте? 你们怎么看？",
+			},
+		]);
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		const answers = [
+			"Dziękuję, było świetnie",
+			"Ευχαριστώ πολύ",
+			"Дякую, все зрозуміло",
+			"谢谢，讲得非常好。",
+			"とても良かったです",
+			"정말 좋았어요",
+			"ありがとう 🎉 done",
+			"thanks شكرا!",
+		];
+		for (const [index, value] of answers.entries()) {
+			const vote = await castVote(pres.id, {
+				slideId: "ot",
+				value,
+				participantId: `p-${index}`,
+			});
+			expect(vote.status).toBe(200);
+		}
+
+		const response = await downloadPdf(pres.id, pres.creatorToken);
+		expect(response.status).toBe(200);
+		// Read back line by line: a line that mixes scripts is drawn one run per
+		// face, and joined on its baseline it is the line as authored.
+		const text = (
+			await drawnLines(new Uint8Array(await response.arrayBuffer()))
+		).join("\n");
+		expect(text).toContain("Co sądzicie? Τι πιστεύετε; Що думаєте? 你们怎么看？");
+		for (const answer of answers.slice(0, 7)) expect(text).toContain(answer);
+		expect(text).toContain("thanks ?!");
 	});
 
 	test("an empty deck still renders both readings", async () => {

@@ -12,6 +12,7 @@ import {
 	Presentation,
 	SlidersHorizontal,
 	Target,
+	Timer,
 	Trophy,
 	Type,
 	Video,
@@ -47,6 +48,7 @@ export function SlideTypeIcon({
 		video: <Video size={size} />,
 		embed: <Presentation size={size} />,
 		instruction: <Info size={size} />,
+		countdown: <Timer size={size} />,
 	};
 	const labels: Record<SlideType, string> = {
 		"multiple-choice": "Multiple Choice",
@@ -66,6 +68,7 @@ export function SlideTypeIcon({
 		video: "Video",
 		embed: "Embedded deck",
 		instruction: "How to join",
+		countdown: "Countdown",
 	};
 	return (
 		<span

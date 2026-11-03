@@ -34,7 +34,12 @@ import { LegalNotice } from "./components/LegalLinks";
 import { Modal } from "./components/ui/Modal";
 import { NoticeFrame } from "./components/ui/NoticeFrame";
 import { useAccountSeenInThisBrowser } from "./email-recovery-prompt";
-import { appHomeUrl, filterQuery, passThroughSearch } from "./router";
+import {
+	appHomeUrl,
+	appReturnUrl,
+	filterQuery,
+	passThroughSearch,
+} from "./router";
 import { PENDING_EMAIL_CHANGE_KEY } from "./storage";
 
 // Shared input styling, matching the field treatment elsewhere in the app.
@@ -123,15 +128,7 @@ export function AuthControls() {
 	// step) lands back here. Shown regardless of signed-in state.
 	const change = useChangeEmailLanding();
 
-	const resetModal = reset && (
-		<Modal title="Reset your password" icon={Lock} onClose={reset.dismiss}>
-			<ResetPasswordForm
-				token={reset.token}
-				tokenError={reset.error}
-				onDone={reset.dismiss}
-			/>
-		</Modal>
-	);
+	const resetModal = reset && <PasswordResetModal reset={reset} />;
 
 	const verifyModal = verify && (
 		<Modal title="Email verification" icon={MailCheck} onClose={verify.dismiss}>
@@ -245,11 +242,20 @@ type AuthFormMode = "signin" | "signup" | "forgot";
 // tab; the home page's offer to keep this browser's decks (REQ194) opens it on
 // "Create account", since that is what the offer is asking for. Either tab is
 // one click from the other.
+//
+// `returnTo` is the app path the one step that leaves the page — the password
+// reset email — brings the user back to, instead of the home page: a
+// participant at a deck that requires signing in (REQ134) passes the deck's
+// own `/join/<code>`. Signing in and creating an account need none, since both
+// finish on the page they started on. Only a same-origin app path is honoured
+// (`appReturnUrl`).
 export function AuthDialog({
 	initialMode = "signin",
+	returnTo,
 	onClose,
 }: {
 	initialMode?: Exclude<AuthFormMode, "forgot">;
+	returnTo?: string;
 	onClose: () => void;
 }) {
 	return (
@@ -258,16 +264,22 @@ export function AuthDialog({
 			icon={UserCircle}
 			onClose={onClose}
 		>
-			<AuthForm initialMode={initialMode} onDone={onClose} />
+			<AuthForm
+				initialMode={initialMode}
+				returnTo={returnTo}
+				onDone={onClose}
+			/>
 		</Modal>
 	);
 }
 
 function AuthForm({
 	initialMode,
+	returnTo,
 	onDone,
 }: {
 	initialMode: Exclude<AuthFormMode, "forgot">;
+	returnTo: string | undefined;
 	onDone: () => void;
 }) {
 	const [mode, setMode] = useState<AuthFormMode>(initialMode);
@@ -289,10 +301,11 @@ function AuthForm({
 				// Server emails a reset link (via Brevo) whose callback lands back on
 				// this app's home page with `?token=…`, which ResetPasswordForm
 				// consumes — the app's, not the origin's root, which belongs to the
-				// marketing site (REQ179).
+				// marketing site (REQ179) — or on `returnTo` when the dialog was
+				// given one (REQ134).
 				const result = await requestPasswordReset({
 					email,
-					redirectTo: appHomeUrl("mode=reset-password"),
+					redirectTo: appReturnUrl(returnTo, "mode=reset-password"),
 				});
 				if (result.error) {
 					setError(result.error.message ?? "Could not send reset email");
@@ -519,6 +532,26 @@ function usePasswordResetLanding(): ResetLanding | null {
 			setLanding(null);
 		},
 	};
+}
+
+function PasswordResetModal({ reset }: { reset: ResetLanding }) {
+	return (
+		<Modal title="Reset your password" icon={Lock} onClose={reset.dismiss}>
+			<ResetPasswordForm
+				token={reset.token}
+				tokenError={reset.error}
+				onDone={reset.dismiss}
+			/>
+		</Modal>
+	);
+}
+
+// The reset landing on its own, for a page without the header's AuthControls:
+// the participant page, which a reset link started from its sign-in prompt
+// lands back on (REQ134). Draws nothing unless the URL is such a landing.
+export function PasswordResetLanding() {
+	const reset = usePasswordResetLanding();
+	return reset && <PasswordResetModal reset={reset} />;
 }
 
 function readResetLanding(): Omit<ResetLanding, "dismiss"> | null {

@@ -8,11 +8,16 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PinArea, Slide } from "../types";
-import { isUsablePinArea } from "../types";
+import { isUsablePinArea, SLIDE_LIMIT } from "../types";
 import {
 	applyEditorOperation,
 	blankDocument,
+	canCopySlides,
+	canRemoveSlides,
+	copySlidesOperation,
 	type EditorDocument,
+	type EditorOperation,
+	moveSlideBlock,
 	withPinAreaEnabled,
 } from "./editorDocument";
 
@@ -21,12 +26,16 @@ function docOf(...slides: Slide[]): EditorDocument {
 		title: "",
 		language: "en",
 		mode: "live",
+		allowRepeatPasses: false,
 		resultsVisibility: "instant",
 		qaEnabled: false,
 		qaVisibility: "presenter",
 		reactionsEnabled: false,
 		chatEnabled: false,
 		requireParticipantName: false,
+		requireParticipantSignIn: false,
+		profanityFilterEnabled: false,
+		profanityFilterLanguage: null,
 		theme: "signal",
 		themeBrand: { name: "", accent: "", canvas: "", text: "", font: "figtree" },
 		themeLogoUrl: "",
@@ -328,5 +337,287 @@ describe("withPinAreaEnabled (REQ053)", () => {
 		// rectangle rather than a placeholder the validator would refuse.
 		const area = withPinAreaEnabled({}, "instant").pinArea;
 		expect(isUsablePinArea(area as PinArea)).toBe(true);
+	});
+});
+
+describe("applyEditorOperation — bulk slide operations (REQ127)", () => {
+	const slideD: Slide = { id: "d", type: "word-cloud", question: "D" };
+	const slideE: Slide = { id: "e", type: "word-cloud", question: "E" };
+	const idsOf = (document: EditorDocument) =>
+		document.slides.map((slide) => slide.id);
+
+	test("move-slides moves a contiguous selection one step as a block", () => {
+		const document = docOf(slideA, slideB, slideC, slideD);
+		const down = applyEditorOperation(document, {
+			type: "move-slides",
+			slideIds: ["b", "c"],
+			direction: 1,
+		});
+		expect(idsOf(down)).toEqual(["a", "d", "b", "c"]);
+		const up = applyEditorOperation(document, {
+			type: "move-slides",
+			slideIds: ["b", "c"],
+			direction: -1,
+		});
+		expect(idsOf(up)).toEqual(["b", "c", "a", "d"]);
+	});
+
+	test("move-slides keeps the deck order of the selection, not the order it was picked in", () => {
+		const next = applyEditorOperation(docOf(slideA, slideB, slideC, slideD), {
+			type: "move-slides",
+			slideIds: ["c", "b"],
+			direction: 1,
+		});
+		expect(idsOf(next)).toEqual(["a", "d", "b", "c"]);
+	});
+
+	test("move-slides gathers a selection with gaps behind its first slide", () => {
+		const document = docOf(slideA, slideB, slideC, slideD, slideE);
+		const down = applyEditorOperation(document, {
+			type: "move-slides",
+			slideIds: ["b", "d"],
+			direction: 1,
+		});
+		expect(idsOf(down)).toEqual(["a", "c", "b", "d", "e"]);
+		const up = applyEditorOperation(document, {
+			type: "move-slides",
+			slideIds: ["b", "d"],
+			direction: -1,
+		});
+		expect(idsOf(up)).toEqual(["b", "d", "a", "c", "e"]);
+	});
+
+	test("move-slides at an end of the deck is a no-op returning the same document", () => {
+		const document = docOf(slideA, slideB, slideC);
+		expect(
+			applyEditorOperation(document, {
+				type: "move-slides",
+				slideIds: ["a", "b"],
+				direction: -1,
+			}),
+		).toBe(document);
+		expect(
+			applyEditorOperation(document, {
+				type: "move-slides",
+				slideIds: ["c"],
+				direction: 1,
+			}),
+		).toBe(document);
+		expect(
+			applyEditorOperation(document, {
+				type: "move-slides",
+				slideIds: ["missing"],
+				direction: 1,
+			}),
+		).toBe(document);
+	});
+
+	test("moveSlideBlock answers whether a move is possible by identity", () => {
+		const slides = [slideA, slideB, slideC];
+		expect(moveSlideBlock(slides, ["a"], -1)).toBe(slides);
+		expect(moveSlideBlock(slides, ["a"], 1)).not.toBe(slides);
+		// A gapped selection at the top still moves "up": it closes its gap.
+		expect(moveSlideBlock(slides, ["a", "c"], -1).map((slide) => slide.id)).toEqual(
+			["a", "c", "b"],
+		);
+	});
+
+	test("set-slides-skipped sets every selected slide to the one state, mixed or not", () => {
+		const document = docOf({ ...slideA, skipped: true }, slideB, slideC);
+		const skipped = applyEditorOperation(document, {
+			type: "set-slides-skipped",
+			slideIds: ["a", "b"],
+			skipped: true,
+		});
+		expect(skipped.slides.map((slide) => slide.skipped ?? false)).toEqual([
+			true,
+			true,
+			false,
+		]);
+		const included = applyEditorOperation(skipped, {
+			type: "set-slides-skipped",
+			slideIds: ["a", "b"],
+			skipped: false,
+		});
+		expect(included.slides.map((slide) => slide.skipped ?? false)).toEqual([
+			false,
+			false,
+			false,
+		]);
+		// Nothing else on a slide moves.
+		expect(included.slides[0].question).toBe("A");
+	});
+
+	test("remove-slides deletes the whole selection in one operation", () => {
+		const next = applyEditorOperation(docOf(slideA, slideB, slideC, slideD), {
+			type: "remove-slides",
+			slideIds: ["a", "c"],
+		});
+		expect(idsOf(next)).toEqual(["b", "d"]);
+	});
+
+	test("remove-slides refuses, whole, a selection covering every slide", () => {
+		const document = docOf(slideA, slideB, slideC);
+		const next = applyEditorOperation(document, {
+			type: "remove-slides",
+			slideIds: ["a", "b", "c"],
+		});
+		// Not trimmed to leave one: nothing at all is removed.
+		expect(next).toBe(document);
+		expect(canRemoveSlides(document.slides, ["a", "b", "c"])).toBe(false);
+		expect(canRemoveSlides(document.slides, ["a", "b"])).toBe(true);
+		expect(canRemoveSlides(document.slides, [])).toBe(false);
+		expect(canRemoveSlides(document.slides, ["missing"])).toBe(false);
+	});
+
+	test("remove-slides never empties a one-slide deck", () => {
+		const document = docOf(slideA);
+		expect(
+			applyEditorOperation(document, { type: "remove-slides", slideIds: ["a"] }),
+		).toBe(document);
+	});
+});
+
+describe("applyEditorOperation — copy-slides (REQ127)", () => {
+	const slideD: Slide = { id: "d", type: "word-cloud", question: "D" };
+	const choice: Slide = {
+		id: "choice",
+		type: "multiple-choice",
+		question: "Pick",
+		skipped: true,
+		options: [
+			{ id: "opt-1", text: "One", isCorrect: true },
+			{ id: "opt-2", text: "Two", isCorrect: false },
+		],
+	};
+	const form: Slide = {
+		id: "form",
+		type: "form",
+		question: "Tell us",
+		formFields: [
+			{
+				id: "field-1",
+				label: "Colour",
+				type: "choice",
+				required: false,
+				options: [
+					{ id: "field-opt-1", text: "Red" },
+					{ id: "field-opt-2", text: "Blue" },
+				],
+			},
+		],
+	} as Slide;
+	const idsOf = (document: EditorDocument) =>
+		document.slides.map((slide) => slide.id);
+
+	/** Build the operation for `slideIds` and apply it, as the store does. */
+	function copy(document: EditorDocument, slideIds: string[]) {
+		const operation = copySlidesOperation(document.slides, slideIds);
+		if (!operation) throw new Error("expected something to copy");
+		return {
+			operation,
+			next: applyEditorOperation(document, operation),
+		};
+	}
+
+	/** Every id a slide carries: its own, its rows', and a form field's options. */
+	function idsWithin(slide: Slide): string[] {
+		const rows = [
+			...(slide.options ?? []),
+			...(slide.formFields ?? []),
+		] as { id: string; options?: { id: string }[] }[];
+		return [
+			slide.id,
+			...rows.flatMap((row) => [
+				row.id,
+				...(row.options ?? []).map((option) => option.id),
+			]),
+		];
+	}
+
+	test("a contiguous selection is copied as one block right after its last slide", () => {
+		const document = docOf(slideA, slideB, slideC, slideD);
+		const { operation, next } = copy(document, ["c", "b"]);
+		const [copyOfB, copyOfC] = operation.copies.map((slide) => slide.id);
+		expect(idsOf(next)).toEqual(["a", "b", "c", copyOfB, copyOfC, "d"]);
+		expect(next.slides[3].question).toBe("B");
+		expect(next.slides[4].question).toBe("C");
+	});
+
+	test("a selection with gaps keeps its deck order and lands after its last slide", () => {
+		const document = docOf(slideA, slideB, slideC, slideD);
+		const { operation, next } = copy(document, ["c", "a"]);
+		const [copyOfA, copyOfC] = operation.copies.map((slide) => slide.id);
+		expect(idsOf(next)).toEqual(["a", "b", "c", copyOfA, copyOfC, "d"]);
+		expect(next.slides.slice(3, 5).map((slide) => slide.question)).toEqual([
+			"A",
+			"C",
+		]);
+	});
+
+	test("every copy and every nested row gets an id no other part of the deck has", () => {
+		const document = docOf(slideA, choice, form);
+		const { next } = copy(document, ["choice", "form"]);
+		const everyId = next.slides.flatMap(idsWithin);
+		expect(new Set(everyId).size).toBe(everyId.length);
+		// The copies carry as many identities as their sources — each one re-minted.
+		expect(everyId.length).toBe(
+			idsWithin(slideA).length +
+				2 * (idsWithin(choice).length + idsWithin(form).length),
+		);
+	});
+
+	test("nothing but the ids changes on a copy — a skipped slide's copy stays skipped", () => {
+		const { next } = copy(docOf(slideA, choice), ["choice"]);
+		const duplicate = next.slides[2];
+		expect(duplicate.skipped).toBe(true);
+		expect(duplicate.question).toBe("Pick");
+		expect(
+			duplicate.options?.map(({ text, isCorrect }) => ({ text, isCorrect })),
+		).toEqual([
+			{ text: "One", isCorrect: true },
+			{ text: "Two", isCorrect: false },
+		]);
+	});
+
+	test("the source slides are left untouched", () => {
+		const document = docOf(slideA, choice, form);
+		const { next } = copy(document, ["choice", "form"]);
+		expect(next.slides[1]).toBe(choice);
+		expect(next.slides[2]).toBe(form);
+		expect(choice.options?.map((option) => option.id)).toEqual([
+			"opt-1",
+			"opt-2",
+		]);
+		expect(document.slides).toEqual([slideA, choice, form]);
+	});
+
+	test("an empty or unknown-id selection copies nothing", () => {
+		const document = docOf(slideA, slideB);
+		expect(copySlidesOperation(document.slides, [])).toBeNull();
+		expect(copySlidesOperation(document.slides, ["missing"])).toBeNull();
+		const emptyCopy: EditorOperation = {
+			type: "copy-slides",
+			afterSlideId: "a",
+			copies: [],
+		};
+		expect(applyEditorOperation(document, emptyCopy)).toBe(document);
+		const strayAnchor: EditorOperation = {
+			type: "copy-slides",
+			afterSlideId: "missing",
+			copies: [{ ...slideC, id: "fresh" }],
+		};
+		expect(applyEditorOperation(document, strayAnchor)).toBe(document);
+	});
+
+	test("canCopySlides holds the deck's slide cap", () => {
+		const nearlyFull = Array.from(
+			{ length: SLIDE_LIMIT - 1 },
+			(_, index): Slide => ({ ...slideA, id: `slide-${index}` }),
+		);
+		expect(canCopySlides(nearlyFull, ["slide-0"])).toBe(true);
+		expect(canCopySlides(nearlyFull, ["slide-0", "slide-1"])).toBe(false);
+		expect(canCopySlides(nearlyFull, [])).toBe(false);
+		expect(canCopySlides(nearlyFull, ["missing"])).toBe(false);
 	});
 });

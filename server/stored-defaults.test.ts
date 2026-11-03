@@ -38,7 +38,7 @@
  * library's own walk on 2026-10-02, it reports the same paths.
  *
  * The list below is written by hand, and a hand-written list is only a guard
- * while it is complete: a thirteenth collection added under `server/services/`
+ * while it is complete: a fourteenth collection added under `server/services/`
  * would otherwise be exempt from the rule in the library *and* here, at once and
  * silently. So the last case loads the service modules for their `createStore`
  * side effects and compares what they opened against what is listed.
@@ -51,9 +51,12 @@ process.env.DATABASE_PATH = ":memory:";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import {
+	StoredAnswerThemeSchema,
 	StoredChatMessageSchema,
 	StoredDeckCollaboratorSchema,
+	StoredParticipantAccountSchema,
 	StoredParticipantNameSchema,
+	StoredParticipantPassSchema,
 	StoredPresentationSchema,
 	StoredQAQuestionSchema,
 	StoredQAUpvoteSchema,
@@ -132,29 +135,19 @@ const SLIDE_REQUIRED_INPUT_FIELDS = [
 ];
 
 /**
- * The two slide fields that break the rule today and are tracked rather than
- * exempted on their merits (REQ184): each is a bare `.optional()` whose
- * `undefined` carries meaning — "never marked" for `isCorrect`, "fall back to
- * `allowMultiple`" for `maxResponses` — that no default declares. Listed so the
- * walk can stay on for everything else; REQ184 closes when this list is empty.
- */
-const SLIDE_OPEN_DEFAULT_GAPS = ["options[].isCorrect", "maxResponses"];
-
-/**
  * A slide's bare fields as stored: `SlideSchema` sits under `slides[]` in both
  * `presentations` and `workspaceTemplates`, so both carry the same list.
  */
 const STORED_SLIDE_BARE_FIELDS = [
 	...SLIDE_IDENTITY_FIELDS,
 	...SLIDE_REQUIRED_INPUT_FIELDS,
-	...SLIDE_OPEN_DEFAULT_GAPS,
 ].map((path) => `slides[].${path}`);
 
 /**
  * Every `createStore` call in `server/services/`. Kept in this order so it reads
  * against the modules that make them: workspaces, the templates they publish,
- * slide comments and collaborators, participant names, then the six of
- * `presentations.ts`.
+ * slide comments, answer themes and collaborators, participant names, then the
+ * seven of `presentations.ts`.
  */
 const STORED_COLLECTIONS: StoredCollection[] = [
 	{
@@ -182,9 +175,21 @@ const STORED_COLLECTIONS: StoredCollection[] = [
 		nestedBareFields: [],
 	},
 	{
+		name: "answerThemes",
+		schema: StoredAnswerThemeSchema,
+		identityFields: ["id", "presentationId", "slideId"],
+		nestedBareFields: [],
+	},
+	{
 		name: "deckCollaborators",
 		schema: StoredDeckCollaboratorSchema,
 		identityFields: ["id", "presentationId", "userId"],
+		nestedBareFields: [],
+	},
+	{
+		name: "participantAccounts",
+		schema: StoredParticipantAccountSchema,
+		identityFields: ["id", "presentationId", "participantId", "userId"],
 		nestedBareFields: [],
 	},
 	{
@@ -227,6 +232,12 @@ const STORED_COLLECTIONS: StoredCollection[] = [
 		name: "chatMessages",
 		schema: StoredChatMessageSchema,
 		identityFields: ["id", "presentationId"],
+		nestedBareFields: [],
+	},
+	{
+		name: "participantPasses",
+		schema: StoredParticipantPassSchema,
+		identityFields: ["id", "presentationId", "participantId"],
 		nestedBareFields: [],
 	},
 ];
@@ -358,6 +369,7 @@ describe("every stored field either defaults or is identity", () => {
 		await import("./services/workspaces");
 		await import("./services/workspace-templates");
 		await import("./services/slide-comments");
+		await import("./services/answer-themes");
 		await import("./services/collaborators");
 		await import("./services/participant-names");
 		await import("./services/presentations");
@@ -367,7 +379,7 @@ describe("every stored field either defaults or is identity", () => {
 	});
 
 	test("every collection this server opens is listed here", () => {
-		// The guard on the list itself. A thirteenth `createStore` call that nobody
+		// The guard on the list itself. A fourteenth `createStore` call that nobody
 		// adds a row for is a collection the rule stops being enforced over —
 		// silently, because the library's own walk is off. Concretely: that
 		// collection gains a non-identity field with no `.default(...)`, and rows

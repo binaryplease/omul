@@ -3,7 +3,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { getDict } from "./i18n";
+import { getDict, resolveLang } from "./i18n";
+import { participantLanguageFor } from "./types";
 
 describe("getDict", () => {
 	test("returns English strings for 'en'", () => {
@@ -48,6 +49,50 @@ describe("getDict", () => {
 		for (const lang of ["de", "fr", "es", "it", "pt", "nl"]) {
 			const keys = Object.keys(getDict(lang)).sort();
 			expect(keys).toEqual(reference);
+		}
+	});
+});
+
+describe("the deck's language, read on both ends (REQ085)", () => {
+	// The phone draws itself in `resolveLang`'s language and the server filters
+	// with `participantLanguageFor`'s list. A tag the two read differently would
+	// filter a German room against the English list.
+	const TAGS = [
+		"en",
+		"de",
+		"fr",
+		"es",
+		"it",
+		"pt",
+		"nl",
+		"de-CH",
+		"PT-br",
+		"Fr-CA",
+		"nl-BE",
+		"ja",
+		"zz",
+		"klingon",
+		"",
+		"-de",
+		"de-",
+	];
+
+	test("resolveLang and the server's participantLanguageFor agree on every tag", () => {
+		for (const tag of TAGS) {
+			expect([tag, resolveLang(tag)]).toEqual([tag, participantLanguageFor(tag)]);
+		}
+		expect(resolveLang(undefined)).toBe(participantLanguageFor(undefined));
+	});
+
+	test("the profanity filter's line is translated for every language", () => {
+		const english = getDict("en").answersFiltered;
+		for (const lang of ["de", "fr", "es", "it", "pt", "nl"]) {
+			const line = getDict(lang).answersFiltered;
+			expect([lang, line.length > 0, line === english]).toEqual([
+				lang,
+				true,
+				false,
+			]);
 		}
 	});
 });

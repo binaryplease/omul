@@ -76,6 +76,7 @@ describe("the field on the slide names itself (REQ153)", () => {
 			video: "Caption",
 			embed: "Caption",
 			instruction: "Heading",
+			countdown: "Heading",
 		});
 	});
 
