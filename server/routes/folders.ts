@@ -23,7 +23,11 @@
 
 import { Elysia } from "elysia";
 import { findUserByEmail, findUserById, resolveUserId } from "../accounts";
-import { guardFolderCreate, guardSubmission } from "../rate-limit";
+import {
+	guardFolderCreate,
+	guardSubmission,
+	refundFolderCreate,
+} from "../rate-limit";
 import {
 	DeckAccessLevelBodySchema,
 	type DeckCollaborator,
@@ -130,6 +134,7 @@ export const folderRoutes = new Elysia({ prefix: "/api" })
 			if (overLimit) return overLimit;
 			const folder = await createFolder(userId, body.name);
 			if (!folder) {
+				refundFolderCreate(userId);
 				return jsonError(
 					409,
 					`This account already holds ${FOLDERS_PER_ACCOUNT_LIMIT} folders, the most it can have. Delete one to make another.`,
@@ -144,7 +149,7 @@ export const folderRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Folders"],
 				summary: "Create a folder",
 				description:
-					"Creates an empty folder owned by the caller (REQ126). `name` is required and trimmed; a blank one is `422`. Folders are flat — a folder never holds another. Requires an account; `401` otherwise. Limited per account: over 30 creations in an hour answers `429` with `Retry-After`, and an account already holding 100 folders answers `409` until it deletes one.",
+					"Creates an empty folder owned by the caller (REQ126). `name` is required and trimmed; a blank one is `422`. Folders are flat — a folder never holds another. Requires an account; `401` otherwise. Limited per account: over 30 creations in an hour answers `429` with `Retry-After`, and an account already holding 100 folders answers `409` until it deletes one. A `409` does not count toward the 30.",
 				security: [{ bearerAuth: [] }],
 			},
 		},

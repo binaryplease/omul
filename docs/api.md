@@ -35,9 +35,10 @@ this product is built around. It is mounted at
 boot via `ensureAuthSchema()`. The surface it exposes: sign-up / sign-in /
 sign-out / session, **password reset** and **email verification** (soft — a
 fresh account is auto-signed-in; a UI banner nudges verification) over Brevo
-email, **change-email** (double opt-in), **account deletion** (the account
-screen sends the password; the route verifies a password when the body carries
-one and otherwise accepts a session under 24 hours old), and **personal API
+email, **change-email** (double opt-in), **account deletion** (REQ246: the route
+requires the account password on every request, whatever the session's age:
+a body without a non-empty one is `400 PASSWORD_REQUIRED`, a wrong one `400
+INVALID_PASSWORD`, and `/api/auth/delete-user/callback` is refused), and **personal API
 keys** (`x-api-key`). The browser client is
 `src/auth-client.ts`; the header UI (sign-in dialog, reset/verify/change-email
 landings, verify banner, account settings, API-key manager) is `src/auth.tsx`,
@@ -632,7 +633,10 @@ says so. Two consequences a caller meets directly:
 `member`, `admin` and `owner` read, edit and present every deck the workspace
 owns and create new ones in it — that is REQ128's "readable and presentable by
 its members". `commenter` (REQ131) reads those decks and comments on them, and
-does nothing else. Both resolve through `workspaceDeckAccessLevel()`, the single
+does nothing else that changes them. Reading includes what the profanity filter
+withheld from the room: a `commenter`, like every role, reads a deck's withheld
+answers on a results read that asks for them (REQ085, **The raw words, for an
+editor who asks** below). Both resolve through `workspaceDeckAccessLevel()`, the single
 bridge from a role to the `view`/`comment`/`edit` model every gated deck route is
 already decided by: `commenter` answers `comment`, the other three `edit`. What
 separates the three upper roles is what they may do to the *workspace*:
@@ -640,6 +644,7 @@ separates the three upper roles is what they may do to the *workspace*:
 | | `commenter` | `member` | `admin` | `owner` |
 |---|---|---|---|---|
 | Read its decks as their authors wrote them; comment on them (REQ074) | ✅ | ✅ | ✅ | ✅ |
+| Read the answers the profanity filter withheld from the room (REQ085) | ✅ | ✅ | ✅ | ✅ |
 | Edit and present its decks; create new ones (from a template too) | — | ✅ | ✅ | ✅ |
 | Delete one of its decks; decide who outside the workspace it is shared with | — | — | ✅ | ✅ |
 | Publish one of its decks as a template, and take one down (REQ004) | — | — | ✅ | ✅ |
@@ -786,7 +791,7 @@ account's decks by folder from `GET /api/folders` beside `/presentations/mine`.
   deleted, moved into a workspace or reassigned to another account, so a filing
   never outlives the ownership it was made under.
 - **Deleting an account removes what names it.** `POST /api/auth/delete-user`
-  removes the folders the account owns with their filings and grants, and the
+  needs the account's password and, once it is accepted, removes the folders the account owns with their filings and grants, and the
   grants it holds on other accounts' folders. Its decks are kept with their
   `creatorId` (REQ182) and are no longer reached through any folder.
 - **Filing is not an authored edit.** It does not move the deck's `revision`
@@ -831,7 +836,10 @@ answers without it too.
 
 The deck's share dialog shows the folder rows in their own section with both
 controls disabled and names the folder that manages them. A revoke's toast names
-the level the account keeps through the folder.
+the level the account keeps through the folder. The folder's share dialog says
+only that the account no longer has access through that folder: a grant the
+account holds on a filed deck itself is not touched by the revoke, and the
+folder dialog does not read the decks' grants.
 
 ### Limits on creating a folder
 
@@ -851,6 +859,9 @@ so a new budget.
 - **The count covers holding folders.** A folder's budget refills every minute
   for as long as the folder exists, so a rate alone would let a patient account
   hold more budget every hour. Deleting a folder frees a place under the count.
+- **A refusal at the count spends none of the rate.** A `409` creates nothing,
+  so it gives back the creation the window counted for it. An account that
+  retries at 100 folders can still make a folder as soon as it deletes one.
 - **The key is the account.** Every personal API key and session of one account
   shares the count, and the call needs an account before it counts (`401`
   otherwise). The home screen shows the `error` of either refusal as a toast.
@@ -2120,8 +2131,10 @@ projector:
 **The raw words, for an editor who asks.** `GET …/results` and
 `GET …/results/:slideId` take `?filtered=include` (`withhold` is the default;
 anything else is `422`). For a caller who can read the deck's authoring — the
-owner, the edit token, a collaborator at any level, exactly the readers of a
-word cloud's `answers` — it adds `filteredAnswers`: each withheld answer's `id`,
+owner, the edit token, a `view`, `comment` or `edit` grant on the deck or on the
+folder it is filed in, and every role in the deck's workspace, `commenter`
+included, exactly the readers of a word cloud's `answers` — it adds
+`filteredAnswers`: each withheld answer's `id`,
 its `text` exactly as written and its `createdAt`, never a participant id. For
 everybody else, **a results-link holder included**, it reads `null` either way:
 the link is a delegation of the numbers. The results surface

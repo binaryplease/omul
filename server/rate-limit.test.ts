@@ -123,6 +123,26 @@ describe("sliding window", () => {
 		expect(window.trackedKeys()).toBe(1);
 	});
 
+	test("a refund takes back the newest hit and frees one place", () => {
+		let clock = 0;
+		const window = createSlidingWindow(
+			{ limit: 2, windowMs: 10_000 },
+			{ now: () => clock },
+		);
+		expect(window.check("alice").allowed).toBe(true);
+		clock = 1_000;
+		expect(window.check("alice").allowed).toBe(true);
+		window.refund("alice");
+		expect(window.check("alice").allowed).toBe(true);
+		expect(window.check("alice").allowed).toBe(false);
+
+		window.refund("bob");
+		expect(window.trackedKeys()).toBe(1);
+		window.refund("alice");
+		window.refund("alice");
+		expect(window.trackedKeys()).toBe(0);
+	});
+
 	test("reset forgets everything", () => {
 		const window = createSlidingWindow({ limit: 1, windowMs: 10_000 });
 		window.check("alice");

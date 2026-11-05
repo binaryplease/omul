@@ -222,6 +222,7 @@ Prose outside the markers is preserved.
 | [REQ212.md](requirements/REQ212.md) | The app renders when served over plain HTTP on a LAN address, where the browser offers no `crypto.randomUUID` | Platform & Operations | P2 | pending | internal |
 | [REQ213.md](requirements/REQ213.md) | The PDF export's markdown reduction must be linear in the text, the export must be rate-limited, and rendering must neither hold the server's thread nor pile up | Platform & Operations | P1 | done | internal |
 | [REQ245.md](requirements/REQ245.md) | A slide's body text can be edited directly on the editor canvas, as its question already can | Deck & Slides | P2 | pending | internal |
+| [REQ246.md](requirements/REQ246.md) | Account deletion requires the account's password whatever the session's age | Accounts & Workspaces | P1 | done | internal |
 
-_204 entries — one row per file in `requirements/`._
+_205 entries — one row per file in `requirements/`._
 <!-- index:end -->

@@ -145,12 +145,21 @@ export function folderStandingOf(
 	return folderStanding.find((entry) => entry.email === collaborator.email);
 }
 
-/** What the owner is told after revoking a deck grant. */
+/**
+ * What the owner is told after revoking a grant.
+ *
+ * On a folder the sentence names only the folder's access: a grant the account
+ * holds on one of the filed decks themselves is not touched by the revoke, and
+ * the folder dialog does not read the decks' grants, so it says nothing about
+ * them.
+ */
 export function revokedGrantNotice(
+	kind: ShareSubject["kind"],
 	collaborator: Pick<DeckCollaborator, "email" | "name">,
 	folderStanding: FolderStanding[],
 ): string {
 	const name = collaboratorDisplayName(collaborator);
+	if (kind === "folder") return `${name} no longer has access through this folder`;
 	const kept = folderStandingOf(collaborator, folderStanding);
 	if (!kept) return `${name} no longer has access`;
 	return `${name} no longer has a grant on this deck, but keeps “${deckAccessLevelLabel(kept.level)}” through the folder “${kept.folder.name}”`;
@@ -158,9 +167,13 @@ export function revokedGrantNotice(
 
 /** What the revoke button on a grant's row says it will do. */
 export function revokeTitle(
+	kind: ShareSubject["kind"],
 	collaborator: Pick<DeckCollaborator, "email">,
 	folderStanding: FolderStanding[],
 ): string {
+	if (kind === "folder") {
+		return "Remove this person's access through this folder — it stops at their next request";
+	}
 	const kept = folderStandingOf(collaborator, folderStanding);
 	if (!kept) return "Remove this person's access — it stops at their next request";
 	return `Remove this grant — they keep “${deckAccessLevelLabel(kept.level)}” through the folder “${kept.folder.name}”`;
@@ -416,7 +429,10 @@ export function CollaboratorsDialog({
 			setCollaborators((current) =>
 				current.filter((entry) => entry.id !== collaborator.id),
 			);
-			onNotify(revokedGrantNotice(collaborator, folderStanding), "info");
+			onNotify(
+				revokedGrantNotice(subject.kind, collaborator, folderStanding),
+				"info",
+			);
 		} catch (revokeError: unknown) {
 			onNotify(
 				revokeError instanceof Error
@@ -531,7 +547,7 @@ export function CollaboratorsDialog({
 										className="text-text-dim hover:text-error transition-colors p-2 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
 										onClick={() => revoke(collaborator)}
 										disabled={busy}
-										title={revokeTitle(collaborator, folderStanding)}
+										title={revokeTitle(subject.kind, collaborator, folderStanding)}
 									>
 										<Trash2 size={16} />
 									</button>
