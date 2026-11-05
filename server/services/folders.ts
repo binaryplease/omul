@@ -19,6 +19,7 @@
  */
 
 import { createStore } from "../db";
+import { createKeyedLock } from "../keyed-lock";
 import {
 	type DeckAccessLevel,
 	StoredFolderEntrySchema,
@@ -51,6 +52,25 @@ const grants = createStore("folderGrants", StoredFolderGrantSchema, {
 		{ fields: ["folderId", "userId"], unique: true },
 	],
 });
+
+/**
+ * How many folders one account may hold (REQ126).
+ *
+ * A folder's email lookup budget on the share route refills every minute for as
+ * long as the folder exists, so the count of folders is what one account's
+ * lookups scale with: at most 60 per minute per folder, across every address it
+ * calls from. A hundred folders is more than a person reads as groups on the
+ * home screen. The cap applies to creation only, so an account above it after a
+ * change of this number keeps every folder it has.
+ *
+ * This is a bound and not a rate, so `OMUL_RATE_LIMITS_DISABLED` does not lift
+ * it. `FOLDER_CREATE_RULE` (`server/rate-limit.ts`) is the rate.
+ */
+export const FOLDERS_PER_ACCOUNT_LIMIT = 100;
+
+// Per account, because the count and the insert are two awaits apart and two
+// creations in that gap would both read a count below the cap.
+const folderCountLock = createKeyedLock();
 
 /** One stored folder, as every function here hands it back. */
 export type FolderRecord = {
@@ -106,14 +126,22 @@ export async function listFolders(
 		}));
 }
 
+/**
+ * Create a folder for the account; `null`, with nothing written, when it already
+ * holds {@link FOLDERS_PER_ACCOUNT_LIMIT}.
+ */
 export async function createFolder(
 	ownerId: string,
 	name: string,
-): Promise<FolderRecord> {
-	const now = new Date().toISOString();
-	return readFolder(
-		await folders.insert({ ownerId, name, createdAt: now, updatedAt: now }),
-	);
+): Promise<FolderRecord | null> {
+	return folderCountLock.run(ownerId, async () => {
+		const held = await folders.find({ ownerId });
+		if (held.length >= FOLDERS_PER_ACCOUNT_LIMIT) return null;
+		const now = new Date().toISOString();
+		return readFolder(
+			await folders.insert({ ownerId, name, createdAt: now, updatedAt: now }),
+		);
+	});
 }
 
 /** Rename the account's folder; `null` when it has no folder with this id. */

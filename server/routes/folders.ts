@@ -15,11 +15,15 @@
  * Sharing a folder (slice 4) is `/api/folders/:id/collaborators/*`, the deck
  * collaborator routes' shape and their terms: the folder's owner alone, the
  * list keyed by the grant's own id and never by an account id.
+ *
+ * Creating a folder is limited per account twice over, a rate and a count, so an
+ * account cannot multiply the share route's per-folder lookup budget by holding
+ * or minting more folders: `FOLDER_CREATE_RULE` and `FOLDERS_PER_ACCOUNT_LIMIT`.
  */
 
 import { Elysia } from "elysia";
 import { findUserByEmail, findUserById, resolveUserId } from "../accounts";
-import { guardSubmission } from "../rate-limit";
+import { guardFolderCreate, guardSubmission } from "../rate-limit";
 import {
 	DeckAccessLevelBodySchema,
 	type DeckCollaborator,
@@ -33,6 +37,7 @@ import {
 import {
 	createFolder,
 	deleteFolder,
+	FOLDERS_PER_ACCOUNT_LIMIT,
 	type FolderGrantRecord,
 	type FolderRecord,
 	fileDeck,
@@ -121,7 +126,15 @@ export const folderRoutes = new Elysia({ prefix: "/api" })
 		async ({ body, request, set }) => {
 			const userId = await requireAccount(request);
 			if (userId instanceof Response) return userId;
+			const overLimit = guardFolderCreate(userId);
+			if (overLimit) return overLimit;
 			const folder = await createFolder(userId, body.name);
+			if (!folder) {
+				return jsonError(
+					409,
+					`This account already holds ${FOLDERS_PER_ACCOUNT_LIMIT} folders, the most it can have. Delete one to make another.`,
+				);
+			}
 			set.status = 201;
 			return readFolder(folder, []);
 		},
@@ -131,7 +144,7 @@ export const folderRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Folders"],
 				summary: "Create a folder",
 				description:
-					"Creates an empty folder owned by the caller (REQ126). `name` is required and trimmed; a blank one is `422`. Folders are flat — a folder never holds another. Requires an account; `401` otherwise.",
+					"Creates an empty folder owned by the caller (REQ126). `name` is required and trimmed; a blank one is `422`. Folders are flat — a folder never holds another. Requires an account; `401` otherwise. Limited per account: over 30 creations in an hour answers `429` with `Retry-After`, and an account already holding 100 folders answers `409` until it deletes one.",
 				security: [{ bearerAuth: [] }],
 			},
 		},

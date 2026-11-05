@@ -9,6 +9,7 @@
  * filed in it at its level, only while they are filed there and still the
  * folder owner's, and only the owner sees or changes who it is shared with.
  * Deleting an account removes the folders, filings and grants that name it.
+ * Creating a folder is limited per account, by a rate and by a count.
  */
 
 process.env.DATABASE_PATH = ":memory:";
@@ -681,6 +682,184 @@ describe("Deck folders (REQ126)", () => {
 		expect(
 			(await sharedWith(granteeKey)).some((entry) => entry.id === deck.id),
 		).toBe(false);
+	});
+
+	describe("limits on creating a folder", () => {
+		let limitedCounter = 0;
+
+		/** A new account, so its window and its count start empty. */
+		async function limitedAccount(): Promise<{ id: string; key: string }> {
+			const { auth } = await import("./accounts");
+			limitedCounter += 1;
+			const account = await auth.api.signUpEmail({
+				body: {
+					email: `folder-limited-${limitedCounter}@example.com`,
+					password: "correct-horse-battery",
+					name: "Limited",
+				},
+			});
+			const created = await auth.api.createApiKey({
+				body: { userId: account.user.id, name: "k" },
+			});
+			return { id: account.user.id, key: created.key };
+		}
+
+		function postFolder(key: string, name = "Limited"): Promise<Response> {
+			return fetch(`${baseUrl}/api/folders`, {
+				method: "POST",
+				headers: keyed(key),
+				body: JSON.stringify({ name }),
+			});
+		}
+
+		/** Run `body` with the rate limits switched as named, then restore them. */
+		async function withLimits(
+			disabled: "true" | "false",
+			body: () => Promise<void>,
+		): Promise<void> {
+			const { resetRateLimits } = await import("./rate-limit");
+			const inherited = process.env.OMUL_RATE_LIMITS_DISABLED;
+			process.env.OMUL_RATE_LIMITS_DISABLED = disabled;
+			resetRateLimits();
+			try {
+				await body();
+			} finally {
+				if (inherited === undefined) {
+					delete process.env.OMUL_RATE_LIMITS_DISABLED;
+				} else {
+					process.env.OMUL_RATE_LIMITS_DISABLED = inherited;
+				}
+				resetRateLimits();
+			}
+		}
+
+		/** Give the account `count` folders past the route, spending no window. */
+		async function seedFolders(accountId: string, count: number): Promise<void> {
+			const { createFolder: insertFolder } = await import("./services/folders");
+			for (let seeded = 0; seeded < count; seeded++) {
+				await insertFolder(accountId, `Seeded ${seeded}`);
+			}
+		}
+
+		test("past the window the route answers 429, whichever key the account uses", async () => {
+			const { auth } = await import("./accounts");
+			const { FOLDER_CREATE_RULE } = await import("./rate-limit");
+			await withLimits("false", async () => {
+				const account = await limitedAccount();
+				const made: Any[] = [];
+				for (let sent = 0; sent < FOLDER_CREATE_RULE.limit; sent++) {
+					const response = await postFolder(account.key);
+					expect(response.status).toBe(201);
+					made.push(await response.json());
+				}
+
+				const refused = await postFolder(account.key);
+				expect(refused.status).toBe(429);
+				const retryAfter = Number(refused.headers.get("Retry-After"));
+				expect(retryAfter).toBeGreaterThan(0);
+				const body = await refused.json();
+				expect(body.retryAfterSeconds).toBe(retryAfter);
+				expect(body.error).toContain("folders");
+				expect(body).not.toHaveProperty("id");
+				expect(await foldersOf(account.key)).toHaveLength(
+					FOLDER_CREATE_RULE.limit,
+				);
+
+				// A second personal API key is the same account, so the same count.
+				const secondKey = await auth.api.createApiKey({
+					body: { userId: account.id, name: "second" },
+				});
+				expect((await postFolder(secondKey.key)).status).toBe(429);
+
+				// Deleting a folder frees no creation: delete-and-recreate would
+				// otherwise mint a fresh share budget per round.
+				const removed = await fetch(`${baseUrl}/api/folders/${made[0].id}`, {
+					method: "DELETE",
+					headers: keyed(account.key),
+				});
+				expect(removed.status).toBe(200);
+				expect((await postFolder(account.key)).status).toBe(429);
+
+				// Another account's window is its own.
+				const other = await limitedAccount();
+				expect((await postFolder(other.key)).status).toBe(201);
+			});
+		});
+
+		test("the environment switch lifts the window without emptying it", async () => {
+			const { FOLDER_CREATE_RULE } = await import("./rate-limit");
+			await withLimits("false", async () => {
+				const account = await limitedAccount();
+				for (let sent = 0; sent < FOLDER_CREATE_RULE.limit; sent++) {
+					expect((await postFolder(account.key)).status).toBe(201);
+				}
+				expect((await postFolder(account.key)).status).toBe(429);
+
+				process.env.OMUL_RATE_LIMITS_DISABLED = "true";
+				expect((await postFolder(account.key)).status).toBe(201);
+
+				process.env.OMUL_RATE_LIMITS_DISABLED = "false";
+				expect((await postFolder(account.key)).status).toBe(429);
+			});
+		});
+
+		test("an account at the cap answers 409 until it deletes a folder", async () => {
+			const { FOLDERS_PER_ACCOUNT_LIMIT } = await import("./services/folders");
+			await withLimits("false", async () => {
+				const account = await limitedAccount();
+				await seedFolders(account.id, FOLDERS_PER_ACCOUNT_LIMIT);
+
+				const refused = await postFolder(account.key);
+				expect(refused.status).toBe(409);
+				expect((await refused.json()).error).toContain(
+					String(FOLDERS_PER_ACCOUNT_LIMIT),
+				);
+				const held = await foldersOf(account.key);
+				expect(held).toHaveLength(FOLDERS_PER_ACCOUNT_LIMIT);
+
+				// Another account's count is its own.
+				const other = await limitedAccount();
+				expect((await postFolder(other.key)).status).toBe(201);
+
+				const removed = await fetch(`${baseUrl}/api/folders/${held[0].id}`, {
+					method: "DELETE",
+					headers: keyed(account.key),
+				});
+				expect(removed.status).toBe(200);
+				expect((await postFolder(account.key)).status).toBe(201);
+				expect(await foldersOf(account.key)).toHaveLength(
+					FOLDERS_PER_ACCOUNT_LIMIT,
+				);
+			});
+		});
+
+		test("the environment switch does not lift the cap", async () => {
+			const { FOLDERS_PER_ACCOUNT_LIMIT } = await import("./services/folders");
+			await withLimits("true", async () => {
+				const account = await limitedAccount();
+				await seedFolders(account.id, FOLDERS_PER_ACCOUNT_LIMIT);
+				expect((await postFolder(account.key)).status).toBe(409);
+			});
+		});
+
+		test("creations in flight together cannot pass the cap", async () => {
+			const { createFolder: insertFolder, FOLDERS_PER_ACCOUNT_LIMIT } =
+				await import("./services/folders");
+			const account = await limitedAccount();
+			await seedFolders(account.id, FOLDERS_PER_ACCOUNT_LIMIT - 1);
+
+			// One tick, at the service: the HTTP race rarely reaches the gap
+			// between the count and the insert.
+			const results = await Promise.all(
+				Array.from({ length: 5 }, (_unused, attempt) =>
+					insertFolder(account.id, `Racing ${attempt}`),
+				),
+			);
+			expect(results.filter((created) => created !== null)).toHaveLength(1);
+			expect(await foldersOf(account.key)).toHaveLength(
+				FOLDERS_PER_ACCOUNT_LIMIT,
+			);
+		});
 	});
 
 	describe("deleting an account", () => {

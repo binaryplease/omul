@@ -203,7 +203,7 @@ omul** below).
 | POST | `/api/workspaces/:id/templates` | ✅ `admin` / `owner` | Publish one of its decks as a template `{ presentationId, category, title?, description?, tags? }` — idempotent per deck |
 | DELETE | `/api/workspaces/:id/templates/:templateId` | ✅ `admin` / `owner` | Take one back down. No deck is touched |
 | GET | `/api/folders` | ✅ session/key | The caller's own folders by name, each with `presentationIds` — the decks filed in it (REQ126). See **Deck folders** below |
-| POST | `/api/folders` | ✅ session/key | Create a folder `{ name }` |
+| POST | `/api/folders` | ✅ session/key | Create a folder `{ name }`. `429` past 30 creations per hour per account, `409` at 100 folders held. See **Limits on creating a folder** below |
 | PATCH | `/api/folders/:id` | ✅ the folder's account | Rename it `{ name }` — another account's folder is `404`, like a missing one |
 | DELETE | `/api/folders/:id` | ✅ the folder's account | Delete it. Its decks are kept and go back to unfiled |
 | GET | `/api/folders/:id/collaborators` | ✅ the folder's account | Who the folder is shared with, and at what level — the deck list's shape, no account id |
@@ -384,6 +384,7 @@ in the body:
 | `POST …/reactions` (REQ077) | 120 per minute | `participantId` |
 | `POST …/collaborators` (REQ075, and a folder's, REQ126) | 600 per minute | client |
 | `POST …/collaborators` (REQ075, and a folder's, REQ126) | 60 per minute | the deck or folder being shared |
+| `POST /api/folders` (REQ126) | 30 per hour | the account |
 | `POST /api/workspaces/:id/members` (REQ129) | 600 per minute | client |
 | `POST /api/workspaces/:id/members` (REQ129) | 60 per minute | the workspace being added to |
 | `POST /api/feedback` (REQ185) | 20 per 10 minutes | client |
@@ -400,7 +401,9 @@ probing faster than that means holding more of them — and still meets the
 per-client ceiling.
 
 The guards run **before** the handler, so an over-limit call never reaches
-authorization or the store; a malformed body is still rejected first (`422`,
+authorization or the store. The exception is `POST /api/folders`, which is keyed
+by the account and so resolves the account first: no account is `401` and spends
+no budget. A malformed body is still rejected first (`422`,
 by the route schema) and costs no budget. The window is in-process
 (`server/rate-limit.ts`), the per-client ceilings are sized for a whole NATted
 room rather than one person, and the whole thing is switchable off with
@@ -787,6 +790,34 @@ account's decks by folder from `GET /api/folders` beside `/presentations/mine`.
 - **Filing is not an authored edit.** It does not move the deck's `revision`
   (REQ126 slice 1), so it never refuses an open editor's Save, and nothing is
   broadcast to the room. Neither does sharing a folder.
+
+### Limits on creating a folder
+
+`POST /api/folders` is limited per account, by a rate and by a count. Each limit
+covers a case the other leaves open. `POST /api/folders/:id/collaborators`
+budgets its email lookup at 60 per minute per folder, because its `404`/`201`
+split says whether an address has an account, and a new folder has a new id and
+so a new budget.
+
+| Refusal | When | Body and headers | `OMUL_RATE_LIMITS_DISABLED=true` |
+|---|---|---|---|
+| `429` | The account has made 30 folders in the past hour | `{ error, retryAfterSeconds }`, `Retry-After` | Lifts it |
+| `409` | The account holds 100 folders | `{ error }` | Does not lift it |
+
+- **The rate covers delete-and-recreate.** Deleting a folder frees no creation in
+  the window, so a new id costs one of 30 per hour whatever happens to the old one.
+- **The count covers holding folders.** A folder's budget refills every minute
+  for as long as the folder exists, so a rate alone would let a patient account
+  hold more budget every hour. Deleting a folder frees a place under the count.
+- **The key is the account.** Every personal API key and session of one account
+  shares the count, and the call needs an account before it counts (`401`
+  otherwise). The home screen shows the `error` of either refusal as a toast.
+- **What these limits leave standing.** One account's lookups through folders are
+  bounded by 60 per minute for each folder it holds, plus 60 for each folder it
+  creates in that minute. From one client the 600-per-minute address ceiling is
+  the tighter bound, and an account reaches it with 10 folders, so these limits
+  do not lower the rate one client can probe at. They bound what one account gets
+  across many client addresses, which had no bound before them.
 
 ### Sharing a folder
 
