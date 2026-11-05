@@ -1201,13 +1201,15 @@ describe("workspaces and the roles in them (REQ128, REQ129)", () => {
 				})
 			).status,
 		).toBe(403);
-		expect(
-			(
-				await fetch(`${baseUrl}/api/presentations/${deck.id}/results.xlsx`, {
-					headers: { "x-api-key": commenterKey },
-				})
-			).status,
-		).toBe(403);
+		// Both readings of the PDF: `?results=false` changes the document and leaves
+		// the gate as it stands.
+		for (const path of ["results.xlsx", "deck.pdf", "deck.pdf?results=false"]) {
+			const res = await fetch(
+				`${baseUrl}/api/presentations/${deck.id}/${path}`,
+				{ headers: { "x-api-key": commenterKey } },
+			);
+			expect(`${path}:${res.status}`).toBe(`${path}:403`);
+		}
 		const after = await (
 			await fetch(`${baseUrl}/api/presentations/${deck.id}`)
 		).json();
@@ -1287,6 +1289,15 @@ describe("workspaces and the roles in them (REQ128, REQ129)", () => {
 		expect(
 			(await mutations(deck.id, SLIDES[0].id).start({ "x-api-key": commenterKey }))
 				.status,
+		).toBe(200);
+		// The same request that answered 403 above answers 200 now, so that 403
+		// came from the role.
+		expect(
+			(
+				await fetch(`${baseUrl}/api/presentations/${deck.id}/deck.pdf`, {
+					headers: { "x-api-key": commenterKey },
+				})
+			).status,
 		).toBe(200);
 	});
 });

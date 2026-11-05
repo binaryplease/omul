@@ -12,6 +12,8 @@
  * Deleting an account removes the folders, filings and grants that name it.
  * Creating a folder is limited per account, by a rate and by a count.
  * Listing an account's folders groups its filings in counted, linear work.
+ * A `view` or `comment` grant is refused the countdown, the PDF export and the
+ * answer-theme write routes, and an `edit` grant is let through on all of them.
  */
 
 process.env.DATABASE_PATH = ":memory:";
@@ -49,15 +51,25 @@ const SLIDES = [
 	},
 ];
 
+/** A slide that holds answer themes (REQ114) and a slide with a clock (REQ107). */
+const RESULTS_WORK_SLIDES = [
+	{ id: "open", type: "open-text", question: "What should change?" },
+	{ id: "clock", type: "countdown", question: "Break" },
+];
+
 function keyed(key: string): Record<string, string> {
 	return { "Content-Type": "application/json", "x-api-key": key };
 }
 
-async function createDeck(key: string, title = "Deck"): Promise<Any> {
+async function createDeck(
+	key: string,
+	title = "Deck",
+	slides: Any[] = SLIDES,
+): Promise<Any> {
 	const res = await fetch(`${baseUrl}/api/presentations`, {
 		method: "POST",
 		headers: keyed(key),
-		body: JSON.stringify({ title, slides: SLIDES }),
+		body: JSON.stringify({ title, slides }),
 	});
 	expect(res.status).toBe(201);
 	return res.json();
@@ -132,6 +144,7 @@ describe("Deck folders (REQ126)", () => {
 		const { presentationRoutes } = await import("./routes/presentations");
 		const { folderRoutes } = await import("./routes/folders");
 		const { workspaceRoutes } = await import("./routes/workspaces");
+		const { answerThemeRoutes } = await import("./routes/answer-themes");
 		const { Elysia } = await import("elysia");
 
 		await connectDb();
@@ -139,6 +152,7 @@ describe("Deck folders (REQ126)", () => {
 
 		const app = new Elysia()
 			.use(presentationRoutes)
+			.use(answerThemeRoutes)
 			.use(folderRoutes)
 			.use(workspaceRoutes)
 			.listen(0);
@@ -581,6 +595,172 @@ describe("Deck folders (REQ126)", () => {
 			headers: keyed(granteeKey),
 		});
 		expect(refused.status).toBe(403);
+	});
+
+	describe("the countdown, the PDF export and the answer-theme writes", () => {
+		/**
+		 * A started deck filed in a folder shared at `level`, holding one submitted
+		 * answer and one theme. Every id is real, so a route that let the grantee
+		 * through would answer with success and never with a `404`.
+		 */
+		async function deckInSharedFolder(level: string) {
+			const folder = await createFolder(ownerKey, `Results work ${level}`);
+			const deck = await createDeck(
+				ownerKey,
+				"Results work",
+				RESULTS_WORK_SLIDES,
+			);
+			expect((await fileDeck(ownerKey, deck.id, folder.id)).status).toBe(200);
+			expect(
+				(await shareFolder(ownerKey, folder.id, GRANTEE_EMAIL, level)).status,
+			).toBe(201);
+
+			const started = await fetch(
+				`${baseUrl}/api/presentations/${deck.id}/start`,
+				{ method: "POST", headers: keyed(ownerKey) },
+			);
+			expect(started.status).toBe(200);
+			const vote = await fetch(`${baseUrl}/api/presentations/${deck.id}/vote`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					slideId: "open",
+					value: "Ship faster",
+					participantId: "alice",
+				}),
+			});
+			expect(vote.status).toBe(200);
+			const results = await (
+				await fetch(`${baseUrl}/api/presentations/${deck.id}/results/open`, {
+					headers: keyed(ownerKey),
+				})
+			).json();
+			const answerId: string = results.responses[0].id;
+
+			const created = await fetch(
+				`${baseUrl}/api/presentations/${deck.id}/slides/open/answer-themes`,
+				{
+					method: "POST",
+					headers: keyed(ownerKey),
+					body: JSON.stringify({ name: "Speed" }),
+				},
+			);
+			expect(created.status).toBe(201);
+			return { folder, deck, answerId, theme: await created.json() };
+		}
+
+		/**
+		 * The routes under test, each paired with what an `edit` grant answers. The
+		 * delete comes last, because the rename and the grouping need the theme.
+		 */
+		function resultsWorkRoutes(
+			deckId: string,
+			themeId: string,
+			answerId: string,
+		): { name: string; allowed: number; call: () => Promise<Response> }[] {
+			const deckUrl = `${baseUrl}/api/presentations/${deckId}`;
+			const themesUrl = `${deckUrl}/slides/open/answer-themes`;
+			const headers = keyed(granteeKey);
+			return [
+				{
+					name: "countdown",
+					allowed: 200,
+					call: () =>
+						fetch(`${deckUrl}/countdown`, {
+							method: "POST",
+							headers,
+							body: JSON.stringify({ slideId: "clock", action: "start" }),
+						}),
+				},
+				{
+					name: "deck.pdf",
+					allowed: 200,
+					call: () => fetch(`${deckUrl}/deck.pdf`, { headers }),
+				},
+				{
+					name: "deck.pdf?results=false",
+					allowed: 200,
+					call: () => fetch(`${deckUrl}/deck.pdf?results=false`, { headers }),
+				},
+				{
+					name: "create theme",
+					allowed: 201,
+					call: () =>
+						fetch(themesUrl, {
+							method: "POST",
+							headers,
+							body: JSON.stringify({ name: "From a grantee" }),
+						}),
+				},
+				{
+					name: "rename theme",
+					allowed: 200,
+					call: () =>
+						fetch(`${themesUrl}/${themeId}`, {
+							method: "PATCH",
+							headers,
+							body: JSON.stringify({ name: "Renamed by a grantee" }),
+						}),
+				},
+				{
+					name: "group answer",
+					allowed: 200,
+					call: () =>
+						fetch(`${deckUrl}/answers/${answerId}/answer-theme`, {
+							method: "PUT",
+							headers,
+							body: JSON.stringify({ themeId }),
+						}),
+				},
+				{
+					name: "delete theme",
+					allowed: 200,
+					call: () =>
+						fetch(`${themesUrl}/${themeId}`, { method: "DELETE", headers }),
+				},
+			];
+		}
+
+		test.each(["view", "comment"])("a %s grant is refused on all of them and changes nothing", async (level) => {
+			const { deck, answerId, theme } = await deckInSharedFolder(level);
+			expect(await accessLevelOn(granteeKey, deck.id)).toBe(level);
+
+			for (const { name, call } of resultsWorkRoutes(
+				deck.id,
+				theme.id,
+				answerId,
+			)) {
+				const res = await call();
+				expect(`${name}:${res.status}`).toBe(`${name}:403`);
+			}
+
+			const themes = await fetch(
+				`${baseUrl}/api/presentations/${deck.id}/slides/open/answer-themes`,
+				{ headers: keyed(ownerKey) },
+			);
+			expect((await themes.json()).themes).toEqual([theme]);
+			const read = await fetch(`${baseUrl}/api/presentations/${deck.id}`, {
+				headers: keyed(ownerKey),
+			});
+			expect((await read.json()).countdownRuns).toEqual({});
+		});
+
+		test("the same requests pass once the owner raises the grant to edit", async () => {
+			const { folder, deck, answerId, theme } =
+				await deckInSharedFolder("comment");
+			expect(
+				(await shareFolder(ownerKey, folder.id, GRANTEE_EMAIL, "edit")).status,
+			).toBe(200);
+
+			for (const { name, allowed, call } of resultsWorkRoutes(
+				deck.id,
+				theme.id,
+				answerId,
+			)) {
+				const res = await call();
+				expect(`${name}:${res.status}`).toBe(`${name}:${allowed}`);
+			}
+		});
 	});
 
 	test("filing and sharing a folder do not move the deck revision", async () => {
