@@ -1403,9 +1403,9 @@ describe("Deck folders (REQ126)", () => {
 		}
 
 		/** `POST /api/auth/delete-user`, the route the account screen calls. */
-		async function deleteAccount(
+		async function postDeletion(
 			cookie: string,
-			password: string = PASSWORD,
+			body: { password?: string },
 		): Promise<Response> {
 			const { auth } = await import("./accounts");
 			return auth.handler(
@@ -1416,9 +1416,27 @@ describe("Deck folders (REQ126)", () => {
 						origin: "http://localhost:3000",
 						cookie,
 					},
-					body: JSON.stringify({ password }),
+					body: JSON.stringify(body),
 				}),
 			);
+		}
+
+		function deleteAccount(
+			cookie: string,
+			password: string = PASSWORD,
+		): Promise<Response> {
+			return postDeletion(cookie, { password });
+		}
+
+		/** An account with a filed deck in a folder another account reads at `view`. */
+		async function accountWithSharedFolder() {
+			const leaver = await newAccount();
+			const grantee = await newAccount();
+			const folder = await createFolder(leaver.key, "Shared");
+			const deck = await createDeck(leaver.key, "Filed");
+			expect((await fileDeck(leaver.key, deck.id, folder.id)).status).toBe(200);
+			await shareFolder(leaver.key, folder.id, grantee.email, "view");
+			return { leaver, grantee, deck };
 		}
 
 		/** The three collections read directly, past every function under test. */
@@ -1528,6 +1546,41 @@ describe("Deck folders (REQ126)", () => {
 			expect(await accessLevelOn(grantee.key, deck.id)).toBe("view");
 		});
 
+		// This table and the test after it record what Better Auth's `/delete-user`
+		// does today. The table has to change if the server starts to require a
+		// password.
+		test.each([
+			["no password", {}],
+			["an empty password", { password: "" }],
+		])("a session under a day old deletes with %s, and the sweep runs", async (_label, body) => {
+			const { leaver, grantee, deck } = await accountWithSharedFolder();
+
+			expect((await postDeletion(leaver.cookie, body)).status).toBe(200);
+
+			expect(await rowsNaming(leaver.id)).toEqual([]);
+			expect(await accessLevelOn(grantee.key, deck.id)).toBeNull();
+		});
+
+		test("a session over a day old needs the password, and a refusal removes nothing", async () => {
+			const { auth } = await import("./accounts");
+			const { leaver, grantee, deck } = await accountWithSharedFolder();
+			const context = await auth.$context;
+			await context.adapter.updateMany({
+				model: "session",
+				where: [{ field: "userId", value: leaver.id }],
+				update: { createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
+			});
+
+			for (const body of [{}, { password: "" }]) {
+				expect((await postDeletion(leaver.cookie, body)).status).toBe(400);
+				expect(await rowsNaming(leaver.id)).toHaveLength(2);
+				expect(await accessLevelOn(grantee.key, deck.id)).toBe("view");
+			}
+
+			expect((await deleteAccount(leaver.cookie)).status).toBe(200);
+			expect(await rowsNaming(leaver.id)).toEqual([]);
+		});
+
 		test("a row written while the deletion runs goes with the account", async () => {
 			const { auth } = await import("./accounts");
 			const { createFolder: insertFolder, grantFolderAccess } = await import(
@@ -1542,8 +1595,8 @@ describe("Deck folders (REQ126)", () => {
 			if (!deletionOptions || !firstSweep) {
 				throw new Error("the deletion route has no beforeDelete sweep");
 			}
-			deletionOptions.beforeDelete = async (user, request) => {
-				await firstSweep(user, request);
+			deletionOptions.beforeDelete = async (user) => {
+				await firstSweep(user);
 				await insertFolder(leaver.id, "Created in flight");
 				await grantFolderAccess(folder.id, leaver.id, "edit");
 				expect(await rowsNaming(leaver.id)).toHaveLength(2);

@@ -35,8 +35,10 @@ this product is built around. It is mounted at
 boot via `ensureAuthSchema()`. The surface it exposes: sign-up / sign-in /
 sign-out / session, **password reset** and **email verification** (soft — a
 fresh account is auto-signed-in; a UI banner nudges verification) over Brevo
-email, **change-email** (double opt-in), **account deletion** (password-
-verified), and **personal API keys** (`x-api-key`). The browser client is
+email, **change-email** (double opt-in), **account deletion** (the account
+screen sends the password; the route verifies a password when the body carries
+one and otherwise accepts a session under 24 hours old), and **personal API
+keys** (`x-api-key`). The browser client is
 `src/auth-client.ts`; the header UI (sign-in dialog, reset/verify/change-email
 landings, verify banner, account settings, API-key manager) is `src/auth.tsx`,
 mounted in `HomePage`.

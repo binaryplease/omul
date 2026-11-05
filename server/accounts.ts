@@ -235,15 +235,21 @@ export function createAuth() {
 				},
 			},
 			// Self-serve account deletion. `enabled: true` mounts `POST
-			// /api/auth/delete-user`; with email+password the client must pass the
-			// account **password**, which Better Auth verifies before proceeding (the
-			// UI additionally requires typing a confirmation phrase as an accident
-			// guard). No `sendDeleteAccountVerification` is set, so a password-verified
-			// request deletes immediately rather than emailing a second confirmation.
+			// /api/auth/delete-user`. The account screen always sends the account
+			// **password** and also requires typing a confirmation phrase as an
+			// accident guard. The server does not require the password: Better Auth
+			// verifies one only when the body carries a non-empty one, and otherwise
+			// accepts a session under `session.freshAge` old (unset here, so its
+			// default of 24 hours). Do not set `freshAge: 0`, because Better Auth then
+			// skips that check and a session of any age deletes without a password.
+			// No `sendDeleteAccountVerification` is set, so an accepted request
+			// deletes immediately rather than emailing a second confirmation.
 			//
-			// The docstore rows naming the account go in two sweeps, both after the
-			// password check. `beforeDelete` runs before Better Auth removes any auth
-			// row, so a failed sweep aborts the deletion and the person can retry.
+			// The docstore rows naming the account go in two sweeps, both after that
+			// check. `beforeDelete` runs before Better Auth removes any auth row, so a
+			// failed sweep aborts the deletion and the person can retry. If the sweep
+			// succeeds and the auth write then throws, nothing restores the swept
+			// rows, and the account survives without them.
 			// `afterDelete` removes what a request already in flight wrote between
 			// the first sweep and the `user` row going. REQ126 records why these two
 			// hooks and not `databaseHooks.user.delete`: by the time that hook runs,

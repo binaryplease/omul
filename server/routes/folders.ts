@@ -206,7 +206,7 @@ export const folderRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Folders"],
 				summary: "List who a folder is shared with",
 				description:
-					"Returns the accounts one of the caller's folders is shared with (REQ126), oldest grant first, in the shape of `GET /presentations/:id/collaborators`: the grant's own `id`, the account's `email` and `name`, the `level` and when it was made and last changed. **No account identifier is ever in this payload.** Owner-only: `401` without an account, `404` for another account's folder as for a missing one — a grantee cannot see who else a folder is shared with.",
+					"Returns the accounts one of the caller's folders is shared with (REQ126), oldest grant first, with the fields of `GET /presentations/:id/collaborators` except its `folder`: the grant's own `id`, the account's `email` and `name`, the `level` and when it was made and last changed. **No account identifier is ever in this payload.** Owner-only: `401` without an account, `404` for another account's folder as for a missing one — a grantee cannot see who else a folder is shared with.",
 				security: [{ bearerAuth: [] }],
 			},
 		},
