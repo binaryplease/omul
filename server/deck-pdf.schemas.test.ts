@@ -663,14 +663,19 @@ describe("REQ096 — reading a value into words", () => {
 			}
 			return best;
 		};
-		for (const unit of ["[", "[a](", "[a](b", "**a ", "__a ", "*a ", "_a ", "`a"]) {
+		// The last unit is a span that matches, so `withoutLanguageMarking` takes its
+		// dropping path. The assertion fails if a change to the mark's syntax leaves
+		// this unit unmatched, because the ratio would then measure the wrong path.
+		const matchingLanguageSpan = "[x]{lang=fr}";
+		expect(plainTextFromMarkdown(matchingLanguageSpan)).toBe("x");
+		for (const unit of ["[", "[a](", "[a](b", "**a ", "__a ", "*a ", "_a ", "`a", matchingLanguageSpan]) {
 			const short = exportOf(unit, shortest);
 			const long = exportOf(unit, longest);
 			fastest(short);
 			const ratio = fastest(long) / Math.max(fastest(short), 0.05);
 			expect({ unit, ratio: ratio < 3 }).toEqual({ unit, ratio: true });
 		}
-	});
+	}, 30_000);
 
 	test("a passage in another language keeps its words and drops the marking (REQ133)", () => {
 		expect(plainTextFromMarkdown("She said [bonjour]{lang=fr} twice")).toBe(

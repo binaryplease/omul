@@ -263,7 +263,10 @@ function withoutLanguageMarking(line: string): string {
  * request from one thread, so a reduction that is quadratic in a field is a
  * request that stalls the whole process — and a field's own length cap is no
  * defence against work that grows with its square.
- * The links and the bold are therefore read by {@link reduceLinks} and
+ * {@link withoutLanguageMarking} runs first and walks the line once: each `]`
+ * pops one opener, its mark expression stops at the next `]` at the latest, and
+ * the dropped positions are filtered out in one pass at the end.
+ * The links and the bold are read by {@link reduceLinks} and
  * {@link reduceStrong} rather than by the expressions they replace, which
  * rescan the rest of the line from every opener that never closes. The
  * expressions that remain cannot: three are anchored at the start of the line,
