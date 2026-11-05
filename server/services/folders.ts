@@ -102,28 +102,50 @@ export async function getFolder(
 }
 
 /**
+ * Folder rows and filing rows as the listing hands them out: folders by name,
+ * each with the ids of the decks filed in it, newest filing first. A filing whose
+ * folder is not among `folderRows` appears in no list.
+ *
+ * One pass over the filings reads each filing's folder id once, so grouping costs
+ * work linear in folders plus filings. The two sorts add a logarithmic factor,
+ * which the documented order requires.
+ */
+export function assembleFolderListing(
+	folderRows: Record<string, unknown>[],
+	filingRows: Record<string, unknown>[],
+): { folder: FolderRecord; presentationIds: string[] }[] {
+	const sortedFolders = folderRows
+		.map(readFolder)
+		.sort((first, second) => first.name.localeCompare(second.name));
+	const presentationIdsByFolder = new Map<string, string[]>(
+		sortedFolders.map((folder) => [folder.id, []]),
+	);
+	const newestFirst = [...filingRows].sort((first, second) =>
+		(second.createdAt as string).localeCompare(first.createdAt as string),
+	);
+	for (const filing of newestFirst) {
+		presentationIdsByFolder
+			.get(filing.folderId as string)
+			?.push(filing.presentationId as string);
+	}
+	return sortedFolders.map((folder) => ({
+		folder,
+		presentationIds: presentationIdsByFolder.get(folder.id) ?? [],
+	}));
+}
+
+/**
  * The account's folders by name, each with the ids of the decks filed in it,
  * newest filing first.
  */
 export async function listFolders(
 	ownerId: string,
 ): Promise<{ folder: FolderRecord; presentationIds: string[] }[]> {
-	const [rows, filed] = await Promise.all([
+	const [folderRows, filingRows] = await Promise.all([
 		folders.find({ ownerId }),
 		entries.find({ ownerId }),
 	]);
-	const newestFirst = filed.sort((first, second) =>
-		(second.createdAt as string).localeCompare(first.createdAt as string),
-	);
-	return rows
-		.map(readFolder)
-		.sort((first, second) => first.name.localeCompare(second.name))
-		.map((folder) => ({
-			folder,
-			presentationIds: newestFirst
-				.filter((entry) => entry.folderId === folder.id)
-				.map((entry) => entry.presentationId as string),
-		}));
+	return assembleFolderListing(folderRows, filingRows);
 }
 
 /**

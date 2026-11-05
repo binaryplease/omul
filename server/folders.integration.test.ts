@@ -10,6 +10,7 @@
  * folder owner's, and only the owner sees or changes who it is shared with.
  * Deleting an account removes the folders, filings and grants that name it.
  * Creating a folder is limited per account, by a rate and by a count.
+ * Listing an account's folders groups its filings in counted, linear work.
  */
 
 process.env.DATABASE_PATH = ":memory:";
@@ -217,6 +218,167 @@ describe("Deck folders (REQ126)", () => {
 			body: JSON.stringify({ name: "Anonymous" }),
 		});
 		expect(created.status).toBe(401);
+	});
+
+	describe("listing an account's folders", () => {
+		type CountedRow = Record<string, unknown>;
+
+		/** Wraps a row so that every field read adds one to `reads[field]`. */
+		function countingRow(
+			row: CountedRow,
+			reads: Record<string, number>,
+		): CountedRow {
+			return new Proxy(row, {
+				get(target, field, receiver) {
+					const name = String(field);
+					reads[name] = (reads[name] ?? 0) + 1;
+					return Reflect.get(target, field, receiver);
+				},
+			});
+		}
+
+		/**
+		 * Runs the real assembly over `folderCount` folders and `filingCount`
+		 * filings dealt across them, and returns the reads on each kind of row.
+		 */
+		async function readsToAssemble(folderCount: number, filingCount: number) {
+			const { assembleFolderListing } = await import("./services/folders");
+			const folderReads: Record<string, number> = {};
+			const filingReads: Record<string, number> = {};
+			const folderRows = Array.from({ length: folderCount }, (_unused, index) =>
+				countingRow(
+					{
+						id: `folder-${index}`,
+						ownerId: "owner",
+						name: `Folder ${index}`,
+						createdAt: "2026-11-05T00:00:00.000Z",
+						updatedAt: "2026-11-05T00:00:00.000Z",
+					},
+					folderReads,
+				),
+			);
+			const filingRows = Array.from({ length: filingCount }, (_unused, index) =>
+				countingRow(
+					{
+						folderId: `folder-${index % folderCount}`,
+						presentationId: `deck-${index}`,
+						ownerId: "owner",
+						createdAt: new Date(index * 1000).toISOString(),
+					},
+					filingReads,
+				),
+			);
+			const listing = assembleFolderListing(folderRows, filingRows);
+			expect(
+				listing.reduce(
+					(filed, { presentationIds }) => filed + presentationIds.length,
+					0,
+				),
+			).toBe(filingCount);
+			return { folderReads, filingReads };
+		}
+
+		// Counted rather than timed, so the bound holds on any machine: a clock
+		// limit under REQ133 passed on a laptop and failed on the CI runner. A scan
+		// of every filing per folder reads `folderId` folders × filings times, which
+		// is 10,000,000 reads at the largest size here.
+		test.each([
+			[1, 10_000],
+			[1000, 1],
+			[10, 100],
+			[100, 1000],
+			[1000, 10_000],
+		])("%i folders and %i filings cost linear work to group", async (folderCount, filingCount) => {
+			const { folderReads, filingReads } = await readsToAssemble(
+				folderCount,
+				filingCount,
+			);
+			expect(filingReads.folderId).toBe(filingCount);
+			expect(filingReads.presentationId).toBe(filingCount);
+			// `readFolder` reads each of a folder's five fields once.
+			for (const field of ["id", "ownerId", "name", "createdAt", "updatedAt"]) {
+				expect(folderReads[field]).toBe(folderCount);
+			}
+		});
+
+		test("the filing sort is the only part above linear, by a logarithmic factor", async () => {
+			const filingCount = 10_000;
+			const { filingReads } = await readsToAssemble(100, filingCount);
+			// Each comparison reads two rows' `createdAt`.
+			expect(filingReads.createdAt).toBeLessThanOrEqual(
+				2 * filingCount * Math.ceil(Math.log2(filingCount)),
+			);
+		});
+
+		test("a filing whose folder is not listed appears in no list", async () => {
+			const { assembleFolderListing } = await import("./services/folders");
+			const listing = assembleFolderListing(
+				[{ id: "listed", ownerId: "owner", name: "Listed" }],
+				[
+					{
+						folderId: "gone",
+						presentationId: "deck",
+						createdAt: "2026-11-05T00:00:00.000Z",
+					},
+				],
+			);
+			expect(listing.map(({ presentationIds }) => presentationIds)).toEqual([
+				[],
+			]);
+		});
+
+		test("the routes order folders by name and filings newest first", async () => {
+			const { auth } = await import("./accounts");
+			const account = await auth.api.signUpEmail({
+				body: {
+					email: "folder-lister@example.com",
+					password: "correct-horse-battery",
+					name: "Lister",
+				},
+			});
+			const { key } = await auth.api.createApiKey({
+				body: { userId: account.user.id, name: "k" },
+			});
+			const beta = await createFolder(key, "Beta");
+			const alpha = await createFolder(key, "Alpha");
+			await createFolder(key, "Gamma");
+			const decks = [
+				await createDeck(key),
+				await createDeck(key),
+				await createDeck(key),
+			];
+			for (const [deck, folder] of [
+				[decks[0], alpha],
+				[decks[1], beta],
+				[decks[2], alpha],
+			]) {
+				// `createdAt` has millisecond resolution, and a tie keeps the store's order.
+				await Bun.sleep(2);
+				expect((await fileDeck(key, deck.id, folder.id)).status).toBe(200);
+			}
+
+			expect(
+				(await foldersOf(key)).map(({ name, presentationIds }) => ({
+					name,
+					presentationIds,
+				})),
+			).toEqual([
+				{ name: "Alpha", presentationIds: [decks[2].id, decks[0].id] },
+				{ name: "Beta", presentationIds: [decks[1].id] },
+				{ name: "Gamma", presentationIds: [] },
+			]);
+
+			const renamed = await fetch(`${baseUrl}/api/folders/${alpha.id}`, {
+				method: "PATCH",
+				headers: keyed(key),
+				body: JSON.stringify({ name: "Alpha renamed" }),
+			});
+			expect(renamed.status).toBe(200);
+			expect((await renamed.json()).presentationIds).toEqual([
+				decks[2].id,
+				decks[0].id,
+			]);
+		});
 	});
 
 	test("an account files and unfiles a deck it owns, one folder at a time", async () => {
