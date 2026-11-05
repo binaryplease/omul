@@ -10,6 +10,7 @@ import {
 	type DeckAccessLevel,
 	type DeckBrand,
 	type DeckCollaborator,
+	type DeckCollaboratorEntry,
 	type DeckGenerationAvailability,
 	type DeckTemplate,
 	type DeckTemplateCategory,
@@ -1201,9 +1202,12 @@ export const api = {
 	// make a 401 look like a bug in this file. The Better Auth cookie session rides
 	// every fetch by itself, which is the whole of the authentication these need.
 
-	/** The accounts this deck is shared with, oldest grant first. */
+	/**
+	 * The accounts this deck is shared with, oldest grant first, then the accounts
+	 * that reach it through the shared folder it is filed in (`folder` is set).
+	 */
 	listCollaborators: (id: string) =>
-		request<DeckCollaborator[]>(`/presentations/${id}/collaborators`),
+		request<DeckCollaboratorEntry[]>(`/presentations/${id}/collaborators`),
 
 	/**
 	 * Share the deck with an account, by the email it signed up with. Idempotent

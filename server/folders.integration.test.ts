@@ -8,6 +8,7 @@
  * decks intact and unfiled. Slice 4: a grant on a folder reaches the decks
  * filed in it at its level, only while they are filed there and still the
  * folder owner's, and only the owner sees or changes who it is shared with.
+ * The deck's own collaborator list reports the accounts a folder grant reaches.
  * Deleting an account removes the folders, filings and grants that name it.
  * Creating a folder is limited per account, by a rate and by a count.
  * Listing an account's folders groups its filings in counted, linear work.
@@ -824,6 +825,173 @@ describe("Deck folders (REQ126)", () => {
 			email: GRANTEE_EMAIL,
 			name: "Grantee",
 			level: "comment",
+		});
+	});
+
+	describe("the deck's collaborator list reports folder access", () => {
+		function shareDeck(key: string, deckId: string, level: string) {
+			return fetch(`${baseUrl}/api/presentations/${deckId}/collaborators`, {
+				method: "POST",
+				headers: keyed(key),
+				body: JSON.stringify({ email: GRANTEE_EMAIL, level }),
+			});
+		}
+
+		async function deckList(deckId: string): Promise<Any[]> {
+			const res = await fetch(
+				`${baseUrl}/api/presentations/${deckId}/collaborators`,
+				{ headers: keyed(ownerKey) },
+			);
+			expect(res.status).toBe(200);
+			return res.json();
+		}
+
+		async function filedAndShared(level: string) {
+			const folder = await createFolder(ownerKey, "Reported");
+			const deck = await createDeck(ownerKey, "Reported deck");
+			await fileDeck(ownerKey, deck.id, folder.id);
+			const grant = await (
+				await shareFolder(ownerKey, folder.id, GRANTEE_EMAIL, level)
+			).json();
+			return { folder, deck, grant };
+		}
+
+		test("an account keeps its row after its deck grant is revoked", async () => {
+			const { folder, deck, grant } = await filedAndShared("comment");
+			const deckGrant = await (await shareDeck(ownerKey, deck.id, "edit")).json();
+
+			const both = await deckList(deck.id);
+			expect(both.map((entry) => [entry.id, entry.level, entry.folder])).toEqual(
+				[
+					[deckGrant.id, "edit", null],
+					[grant.id, "comment", { id: folder.id, name: "Reported" }],
+				],
+			);
+
+			const revoked = await fetch(
+				`${baseUrl}/api/presentations/${deck.id}/collaborators/${deckGrant.id}`,
+				{ method: "DELETE", headers: keyed(ownerKey) },
+			);
+			expect(revoked.status).toBe(200);
+
+			expect(await deckList(deck.id)).toEqual([
+				{
+					id: grant.id,
+					email: GRANTEE_EMAIL,
+					name: "Grantee",
+					level: "comment",
+					createdAt: grant.createdAt,
+					updatedAt: grant.updatedAt,
+					folder: { id: folder.id, name: "Reported" },
+				},
+			]);
+			expect(await accessLevelOn(granteeKey, deck.id)).toBe("comment");
+		});
+
+		test("the row follows a level change on the folder grant", async () => {
+			const { folder, deck, grant } = await filedAndShared("view");
+			await fetch(`${baseUrl}/api/folders/${folder.id}/collaborators/${grant.id}`, {
+				method: "PATCH",
+				headers: keyed(ownerKey),
+				body: JSON.stringify({ level: "edit" }),
+			});
+			expect((await deckList(deck.id))[0].level).toBe("edit");
+			expect(await accessLevelOn(granteeKey, deck.id)).toBe("edit");
+		});
+
+		test("no account identifier is in the payload", async () => {
+			const { deck } = await filedAndShared("view");
+			await shareDeck(ownerKey, deck.id, "view");
+			const res = await fetch(
+				`${baseUrl}/api/presentations/${deck.id}/collaborators`,
+				{ headers: keyed(ownerKey) },
+			);
+			const body = await res.text();
+			expect(granteeId).not.toBe("");
+			expect(body).not.toContain(granteeId);
+			const entries: Any[] = JSON.parse(body);
+			expect(entries).toHaveLength(2);
+			for (const entry of entries) {
+				expect(Object.keys(entry).sort()).toEqual(
+					[
+						"createdAt",
+						"email",
+						"folder",
+						"id",
+						"level",
+						"name",
+						"updatedAt",
+					].sort(),
+				);
+			}
+		});
+
+		test("only who reads the deck's grants reads the folder access", async () => {
+			const { deck } = await filedAndShared("edit");
+			const url = `${baseUrl}/api/presentations/${deck.id}/collaborators`;
+			expect((await fetch(url)).status).toBe(401);
+			expect((await fetch(url, { headers: keyed(strangerKey) })).status).toBe(403);
+			expect((await fetch(url, { headers: keyed(granteeKey) })).status).toBe(403);
+			expect(
+				(
+					await fetch(url, {
+						headers: { Authorization: `Bearer ${deck.creatorToken}` },
+					})
+				).status,
+			).toBe(401);
+		});
+
+		test("the deck's routes cannot change or revoke a folder grant", async () => {
+			const { deck, grant } = await filedAndShared("edit");
+			const url = `${baseUrl}/api/presentations/${deck.id}/collaborators/${grant.id}`;
+			const patched = await fetch(url, {
+				method: "PATCH",
+				headers: keyed(ownerKey),
+				body: JSON.stringify({ level: "view" }),
+			});
+			expect(patched.status).toBe(404);
+			const deleted = await fetch(url, {
+				method: "DELETE",
+				headers: keyed(ownerKey),
+			});
+			expect(deleted.status).toBe(404);
+			expect(await accessLevelOn(granteeKey, deck.id)).toBe("edit");
+			expect((await deckList(deck.id)).map((entry) => entry.id)).toEqual([
+				grant.id,
+			]);
+		});
+
+		test("the row ends when the folder grant no longer reaches the deck", async () => {
+			const revokedCase = await filedAndShared("view");
+			await fetch(
+				`${baseUrl}/api/folders/${revokedCase.folder.id}/collaborators/${revokedCase.grant.id}`,
+				{ method: "DELETE", headers: keyed(ownerKey) },
+			);
+			expect(await deckList(revokedCase.deck.id)).toEqual([]);
+
+			const unfiledCase = await filedAndShared("view");
+			await fileDeck(ownerKey, unfiledCase.deck.id, null);
+			expect(await deckList(unfiledCase.deck.id)).toEqual([]);
+			expect(await accessLevelOn(granteeKey, unfiledCase.deck.id)).toBeNull();
+		});
+
+		test("a stale filing under another owner reports no folder access", async () => {
+			const { deck } = await filedAndShared("edit");
+			const { createStore } = await import("./db");
+			const { StoredPresentationSchema } = await import("./schemas");
+			const { findUserByEmail } = await import("./accounts");
+			const store = createStore("presentations", StoredPresentationSchema);
+			await store.update(deck.id, {
+				creatorId: findUserByEmail(STRANGER_EMAIL)?.id ?? null,
+			});
+
+			const res = await fetch(
+				`${baseUrl}/api/presentations/${deck.id}/collaborators`,
+				{ headers: keyed(strangerKey) },
+			);
+			expect(res.status).toBe(200);
+			expect(await res.json()).toEqual([]);
+			expect(await accessLevelOn(granteeKey, deck.id)).toBeNull();
 		});
 	});
 

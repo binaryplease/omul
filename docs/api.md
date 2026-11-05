@@ -149,7 +149,7 @@ omul** below).
 | POST | `/api/presentations/:id/countdown` | ✅ owner, token or `edit` grant | Start, pause, resume or reset a countdown slide's clock `{ slideId, action }` (REQ107) — see **Running a countdown slide** below |
 | POST | `/api/presentations/:id/claim` | ✅ session + control | Claim an ownerless deck for the account (409 if owned by another account, or by a workspace) |
 | POST | `/api/presentations/:id/workspace` | ✅ deck owner + role at the other end | Move the deck into a workspace `{ workspaceId }`, or back into the caller's account `{ workspaceId: null }` (REQ128) — see **Workspaces** below |
-| GET | `/api/presentations/:id/collaborators` | ✅ owner | Who the deck is shared with, and at what level (REQ075) |
+| GET | `/api/presentations/:id/collaborators` | ✅ owner | Who the deck is shared with, and at what level (REQ075), then who reaches it through the shared folder it is filed in (REQ126) — see **What a deck's collaborator list reports** below |
 | POST | `/api/presentations/:id/collaborators` | ✅ owner | Share it with a registered account `{ email, level? }` — idempotent per account (REQ075) |
 | PATCH | `/api/presentations/:id/collaborators/:collaboratorId` | ✅ owner | Change one grant's level `{ level }` (REQ075) |
 | DELETE | `/api/presentations/:id/collaborators/:collaboratorId` | ✅ owner | Revoke one grant, immediately (REQ075) |
@@ -206,7 +206,7 @@ omul** below).
 | POST | `/api/folders` | ✅ session/key | Create a folder `{ name }`. `429` past 30 creations per hour per account, `409` at 100 folders held. See **Limits on creating a folder** below |
 | PATCH | `/api/folders/:id` | ✅ the folder's account | Rename it `{ name }` — another account's folder is `404`, like a missing one |
 | DELETE | `/api/folders/:id` | ✅ the folder's account | Delete it. Its decks are kept and go back to unfiled |
-| GET | `/api/folders/:id/collaborators` | ✅ the folder's account | Who the folder is shared with, and at what level — the deck list's shape, no account id |
+| GET | `/api/folders/:id/collaborators` | ✅ the folder's account | Who the folder is shared with, and at what level — the deck list's fields without `folder`, no account id |
 | POST | `/api/folders/:id/collaborators` | ✅ the folder's account | Share it, and every deck filed in it, with a registered account `{ email, level? }` — idempotent per account |
 | PATCH | `/api/folders/:id/collaborators/:collaboratorId` | ✅ the folder's account | Change one folder grant's level `{ level }` |
 | DELETE | `/api/folders/:id/collaborators/:collaboratorId` | ✅ the folder's account | Revoke one folder grant, immediately |
@@ -790,6 +790,46 @@ account's decks by folder from `GET /api/folders` beside `/presentations/mine`.
 - **Filing is not an authored edit.** It does not move the deck's `revision`
   (REQ126 slice 1), so it never refuses an open editor's Save, and nothing is
   broadcast to the room. Neither does sharing a folder.
+
+### What a deck's collaborator list reports
+
+`GET /api/presentations/:id/collaborators` lists the deck's own grants, oldest
+first, and then the grants of the shared folder the deck is filed in, oldest
+first. Revoking an account's deck grant removes that row, and the account's
+folder row stays for as long as the folder grant reaches the deck.
+
+| Field | On a deck grant | On a folder grant |
+|---|---|---|
+| `id` | The deck grant's id | The folder grant's id |
+| `email`, `name` | The account's | The account's |
+| `level` | The deck grant's level | The folder grant's level |
+| `createdAt`, `updatedAt` | The deck grant's dates | The folder grant's dates |
+| `folder` | `null` | `{ id, name }` of the folder |
+
+- **An account can have two rows.** An account with a deck grant and a folder
+  grant has one row for each, with each grant's own level. The strongest standing
+  applies, as **Auth model** above states, so the owner compares the two rows.
+- **A row is reported exactly while it authorizes.** The list and
+  `resolveDeckAccess` ask the same question of `server/services/folders.ts`. The
+  filing and the folder must both name the deck's current owner. A workspace deck
+  has no `creatorId` and reports no folder grants.
+- **No account identifier is in the payload.** Both kinds of row are parsed
+  through `DeckCollaboratorEntrySchema`, which does not declare `userId`.
+- **Who reads it has not changed.** The route is gated by `requireDeckOwner`:
+  `401` without an account, and for a request with only the edit token; `403` for
+  any other account, a collaborator or a folder grantee included.
+- **A folder grant is managed on the folder.** `PATCH` and `DELETE` under
+  `/api/presentations/:id/collaborators/:collaboratorId` answer `404` for a folder
+  grant's id. The row's `folder.id` and `id` name it under
+  `/api/folders/:id/collaborators/:collaboratorId`.
+
+`POST` and `PATCH` under `/api/presentations/:id/collaborators` still answer a
+deck grant without the `folder` key, and `GET /api/folders/:id/collaborators`
+answers without it too.
+
+The deck's share dialog shows the folder rows in their own section with both
+controls disabled and names the folder that manages them. A revoke's toast names
+the level the account keeps through the folder.
 
 ### Limits on creating a folder
 

@@ -325,26 +325,50 @@ export async function revokeFolderGrant(
 }
 
 /**
- * The level a folder grant gives this account on this deck, or `null`.
+ * The folder whose grants reach this deck, or `null`.
  *
- * `deckOwnerId` is the deck's **current** `creatorId`, and the grant counts only
+ * `deckOwnerId` is the deck's **current** `creatorId`, and the folder counts only
  * while it is the folder's owner — the filing row and the folder row must both
  * still name that account. The filing is cleared when a deck changes owner, but
  * a grant must not rest on every such path remembering to clear it: a deck that
  * is no longer the folder owner's is not reached, whatever row is left behind.
  */
+async function folderReachingDeck(
+	presentationId: string,
+	deckOwnerId: string | null,
+): Promise<FolderRecord | null> {
+	if (!presentationId || !deckOwnerId) return null;
+	const entry = (await entries.find({ presentationId }))[0];
+	if (!entry || entry.ownerId !== deckOwnerId) return null;
+	return getFolder(entry.folderId as string, deckOwnerId);
+}
+
+/** The level a folder grant gives this account on this deck, or `null`. */
 export async function folderAccessLevelFor(
 	presentationId: string,
 	deckOwnerId: string | null,
 	userId: string,
 ): Promise<DeckAccessLevel | null> {
-	if (!presentationId || !deckOwnerId || !userId) return null;
-	const entry = (await entries.find({ presentationId }))[0];
-	if (!entry || entry.ownerId !== deckOwnerId) return null;
-	const folder = await folders.findOne(entry.folderId as string);
-	if (!folder || folder.ownerId !== deckOwnerId) return null;
-	const rows = await grants.find({ folderId: folder.id as string, userId });
+	if (!userId) return null;
+	const folder = await folderReachingDeck(presentationId, deckOwnerId);
+	if (!folder) return null;
+	const rows = await grants.find({ folderId: folder.id, userId });
 	return weakestDeckAccessLevel(rows.map((row) => readGrant(row).level));
+}
+
+/**
+ * The folder reaching this deck and its grants, oldest first; `null` when no
+ * folder reaches it. {@link folderAccessLevelFor} asks the same
+ * {@link folderReachingDeck}, so the deck's collaborator list reports a folder
+ * grant exactly while that grant authorizes anything on the deck.
+ */
+export async function listFolderGrantsReachingDeck(
+	presentationId: string,
+	deckOwnerId: string | null,
+): Promise<{ folder: FolderRecord; grants: FolderGrantRecord[] } | null> {
+	const folder = await folderReachingDeck(presentationId, deckOwnerId);
+	if (!folder) return null;
+	return { folder, grants: await listFolderGrants(folder.id) };
 }
 
 /**

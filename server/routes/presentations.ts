@@ -37,6 +37,8 @@ import {
 	ChatMessageSchema,
 	CreatePresentationSchema,
 	type DeckCollaborator,
+	type DeckCollaboratorEntry,
+	DeckCollaboratorEntrySchema,
 	DeckAccessLevelBodySchema,
 	DeckCollaboratorSchema,
 	DeckPdfQuerySchema,
@@ -76,6 +78,7 @@ import {
 	revokeCollaborator,
 	setCollaboratorLevel,
 } from "../services/collaborators";
+import { listFolderGrantsReachingDeck } from "../services/folders";
 import { workspaceRoleFor } from "../services/workspaces";
 import { bindParticipantAccount } from "../services/participant-accounts";
 import { getWorkspaceTemplate } from "../services/workspace-templates";
@@ -227,8 +230,14 @@ async function canEditDeck(
  * an object here any more than `creatorId` can (see {@link sanitize}). An
  * account that has since been deleted reads as an empty email rather than
  * vanishing from the list, so the owner can still see — and revoke — the grant.
+ * A folder grant has the same fields and is read here too (REQ126).
  */
-function readCollaborator(grant: DeckCollaboratorRecord): DeckCollaborator {
+function readCollaborator(
+	grant: Pick<
+		DeckCollaboratorRecord,
+		"id" | "userId" | "level" | "createdAt" | "updatedAt"
+	>,
+): DeckCollaborator {
 	const account = findUserById(grant.userId);
 	return DeckCollaboratorSchema.parse({
 		id: grant.id,
@@ -238,6 +247,40 @@ function readCollaborator(grant: DeckCollaboratorRecord): DeckCollaborator {
 		createdAt: grant.createdAt,
 		updatedAt: grant.updatedAt,
 	});
+}
+
+/**
+ * The deck's collaborator list: its own grants oldest first, then the grants of
+ * the shared folder it is filed in, oldest first (REQ126). The second part is
+ * empty on a deck no folder reaches, a workspace deck included, because such a
+ * deck has no `creatorId`.
+ */
+async function readCollaboratorEntries(
+	presentation: Record<string, unknown>,
+): Promise<DeckCollaboratorEntry[]> {
+	const presentationId = presentation.id as string;
+	const [deckGrants, reaching] = await Promise.all([
+		listDeckCollaborators(presentationId),
+		listFolderGrantsReachingDeck(
+			presentationId,
+			(presentation.creatorId as string | null) ?? null,
+		),
+	]);
+	const fromDeck = deckGrants.map((grant) =>
+		DeckCollaboratorEntrySchema.parse({
+			...readCollaborator(grant),
+			folder: null,
+		}),
+	);
+	if (!reaching) return fromDeck;
+	const { folder, grants: folderGrants } = reaching;
+	const fromFolder = folderGrants.map((grant) =>
+		DeckCollaboratorEntrySchema.parse({
+			...readCollaborator(grant),
+			folder: { id: folder.id, name: folder.name },
+		}),
+	);
+	return [...fromDeck, ...fromFolder];
 }
 
 /** What a stated vote refusal reads as over the wire (see `VoteRefusal`). */
@@ -2345,15 +2388,14 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 		async ({ params, request }) => {
 			const auth = await requireDeckOwner(request, params.id);
 			if (auth instanceof Response) return auth;
-			const grants = await listDeckCollaborators(params.id);
-			return grants.map(readCollaborator);
+			return readCollaboratorEntries(auth);
 		},
 		{
 			detail: {
 				tags: ["Presentations"],
 				summary: "List who the deck is shared with",
 				description:
-					"Returns the accounts this deck is shared with (REQ075), oldest grant first: each entry's `id` (the grant's own handle, used to change or revoke it), the collaborator's `email` and `name` as the owner invited them, the `level` (`view` / `comment` / `edit`), and when the grant was made and last changed. **No account identifier is ever in this payload** — the collaborator's user id stays server-side exactly as `creatorId` does. Owner-only: `401` without a session, `403` for anyone else including the holder of the deck's edit token and its own collaborators, since who else is on a deck is not a collaborator's to enumerate.",
+					"Returns the accounts this deck is shared with (REQ075), oldest grant first: each entry's `id` (the grant's own handle, used to change or revoke it), the collaborator's `email` and `name` as the owner invited them, the `level` (`view` / `comment` / `edit`), when the grant was made and last changed, and `folder`, which is `null` on a grant on the deck. After the deck's grants come the accounts that reach the deck through the shared folder it is filed in (REQ126), oldest grant first: `folder` is `{ id, name }`, and `id` and `level` are the folder grant's. This route's `PATCH` and `DELETE` answer `404` for such an `id`; a folder grant is managed under `/folders/:id/collaborators`. An account with both kinds of grant has one row for each, and the strongest stands. **No account identifier is ever in this payload** — the collaborator's user id stays server-side exactly as `creatorId` does. Owner-only: `401` without a session, `403` for anyone else including the holder of the deck's edit token and its own collaborators, since who else is on a deck is not a collaborator's to enumerate.",
 				security: [{ bearerAuth: [] }],
 			},
 		},

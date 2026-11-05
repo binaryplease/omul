@@ -6400,6 +6400,27 @@ export const DeckCollaboratorSchema = z.object({
 export type DeckCollaborator = z.infer<typeof DeckCollaboratorSchema>;
 
 /**
+ * One row of `GET /presentations/:id/collaborators`: a grant on the deck, or an
+ * account's grant on the shared folder the deck is filed in (REQ126).
+ *
+ * `folder` is `null` on a deck grant. On a folder grant it names the folder, and
+ * `id` and `level` are that folder grant's, which is managed under
+ * `/api/folders/:id/collaborators`. The parse drops `userId` on both kinds, as
+ * {@link DeckCollaboratorSchema} does.
+ */
+export const DeckCollaboratorEntrySchema = DeckCollaboratorSchema.extend({
+	folder: z
+		.object({
+			id: z.string(),
+			name: z.string().default(""),
+		})
+		.nullable()
+		.default(null),
+});
+
+export type DeckCollaboratorEntry = z.infer<typeof DeckCollaboratorEntrySchema>;
+
+/**
  * Sharing a deck with an account: who, and at what level. The email is the only
  * way in — a caller never names an account by id, because it never learns one.
  */
