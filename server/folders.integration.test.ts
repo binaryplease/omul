@@ -8,6 +8,7 @@
  * decks intact and unfiled. Slice 4: a grant on a folder reaches the decks
  * filed in it at its level, only while they are filed there and still the
  * folder owner's, and only the owner sees or changes who it is shared with.
+ * Deleting an account removes the folders, filings and grants that name it.
  */
 
 process.env.DATABASE_PATH = ":memory:";
@@ -680,5 +681,191 @@ describe("Deck folders (REQ126)", () => {
 		expect(
 			(await sharedWith(granteeKey)).some((entry) => entry.id === deck.id),
 		).toBe(false);
+	});
+
+	describe("deleting an account", () => {
+		const PASSWORD = "correct-horse-battery";
+		let accountCounter = 0;
+
+		/** A new account with its own session, so deleting it costs no other test. */
+		async function newAccount(): Promise<{
+			id: string;
+			email: string;
+			key: string;
+			cookie: string;
+		}> {
+			const { auth } = await import("./accounts");
+			accountCounter += 1;
+			const email = `folder-leaver-${accountCounter}@example.com`;
+			const signedUp = await auth.api.signUpEmail({
+				body: { email, password: PASSWORD, name: "Leaver" },
+				asResponse: true,
+			});
+			expect(signedUp.ok).toBe(true);
+			const id = ((await signedUp.json()) as Any).user.id as string;
+			const created = await auth.api.createApiKey({
+				body: { userId: id, name: "k" },
+			});
+			const cookie = signedUp.headers
+				.getSetCookie()
+				.map((setCookie) => setCookie.split(";")[0])
+				.join("; ");
+			return { id, email, key: created.key, cookie };
+		}
+
+		/** `POST /api/auth/delete-user`, the route the account screen calls. */
+		async function deleteAccount(
+			cookie: string,
+			password: string = PASSWORD,
+		): Promise<Response> {
+			const { auth } = await import("./accounts");
+			return auth.handler(
+				new Request("http://localhost:3000/api/auth/delete-user", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						origin: "http://localhost:3000",
+						cookie,
+					},
+					body: JSON.stringify({ password }),
+				}),
+			);
+		}
+
+		/** The three collections read directly, past every function under test. */
+		async function collections() {
+			const { createStore } = await import("./db");
+			const {
+				StoredFolderEntrySchema,
+				StoredFolderGrantSchema,
+				StoredFolderSchema,
+			} = await import("./schemas");
+			return {
+				folders: createStore("folders", StoredFolderSchema),
+				entries: createStore("folderEntries", StoredFolderEntrySchema),
+				grants: createStore("folderGrants", StoredFolderGrantSchema),
+			};
+		}
+
+		async function rowsNaming(userId: string): Promise<unknown[]> {
+			const { folders, entries, grants } = await collections();
+			return [
+				...(await folders.find({ ownerId: userId })),
+				...(await entries.find({ ownerId: userId })),
+				...(await grants.find({ userId })),
+			];
+		}
+
+		test("deleting a folder's owner removes its rows and every grantee's access", async () => {
+			const leaver = await newAccount();
+			const grantee = await newAccount();
+			const folder = await createFolder(leaver.key, "Leaving");
+			const deck = await createDeck(leaver.key, "Filed");
+			expect((await fileDeck(leaver.key, deck.id, folder.id)).status).toBe(200);
+			await shareFolder(leaver.key, folder.id, grantee.email, "edit");
+			expect(await accessLevelOn(grantee.key, deck.id)).toBe("edit");
+			expect((await renameDeck(grantee.key, deck.id)).status).toBe(200);
+			expect((await sharedWith(grantee.key)).map((entry) => entry.id)).toContain(
+				deck.id,
+			);
+
+			expect((await deleteAccount(leaver.cookie)).status).toBe(200);
+
+			expect(await rowsNaming(leaver.id)).toEqual([]);
+			const { entries, folders, grants } = await collections();
+			expect(await folders.findOne(folder.id)).toBeNull();
+			expect(await entries.find({ folderId: folder.id })).toEqual([]);
+			expect(await entries.find({ presentationId: deck.id })).toEqual([]);
+			expect(await grants.find({ folderId: folder.id })).toEqual([]);
+
+			expect(await accessLevelOn(grantee.key, deck.id)).toBeNull();
+			expect((await renameDeck(grantee.key, deck.id)).status).toBe(403);
+			expect((await sharedWith(grantee.key)).map((entry) => entry.id)).not.toContain(
+				deck.id,
+			);
+		});
+
+		test("deleting a grantee removes its grant and leaves the folder to its owner", async () => {
+			const owner = await newAccount();
+			const leaver = await newAccount();
+			const remaining = await newAccount();
+			const folder = await createFolder(owner.key, "Kept");
+			const deck = await createDeck(owner.key, "Filed");
+			expect((await fileDeck(owner.key, deck.id, folder.id)).status).toBe(200);
+			await shareFolder(owner.key, folder.id, leaver.email, "edit");
+			await shareFolder(owner.key, folder.id, remaining.email, "comment");
+			const ownFolder = await createFolder(leaver.key, "Its own");
+			expect(await accessLevelOn(leaver.key, deck.id)).toBe("edit");
+
+			expect((await deleteAccount(leaver.cookie)).status).toBe(200);
+
+			expect(await rowsNaming(leaver.id)).toEqual([]);
+			const { folders } = await collections();
+			expect(await folders.findOne(ownFolder.id)).toBeNull();
+
+			// A key that outlives its account (REQ182) resolves to nobody.
+			expect(await accessLevelOn(leaver.key, deck.id)).toBeNull();
+			expect((await renameDeck(leaver.key, deck.id)).status).toBe(401);
+
+			const { folderAccessLevelFor } = await import("./services/folders");
+			expect(await folderAccessLevelFor(deck.id, owner.id, leaver.id)).toBeNull();
+
+			// Everybody else's standing is unchanged.
+			const listed = await fetch(
+				`${baseUrl}/api/folders/${folder.id}/collaborators`,
+				{ headers: keyed(owner.key) },
+			);
+			expect(((await listed.json()) as Any[]).map((grant) => grant.email)).toEqual(
+				[remaining.email],
+			);
+			expect(await accessLevelOn(remaining.key, deck.id)).toBe("comment");
+			expect((await foldersOf(owner.key)).map((entry) => entry.id)).toEqual([
+				folder.id,
+			]);
+		});
+
+		test("a refused deletion removes nothing", async () => {
+			const leaver = await newAccount();
+			const grantee = await newAccount();
+			const folder = await createFolder(leaver.key, "Staying");
+			const deck = await createDeck(leaver.key, "Filed");
+			expect((await fileDeck(leaver.key, deck.id, folder.id)).status).toBe(200);
+			await shareFolder(leaver.key, folder.id, grantee.email, "view");
+
+			const refused = await deleteAccount(leaver.cookie, "not-the-password");
+			expect(refused.status).toBe(400);
+
+			expect(await rowsNaming(leaver.id)).toHaveLength(2);
+			expect(await accessLevelOn(grantee.key, deck.id)).toBe("view");
+		});
+
+		test("a row written while the deletion runs goes with the account", async () => {
+			const { auth } = await import("./accounts");
+			const { createFolder: insertFolder, grantFolderAccess } = await import(
+				"./services/folders"
+			);
+			const leaver = await newAccount();
+			const owner = await newAccount();
+			const folder = await createFolder(owner.key, "Shared late");
+
+			const deletionOptions = (await auth.$context).options.user?.deleteUser;
+			const firstSweep = deletionOptions?.beforeDelete;
+			if (!deletionOptions || !firstSweep) {
+				throw new Error("the deletion route has no beforeDelete sweep");
+			}
+			deletionOptions.beforeDelete = async (user, request) => {
+				await firstSweep(user, request);
+				await insertFolder(leaver.id, "Created in flight");
+				await grantFolderAccess(folder.id, leaver.id, "edit");
+				expect(await rowsNaming(leaver.id)).toHaveLength(2);
+			};
+			try {
+				expect((await deleteAccount(leaver.cookie)).status).toBe(200);
+			} finally {
+				deletionOptions.beforeDelete = firstSweep;
+			}
+
+			expect(await rowsNaming(leaver.id)).toEqual([]);
+		});
 	});
 });

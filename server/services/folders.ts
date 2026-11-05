@@ -331,3 +331,24 @@ export async function listFolderDecksSharedWith(userId: string): Promise<
 	);
 	return reached.flat();
 }
+
+// ── Deleting an account ──────────────────────────────────────
+
+/**
+ * Remove every row that names this account from the three collections: the
+ * folders it owns with their filings and grants, and the grants it holds on
+ * other accounts' folders. The decks filed in those folders are not touched,
+ * and what happens to them is REQ182's.
+ *
+ * Idempotent, because `server/accounts.ts` runs it twice per deletion.
+ * `deleteFolder` removes the folder row last, so a sweep that fails partway
+ * leaves the folder for the next one to find.
+ */
+export async function removeAccountFromFolders(userId: string): Promise<void> {
+	const owned = await folders.find({ ownerId: userId });
+	for (const folder of owned) {
+		await deleteFolder(folder.id as string, userId);
+	}
+	await entries.deleteMany({ ownerId: userId });
+	await grants.deleteMany({ userId });
+}

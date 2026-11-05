@@ -780,6 +780,10 @@ account's decks by folder from `GET /api/folders` beside `/presentations/mine`.
   and touches nothing else. A deck leaves its folder by itself when it is
   deleted, moved into a workspace or reassigned to another account, so a filing
   never outlives the ownership it was made under.
+- **Deleting an account removes what names it.** `POST /api/auth/delete-user`
+  removes the folders the account owns with their filings and grants, and the
+  grants it holds on other accounts' folders. Its decks are kept with their
+  `creatorId` (REQ182) and are no longer reached through any folder.
 - **Filing is not an authored edit.** It does not move the deck's `revision`
   (REQ126 slice 1), so it never refuses an open editor's Save, and nothing is
   broadcast to the room. Neither does sharing a folder.
