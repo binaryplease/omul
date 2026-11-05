@@ -12,15 +12,17 @@
  *     width and a touch screen can see what it can tap.
  *   - **No metadata item can break inside itself.** Code, slide count and date
  *     are each `whitespace-nowrap`; the row may wrap *between* them.
- *   - **All five actions are still drawn**, in their order, each named — and the
- *     two owner-only ones disabled with their reason rather than dropped.
+ *   - **All six actions are still drawn**, in their order, each named — and the
+ *     three owner-only ones disabled with their reason rather than dropped.
+ *
+ * And, for deck folders (REQ126), the grouping the list is drawn from.
  */
 
 import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { Presentation } from "../types";
-import { OwnDeckCard } from "./HomePage";
+import type { Folder, Presentation } from "../types";
+import { groupDecksByFolder, OwnDeckCard } from "./HomePage";
 
 const LONG_TITLE = "Quarterly All-Hands Retrospective and Planning";
 
@@ -52,6 +54,7 @@ function renderCard({
 			duplicating,
 			onOpen: noop,
 			onShare: noop,
+			onFile: noop,
 			onMove: noop,
 			onExport: noop,
 			onDuplicate: noop,
@@ -112,13 +115,14 @@ describe("OwnDeckCard — the metadata row (REQ188)", () => {
 	});
 });
 
-describe("OwnDeckCard — all five actions stay reachable (REQ188)", () => {
+describe("OwnDeckCard — all six actions stay reachable (REQ188)", () => {
 	test("drawn in order, each with its name", () => {
 		const titles = buttonTags(renderCard()).map(
 			(tag) => tag.match(/title="([^"]*)"/)?.[1],
 		);
 		expect(titles).toEqual([
 			"Share this deck with another account",
+			"Move this deck into a folder",
 			"Move this deck into a workspace",
 			"Export presentation as JSON",
 			"Duplicate presentation",
@@ -132,18 +136,19 @@ describe("OwnDeckCard — all five actions stay reachable (REQ188)", () => {
 		}
 	});
 
-	test("the owner-only pair stays drawn, disabled with its reason", () => {
+	test("the owner-only three stay drawn, disabled with their reason", () => {
 		const signedIn = buttonTags(renderCard({ owned: false }));
-		expect(signedIn).toHaveLength(5);
-		expect(signedIn[0]).toContain('disabled=""');
-		expect(signedIn[0]).toContain("this account does not own it");
-		expect(signedIn[1]).toContain('disabled=""');
-		expect(signedIn[1]).toContain("this account does not own it");
+		expect(signedIn).toHaveLength(6);
+		for (const tag of signedIn.slice(0, 3)) {
+			expect(tag).toContain('disabled=""');
+			expect(tag).toContain("this account does not own it");
+		}
 
 		const signedOut = buttonTags(renderCard({ owned: false, signedIn: false }));
-		expect(signedOut[0]).toContain("sign in with the account that owns it");
-		expect(signedOut[1]).toContain("sign in with the account that owns it");
-		for (const tag of signedOut.slice(2)) {
+		for (const tag of signedOut.slice(0, 3)) {
+			expect(tag).toContain("sign in with the account that owns it");
+		}
+		for (const tag of signedOut.slice(3)) {
 			expect(tag).not.toContain("disabled=");
 		}
 	});
@@ -154,8 +159,39 @@ describe("OwnDeckCard — all five actions stay reachable (REQ188)", () => {
 			false,
 			false,
 			false,
+			false,
 			true,
 			false,
 		]);
+	});
+});
+
+describe("groupDecksByFolder — the home screen lists decks by folder (REQ126)", () => {
+	const folder = (id: string, presentationIds: string[]) =>
+		({ id, name: id, presentationIds, createdAt: "", updatedAt: "" }) as Folder;
+	const decks = ["newest", "middle", "oldest"].map((id) => deck({ id }));
+	const idsOf = (group: { decks: Presentation[] }) =>
+		group.decks.map((entry) => entry.id);
+
+	test("one group per folder in its order, then the unfiled decks", () => {
+		const groups = groupDecksByFolder(decks, [
+			folder("talks", ["oldest", "newest"]),
+			folder("empty", []),
+		]);
+		expect(groups.map((group) => group.folder?.id ?? null)).toEqual([
+			"talks",
+			"empty",
+			null,
+		]);
+		// Each group keeps the list's own order, not the filing order.
+		expect(groups.map(idsOf)).toEqual([["newest", "oldest"], [], ["middle"]]);
+	});
+
+	test("no folders leaves every deck unfiled, and a filed id with no deck is skipped", () => {
+		expect(groupDecksByFolder(decks, []).map(idsOf)).toEqual([
+			["newest", "middle", "oldest"],
+		]);
+		const groups = groupDecksByFolder(decks, [folder("gone", ["deleted-deck"])]);
+		expect(groups.map(idsOf)).toEqual([[], ["newest", "middle", "oldest"]]);
 	});
 });

@@ -3,7 +3,11 @@ import {
 	Building2,
 	Copy,
 	Download,
+	Folder as FolderIcon,
+	FolderInput,
+	FolderPlus,
 	LayoutTemplate,
+	Pencil,
 	Sparkles,
 	Trash2,
 	Upload,
@@ -32,6 +36,7 @@ import { AppMenu } from "../components/ui/AppMenu";
 import { ConfirmModal } from "../components/ui/ConfirmModal";
 import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
+import { Modal } from "../components/ui/Modal";
 import { useToast } from "../components/ui/Toast";
 import { saveBlobAs } from "../download";
 import {
@@ -43,7 +48,12 @@ import {
 } from "../email-recovery-prompt";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
-import { deckFilenameSlug, type Presentation } from "../types";
+import {
+	deckFilenameSlug,
+	FOLDER_NAME_MAX_LENGTH,
+	type Folder,
+	type Presentation,
+} from "../types";
 
 // ── Home Page ─────────────────────────────────────────────────
 
@@ -70,6 +80,21 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 	const [shareTarget, setShareTarget] = useState<Presentation | null>(null);
 	/** The deck being handed to a workspace (REQ128), if any. */
 	const [moveTarget, setMoveTarget] = useState<Presentation | null>(null);
+	/** This account's folders (REQ126), each naming the decks filed in it. */
+	const [folders, setFolders] = useState<Folder[]>([]);
+	/** The deck whose folder is being chosen, if any. */
+	const [fileTarget, setFileTarget] = useState<Presentation | null>(null);
+	/** The folder-name dialog: a new folder, or a rename of `folder`. */
+	const [nameDialog, setNameDialog] = useState<{ folder: Folder | null } | null>(
+		null,
+	);
+	const [deleteFolderTarget, setDeleteFolderTarget] = useState<Folder | null>(
+		null,
+	);
+	/** The folder whose collaborator dialog is open (REQ126), if any. */
+	const [shareFolderTarget, setShareFolderTarget] = useState<Folder | null>(
+		null,
+	);
 	const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
 	const [importing, setImporting] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -114,10 +139,13 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 			// preferring the local entry (it carries participantCount). The decks
 			// shared *with* this account (REQ075) are fetched alongside and kept in
 			// their own list — they are neither owned here nor held by a token.
-			const [local, mine, sharedWithMe] = await Promise.all([
+			const [local, mine, sharedWithMe, ownFolders] = await Promise.all([
 				api.listPresentations().catch(() => []),
 				userId ? listMyPresentations() : Promise.resolve([]),
 				userId ? listSharedPresentations() : Promise.resolve([]),
+				userId
+					? api.listFolders().catch(() => [] as Folder[])
+					: Promise.resolve([] as Folder[]),
 			]);
 			if (cancelled) return;
 			const byId = new Map<string, Presentation>();
@@ -129,6 +157,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 			setPresentations(merged);
 			setOwnedIds(new Set(mine.map((p: Presentation) => p.id)));
 			setShared(sharedWithMe);
+			setFolders(ownFolders);
 			setLoading(false);
 		})();
 		return () => {
@@ -143,6 +172,44 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 		addToast("Presentation deleted", "success");
 		setDeleteTarget(null);
 	};
+
+	/** Run one folder write, then re-read the folders it changed. */
+	const changeFolders = async (write: () => Promise<unknown>, done: string) => {
+		try {
+			await write();
+			setFolders(await api.listFolders());
+			addToast(done, "success");
+		} catch (folderError: unknown) {
+			addToast(
+				folderError instanceof Error
+					? folderError.message
+					: "Could not change your folders",
+				"error",
+			);
+		}
+	};
+
+	const renderDeckGrid = (decks: Presentation[]) => (
+		<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+			{decks.map((pres, i) => (
+				<OwnDeckCard
+					key={pres.id}
+					pres={pres}
+					enterDelay={Math.min(i + 1, 5)}
+					owned={ownedIds.has(pres.id)}
+					signedIn={userId !== null}
+					duplicating={duplicatingId === pres.id}
+					onOpen={() => go({ page: "present", id: pres.id })}
+					onShare={() => setShareTarget(pres)}
+					onFile={() => setFileTarget(pres)}
+					onMove={() => setMoveTarget(pres)}
+					onExport={() => handleExport(pres)}
+					onDuplicate={() => handleDuplicate(pres)}
+					onDelete={() => setDeleteTarget(pres)}
+				/>
+			))}
+		</div>
+	);
 
 	const handleExport = (pres: Presentation) => {
 		const payload = buildExportPayload(pres);
@@ -304,9 +371,28 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 			{/* Presentations list - full width */}
 			<div className="relative z-10 w-full px-6 sm:px-12 lg:px-24 pb-16">
 				<section className="slide-in slide-in-delay-2">
-					<h2 className="text-xl font-semibold mb-6 text-text-muted">
-						Your Presentations
-					</h2>
+					<div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+						<h2 className="text-xl font-semibold text-text-muted">
+							Your Presentations
+						</h2>
+						{/* Folders group this list (REQ126), so the way to make one sits
+						    on the list. Signed out it is disabled with the reason: a
+						    folder is an account's. */}
+						<button
+							type="button"
+							className="btn-secondary text-sm px-4 py-2 inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+							onClick={() => setNameDialog({ folder: null })}
+							disabled={userId === null}
+							title={
+								userId === null
+									? "New folder — sign in to group your decks into folders"
+									: "Make a folder to group your decks"
+							}
+						>
+							<FolderPlus size={16} />
+							New folder
+						</button>
+					</div>
 					{/* The offer to keep these decks with an account (REQ194), on the
 					    list it is about. Signing in claims them (the effect above). */}
 					{emailRecoveryOffer !== null && (
@@ -356,24 +442,67 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 								</button>
 							</div>
 						</div>
+					) : folders.length === 0 ? (
+						renderDeckGrid(presentations)
 					) : (
-						<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-							{presentations.map((pres, i) => (
-								<OwnDeckCard
-									key={pres.id}
-									pres={pres}
-									enterDelay={Math.min(i + 1, 5)}
-									owned={ownedIds.has(pres.id)}
-									signedIn={userId !== null}
-									duplicating={duplicatingId === pres.id}
-									onOpen={() => go({ page: "present", id: pres.id })}
-									onShare={() => setShareTarget(pres)}
-									onMove={() => setMoveTarget(pres)}
-									onExport={() => handleExport(pres)}
-									onDuplicate={() => handleDuplicate(pres)}
-									onDelete={() => setDeleteTarget(pres)}
-								/>
-							))}
+						<div className="flex flex-col gap-10">
+							{groupDecksByFolder(presentations, folders).map(
+								({ folder, decks }) =>
+									folder === null && decks.length === 0 ? null : (
+										<div key={folder?.id ?? "unfiled"}>
+											<div className="flex items-center gap-2 mb-3 min-w-0">
+												<FolderIcon
+													size={16}
+													className="text-text-dim shrink-0"
+												/>
+												<h3 className="font-semibold truncate min-w-0">
+													{folder?.name ?? "Unfiled"}
+												</h3>
+												<span className="text-sm text-text-dim shrink-0">
+													{decks.length}
+												</span>
+												{folder && (
+													<>
+														{/* Sharing a folder sits on the folder it shares,
+														    and reaches every deck under this heading. */}
+														<button
+															type="button"
+															className={`${OWN_DECK_ACTION} ${ICON_BUTTON_HOVER}`}
+															onClick={() => setShareFolderTarget(folder)}
+															title={`Share the folder “${folder.name}” and every deck in it with another account`}
+														>
+															<Users size={16} />
+														</button>
+														<button
+															type="button"
+															className={`${OWN_DECK_ACTION} ${ICON_BUTTON_HOVER}`}
+															onClick={() => setNameDialog({ folder })}
+															title={`Rename the folder “${folder.name}”`}
+														>
+															<Pencil size={16} />
+														</button>
+														<button
+															type="button"
+															className={`${OWN_DECK_ACTION} transition-colors ${REMOVE_BUTTON_HOVER}`}
+															onClick={() => setDeleteFolderTarget(folder)}
+															title={`Delete the folder “${folder.name}” — its decks are kept`}
+														>
+															<Trash2 size={16} />
+														</button>
+													</>
+												)}
+											</div>
+											{decks.length === 0 ? (
+												<p className="text-sm text-text-dim">
+													No decks in this folder yet. Use the folder button
+													on a deck to file it here.
+												</p>
+											) : (
+												renderDeckGrid(decks)
+											)}
+										</div>
+									),
+							)}
 						</div>
 					)}
 				</section>
@@ -447,6 +576,91 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 				/>
 			)}
 
+			{fileTarget && (
+				<Modal
+					title="Move to a folder"
+					icon={FolderInput}
+					onClose={() => setFileTarget(null)}
+				>
+					<ul className="flex flex-col gap-1">
+						{[null, ...folders].map((folder) => {
+							const current =
+								(folders.find((candidate) =>
+									candidate.presentationIds.includes(fileTarget.id),
+								)?.id ?? null) === (folder?.id ?? null);
+							return (
+								<li key={folder?.id ?? "unfiled"}>
+									<button
+										type="button"
+										className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+										disabled={current}
+										title={
+											current
+												? "The deck is already here"
+												: folder
+													? `File “${fileTarget.title}” in ${folder.name}`
+													: `Take “${fileTarget.title}” out of its folder`
+										}
+										onClick={() => {
+											setFileTarget(null);
+											changeFolders(
+												() => api.fileDeck(fileTarget.id, folder?.id ?? null),
+												folder ? `Filed in ${folder.name}` : "Moved to Unfiled",
+											);
+										}}
+									>
+										<FolderIcon size={16} className="text-text-dim shrink-0" />
+										<span className="flex-1 min-w-0 truncate">
+											{folder?.name ?? "No folder"}
+										</span>
+									</button>
+								</li>
+							);
+						})}
+					</ul>
+					{folders.length === 0 && (
+						<p className="mt-3 text-sm text-text-muted">
+							You have no folders yet — make one with New folder above your
+							decks.
+						</p>
+					)}
+				</Modal>
+			)}
+
+			{nameDialog && (
+				<FolderNameDialog
+					folder={nameDialog.folder}
+					onClose={() => setNameDialog(null)}
+					onSubmit={(name) => {
+						const renaming = nameDialog.folder;
+						setNameDialog(null);
+						changeFolders(
+							() =>
+								renaming
+									? api.renameFolder(renaming.id, name)
+									: api.createFolder(name),
+							renaming ? "Folder renamed" : `Folder “${name}” created`,
+						);
+					}}
+				/>
+			)}
+
+			<ConfirmModal
+				open={!!deleteFolderTarget}
+				title="Delete folder"
+				message={`Delete the folder "${deleteFolderTarget?.name}"? Its decks are kept and go back to Unfiled.`}
+				confirmLabel="Delete folder"
+				variant="danger"
+				onConfirm={() => {
+					const target = deleteFolderTarget;
+					setDeleteFolderTarget(null);
+					if (target) {
+						changeFolders(() => api.deleteFolder(target.id), "Folder deleted");
+					}
+				}}
+				onCancel={() => setDeleteFolderTarget(null)}
+			/>
+
 			{recoveryDialogTab !== null && (
 				<AuthDialog
 					initialMode={recoveryDialogTab}
@@ -456,9 +670,20 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 
 			{shareTarget && (
 				<CollaboratorsDialog
-					presentationId={shareTarget.id}
-					deckTitle={shareTarget.title}
+					subject={{ kind: "deck", id: shareTarget.id, title: shareTarget.title }}
 					onClose={() => setShareTarget(null)}
+					onNotify={addToast}
+				/>
+			)}
+
+			{shareFolderTarget && (
+				<CollaboratorsDialog
+					subject={{
+						kind: "folder",
+						id: shareFolderTarget.id,
+						title: shareFolderTarget.name,
+					}}
+					onClose={() => setShareFolderTarget(null)}
 					onNotify={addToast}
 				/>
 			)}
@@ -491,7 +716,7 @@ const OWN_DECK_ACTION = "p-2 rounded-lg disabled:opacity-30";
  * A card under "Your Presentations" (REQ188): the title on a line of its own
  * with the status beside it, then code, slide count and date — each of which
  * may move to a second line but never breaks inside itself — then the deck's
- * five actions. The whole card is the click target that opens the
+ * six actions. The whole card is the click target that opens the
  * presentation; every action stops the click from reaching it.
  */
 export function OwnDeckCard({
@@ -502,6 +727,7 @@ export function OwnDeckCard({
 	duplicating,
 	onOpen,
 	onShare,
+	onFile,
 	onMove,
 	onExport,
 	onDuplicate,
@@ -516,6 +742,8 @@ export function OwnDeckCard({
 	duplicating: boolean;
 	onOpen: () => void;
 	onShare: () => void;
+	/** Choose this deck's folder (REQ126) — owner-only, like sharing. */
+	onFile: () => void;
 	onMove: () => void;
 	onExport: () => void;
 	onDuplicate: () => void;
@@ -567,6 +795,26 @@ export function OwnDeckCard({
 					}
 				>
 					<Users size={18} />
+				</button>
+				{/* Filing it (REQ126): a folder is the owning account's, so this is
+				    owner-only on the same terms as sharing. */}
+				<button
+					type="button"
+					className={`${OWN_DECK_ACTION} ${ICON_BUTTON_HOVER} disabled:cursor-not-allowed disabled:hover:text-text-muted`}
+					onClick={(event) => {
+						event.stopPropagation();
+						onFile();
+					}}
+					disabled={!owned}
+					title={
+						owned
+							? "Move this deck into a folder"
+							: signedIn
+								? "Move this deck into a folder — only its owner can, and this account does not own it"
+								: "Move this deck into a folder — sign in with the account that owns it first"
+					}
+				>
+					<FolderInput size={18} />
 				</button>
 				{/* Handing the deck to a workspace changes who owns it, so
 				    it sits on the deck beside the sharing control
@@ -627,5 +875,79 @@ export function OwnDeckCard({
 				</button>
 			</div>
 		</div>
+	);
+}
+
+// ── Folders (REQ126) ──────────────────────────────────────────
+
+/**
+ * The account's decks grouped by folder: one group per folder, in the order
+ * given, then the decks in none (`folder: null`). Each deck lands once and
+ * keeps the list's own order; a filed id the list does not hold is skipped.
+ */
+export function groupDecksByFolder(
+	decks: Presentation[],
+	folders: Folder[],
+): { folder: Folder | null; decks: Presentation[] }[] {
+	const folderOf = new Map<string, string>();
+	for (const folder of folders) {
+		for (const presentationId of folder.presentationIds) {
+			folderOf.set(presentationId, folder.id);
+		}
+	}
+	return [
+		...folders.map((folder) => ({
+			folder,
+			decks: decks.filter((deck) => folderOf.get(deck.id) === folder.id),
+		})),
+		{ folder: null, decks: decks.filter((deck) => !folderOf.has(deck.id)) },
+	];
+}
+
+/** Naming a new folder, or renaming `folder`. */
+function FolderNameDialog({
+	folder,
+	onClose,
+	onSubmit,
+}: {
+	folder: Folder | null;
+	onClose: () => void;
+	onSubmit: (name: string) => void;
+}) {
+	const [name, setName] = useState(folder?.name ?? "");
+	const trimmed = name.trim();
+	return (
+		<Modal
+			title={folder ? "Rename folder" : "New folder"}
+			icon={FolderPlus}
+			onClose={onClose}
+		>
+			<form
+				className="flex items-center gap-2"
+				onSubmit={(event) => {
+					event.preventDefault();
+					if (trimmed) onSubmit(trimmed);
+				}}
+			>
+				<input
+					className="input text-sm"
+					type="text"
+					placeholder="Name the folder"
+					aria-label="Folder name"
+					autoFocus
+					maxLength={FOLDER_NAME_MAX_LENGTH}
+					value={name}
+					onChange={(event) => setName(event.target.value)}
+				/>
+				<button
+					type="submit"
+					className="btn-primary text-sm shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+					disabled={!trimmed}
+					title={trimmed ? "Save this name" : "Give the folder a name first"}
+				>
+					{folder ? "Rename" : "Create"}
+				</button>
+			</form>
+		</Modal>
 	);
 }

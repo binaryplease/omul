@@ -35,6 +35,7 @@ import {
 	buildVerificationEmail,
 	emailer,
 } from "./email";
+import { removeAccountFromFolders } from "./services/folders";
 
 // The domain data lives at DATABASE_PATH (zodstore); the auth DB is kept
 // separate so Better Auth's migrations only ever touch its own tables. Defaults
@@ -239,8 +240,22 @@ export function createAuth() {
 			// UI additionally requires typing a confirmation phrase as an accident
 			// guard). No `sendDeleteAccountVerification` is set, so a password-verified
 			// request deletes immediately rather than emailing a second confirmation.
+			//
+			// The docstore rows naming the account go in two sweeps, both after the
+			// password check. `beforeDelete` runs before Better Auth removes any auth
+			// row, so a failed sweep aborts the deletion and the person can retry.
+			// `afterDelete` removes what a request already in flight wrote between
+			// the first sweep and the `user` row going. REQ126 records why these two
+			// hooks and not `databaseHooks.user.delete`: by the time that hook runs,
+			// the session and credential rows are already gone.
 			deleteUser: {
 				enabled: true,
+				beforeDelete: async (user) => {
+					await removeAccountFromFolders(user.id);
+				},
+				afterDelete: async (user) => {
+					await removeAccountFromFolders(user.id);
+				},
 			},
 		},
 		// Per-user API keys: a logged-in user mints a key and presents it as the

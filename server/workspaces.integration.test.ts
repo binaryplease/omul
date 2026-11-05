@@ -11,7 +11,9 @@
  *     a pre-auth deck: an anonymous caller is refused, and nobody can claim it;
  *   - every workspace-scoped mutation is authorized **against the role**, on the
  *     server — every mutation route on a workspace deck, not a sample, plus the
- *     roster and the workspace itself.
+ *     roster and the workspace itself;
+ *   - REQ131's `commenter` reads and comments on the workspace's decks and is
+ *     refused every create, every edit and every run-state route.
  *
  * Stands up the real Elysia app (auth handler + presentation routes + workspace
  * routes) against a throw-away in-memory docstore and a temp auth DB, exactly as
@@ -44,11 +46,13 @@ let server: { stop: () => Promise<void> } | null = null;
 let ownerKey = "";
 let adminKey = "";
 let memberKey = "";
+let commenterKey = "";
 let strangerKey = "";
 
 const OWNER_EMAIL = "ws-owner@example.com";
 const ADMIN_EMAIL = "ws-admin@example.com";
 const MEMBER_EMAIL = "ws-member@example.com";
+const COMMENTER_EMAIL = "ws-commenter@example.com";
 const STRANGER_EMAIL = "ws-stranger@example.com";
 
 const SLIDES = [
@@ -232,6 +236,7 @@ describe("workspaces and the roles in them (REQ128, REQ129)", () => {
 		ownerKey = (await accountFor(OWNER_EMAIL, "Owner")).key;
 		adminKey = (await accountFor(ADMIN_EMAIL, "Admin")).key;
 		memberKey = (await accountFor(MEMBER_EMAIL, "Member")).key;
+		commenterKey = (await accountFor(COMMENTER_EMAIL, "Commenter")).key;
 		strangerKey = (await accountFor(STRANGER_EMAIL, "Stranger")).key;
 	});
 
@@ -1125,5 +1130,174 @@ describe("workspaces and the roles in them (REQ128, REQ129)", () => {
 		expect(
 			(await fetch(`${baseUrl}/api/presentations/${deck.id}/comments`)).status,
 		).toBe(401);
+	});
+
+	// ── The reduced role (REQ131) ───────────────────────────
+
+	test("a commenter reads and comments, and creates, edits and presents nothing", async () => {
+		const workspace = await createStaffedWorkspace();
+		// Provisioned by an admin, not only by the owner: the picker offers it below
+		// the owner level, so the route has to take it there too.
+		const added = await fetch(
+			`${baseUrl}/api/workspaces/${workspace.id}/members`,
+			{
+				method: "POST",
+				headers: keyed(adminKey),
+				body: JSON.stringify({ email: COMMENTER_EMAIL, role: "commenter" }),
+			},
+		);
+		expect(added.status).toBe(201);
+		expect((await added.json()).role).toBe("commenter");
+
+		const deck = await createWorkspaceDeck(workspace.id, ownerKey);
+
+		// Reads the workspace, its deck list and the deck as its author wrote it,
+		// at the `comment` level a REQ075 collaborator holds.
+		const listed = await (
+			await fetch(`${baseUrl}/api/workspaces/${workspace.id}`, {
+				headers: { "x-api-key": commenterKey },
+			})
+		).json();
+		expect(listed.role).toBe("commenter");
+		const decks = await fetch(
+			`${baseUrl}/api/workspaces/${workspace.id}/presentations`,
+			{ headers: { "x-api-key": commenterKey } },
+		);
+		expect(decks.status).toBe(200);
+		expect((await decks.json()).map((entry: Any) => entry.id)).toContain(
+			deck.id,
+		);
+		const read = await (
+			await fetch(`${baseUrl}/api/presentations/${deck.id}`, {
+				headers: { "x-api-key": commenterKey },
+			})
+		).json();
+		expect(read.accessLevel).toBe("comment");
+
+		// Comments, on the deck's own threads.
+		const commented = await fetch(
+			`${baseUrl}/api/presentations/${deck.id}/comments`,
+			{
+				method: "POST",
+				headers: keyed(commenterKey),
+				body: JSON.stringify({ slideId: SLIDES[0].id, body: "Looks good" }),
+			},
+		);
+		expect(commented.status).toBe(201);
+
+		// Every mutation route is refused — editing, and every run-state route a
+		// presenter drives. The whole sweep, not a sample.
+		for (const [name, call] of Object.entries(
+			mutations(deck.id, SLIDES[0].id),
+		)) {
+			const res = await call({ "x-api-key": commenterKey });
+			expect(`${name}:${res.status}`).toBe(`${name}:403`);
+		}
+		expect(
+			(
+				await fetch(`${baseUrl}/api/presentations/${deck.id}`, {
+					method: "DELETE",
+					headers: keyed(commenterKey),
+				})
+			).status,
+		).toBe(403);
+		// Both readings of the PDF: `?results=false` changes the document and leaves
+		// the gate as it stands.
+		for (const path of ["results.xlsx", "deck.pdf", "deck.pdf?results=false"]) {
+			const res = await fetch(
+				`${baseUrl}/api/presentations/${deck.id}/${path}`,
+				{ headers: { "x-api-key": commenterKey } },
+			);
+			expect(`${path}:${res.status}`).toBe(`${path}:403`);
+		}
+		const after = await (
+			await fetch(`${baseUrl}/api/presentations/${deck.id}`)
+		).json();
+		expect(after.title).toBe("Workspace deck");
+		expect(after.status).toBe("draft");
+
+		// Creates nothing the workspace owns: not directly, not from one of its
+		// published templates, and not by moving a deck of its own in.
+		const created = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: keyed(commenterKey),
+			body: JSON.stringify({
+				title: "Not mine to make",
+				slides: SLIDES,
+				workspaceId: workspace.id,
+			}),
+		});
+		expect(created.status).toBe(403);
+		const published = await fetch(
+			`${baseUrl}/api/workspaces/${workspace.id}/templates`,
+			{
+				method: "POST",
+				headers: keyed(ownerKey),
+				body: JSON.stringify({ category: "meeting", presentationId: deck.id }),
+			},
+		);
+		expect(published.status).toBe(201);
+		const entry = await published.json();
+		const fromTemplate = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: keyed(commenterKey),
+			body: JSON.stringify({
+				workspaceId: workspace.id,
+				workspaceTemplateId: entry.id,
+			}),
+		});
+		expect(fromTemplate.status).toBe(403);
+		const personal = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: keyed(commenterKey),
+			body: JSON.stringify({ title: "My own", slides: SLIDES }),
+		});
+		expect(personal.status).toBe(201);
+		const moved = await fetch(
+			`${baseUrl}/api/presentations/${(await personal.json()).id}/workspace`,
+			{
+				method: "POST",
+				headers: keyed(commenterKey),
+				body: JSON.stringify({ workspaceId: workspace.id }),
+			},
+		);
+		expect(moved.status).toBe(403);
+		const owned = await (
+			await fetch(`${baseUrl}/api/workspaces/${workspace.id}/presentations`, {
+				headers: { "x-api-key": ownerKey },
+			})
+		).json();
+		expect(owned).toHaveLength(1);
+
+		// And the role is a role like any other: promoted, the same account runs
+		// the deck on its very next request.
+		const roster = await (
+			await fetch(`${baseUrl}/api/workspaces/${workspace.id}/members`, {
+				headers: { "x-api-key": adminKey },
+			})
+		).json();
+		const row = roster.find((entry: Any) => entry.email === COMMENTER_EMAIL);
+		const promoted = await fetch(
+			`${baseUrl}/api/workspaces/${workspace.id}/members/${row.id}`,
+			{
+				method: "PATCH",
+				headers: keyed(adminKey),
+				body: JSON.stringify({ role: "member" }),
+			},
+		);
+		expect(promoted.status).toBe(200);
+		expect(
+			(await mutations(deck.id, SLIDES[0].id).start({ "x-api-key": commenterKey }))
+				.status,
+		).toBe(200);
+		// The same request that answered 403 above answers 200 now, so that 403
+		// came from the role.
+		expect(
+			(
+				await fetch(`${baseUrl}/api/presentations/${deck.id}/deck.pdf`, {
+					headers: { "x-api-key": commenterKey },
+				})
+			).status,
+		).toBe(200);
 	});
 });

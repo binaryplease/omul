@@ -10,6 +10,7 @@ import {
 	type DeckAccessLevel,
 	type DeckBrand,
 	type DeckCollaborator,
+	type DeckCollaboratorEntry,
 	type DeckGenerationAvailability,
 	type DeckTemplate,
 	type DeckTemplateCategory,
@@ -17,6 +18,7 @@ import {
 	type FeedbackChannel,
 	type FeedbackConfig,
 	FIRST_PASS,
+	type Folder,
 	isVoteRefusalCode,
 	isWithheldTally,
 	type LegalLinks,
@@ -26,6 +28,7 @@ import {
 	type ParticipantLanguage,
 	type ParticipantRosterEntry,
 	type ParticipantSignInRefusalCode,
+	type Presentation,
 	type ReactionKind,
 	RESULTS_TOKEN_HEADER,
 	type ResultsLink,
@@ -70,16 +73,24 @@ export class ApiError extends Error {
 	 * (REQ185).
 	 */
 	readonly status: number;
+	/**
+	 * The refusal's whole body, for the one refusal that hands back more than a
+	 * reason: a stale deck write carries the deck as it now stands (REQ126) —
+	 * see {@link staleDeckWriteOf}.
+	 */
+	readonly body: unknown;
 
 	constructor(
 		message: string,
 		refused: VoteRefusalCode | ParticipantSignInRefusalCode | null,
 		status = 0,
+		body: unknown = null,
 	) {
 		super(message);
 		this.name = "ApiError";
 		this.refused = refused;
 		this.status = status;
+		this.body = body;
 	}
 }
 
@@ -103,9 +114,41 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 				? err.refused
 				: null,
 			res.status,
+			err,
 		);
 	}
 	return res.json();
+}
+
+/**
+ * The current deck a thrown error carries when it is a deck write refused
+ * because the deck had moved on since the copy it was based on (REQ126) — the
+ * `409` with `refused: "stale-revision"` a PATCH naming a stale `baseRevision`
+ * answers — or `null` for anything else, another `409` included. Nothing was
+ * written, so the caller still holds every edit it sent, and this is the deck
+ * and revision it merges them onto. The deck is the editor's projection, read
+ * as `getPresentation` reads one.
+ */
+export function staleDeckWriteOf(
+	thrown: unknown,
+): { revision: number; presentation: Presentation } | null {
+	if (!(thrown instanceof ApiError) || thrown.status !== 409) return null;
+	const body = thrown.body as {
+		refused?: unknown;
+		revision?: unknown;
+		presentation?: { slides?: unknown } | null;
+	} | null;
+	if (
+		body?.refused !== "stale-revision" ||
+		typeof body.revision !== "number" ||
+		!Array.isArray(body.presentation?.slides)
+	) {
+		return null;
+	}
+	return {
+		revision: body.revision,
+		presentation: body.presentation as Presentation,
+	};
 }
 
 function isSignInRefusalCode(
@@ -589,6 +632,8 @@ export const api = {
 			themeBrand?: DeckBrand;
 			themeLogoUrl?: string;
 			themeLogoAlt?: string;
+			/** The deck `revision` the edit was based on (REQ126) — see {@link staleDeckWriteOf}. */
+			baseRevision?: number;
 		},
 	) =>
 		request<any>(`/presentations/${id}`, {
@@ -1157,9 +1202,12 @@ export const api = {
 	// make a 401 look like a bug in this file. The Better Auth cookie session rides
 	// every fetch by itself, which is the whole of the authentication these need.
 
-	/** The accounts this deck is shared with, oldest grant first. */
+	/**
+	 * The accounts this deck is shared with, oldest grant first, then the accounts
+	 * that reach it through the shared folder it is filed in (`folder` is set).
+	 */
 	listCollaborators: (id: string) =>
-		request<DeckCollaborator[]>(`/presentations/${id}/collaborators`),
+		request<DeckCollaboratorEntry[]>(`/presentations/${id}/collaborators`),
 
 	/**
 	 * Share the deck with an account, by the email it signed up with. Idempotent
@@ -1380,6 +1428,69 @@ export const api = {
 		if (workspaceId) forgetCreatorToken(id);
 		return moved;
 	},
+
+	// ── Deck folders (REQ126) ─────────────────────────────────
+	//
+	// The account's own, authenticated by the cookie session alone, like the
+	// workspace calls above: a folder is an account's, and no edit token names one.
+
+	/** The account's folders by name, each with the ids of the decks filed in it. */
+	listFolders: () => request<Folder[]>("/folders"),
+
+	createFolder: (name: string) =>
+		request<Folder>("/folders", {
+			method: "POST",
+			body: JSON.stringify({ name }),
+		}),
+
+	renameFolder: (folderId: string, name: string) =>
+		request<Folder>(`/folders/${folderId}`, {
+			method: "PATCH",
+			body: JSON.stringify({ name }),
+		}),
+
+	/** Delete a folder. Its decks are kept and go back to unfiled. */
+	deleteFolder: (folderId: string) =>
+		request<{ ok: true }>(`/folders/${folderId}`, { method: "DELETE" }),
+
+	/**
+	 * Who one of this account's folders is shared with (REQ126) — the deck
+	 * collaborator calls' shape, and the owner's alone on the same terms.
+	 */
+	listFolderCollaborators: (folderId: string) =>
+		request<DeckCollaborator[]>(`/folders/${folderId}/collaborators`),
+
+	/** Share a folder, and every deck filed in it, with an account by its email. */
+	shareFolder: (folderId: string, email: string, level: DeckAccessLevel) =>
+		request<DeckCollaborator>(`/folders/${folderId}/collaborators`, {
+			method: "POST",
+			body: JSON.stringify({ email, level }),
+		}),
+
+	/** Move one folder grant to another level, named by the grant's own id. */
+	setFolderCollaboratorLevel: (
+		folderId: string,
+		collaboratorId: string,
+		level: DeckAccessLevel,
+	) =>
+		request<DeckCollaborator>(
+			`/folders/${folderId}/collaborators/${collaboratorId}`,
+			{ method: "PATCH", body: JSON.stringify({ level }) },
+		),
+
+	/** Revoke one folder grant. Its decks stop reaching that account at once. */
+	removeFolderCollaborator: (folderId: string, collaboratorId: string) =>
+		request<{ ok: true }>(
+			`/folders/${folderId}/collaborators/${collaboratorId}`,
+			{ method: "DELETE" },
+		),
+
+	/** File a deck this account owns in one of its folders, or unfile it with `null`. */
+	fileDeck: (presentationId: string, folderId: string | null) =>
+		request<{ folderId: string | null }>(
+			`/presentations/${presentationId}/folder`,
+			{ method: "PUT", body: JSON.stringify({ folderId }) },
+		),
 
 	deletePresentation: (id: string) =>
 		request<any>(`/presentations/${id}`, {

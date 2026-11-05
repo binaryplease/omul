@@ -27,6 +27,12 @@ export const WORKSPACE_ROLE_DESCRIPTORS: readonly {
 	summary: string;
 }[] = [
 	{
+		role: "commenter",
+		label: "Commenter",
+		summary:
+			"Opens every deck the workspace owns and comments on its slides. Cannot create, edit or present a deck, or start one from a template.",
+	},
+	{
 		role: "member",
 		label: "Member",
 		summary:
@@ -87,8 +93,8 @@ export function workspaceMemberDisplayName(
  * The server refuses an admin who tries to make somebody an owner (REQ129), so a
  * picker offering it would be drawing a choice that answers `403`. Not
  * hard-coded to "everything below mine": the set is derived from the same
- * ordered vocabulary the server validates against, so REQ131's reduced role
- * appears here the day it exists without this function being edited.
+ * ordered vocabulary the server validates against, which is how REQ131's
+ * `commenter` appeared here without this function being edited.
  */
 export function assignableWorkspaceRoles(
 	callerRole: WorkspaceRole | null,

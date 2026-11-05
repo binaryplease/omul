@@ -54,6 +54,9 @@ import {
 	StoredAnswerThemeSchema,
 	StoredChatMessageSchema,
 	StoredDeckCollaboratorSchema,
+	StoredFolderEntrySchema,
+	StoredFolderGrantSchema,
+	StoredFolderSchema,
 	StoredParticipantAccountSchema,
 	StoredParticipantNameSchema,
 	StoredParticipantPassSchema,
@@ -146,8 +149,8 @@ const STORED_SLIDE_BARE_FIELDS = [
 /**
  * Every `createStore` call in `server/services/`. Kept in this order so it reads
  * against the modules that make them: workspaces, the templates they publish,
- * slide comments, answer themes and collaborators, participant names, then the
- * seven of `presentations.ts`.
+ * slide comments, answer themes and collaborators, folders, participant names,
+ * then the seven of `presentations.ts`.
  */
 const STORED_COLLECTIONS: StoredCollection[] = [
 	{
@@ -184,6 +187,24 @@ const STORED_COLLECTIONS: StoredCollection[] = [
 		name: "deckCollaborators",
 		schema: StoredDeckCollaboratorSchema,
 		identityFields: ["id", "presentationId", "userId"],
+		nestedBareFields: [],
+	},
+	{
+		name: "folders",
+		schema: StoredFolderSchema,
+		identityFields: ["id", "ownerId"],
+		nestedBareFields: [],
+	},
+	{
+		name: "folderEntries",
+		schema: StoredFolderEntrySchema,
+		identityFields: ["id", "folderId", "presentationId", "ownerId"],
+		nestedBareFields: [],
+	},
+	{
+		name: "folderGrants",
+		schema: StoredFolderGrantSchema,
+		identityFields: ["id", "folderId", "userId"],
 		nestedBareFields: [],
 	},
 	{
@@ -371,6 +392,7 @@ describe("every stored field either defaults or is identity", () => {
 		await import("./services/slide-comments");
 		await import("./services/answer-themes");
 		await import("./services/collaborators");
+		await import("./services/folders");
 		await import("./services/participant-names");
 		await import("./services/presentations");
 

@@ -57,8 +57,8 @@ describe("who may publish (REQ004, REQ129)", () => {
 		// The asymmetry is the design: every member starts a deck from the gallery,
 		// and putting something *into* the gallery is an act on a surface everybody
 		// reads. A role that could publish but not create decks would be nonsense,
-		// and a run over the whole vocabulary is what keeps that true when REQ131's
-		// reduced role arrives at the front of it.
+		// and a run over the whole vocabulary is what keeps it true now REQ131's
+		// `commenter` sits at the front of it.
 		for (const role of WORKSPACE_ROLES) {
 			if (canPublishWorkspaceTemplates(role)) {
 				expect(canCreateWorkspaceDecks(role)).toBe(true);
@@ -66,7 +66,10 @@ describe("who may publish (REQ004, REQ129)", () => {
 		}
 		expect(
 			WORKSPACE_ROLES.filter((role) => !canPublishWorkspaceTemplates(role)),
-		).toEqual(["member"]);
+		).toEqual(["commenter", "member"]);
+		// And the reduced role is shut out of using one too: starting a deck from
+		// the gallery is a create.
+		expect(canCreateWorkspaceDecks("commenter")).toBe(false);
 	});
 });
 

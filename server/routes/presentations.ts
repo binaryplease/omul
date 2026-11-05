@@ -37,6 +37,8 @@ import {
 	ChatMessageSchema,
 	CreatePresentationSchema,
 	type DeckCollaborator,
+	type DeckCollaboratorEntry,
+	DeckCollaboratorEntrySchema,
 	DeckAccessLevelBodySchema,
 	DeckCollaboratorSchema,
 	DeckPdfQuerySchema,
@@ -76,6 +78,7 @@ import {
 	revokeCollaborator,
 	setCollaboratorLevel,
 } from "../services/collaborators";
+import { listFolderGrantsReachingDeck } from "../services/folders";
 import { workspaceRoleFor } from "../services/workspaces";
 import { bindParticipantAccount } from "../services/participant-accounts";
 import { getWorkspaceTemplate } from "../services/workspace-templates";
@@ -227,8 +230,14 @@ async function canEditDeck(
  * an object here any more than `creatorId` can (see {@link sanitize}). An
  * account that has since been deleted reads as an empty email rather than
  * vanishing from the list, so the owner can still see — and revoke — the grant.
+ * A folder grant has the same fields and is read here too (REQ126).
  */
-function readCollaborator(grant: DeckCollaboratorRecord): DeckCollaborator {
+function readCollaborator(
+	grant: Pick<
+		DeckCollaboratorRecord,
+		"id" | "userId" | "level" | "createdAt" | "updatedAt"
+	>,
+): DeckCollaborator {
 	const account = findUserById(grant.userId);
 	return DeckCollaboratorSchema.parse({
 		id: grant.id,
@@ -238,6 +247,40 @@ function readCollaborator(grant: DeckCollaboratorRecord): DeckCollaborator {
 		createdAt: grant.createdAt,
 		updatedAt: grant.updatedAt,
 	});
+}
+
+/**
+ * The deck's collaborator list: its own grants oldest first, then the grants of
+ * the shared folder it is filed in, oldest first (REQ126). The second part is
+ * empty on a deck no folder reaches, a workspace deck included, because such a
+ * deck has no `creatorId`.
+ */
+async function readCollaboratorEntries(
+	presentation: Record<string, unknown>,
+): Promise<DeckCollaboratorEntry[]> {
+	const presentationId = presentation.id as string;
+	const [deckGrants, reaching] = await Promise.all([
+		listDeckCollaborators(presentationId),
+		listFolderGrantsReachingDeck(
+			presentationId,
+			(presentation.creatorId as string | null) ?? null,
+		),
+	]);
+	const fromDeck = deckGrants.map((grant) =>
+		DeckCollaboratorEntrySchema.parse({
+			...readCollaborator(grant),
+			folder: null,
+		}),
+	);
+	if (!reaching) return fromDeck;
+	const { folder, grants: folderGrants } = reaching;
+	const fromFolder = folderGrants.map((grant) =>
+		DeckCollaboratorEntrySchema.parse({
+			...readCollaborator(grant),
+			folder: { id: folder.id, name: folder.name },
+		}),
+	);
+	return [...fromDeck, ...fromFolder];
 }
 
 /** What a stated vote refusal reads as over the wire (see `VoteRefusal`). */
@@ -349,10 +392,13 @@ async function resultsCallerFor(
 	return {
 		canEdit,
 		hasResultsLink: link.valid,
-		// REQ085 — what the profanity filter withheld is an editor's to read, and
-		// only on a read that asks for it: the same credentials poll the projector.
-		// A results link is a delegation of the numbers, so asking with one alone
-		// changes nothing.
+		// REQ085 — what the profanity filter withheld is for the deck's owner, its
+		// edit token and its collaborators at any level to read: `canEdit` holds for
+		// every non-null level of `resolveDeckAccess`, so a `view` or `comment` grant
+		// on the deck or its folder qualifies, and so does every role in the deck's
+		// workspace. They read it only on a read that asks for it: the same credentials
+		// poll the projector. A results link is a delegation of the numbers, so asking
+		// with one alone changes nothing.
 		includeFilteredAnswers: canEdit && includeFilteredAnswers,
 	};
 }
@@ -678,7 +724,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Presentations"],
 				summary: "Create presentation",
 				description:
-					"Creates a new presentation in `draft` status. Pass `templateId` (an id from `GET /api/templates`) to start from a catalog entry (REQ005/REQ006): the deck's slides are **copies** of that template's under fresh ids, fully editable and detached from it — nothing records the origin, so editing the deck cannot reach the template and two decks made from one entry cannot reach each other. A template create may omit `title` (it inherits the template's) and `slides` (they come from the template); every other create still requires a non-empty title and at least one slide. An unknown `templateId` is a 400. The deck's own settings — language, pace, reveal mode, the Q&A layer, the participant channels, the theme — are always the request's, never the template's: a template holds slides, not a room's settings. A request that names no `theme` gets the house theme, or — when it names a `workspaceId` — that workspace's `defaultTheme` (REQ086); a named theme always wins. When the request is anonymous or carries a cookie session, the response includes a one-time `creatorToken` that authorizes subsequent mutations and is never returned again. When authenticated with a personal API key (`x-api-key`), the deck is owned by that account and editable via the key, so `creatorToken` is `null`. A signed-in create also records the account as the deck's owner. Pass `workspaceId` to create a deck the **workspace** owns instead (REQ128): the deck records no account owner and is minted no edit token — its standing is the workspace's roster, and every member reads, edits and presents it — so `creatorToken` is `null` and the deck appears in `GET /api/workspaces/:id/presentations` rather than in `/presentations/mine`. The caller must be a member with a role that may create decks there (REQ129); a workspace they are not in and one that does not exist answer the same `403`. Pass `workspaceTemplateId` alongside it to start from one of that workspace's **own** published templates (REQ004, an id from `GET /api/workspaces/:id/templates`): the slides are copied on exactly the terms above, so later edits to the template do not reach the deck. It is refused without a `workspaceId` and refused together with `templateId` — a deck starts from one template — and the entry is resolved only after the caller's role in that workspace has been checked, so an unknown id answers `400` to a member and nothing at all to anyone else. Rate-limited per client address (REQ145): over the limit answers `429` with a `Retry-After` header and `retryAfterSeconds` in the body.",
+					"Creates a new presentation in `draft` status. Pass `templateId` (an id from `GET /api/templates`) to start from a catalog entry (REQ005/REQ006): the deck's slides are **copies** of that template's under fresh ids, fully editable and detached from it — nothing records the origin, so editing the deck cannot reach the template and two decks made from one entry cannot reach each other. A template create may omit `title` (it inherits the template's) and `slides` (they come from the template); every other create still requires a non-empty title and at least one slide. An unknown `templateId` is a 400. The deck's own settings — language, pace, reveal mode, the Q&A layer, the participant channels, the theme — are always the request's, never the template's: a template holds slides, not a room's settings. A request that names no `theme` gets the house theme, or — when it names a `workspaceId` — that workspace's `defaultTheme` (REQ086); a named theme always wins. When the request is anonymous or carries a cookie session, the response includes a one-time `creatorToken` that authorizes subsequent mutations and is never returned again. When authenticated with a personal API key (`x-api-key`), the deck is owned by that account and editable via the key, so `creatorToken` is `null`. A signed-in create also records the account as the deck's owner. Pass `workspaceId` to create a deck the **workspace** owns instead (REQ128): the deck records no account owner and is minted no edit token — its standing is the workspace's roster, and every member reads, edits and presents it (a `commenter`, REQ131, reads and comments only) — so `creatorToken` is `null` and the deck appears in `GET /api/workspaces/:id/presentations` rather than in `/presentations/mine`. The caller must be a member with a role that may create decks there (REQ129); a workspace they are not in and one that does not exist answer the same `403`. Pass `workspaceTemplateId` alongside it to start from one of that workspace's **own** published templates (REQ004, an id from `GET /api/workspaces/:id/templates`): the slides are copied on exactly the terms above, so later edits to the template do not reach the deck. It is refused without a `workspaceId` and refused together with `templateId` — a deck starts from one template — and the entry is resolved only after the caller's role in that workspace has been checked, so an unknown id answers `400` to a member and nothing at all to anyone else. Rate-limited per client address (REQ145): over the limit answers `429` with a `Retry-After` header and `retryAfterSeconds` in the body.",
 			},
 		},
 	)
@@ -736,7 +782,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Presentations"],
 				summary: "List the decks shared with the signed-in account",
 				description:
-					"Returns the decks another account has shared with the caller (REQ075), newest grant first, each carrying the `accessLevel` it was shared at — `view`, `comment` or `edit`. Requires a cookie session or a personal API key (`x-api-key`); returns 401 otherwise. Scoped to the caller — it cannot enumerate anyone else's grants, and it never reports who else a deck is shared with (that list is its owner's, see `GET /presentations/:id/collaborators`). Decks the caller **owns** are not here; they are `GET /presentations/mine`. A grant whose deck has been deleted is simply absent.",
+					"Returns the decks another account has shared with the caller (REQ075), newest grant first, each carrying the `accessLevel` it was shared at — `view`, `comment` or `edit`. A deck filed in a folder shared with the caller (REQ126) is here too, once, at the strongest of its folder grant and any grant on the deck itself. Requires a cookie session or a personal API key (`x-api-key`); returns 401 otherwise. Scoped to the caller — it cannot enumerate anyone else's grants, and it never reports who else a deck is shared with (that list is its owner's, see `GET /presentations/:id/collaborators`). Decks the caller **owns** are not here; they are `GET /presentations/mine`. A grant whose deck has been deleted is simply absent.",
 				security: [{ bearerAuth: [] }],
 			},
 		},
@@ -839,12 +885,31 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 		async ({ params, body, request, set }) => {
 			const auth = await requireEdit(request, params.id);
 			if (auth instanceof Response) return auth;
-			const updated = await updatePresentation(params.id, body as any);
-			if (!updated) {
+			const { baseRevision, ...changes } = body;
+			const outcome = await updatePresentation(
+				params.id,
+				changes,
+				baseRevision ?? null,
+			);
+			if (outcome.status === "missing") {
 				set.status = 404;
 				return { error: "Not found" };
 			}
-			return sanitize(updated, { canEdit: true });
+			// REQ126 — the deck moved on since the copy this write was based on.
+			// Nothing was written; the caller is handed the deck as it now stands,
+			// through the same projection as every editor read, to work from.
+			if (outcome.status === "stale") {
+				const presentation = sanitize(outcome.deck, { canEdit: true });
+				set.status = 409;
+				return {
+					error:
+						"Not saved: someone else saved this deck after you opened it.",
+					refused: "stale-revision",
+					revision: presentation.revision,
+					presentation,
+				};
+			}
+			return sanitize(outcome.deck, { canEdit: true });
 		},
 		{
 			body: UpdatePresentationSchema,
@@ -852,7 +917,7 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 				tags: ["Presentations"],
 				summary: "Update presentation",
 				description:
-					"Partially updates a deck's **authored** fields (title, slides, settings). This is also where a deck's theme is set (REQ079/REQ080): `theme` names one of the built-in themes or `custom`, `themeBrand` carries the theme the deck defines for itself — its colours as `#rgb`/`#rrggbb` and the id of a face this build ships (REQ092) — and `themeLogoUrl` / `themeLogoAlt` the organizer's own mark (REQ136), which the participant-facing surfaces wear in place of the product's. Only the keys the request carries are changed; a key it omits is left exactly as it stood. Anything outside the authored set is **dropped**, not merged: the deck's owner (`creatorId`), its edit-token hash and its results-link pair are credentials the caller's own authorization is resolved from, so this route cannot write them under any spelling — ownership moves through `…/claim` (or the admin reassign action) and the results link through `…/results-link`. Server-managed state has its own routes too: `status` (`…/start`, `…/end`), `activeSlideIndex` (`…/slide`), `revealedSlideIds` (`…/reveal`), the question stamps (`…/timer`) and the countdown runs `countdownRuns` (`…/countdown`, REQ107). Requires `Authorization: Bearer <creatorToken>`, deck ownership, or an `edit` collaborator grant (REQ075).",
+					"Partially updates a deck's **authored** fields (title, slides, settings). This is also where a deck's theme is set (REQ079/REQ080): `theme` names one of the built-in themes or `custom`, `themeBrand` carries the theme the deck defines for itself — its colours as `#rgb`/`#rrggbb` and the id of a face this build ships (REQ092) — and `themeLogoUrl` / `themeLogoAlt` the organizer's own mark (REQ136), which the participant-facing surfaces wear in place of the product's. Only the keys the request carries are changed; a key it omits is left exactly as it stood. Anything outside the authored set is **dropped**, not merged: the deck's owner (`creatorId`), its edit-token hash and its results-link pair are credentials the caller's own authorization is resolved from, so this route cannot write them under any spelling — ownership moves through `…/claim` (or the admin reassign action) and the results link through `…/results-link`. Server-managed state has its own routes too: `status` (`…/start`, `…/end`), `activeSlideIndex` (`…/slide`), `revealedSlideIds` (`…/reveal`), the question stamps (`…/timer`) and the countdown runs `countdownRuns` (`…/countdown`, REQ107). **Stale writes are refused (REQ126):** every deck read carries `revision`, which advances by one on every successful write of authored content — this route, `…/results-visibility`, `…/qa/settings` and `…/channels` — and is never written by a caller. A body that names `baseRevision` is applied only while the deck is still at that revision; once anyone else's write has moved it on, nothing is written and the answer is `409` with `refused: \"stale-revision\"`, the current `revision`, and the deck as it now stands under `presentation` (the editor's projection, without `creatorId` or the edit-token hash). A body without `baseRevision` writes unconditionally. The comparison and the write run in one per-deck queue within the server process, so two writes naming the same revision cannot both land. Requires `Authorization: Bearer <creatorToken>`, deck ownership, or an `edit` collaborator grant (REQ075).",
 				security: [{ bearerAuth: [] }],
 			},
 		},
@@ -2326,15 +2391,14 @@ export const presentationRoutes = new Elysia({ prefix: "/api" })
 		async ({ params, request }) => {
 			const auth = await requireDeckOwner(request, params.id);
 			if (auth instanceof Response) return auth;
-			const grants = await listDeckCollaborators(params.id);
-			return grants.map(readCollaborator);
+			return readCollaboratorEntries(auth);
 		},
 		{
 			detail: {
 				tags: ["Presentations"],
 				summary: "List who the deck is shared with",
 				description:
-					"Returns the accounts this deck is shared with (REQ075), oldest grant first: each entry's `id` (the grant's own handle, used to change or revoke it), the collaborator's `email` and `name` as the owner invited them, the `level` (`view` / `comment` / `edit`), and when the grant was made and last changed. **No account identifier is ever in this payload** — the collaborator's user id stays server-side exactly as `creatorId` does. Owner-only: `401` without a session, `403` for anyone else including the holder of the deck's edit token and its own collaborators, since who else is on a deck is not a collaborator's to enumerate.",
+					"Returns the accounts this deck is shared with (REQ075), oldest grant first: each entry's `id` (the grant's own handle, used to change or revoke it), the collaborator's `email` and `name` as the owner invited them, the `level` (`view` / `comment` / `edit`), when the grant was made and last changed, and `folder`, which is `null` on a grant on the deck. After the deck's grants come the accounts that reach the deck through the shared folder it is filed in (REQ126), oldest grant first: `folder` is `{ id, name }`, and `id` and `level` are the folder grant's. This route's `PATCH` and `DELETE` answer `404` for such an `id`; a folder grant is managed under `/folders/:id/collaborators`. An account with both kinds of grant has one row for each, and the strongest stands. **No account identifier is ever in this payload** — the collaborator's user id stays server-side exactly as `creatorId` does. Owner-only: `401` without a session, `403` for anyone else including the holder of the deck's edit token and its own collaborators, since who else is on a deck is not a collaborator's to enumerate.",
 				security: [{ bearerAuth: [] }],
 			},
 		},

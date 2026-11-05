@@ -8,8 +8,8 @@ import {
 	Users,
 	X,
 } from "lucide-react";
-import { type MouseEvent, useEffect, useMemo, useState } from "react";
-import { api, getCreatorToken } from "../api";
+import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { api, getCreatorToken, staleDeckWriteOf } from "../api";
 import {
 	AccessibilityFindingsStrip,
 	accessibilityFieldMarker,
@@ -17,6 +17,7 @@ import {
 	accessibilityFindingsBySlide,
 	revealAccessibilityField,
 } from "../components/AccessibilityFindings";
+import { DeckMergeDialog } from "../components/DeckMergeDialog";
 import type { SlideAccessibilityFinding } from "../components/DeckAccessibility";
 import { deckAccessibilityFindings } from "../components/DeckAccessibility";
 import {
@@ -63,6 +64,16 @@ import { useToast } from "../components/ui/Toast";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 import { useStore, useStoreApi } from "../store";
+import {
+	type CurrentDeck,
+	type DeckMergeChoices,
+	type DeckOverlap,
+	type DeckSaveOutcome,
+	mergeDeckEdits,
+	saveDeckEdits,
+} from "../store/deckMerge";
+import { editorDocumentFor } from "../store/editor";
+import type { EditorDocument } from "../store/editorDocument";
 import {
 	canCopySlides,
 	canRemoveSlides,
@@ -235,6 +246,29 @@ export function CreatePage({
 	 * exist yet has no standing to report.
 	 */
 	const [accessLevel, setAccessLevel] = useState<DeckAccessLevel | null>(null);
+	/**
+	 * The deck `revision` this editor loaded (REQ126), handed back on Save so a
+	 * save based on a copy someone else has since saved over is refused instead
+	 * of replacing their work. `null` on a new deck, which has none to state.
+	 */
+	const [baseRevision, setBaseRevision] = useState<number | null>(null);
+	/**
+	 * The deck as it stood at `baseRevision` — the base a refused save's edits
+	 * are merged against (REQ126), so what the person changed is told apart
+	 * from what someone else did. Never drawn, so a ref.
+	 */
+	const baseDocument = useRef<EditorDocument | null>(null);
+	/**
+	 * A refused save whose edits overlap the current deck's (REQ126): the edits,
+	 * the base they were made on and the deck they now meet, held while the
+	 * person chooses per overlap. Nothing is saved until they have.
+	 */
+	const [mergeConflict, setMergeConflict] = useState<{
+		mine: EditorDocument;
+		base: EditorDocument;
+		current: CurrentDeck;
+		overlaps: DeckOverlap[];
+	} | null>(null);
 	const [error, setError] = useState("");
 	const [selected, setSelected] = useState<Selection>(0);
 	/**
@@ -341,26 +375,10 @@ export function CreatePage({
 				}
 				setAccessLevel(data.accessLevel ?? null);
 				setCommentAccess(data.commentAccess ?? null);
-				loadEditor({
-					title: data.title,
-					slides: data.slides,
-					language: data.language,
-					mode: data.mode,
-					allowRepeatPasses: data.allowRepeatPasses,
-					resultsVisibility: data.resultsVisibility,
-					qaEnabled: data.qaEnabled,
-					qaVisibility: data.qaVisibility,
-					reactionsEnabled: data.reactionsEnabled,
-					chatEnabled: data.chatEnabled,
-					requireParticipantName: data.requireParticipantName,
-					requireParticipantSignIn: data.requireParticipantSignIn,
-					profanityFilterEnabled: data.profanityFilterEnabled,
-					profanityFilterLanguage: data.profanityFilterLanguage,
-					theme: data.theme,
-					themeBrand: data.themeBrand,
-					themeLogoUrl: data.themeLogoUrl,
-					themeLogoAlt: data.themeLogoAlt,
-				});
+				setBaseRevision(data.revision);
+				const loaded = editorDocumentFor(data);
+				baseDocument.current = loaded;
+				loadEditor(loaded);
 			})
 			.catch((loadError: Error) => setError(loadError.message))
 			.finally(() => setLoadingEdit(false));
@@ -811,7 +829,7 @@ export function CreatePage({
 		setError("");
 		try {
 			if (isEdit && editId) {
-				await api.updatePresentation(editId, {
+				const edits: EditorDocument = {
 					title: title.trim(),
 					slides,
 					language,
@@ -830,9 +848,23 @@ export function CreatePage({
 					themeBrand: savedBrand,
 					themeLogoUrl: themeLogoUrl.trim(),
 					themeLogoAlt: themeLogoAlt.trim(),
-				});
-				addToast("Presentation updated", "success");
-				go({ page: "present", id: editId });
+				};
+				const base = baseDocument.current;
+				if (base === null || baseRevision === null) {
+					await api.updatePresentation(editId, edits);
+					addToast("Presentation updated", "success");
+					go({ page: "present", id: editId });
+				} else {
+					settleDeckSave(
+						edits,
+						await saveDeckEdits({
+							document: edits,
+							base,
+							revision: baseRevision,
+							write: writeDeck,
+						}),
+					);
+				}
 			} else {
 				const pres = await api.createPresentation({
 					title: title.trim(),
@@ -863,6 +895,107 @@ export function CreatePage({
 		} finally {
 			setSaving(false);
 		}
+	};
+
+	/**
+	 * One write of the deck based on `revision` (REQ126): `null` once written,
+	 * or — when it was refused because someone else saved first — the deck as
+	 * it now stands, read the way the editor reads any deck it loads.
+	 */
+	const writeDeck = async (
+		document: EditorDocument,
+		revision: number,
+	): Promise<CurrentDeck | null> => {
+		try {
+			await api.updatePresentation(editId as string, {
+				...document,
+				baseRevision: revision,
+			});
+			return null;
+		} catch (writeError: unknown) {
+			const stale = staleDeckWriteOf(writeError);
+			if (!stale) throw writeError;
+			return {
+				revision: stale.revision,
+				document: editorDocumentFor(stale.presentation),
+			};
+		}
+	};
+
+	/**
+	 * Where a save that may have been merged ends up (REQ126). Whatever the
+	 * outcome, the editor now holds the edits as they were carried over and the
+	 * deck they are based on, so the next Save starts from there; it reloads the
+	 * screen only when a merge changed what is on it.
+	 */
+	const settleDeckSave = (sent: EditorDocument, outcome: DeckSaveOutcome) => {
+		if (outcome.document !== sent) loadEditor(outcome.document);
+		baseDocument.current = outcome.base;
+		setBaseRevision(outcome.revision);
+		if (outcome.status === "saved") {
+			addToast(
+				outcome.merged > 0
+					? "Presentation updated, together with the changes someone else saved meanwhile"
+					: "Presentation updated",
+				"success",
+			);
+			go({ page: "present", id: editId as string });
+		} else if (outcome.status === "overlap") {
+			setMergeConflict({
+				mine: outcome.document,
+				base: outcome.base,
+				current: outcome.current,
+				overlaps: outcome.overlaps,
+			});
+		} else {
+			setError(
+				"Not saved: this deck kept being saved by someone else while yours was on its way. Your edits, combined with theirs, are still here — save again.",
+			);
+		}
+	};
+
+	/** The person chose a version for every overlap: save the merged deck. */
+	const handleResolveMerge = async (choices: DeckMergeChoices) => {
+		if (!mergeConflict) return;
+		const { mine, base, current } = mergeConflict;
+		const resolved = mergeDeckEdits(
+			{ base, mine, theirs: current.document },
+			choices,
+		).document;
+		if (!resolved) return;
+		setMergeConflict(null);
+		setSaving(true);
+		setError("");
+		try {
+			// The resolved deck is the person's edits on top of the current one, so
+			// it is from here on what the editor holds and what the save is based on.
+			loadEditor(resolved);
+			baseDocument.current = current.document;
+			setBaseRevision(current.revision);
+			settleDeckSave(
+				resolved,
+				await saveDeckEdits({
+					document: resolved,
+					base: current.document,
+					revision: current.revision,
+					write: writeDeck,
+				}),
+			);
+		} catch (submitError: unknown) {
+			setError(
+				submitError instanceof Error ? submitError.message : "Unknown error",
+			);
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	/** Leaving the choice unmade saves nothing and keeps every edit on screen. */
+	const handleCancelMerge = () => {
+		setMergeConflict(null);
+		setError(
+			"Not saved: someone else saved this deck after you opened it, and you both changed the same things. Your edits are still here — save again to choose.",
+		);
 	};
 
 	const leave = () =>
@@ -960,6 +1093,15 @@ export function CreatePage({
 					</div>
 				)}
 			</header>
+
+			{mergeConflict && (
+				<DeckMergeDialog
+					overlaps={mergeConflict.overlaps}
+					saving={saving}
+					onSave={handleResolveMerge}
+					onCancel={handleCancelMerge}
+				/>
+			)}
 
 			{/* Rail + canvas stage + settings column */}
 			<div className="relative z-10 flex-1 flex flex-col md:flex-row md:overflow-hidden">

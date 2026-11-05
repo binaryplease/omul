@@ -3,7 +3,8 @@
  * one translation of the withheld-tally marker (REQ016/REQ017), the name this
  * browser remembers having stated on a deck (REQ076), the pass through a deck it
  * is answering in (REQ083), and which edit tokens this browser forgets once the
- * signed-in account adopts their decks (REQ194, at the end of the file).
+ * signed-in account adopts their decks (REQ194), and which refusal carries
+ * the deck a stale save is merged onto (REQ126, at the end of the file).
  *
  * Deliberately narrow on both counts. The rest of the module is `fetch` against
  * endpoints the server suites already drive end to end, and re-asserting a
@@ -49,6 +50,7 @@ import {
 	test,
 } from "bun:test";
 import {
+	ApiError,
 	api,
 	buildExportPayload,
 	claimLocalPresentations,
@@ -63,6 +65,7 @@ import {
 	pulseWs,
 	rememberStatedParticipantName,
 	SOCKET_PULSE_MS,
+	staleDeckWriteOf,
 } from "./api";
 import { RESULTS_TOKEN_KEY, TOKEN_KEY } from "./storage";
 
@@ -795,5 +798,36 @@ describe("the live socket (REQ209)", () => {
 		expect(heard).toEqual([]);
 		FakeSocket.created[1].hear("presentation.reset", { presentationId: "deck-1" });
 		expect(heard).toEqual([{ presentationId: "deck-1" }]);
+	});
+});
+
+// ── The refusal a stale deck save is merged from (REQ126) ────
+
+describe("staleDeckWriteOf", () => {
+	const presentation = { id: "deck-1", title: "Deck", slides: [] };
+
+	test("a stale-revision 409 hands back the current deck and revision", () => {
+		const refusal = new ApiError("Not saved", null, 409, {
+			error: "Not saved",
+			refused: "stale-revision",
+			revision: 8,
+			presentation,
+		});
+		expect(staleDeckWriteOf(refusal)).toEqual({ revision: 8, presentation });
+	});
+
+	test("any other 409, or a stale one without a deck, is not one", () => {
+		expect(
+			staleDeckWriteOf(new ApiError("Taken", null, 409, { error: "Taken" })),
+		).toBeNull();
+		expect(
+			staleDeckWriteOf(
+				new ApiError("Not saved", null, 409, {
+					refused: "stale-revision",
+					revision: 8,
+				}),
+			),
+		).toBeNull();
+		expect(staleDeckWriteOf(new Error("offline"))).toBeNull();
 	});
 });

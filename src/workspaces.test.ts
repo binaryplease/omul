@@ -48,6 +48,7 @@ describe("the role descriptor", () => {
 		// A role is a promise to somebody, so the two limits that actually bite —
 		// a member cannot delete a deck, an admin cannot rename the workspace — are
 		// stated where the role is chosen rather than discovered from a refusal.
+		expect(workspaceRoleSummary("commenter")).toContain("Cannot create, edit or present");
 		expect(workspaceRoleSummary("member")).toContain("Cannot");
 		expect(workspaceRoleSummary("admin")).toContain("members");
 		expect(workspaceRoleSummary("owner")).toContain("delet");
@@ -69,6 +70,13 @@ describe("which roles a caller may hand out", () => {
 		// draw a choice guaranteed to answer 403.
 		expect(assignableWorkspaceRoles("admin")).not.toContain("owner");
 		expect(assignableWorkspaceRoles("admin")).toContain("member");
+	});
+
+	test("an admin may hand out the commenter role (REQ131)", () => {
+		// The reduced role is the one an admin provisions most, so the picker has
+		// to offer it below the owner level too.
+		expect(assignableWorkspaceRoles("admin")).toContain("commenter");
+		expect(assignableWorkspaceRoles("owner")).toContain("commenter");
 	});
 
 	test("somebody who cannot manage the roster hands out nothing", () => {
@@ -117,10 +125,13 @@ describe("what the client gates its controls on", () => {
 	test("the capability predicates are the server's own, not a second opinion", () => {
 		// Composed rather than restated: what a surface enables is
 		// exactly what the route behind it authorizes, so a role that stops being
-		// allowed to create decks stops drawing the button on the same day.
-		for (const role of WORKSPACE_ROLES) {
-			expect(canCreateWorkspaceDecks(role)).toBe(true);
-		}
+		// allowed to create decks stops drawing the button on the same day — which
+		// is what REQ131's `commenter` is: the "New deck" and "Use template"
+		// buttons are drawn disabled, with their reason, for it.
+		expect(
+			WORKSPACE_ROLES.filter((role) => canCreateWorkspaceDecks(role)),
+		).toEqual(["member", "admin", "owner"]);
+		expect(canCreateWorkspaceDecks("commenter")).toBe(false);
 		expect(canCreateWorkspaceDecks(null)).toBe(false);
 	});
 });

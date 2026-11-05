@@ -5920,6 +5920,13 @@ export const UpdatePresentationSchema = z.object({
 	themeBrand: DeckBrandSchema.optional(),
 	themeLogoUrl: z.string().optional(),
 	themeLogoAlt: z.string().optional(),
+	/**
+	 * The deck `revision` this write was based on (REQ126) — a precondition, not
+	 * a field: it is never stored. Named, the write lands only while the deck is
+	 * still at that revision and is refused `409` otherwise; absent, the write is
+	 * unconditional, as every PATCH was before the field existed.
+	 */
+	baseRevision: z.number().int().nonnegative().optional(),
 });
 
 export type UpdatePresentationInput = z.infer<typeof UpdatePresentationSchema>;
@@ -6156,6 +6163,17 @@ export const PresentationSchema = z.object({
 	 * its own buttons.
 	 */
 	workspaceId: z.string().nullable().default(null),
+	/**
+	 * The version of the deck's authored content this document shows (REQ126),
+	 * which an editor hands back as `baseRevision` on its Save so a write based on
+	 * a copy someone else has since saved over is refused rather than applied.
+	 *
+	 * Public because there is nothing in it to withhold: a counter of saves says
+	 * no more than the document it rides, and every phone already sees the deck
+	 * change when it does. It is not a credential — naming it opens nothing, and
+	 * the write it guards is still gated by `requireEdit`.
+	 */
+	revision: z.number().default(0),
 	createdAt: z.string(),
 });
 
@@ -6382,6 +6400,27 @@ export const DeckCollaboratorSchema = z.object({
 export type DeckCollaborator = z.infer<typeof DeckCollaboratorSchema>;
 
 /**
+ * One row of `GET /presentations/:id/collaborators`: a grant on the deck, or an
+ * account's grant on the shared folder the deck is filed in (REQ126).
+ *
+ * `folder` is `null` on a deck grant. On a folder grant it names the folder, and
+ * `id` and `level` are that folder grant's, which is managed under
+ * `/api/folders/:id/collaborators`. The parse drops `userId` on both kinds, as
+ * {@link DeckCollaboratorSchema} does.
+ */
+export const DeckCollaboratorEntrySchema = DeckCollaboratorSchema.extend({
+	folder: z
+		.object({
+			id: z.string(),
+			name: z.string().default(""),
+		})
+		.nullable()
+		.default(null),
+});
+
+export type DeckCollaboratorEntry = z.infer<typeof DeckCollaboratorEntrySchema>;
+
+/**
  * Sharing a deck with an account: who, and at what level. The email is the only
  * way in — a caller never names an account by id, because it never learns one.
  */
@@ -6604,13 +6643,18 @@ export const WORKSPACE_NAME_MAX_LENGTH = 200;
 /**
  * The roles a workspace membership can carry, **weakest first** (REQ129).
  *
- * The order is the one thing the array asserts, and it is what leaves room for
- * REQ131's reduced role to arrive at the front without renumbering anything.
+ * The order is the one thing the array asserts, and it is what let REQ131's
+ * reduced role, `commenter`, arrive at the front without renumbering anything.
  * Capability is *not* read off this order — the predicates below name their roles
  * explicitly — because "everything above X" is exactly the reading that silently
  * admits a role nobody considered when it is inserted in the middle.
+ *
+ * `commenter` (REQ131) reads the workspace and its decks and comments on them,
+ * and does nothing else: it creates no deck, edits none and presents none. It
+ * consumes no seat, because no seat accounting exists in this repository yet —
+ * REQ144's seat count, when it arrives, must not count this role.
  */
-export const WORKSPACE_ROLES = ["member", "admin", "owner"] as const;
+export const WORKSPACE_ROLES = ["commenter", "member", "admin", "owner"] as const;
 
 export const WorkspaceRoleEnum = z.enum(WORKSPACE_ROLES);
 
@@ -6618,9 +6662,13 @@ export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
 
 /**
  * What a membership is worth when the request that made it did not say — the
- * weakest role there is, for the reason {@link ShareDeckSchema} defaults a grant
- * to `view`: a request that forgets to state what it is granting must not grant
- * the strongest thing available.
+ * weakest role that builds and runs decks, for the reason {@link ShareDeckSchema}
+ * defaults a grant to `view`: a request that forgets to state what it is granting
+ * must not grant the strongest thing available.
+ *
+ * Not the weakest role there is since REQ131: `commenter` sits below it, and
+ * making it the default would quietly change what every existing add without a
+ * role has always meant. Granting the reduced role is stated, never inferred.
  */
 export const DEFAULT_WORKSPACE_ROLE: WorkspaceRole = "member";
 
@@ -6629,12 +6677,16 @@ export const DEFAULT_WORKSPACE_ROLE: WorkspaceRole = "member";
  * between REQ129's role and the access model every deck route is already decided
  * by.
  *
- * All three roles read and run the workspace's decks today, which is REQ128's
- * "readable and presentable by its members". They differ in what they may do to
- * the *workspace* (see the predicates below), not in what they may do to a slide.
- * REQ131's reduced role is the first that will answer something weaker here, and
- * it will do so by returning `"comment"` from this one function rather than by
- * every deck route learning about workspaces.
+ * `member`, `admin` and `owner` read and run the workspace's decks, which is
+ * REQ128's "readable and presentable by its members". They differ in what they
+ * may do to the *workspace* (see the predicates below), not in what they may do
+ * to a slide.
+ *
+ * `commenter` (REQ131) answers `"comment"` — REQ075's level, read here rather
+ * than by every deck route learning about workspaces. So it reads each deck as
+ * its author wrote it and writes to its comment threads (REQ074), and every
+ * route gated by `canMutateDeck` refuses it: editing, and every run-state route
+ * — starting, ending, paging, revealing — which is what "cannot present" means.
  *
  * `null` — no membership — is the withholding answer, and it is what every
  * stranger, every participant and every anonymous caller resolves to.
@@ -6643,6 +6695,7 @@ export function workspaceDeckAccessLevel(
 	role: WorkspaceRole | null,
 ): DeckAccessLevel | null {
 	if (role === null) return null;
+	if (role === "commenter") return "comment";
 	return "edit";
 }
 
@@ -6652,9 +6705,10 @@ export function canReadWorkspace(role: WorkspaceRole | null): boolean {
 }
 
 /**
- * Whether a role may **create** decks the workspace owns. Every role today; the
- * reduced role REQ131 reserves is the one that will not, which is why this is a
- * predicate of its own rather than a reading of {@link canReadWorkspace}.
+ * Whether a role may **create** decks the workspace owns — directly, from one of
+ * its published templates, or by moving a deck in. Every role but `commenter`
+ * (REQ131), which is why this is a predicate of its own rather than a reading of
+ * {@link canReadWorkspace}.
  */
 export function canCreateWorkspaceDecks(role: WorkspaceRole | null): boolean {
 	return role === "member" || role === "admin" || role === "owner";
@@ -6675,8 +6729,8 @@ export function canCreateWorkspaceDecks(role: WorkspaceRole | null): boolean {
  *
  * *Using* a published template is not this predicate — it creates an ordinary
  * deck the workspace owns, so it is {@link canCreateWorkspaceDecks} like any
- * other create, and REQ131's reduced role will be shut out of both by the one
- * line it adds there.
+ * other create, and REQ131's `commenter` is shut out of both by the role that
+ * predicate leaves off its list.
  */
 export function canPublishWorkspaceTemplates(
 	role: WorkspaceRole | null,
@@ -7352,6 +7406,15 @@ export const StoredPresentationSchema = z.object({
 	 * from a genuine pre-auth deck.
 	 */
 	workspaceId: z.string().nullable().default(null),
+	/**
+	 * Which version of the deck's authored content this is (REQ126): advanced by
+	 * one on every write that changes it — the deck PATCH and the routes that
+	 * rewrite a setting the editor also saves — and by nothing else, never by a
+	 * caller. A write that names the revision it was based on is refused when the
+	 * deck has moved past it. Defaulted `0`, so a deck stored before the field
+	 * existed reads as never edited and the first write against it states `0`.
+	 */
+	revision: z.number().int().nonnegative().default(0),
 	createdAt: z.string().default(""),
 });
 
@@ -7509,6 +7572,95 @@ export const StoredDeckCollaboratorSchema = z.object({
 export type StoredDeckCollaborator = z.infer<
 	typeof StoredDeckCollaboratorSchema
 >;
+
+// ── Deck folders (REQ126) ────────────────────────────────────
+//
+// A folder belongs to exactly one account and groups decks that account owns.
+// Flat: a folder holds decks, never another folder. Deleting a folder never
+// deletes a deck. A folder itself authorizes nothing; a grant on it
+// ({@link StoredFolderGrantSchema}) is the one thing here that does.
+
+/** The longest a folder's name may be, in characters — a workspace's cap. */
+export const FOLDER_NAME_MAX_LENGTH = WORKSPACE_NAME_MAX_LENGTH;
+
+/**
+ * One account's folder. `ownerId` is the identity field and carries no default
+ * — a folder that lost it would be nobody's. It never leaves the server:
+ * {@link FolderSchema} does not declare it.
+ */
+export const StoredFolderSchema = z.object({
+	id: z.string(),
+	/** The owning account (Better Auth `user.id`). */
+	ownerId: z.string(),
+	name: z.string().default(""),
+	createdAt: z.string().default(""),
+	updatedAt: z.string().default(""),
+});
+
+/**
+ * One deck filed in one folder. A collection of its own rather than a field on
+ * the deck, for the reason a slide comment is one: the deck document is handed
+ * to the whole room, and a folder must never reach a participant — here there
+ * is nothing to strip. Unique on `presentationId`, so a deck is in at most one
+ * folder. `ownerId` is the folder's owner, kept so an account's filing is one
+ * indexed read. All three references are identity fields and carry no default.
+ */
+export const StoredFolderEntrySchema = z.object({
+	id: z.string(),
+	folderId: z.string(),
+	presentationId: z.string(),
+	ownerId: z.string(),
+	createdAt: z.string().default(""),
+});
+
+/**
+ * One folder, as its owner reads it: its name and the ids of the decks filed in
+ * it, newest filing first. Only ever sent to the owning account.
+ */
+export const FolderSchema = z.object({
+	id: z.string(),
+	name: z.string().default(""),
+	presentationIds: z.array(z.string()).default([]),
+	createdAt: z.string().default(""),
+	updatedAt: z.string().default(""),
+});
+
+export type Folder = z.infer<typeof FolderSchema>;
+
+/** Creating or renaming a folder: a name, required, trimmed, never blank. */
+export const FolderNameSchema = z.object({
+	name: z.string().trim().min(1).max(FOLDER_NAME_MAX_LENGTH),
+});
+
+/**
+ * Filing a deck: the folder it goes in, or `null` to unfile it. Required, with
+ * no default — a request that states nothing is malformed, never a silent
+ * unfile.
+ */
+export const FileDeckSchema = z.object({
+	folderId: z.string().min(1).nullable(),
+});
+
+/**
+ * One account's grant on one folder (REQ126, slice 4), at the REQ075 levels —
+ * the folder's half of {@link StoredDeckCollaboratorSchema}, and read the same
+ * way from both ends: a folder asks "who is on this?", a grantee "which folders
+ * am I on?". It reaches a filed deck only while that deck's `creatorId` is still
+ * the folder's owner, which access resolution checks rather than trusts.
+ *
+ * `folderId` and `userId` are the identity pair and carry no default. One row
+ * per pair, held by a unique index. The owner reads the list through
+ * {@link DeckCollaboratorSchema}, which drops `userId`.
+ */
+export const StoredFolderGrantSchema = z.object({
+	id: z.string(),
+	folderId: z.string(),
+	/** The invited account (Better Auth `user.id`). Never leaves the server. */
+	userId: z.string(),
+	level: DeckAccessLevelEnum.default("view"),
+	createdAt: z.string().default(""),
+	updatedAt: z.string().default(""),
+});
 
 /**
  * One comment on one slide (REQ074) — the stored half of a deck's threads.

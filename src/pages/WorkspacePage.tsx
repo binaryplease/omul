@@ -523,8 +523,9 @@ export function WorkspacePage({
 							{decks.length === 0 ? (
 								<p className="text-text-muted">
 									No decks yet. One created here belongs to the workspace rather
-									than to you — everybody in it can open, edit and present it,
-									and it stays when anybody leaves.
+									than to you — everybody in it can open it, every role but a
+									commenter can edit and present it, and it stays when anybody
+									leaves.
 								</p>
 							) : (
 								<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

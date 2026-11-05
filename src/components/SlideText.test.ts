@@ -1,6 +1,6 @@
 /**
  * Unit tests for authored slide text (REQ088 hyperlinks, REQ089 markdown,
- * REQ091 text size, REQ093 mathematical notation).
+ * REQ091 text size, REQ093 mathematical notation, REQ133 passage language).
  *
  * Everything a surface renders goes through the two parsers and the size token
  * in `SlideText.tsx`, so pinning them down is pinning down all four surfaces at
@@ -24,14 +24,20 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { plainTextFromMarkdown } from "../../server/deck-pdf";
 import { SlideTextSizeEnum } from "../../server/schemas";
 import {
+	createBracketedSpanReader,
+	isSlideLanguageTag,
 	parseSlideInline,
 	parseSlideText,
 	safeSlideLinkHref,
 	SLIDE_MARKDOWN_HINT,
 	SLIDE_TEXT_SCALE,
 	SLIDE_TEXT_SIZE_OPTIONS,
+	SlideText,
 	type SlideInlineNode,
 	type SlideTextBlock,
 	slideInlineHasMath,
@@ -59,6 +65,8 @@ function writeBack(nodes: SlideInlineNode[]): string {
 					return `*${writeBack(node.children)}*`;
 				case "link":
 					return `[${writeBack(node.children)}](${node.href})`;
+				case "language":
+					return `[${writeBack(node.children)}]{lang=${node.lang}}`;
 				case "math":
 					return node.display ? `$$${node.tex}$$` : `$${node.tex}$`;
 			}
@@ -85,7 +93,11 @@ function writeBackBlocks(blocks: SlideTextBlock[]): string[] {
 function linksIn(nodes: SlideInlineNode[]): [string, string][] {
 	return nodes.flatMap((node): [string, string][] => {
 		if (node.kind === "link") return [[writeBack(node.children), node.href]];
-		if (node.kind === "strong" || node.kind === "emphasis") {
+		if (
+			node.kind === "strong" ||
+			node.kind === "emphasis" ||
+			node.kind === "language"
+		) {
 			return linksIn(node.children);
 		}
 		return [];
@@ -594,6 +606,172 @@ describe("formulas reduced to a gist, and named for the canvas (REQ093)", () => 
 		expect(SLIDE_MARKDOWN_HINT).toContain("\\$");
 		expect(writeBack(parseSlideInline("$x^2$"))).toBe("$x^2$");
 		expect(parseSlideText("$$x^2$$")[0]?.kind).toBe("math");
+	});
+});
+
+describe("a passage in another language (REQ133)", () => {
+	/** The tag's shape alone, without the length bound. */
+	const LANGUAGE_TAG_SHAPE = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$/;
+
+	/** A heading as the room's screen draws it. */
+	const markupOf = (text: string, variant: "inline" | "blocks" = "inline") =>
+		renderToStaticMarkup(
+			createElement(SlideText, { text, size: "medium", variant }),
+		);
+
+	test("a span renders its passage inside an element carrying the tag", () => {
+		expect(parseSlideInline("She said [bonjour]{lang=fr} twice")).toEqual([
+			{ kind: "text", text: "She said " },
+			{
+				kind: "language",
+				lang: "fr",
+				children: [{ kind: "text", text: "bonjour" }],
+			},
+			{ kind: "text", text: " twice" },
+		]);
+		expect(markupOf("She said [bonjour]{lang=fr} twice")).toContain(
+			'She said <span lang="fr">bonjour</span> twice',
+		);
+		expect(markupOf("- [Grüezi]{lang=de-CH}", "blocks")).toContain(
+			'<li><span lang="de-CH">Grüezi</span></li>',
+		);
+	});
+
+	test("only lang reaches the element — no class, no style, no dir", () => {
+		const markup = markupOf("[bonjour]{lang=fr}");
+		expect(markup).toMatch(/<span lang="fr">bonjour<\/span>/);
+		expect(markup).not.toContain("{");
+	});
+
+	test("markup inside the passage renders as it does anywhere else", () => {
+		expect(
+			writeBack(
+				parseSlideInline(
+					"[**très** *bien* `code` [la doc](https://example.com/fr)]{lang=fr}",
+				),
+			),
+		).toBe(
+			"[**très** *bien* `code` [la doc](https://example.com/fr)]{lang=fr}",
+		);
+		expect(
+			linksIn(parseSlideInline("[voir [la doc](https://example.com)]{lang=fr}")),
+		).toEqual([["la doc", "https://example.com/"]]);
+		expect(slideInlineHasMath("[la racine $x_1$]{lang=fr}")).toBe(true);
+		// A bracket inside code or a formula does not close the passage.
+		expect(writeBack(parseSlideInline("[`a]` et $[0,1)$]{lang=fr}"))).toBe(
+			"[`a]` et $[0,1)$]{lang=fr}",
+		);
+		// Spans nest, as a quotation inside a quotation does.
+		expect(writeBack(parseSlideInline("[il dit [ja]{lang=de}]{lang=fr}"))).toBe(
+			"[il dit [ja]{lang=de}]{lang=fr}",
+		);
+	});
+
+	test("a tag that is not shaped like one leaves the span as typed", () => {
+		for (const written of [
+			"[bonjour]{lang=1}",
+			"[bonjour]{lang=english}",
+			"[bonjour]{lang=fr_FR}",
+			'[bonjour]{lang="fr"}',
+			"[bonjour]{lang=}",
+			"[bonjour]{lang=fr-}",
+			`[bonjour]{lang=fr-${"a".repeat(40)}}`,
+			'[bonjour]{lang=fr" onclick="x}',
+		]) {
+			expect(parseSlideInline(written)).toEqual([
+				{ kind: "text", text: written },
+			]);
+			expect(markupOf(written)).not.toContain("<span lang");
+		}
+	});
+
+	test("anything but lang= in the braces leaves the span as typed", () => {
+		for (const written of [
+			"[**bonjour**]{dir=rtl}",
+			"[bonjour]{lang=fr dir=rtl}",
+			"[bonjour]{.fr}",
+			"[bonjour]{ lang=fr}",
+			"[bonjour]{class=x}",
+			"[bonjour]{}",
+		]) {
+			// Nothing half-applied: not even the bold inside it.
+			expect(parseSlideInline(written)).toEqual([
+				{ kind: "text", text: written },
+			]);
+		}
+	});
+
+	test("what was never a span reads exactly as it did", () => {
+		expect(parseSlideInline("[bonjour] {lang=fr}")).toEqual([
+			{ kind: "text", text: "[bonjour] {lang=fr}" },
+		]);
+		expect(parseSlideInline("[bonjour]\\{lang=fr}")).toEqual([
+			{ kind: "text", text: "[bonjour]{lang=fr}" },
+		]);
+		expect(parseSlideInline("[ ]{lang=fr}")).toEqual([
+			{ kind: "text", text: "[ ]{lang=fr}" },
+		]);
+		expect(linksIn(parseSlideInline("[a [b](https://example.com)"))).toEqual([
+			["a [b", "https://example.com/"],
+		]);
+	});
+
+	test("a gist keeps the passage's words", () => {
+		expect(slideTextToPlain("Say [**merci**]{lang=fr}.")).toBe("Say merci.");
+	});
+
+	test("the editor's hint names the syntax the parser reads", () => {
+		const written = /\[like this\]\{lang=fr\}/.exec(SLIDE_MARKDOWN_HINT);
+		expect(written).not.toBeNull();
+		expect(parseSlideInline(written?.[0] ?? "")[0]?.kind).toBe("language");
+	});
+
+	test("the tag rule is BCP 47's shape, and the PDF holds the same one", () => {
+		const accepted = ["fr", "de-CH", "zh-Hant-TW", "sr-Latn", "es-419", "haw"];
+		const refused = ["f", "fren", "1", "fr_FR", "fr-", "-fr", "fr--CH", ""];
+		for (const tag of accepted) expect(isSlideLanguageTag(tag)).toBe(true);
+		for (const tag of refused) expect(isSlideLanguageTag(tag)).toBe(false);
+		// Well shaped, and past the 35 characters BCP 47 asks a reader to hold.
+		const tooLong = `en-${"a1b2c3d4-".repeat(4)}x`;
+		expect(LANGUAGE_TAG_SHAPE.test(tooLong)).toBe(true);
+		expect(isSlideLanguageTag(tooLong)).toBe(false);
+
+		// The server restates the rule; a tag the slide marks is a tag the PDF
+		// unmarks, and a tag the slide shows as typed the PDF shows as typed.
+		for (const tag of [...accepted, ...refused, tooLong]) {
+			const written = `[merci]{lang=${tag}}`;
+			expect(plainTextFromMarkdown(written)).toBe(
+				isSlideLanguageTag(tag) ? "merci" : written,
+			);
+		}
+	});
+
+	test("adversarial brackets at the field's length are read in linear work", () => {
+		// Counted rather than timed, so the bound holds on any machine: a clock
+		// limit passed on a laptop and failed on a slower CI runner. Scanning
+		// afresh from every `[` took work quadratic in the text (5,000 unclosed
+		// brackets, about 12.5 million steps); one reader per run of text reads
+		// each token once and steps each position once.
+		const fill = (unit: string) => unit.repeat(5000 / unit.length);
+		for (const written of [
+			fill("["),
+			fill("[a"),
+			fill("[$a"),
+			fill("[`a"),
+			fill("[a]{lang=fr}"),
+			`${fill("[")}a${fill("]{lang=fr}")}`,
+			`${fill("[a]{")}${fill("]")}`,
+			`${fill("[")}\n${fill("[a]{lang=fr}")}`,
+		]) {
+			// Asked at every bracket, as the parser asks it.
+			const spans = createBracketedSpanReader(written);
+			for (let index = 0; index < written.length; index += 1) {
+				if (written[index] === "[") spans.read(index);
+			}
+			expect(spans.steps).toBeLessThanOrEqual(2 * written.length);
+			parseSlideInline(written);
+			parseSlideText(written);
+		}
 	});
 });
 

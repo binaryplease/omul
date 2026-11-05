@@ -132,10 +132,10 @@ omul** below).
 | POST | `/api/deck-generation` | ✅ session/key by default | Draft a deck from `{ prompt, language? }` and return it as an ordinary editable presentation (REQ007). The account requirement is the operator's to lift (`OMUL_GENERATION_ALLOW_ANONYMOUS`) |
 | GET | `/api/presentations` | — | List presentations (`?creatorId=`) |
 | GET | `/api/presentations/mine` | ✅ session/key | List the signed-in account's owned decks |
-| GET | `/api/presentations/shared` | ✅ session/key | List the decks other accounts have shared with the caller, each with its `accessLevel` (REQ075) — see **Sharing a deck with other accounts** below |
+| GET | `/api/presentations/shared` | ✅ session/key | List the decks other accounts have shared with the caller — on the deck or through a folder it is filed in — each with its `accessLevel` (REQ075, REQ126) — see **Sharing a deck with other accounts** below |
 | POST | `/api/presentations` | optional session/key | Create; returns `creatorToken` once (null for API-key create; records owner when signed in). `templateId` starts the deck from a catalog entry, copying its slides (REQ006) — see **Deck templates** below. `workspaceId` makes the deck the **workspace's** instead: no account owner, no edit token, and a role check on the caller (REQ128) — see **Workspaces** below. `workspaceTemplateId`, alongside it, starts that deck from one of the workspace's own published templates (REQ004) |
 | GET | `/api/presentations/:id` | — | Get presentation by ID. Reports the caller's own `accessLevel` (REQ075) and account-standing `commentAccess` (REQ074) on it |
-| PATCH | `/api/presentations/:id` | ✅ owner, token or `edit` grant | Update the deck's **authored** fields. The owner, the edit-token hash and the results-link pair are not among them and are dropped, not merged |
+| PATCH | `/api/presentations/:id` | ✅ owner, token or `edit` grant | Update the deck's **authored** fields. The owner, the edit-token hash and the results-link pair are not among them and are dropped, not merged. An optional `baseRevision` makes the write conditional: `409` with `refused: "stale-revision"`, the current `revision` and the current deck (`presentation`) when the deck has moved past it, and nothing written (REQ126) |
 | DELETE | `/api/presentations/:id` | ✅ owner or token | Delete presentation — and every collaborator grant on it. The one mutation an `edit` collaborator is **not** allowed (REQ075) |
 | POST | `/api/presentations/:id/start` | ✅ owner, token or `edit` grant | Go live |
 | POST | `/api/presentations/:id/end` | ✅ owner, token or `edit` grant | End presentation |
@@ -149,7 +149,7 @@ omul** below).
 | POST | `/api/presentations/:id/countdown` | ✅ owner, token or `edit` grant | Start, pause, resume or reset a countdown slide's clock `{ slideId, action }` (REQ107) — see **Running a countdown slide** below |
 | POST | `/api/presentations/:id/claim` | ✅ session + control | Claim an ownerless deck for the account (409 if owned by another account, or by a workspace) |
 | POST | `/api/presentations/:id/workspace` | ✅ deck owner + role at the other end | Move the deck into a workspace `{ workspaceId }`, or back into the caller's account `{ workspaceId: null }` (REQ128) — see **Workspaces** below |
-| GET | `/api/presentations/:id/collaborators` | ✅ owner | Who the deck is shared with, and at what level (REQ075) |
+| GET | `/api/presentations/:id/collaborators` | ✅ owner | Who the deck is shared with, and at what level (REQ075), then who reaches it through the shared folder it is filed in (REQ126) — see **What a deck's collaborator list reports** below |
 | POST | `/api/presentations/:id/collaborators` | ✅ owner | Share it with a registered account `{ email, level? }` — idempotent per account (REQ075) |
 | PATCH | `/api/presentations/:id/collaborators/:collaboratorId` | ✅ owner | Change one grant's level `{ level }` (REQ075) |
 | DELETE | `/api/presentations/:id/collaborators/:collaboratorId` | ✅ owner | Revoke one grant, immediately (REQ075) |
@@ -202,6 +202,15 @@ omul** below).
 | GET | `/api/workspaces/:id/templates` | ✅ member | The templates the workspace publishes out of its own decks (REQ004) — see **Templates a workspace publishes** below |
 | POST | `/api/workspaces/:id/templates` | ✅ `admin` / `owner` | Publish one of its decks as a template `{ presentationId, category, title?, description?, tags? }` — idempotent per deck |
 | DELETE | `/api/workspaces/:id/templates/:templateId` | ✅ `admin` / `owner` | Take one back down. No deck is touched |
+| GET | `/api/folders` | ✅ session/key | The caller's own folders by name, each with `presentationIds` — the decks filed in it (REQ126). See **Deck folders** below |
+| POST | `/api/folders` | ✅ session/key | Create a folder `{ name }`. `429` past 30 creations per hour per account, `409` at 100 folders held. See **Limits on creating a folder** below |
+| PATCH | `/api/folders/:id` | ✅ the folder's account | Rename it `{ name }` — another account's folder is `404`, like a missing one |
+| DELETE | `/api/folders/:id` | ✅ the folder's account | Delete it. Its decks are kept and go back to unfiled |
+| GET | `/api/folders/:id/collaborators` | ✅ the folder's account | Who the folder is shared with, and at what level — the deck list's fields without `folder`, no account id |
+| POST | `/api/folders/:id/collaborators` | ✅ the folder's account | Share it, and every deck filed in it, with a registered account `{ email, level? }` — idempotent per account |
+| PATCH | `/api/folders/:id/collaborators/:collaboratorId` | ✅ the folder's account | Change one folder grant's level `{ level }` |
+| DELETE | `/api/folders/:id/collaborators/:collaboratorId` | ✅ the folder's account | Revoke one folder grant, immediately |
+| PUT | `/api/presentations/:id/folder` | ✅ the deck's owner | File the deck in one of the caller's folders `{ folderId }`, or unfile it with `folderId: null`; answers `{ folderId }`. A shared, workspace or token-held deck is `403` |
 | POST | `/api/admin/actions` | ✅ admin | Prepare a two-step action; returns a one-time `confirmationToken` |
 | POST | `/api/admin/actions/:id/confirm` | ✅ admin | Execute a prepared action `{ confirmationToken }` |
 | GET | `/api/admin/events` | ✅ admin | Append-only admin audit log |
@@ -373,8 +382,9 @@ in the body:
 | the same seven public writes | 60 per minute | `participantId` |
 | `POST …/reactions` (REQ077) | 3000 per minute | client |
 | `POST …/reactions` (REQ077) | 120 per minute | `participantId` |
-| `POST …/collaborators` (REQ075) | 600 per minute | client |
-| `POST …/collaborators` (REQ075) | 60 per minute | the deck being shared |
+| `POST …/collaborators` (REQ075, and a folder's, REQ126) | 600 per minute | client |
+| `POST …/collaborators` (REQ075, and a folder's, REQ126) | 60 per minute | the deck or folder being shared |
+| `POST /api/folders` (REQ126) | 30 per hour | the account |
 | `POST /api/workspaces/:id/members` (REQ129) | 600 per minute | client |
 | `POST /api/workspaces/:id/members` (REQ129) | 60 per minute | the workspace being added to |
 | `POST /api/feedback` (REQ185) | 20 per 10 minutes | client |
@@ -391,7 +401,9 @@ probing faster than that means holding more of them — and still meets the
 per-client ceiling.
 
 The guards run **before** the handler, so an over-limit call never reaches
-authorization or the store; a malformed body is still rejected first (`422`,
+authorization or the store. The exception is `POST /api/folders`, which is keyed
+by the account and so resolves the account first: no account is `401` and spends
+no budget. A malformed body is still rejected first (`422`,
 by the route schema) and costs no budget. The window is in-process
 (`server/rate-limit.ts`), the per-client ceilings are sized for a whole NATted
 room rather than one person, and the whole thing is switchable off with
@@ -534,6 +546,23 @@ stored document, and `StoredPresentationSchema` *declares* `creatorId` and
 ownership, or plant an edit-token hash they knew the secret for and survive being
 revoked, and step around both limits above in one request.
 
+**Two editors cannot silently save over each other (REQ126).** The editor sends
+every authored field on every Save, the whole slide list included, so with more
+than one account able to edit a deck the second Save used to replace the first
+wholesale. Every deck read now carries `revision`, a server-owned counter that
+advances by one on every successful write of authored content — `PATCH
+/api/presentations/:id`, `…/results-visibility`, `…/qa/settings` and
+`…/channels` — and that no request can write. The editor hands back the revision
+it loaded as `baseRevision`; once anyone else's write has moved the deck on, the
+PATCH is refused `409` with `refused: "stale-revision"`, the current `revision`
+and the current deck under `presentation` (sanitized like every editor read, so
+no `creatorId` or edit-token hash), and nothing is written or broadcast. A PATCH
+without `baseRevision` stays unconditional, which is what the CLI and API-key
+clients send. The comparison and the write share one per-deck queue
+(`createKeyedLock`), so two writes based on the same revision cannot both land
+within a server process. Merging a refused save onto the current deck is not
+done yet; the editor reports the refusal and keeps the unsaved edits on screen.
+
 **A grant names an account, and only ever by email.** `POST …/collaborators`
 takes the address the target signed up with and resolves it through Better Auth's
 own `user` table; an address with no account is a `404`, because this endpoint
@@ -597,32 +626,40 @@ says so. Two consequences a caller meets directly:
   shared deck private in one request nobody else is told about. Moving one back
   out is deliberate and owner-gated — see below.
 
-**Three roles, in one order: `member` < `admin` < `owner`.** Every role reads,
-edits and presents every deck the workspace owns and creates new ones in it —
-that is REQ128's "readable and presentable by its members", and it resolves
-through `workspaceDeckAccessLevel()`, the single bridge from a role to the
-`view`/`comment`/`edit` model every gated deck route is already decided by. What
-separates the roles is what they may do to the *workspace*:
+**Four roles, in one order: `commenter` < `member` < `admin` < `owner`.**
+`member`, `admin` and `owner` read, edit and present every deck the workspace
+owns and create new ones in it — that is REQ128's "readable and presentable by
+its members". `commenter` (REQ131) reads those decks and comments on them, and
+does nothing else. Both resolve through `workspaceDeckAccessLevel()`, the single
+bridge from a role to the `view`/`comment`/`edit` model every gated deck route is
+already decided by: `commenter` answers `comment`, the other three `edit`. What
+separates the three upper roles is what they may do to the *workspace*:
 
-| | `member` | `admin` | `owner` |
-|---|---|---|---|
-| Read, edit, present its decks; create new ones | ✅ | ✅ | ✅ |
-| Delete one of its decks; decide who outside the workspace it is shared with | — | ✅ | ✅ |
-| Publish one of its decks as a template, and take one down (REQ004) | — | ✅ | ✅ |
-| Add, remove and re-role members | — | ✅ | ✅ |
-| Grant or take back the `owner` role | — | — | ✅ |
-| Rename or delete the workspace; move a deck back out of it | — | — | ✅ |
-| Set the theme its new decks start in (REQ086) | — | — | ✅ |
+| | `commenter` | `member` | `admin` | `owner` |
+|---|---|---|---|---|
+| Read its decks as their authors wrote them; comment on them (REQ074) | ✅ | ✅ | ✅ | ✅ |
+| Edit and present its decks; create new ones (from a template too) | — | ✅ | ✅ | ✅ |
+| Delete one of its decks; decide who outside the workspace it is shared with | — | — | ✅ | ✅ |
+| Publish one of its decks as a template, and take one down (REQ004) | — | — | ✅ | ✅ |
+| Add, remove and re-role members | — | — | ✅ | ✅ |
+| Grant or take back the `owner` role | — | — | — | ✅ |
+| Rename or delete the workspace; move a deck back out of it | — | — | — | ✅ |
+| Set the theme its new decks start in (REQ086) | — | — | — | ✅ |
 
 Each row is a **predicate** in `server/schemas.ts`
 (`canCreateWorkspaceDecks`, `canAdministerWorkspaceDecks`,
 `canPublishWorkspaceTemplates`, `canManageWorkspaceMembers`,
 `canAdministerWorkspace`), and no route re-derives one by comparing role
-strings. The set is deliberately open at the weak end:
-REQ131 reserves a reduced-capability role that reads and comments but neither
-creates nor presents, and it arrives as one entry at the front of
-`WORKSPACE_ROLES` plus one line in each predicate rather than as a sweep for
-`!== "member"` spelled five different ways.
+strings. Each names the roles it admits, so `commenter` arrived at the front of
+`WORKSPACE_ROLES` admitted by none of them and needed no line in any. Its
+standing on a deck is REQ075's `comment` level, so it fails every route gated by
+`requireEdit` — editing, and every run-state route (start, end, paging, reveal,
+blank, timers and the rest) — exactly as a `comment` collaborator does, and that
+is what "cannot present" means here. Exports go through the same gate, so it
+does not download a deck's results either. **It consumes no seat**: there is no
+seat accounting in this repository (REQ144 is pending), and when there is, its
+count must not include this role. The default for an add that names no role
+stays `member` — the reduced role is granted by saying so.
 
 **Enforcement is server-side, on every mutation** — the sentence REQ129 ends on.
 A workspace deck's mutations run the same `requireEdit` every other deck's do,
@@ -726,6 +763,130 @@ report `role`. All of it is a *report*, never a credential: every gated route
 re-resolves the role from the request's own credentials, so a client that gets it
 wrong only mis-draws its own buttons.
 
+## Deck folders (REQ126)
+
+An account groups the decks it **owns** into folders. Folders are flat, a deck
+is in at most one, and a deck in none is unfiled. The home screen lists the
+account's decks by folder from `GET /api/folders` beside `/presentations/mine`.
+
+- **A folder is its account's alone.** Every folder route answers to the
+  caller's own account (`401` without one), and another account's folder
+  answers the same `404` as one that does not exist. No folder, name or filing
+  reaches another account, an anonymous caller or a participant, and no folder
+  id rides any deck read — membership lives in its own collection
+  (`folderEntries`), never on the deck document the room is handed.
+- **Filing is the deck owner's.** `PUT /api/presentations/:id/folder` needs the
+  caller to be the deck's account owner: a deck shared with them at any level,
+  one a workspace owns, and one held only by an edit token are refused. Filing
+  a filed deck moves it.
+- **No deck is ever deleted with a folder.** Deleting a folder unfiles its decks
+  and touches nothing else. A deck leaves its folder by itself when it is
+  deleted, moved into a workspace or reassigned to another account, so a filing
+  never outlives the ownership it was made under.
+- **Deleting an account removes what names it.** `POST /api/auth/delete-user`
+  removes the folders the account owns with their filings and grants, and the
+  grants it holds on other accounts' folders. Its decks are kept with their
+  `creatorId` (REQ182) and are no longer reached through any folder.
+- **Filing is not an authored edit.** It does not move the deck's `revision`
+  (REQ126 slice 1), so it never refuses an open editor's Save, and nothing is
+  broadcast to the room. Neither does sharing a folder.
+
+### What a deck's collaborator list reports
+
+`GET /api/presentations/:id/collaborators` lists the deck's own grants, oldest
+first, and then the grants of the shared folder the deck is filed in, oldest
+first. Revoking an account's deck grant removes that row, and the account's
+folder row stays for as long as the folder grant reaches the deck.
+
+| Field | On a deck grant | On a folder grant |
+|---|---|---|
+| `id` | The deck grant's id | The folder grant's id |
+| `email`, `name` | The account's | The account's |
+| `level` | The deck grant's level | The folder grant's level |
+| `createdAt`, `updatedAt` | The deck grant's dates | The folder grant's dates |
+| `folder` | `null` | `{ id, name }` of the folder |
+
+- **An account can have two rows.** An account with a deck grant and a folder
+  grant has one row for each, with each grant's own level. The strongest standing
+  applies, as **Auth model** above states, so the owner compares the two rows.
+- **A row is reported exactly while it authorizes.** The list and
+  `resolveDeckAccess` ask the same question of `server/services/folders.ts`. The
+  filing and the folder must both name the deck's current owner. A workspace deck
+  has no `creatorId` and reports no folder grants.
+- **No account identifier is in the payload.** Both kinds of row are parsed
+  through `DeckCollaboratorEntrySchema`, which does not declare `userId`.
+- **Who reads it has not changed.** The route is gated by `requireDeckOwner`:
+  `401` without an account, and for a request with only the edit token; `403` for
+  any other account, a collaborator or a folder grantee included.
+- **A folder grant is managed on the folder.** `PATCH` and `DELETE` under
+  `/api/presentations/:id/collaborators/:collaboratorId` answer `404` for a folder
+  grant's id. The row's `folder.id` and `id` name it under
+  `/api/folders/:id/collaborators/:collaboratorId`.
+
+`POST` and `PATCH` under `/api/presentations/:id/collaborators` still answer a
+deck grant without the `folder` key, and `GET /api/folders/:id/collaborators`
+answers without it too.
+
+The deck's share dialog shows the folder rows in their own section with both
+controls disabled and names the folder that manages them. A revoke's toast names
+the level the account keeps through the folder.
+
+### Limits on creating a folder
+
+`POST /api/folders` is limited per account, by a rate and by a count. Each limit
+covers a case the other leaves open. `POST /api/folders/:id/collaborators`
+budgets its email lookup at 60 per minute per folder, because its `404`/`201`
+split says whether an address has an account, and a new folder has a new id and
+so a new budget.
+
+| Refusal | When | Body and headers | `OMUL_RATE_LIMITS_DISABLED=true` |
+|---|---|---|---|
+| `429` | The account has made 30 folders in the past hour | `{ error, retryAfterSeconds }`, `Retry-After` | Lifts it |
+| `409` | The account holds 100 folders | `{ error }` | Does not lift it |
+
+- **The rate covers delete-and-recreate.** Deleting a folder frees no creation in
+  the window, so a new id costs one of 30 per hour whatever happens to the old one.
+- **The count covers holding folders.** A folder's budget refills every minute
+  for as long as the folder exists, so a rate alone would let a patient account
+  hold more budget every hour. Deleting a folder frees a place under the count.
+- **The key is the account.** Every personal API key and session of one account
+  shares the count, and the call needs an account before it counts (`401`
+  otherwise). The home screen shows the `error` of either refusal as a toast.
+- **What these limits leave standing.** One account's lookups through folders are
+  bounded by 60 per minute for each folder it holds, plus 60 for each folder it
+  creates in that minute. From one client the 600-per-minute address ceiling is
+  the tighter bound, and an account reaches it with 10 folders, so these limits
+  do not lower the rate one client can probe at. They bound what one account gets
+  across many client addresses, which had no bound before them.
+
+### Sharing a folder
+
+A folder can be shared with registered accounts at the deck-sharing levels
+(`view`, `comment`, `edit`), and a grant on a folder reaches **every deck filed
+in it**. The four `/api/folders/:id/collaborators` routes mirror the deck's
+`…/collaborators` routes: an account is named by its login email, sharing again
+changes the level (`200`, not `201`), a grant is changed or revoked by its own
+`id`, and the list never carries an account id.
+
+- **Only the folder's owner** lists or changes its grants: `401` without an
+  account, `404` for anyone else — a grantee included — exactly as for a folder
+  that does not exist. Sharing a folder with its own owner is `400`.
+- **Enforced where a deck grant is.** `resolveDeckAccess` (and the account-only
+  resolution the comment threads use) reads the folder grant beside the deck's
+  own grant and the workspace role, and the **strongest** standing stands. A
+  folder grant is delegated on the same terms as a deck grant: `edit` through
+  a folder does not delete a deck or change who it is shared with.
+- **It counts only while the deck is the folder owner's.** The deck must be
+  filed in the folder *and* its current `creatorId` must be the folder's owner;
+  the filing row alone is not trusted. So a deck that is unfiled, moved to
+  another folder, deleted, moved into a workspace or reassigned is no longer
+  reached. Deleting a deck never touches the folder's grants; deleting the
+  folder deletes them.
+- **The grantee's side** is `GET /api/presentations/shared` and the home
+  screen's "Shared with You": every deck reached through a folder grant is
+  there once, with its effective `accessLevel`. There is no listing of the
+  folders themselves on the grantee's side.
+
 ## Comment threads on slides (REQ074)
 
 A deck carries one comment thread per slide: the authoring conversation between
@@ -797,7 +958,7 @@ this. **Deleting the deck** sweeps them, beside its collaborator grants and for 
 sharper reason than a grant has — a comment is text people wrote, which is the
 last thing that should outlive what it was about (REQ146).
 
-## Authored slide text (REQ088, REQ089, REQ091, REQ093)
+## Authored slide text (REQ088, REQ089, REQ091, REQ093, REQ133)
 
 A slide's `question` — and `body` on a content slide — is **markdown, stored
 verbatim**. The boundary does not trim it, escape it, or resolve it: it comes
@@ -810,12 +971,31 @@ written `[label](url)` or pasted bare, and formulas (REQ093): TeX between `$…$
 inline or `$$…$$` on display, read on Pandoc's rules so that `$5 or $10` stays
 two prices, with `\$` for a literal dollar sign. The server neither typesets nor
 checks a formula — backslashes, braces and dollar signs are stored and served
-as typed. Two consequences for anything that consumes this API:
+as typed.
+
+A passage in a language other than the deck's (REQ133) is written as a
+Pandoc-style bracketed span, `[passage]{lang=fr}`, and is rendered inside an
+element carrying that `lang` so a screen reader switches pronunciation. Markup
+inside the passage — bold, italic, code, a link, an inline formula, another
+span — renders as it does anywhere else; to mark a link's label, wrap the link
+in the span. The tag must be **shaped like a BCP 47 tag**: a primary subtag of
+two or three letters, then any hyphen-separated subtags of one to eight letters
+or digits, 35 characters at most (`fr`, `de-CH`, `zh-Hant-TW`). The braces
+must hold `lang=<tag>` and nothing else — no quotes, no spaces, no second
+attribute. A span that fails either rule is not a language span: it is shown
+exactly as typed, markup inside it included. **Only `lang` is emitted**: the
+passage is drawn exactly like its neighbours, and nothing else written in the
+braces — no class, no `dir`, no other attribute — reaches the page. The PDF
+export keeps the passage's words and drops the marking. The server stores the
+span verbatim and neither parses nor checks it.
+
+Two consequences for anything that consumes this API:
 
 - **The markup is not sanitised on the way in, because it is never turned into
   HTML on the way out.** The renderer builds React elements, so the only
-  attacker-controlled attribute it can emit is a link's `href`, and only
-  `http`/`https`/`mailto`/`tel` reach one. A `javascript:` target is stored as
+  attacker-controlled attributes it can emit are a link's `href`, and only
+  `http`/`https`/`mailto`/`tel` reach one, and a passage's `lang`, which only a
+  tag of the shape above reaches. A `javascript:` target is stored as
   typed and simply never becomes a link — which is also why a client that
   rendered these strings as HTML itself would be reintroducing the hole this
   design does not have. A formula is typeset by a bundled KaTeX with every
@@ -1098,8 +1278,8 @@ publish that was refused for not saying. `title` defaults to the deck's own.
 is deliberately the narrower of two defensible readings: publishing writes to a
 surface every member reads and every deck made from it inherits. Starting a deck
 from an entry is an ordinary create, gated by `canCreateWorkspaceDecks()` like
-any other — so REQ131's reduced role will be shut out of both by the one line it
-adds there.
+any other — so REQ131's `commenter`, which that predicate does not admit, is shut
+out of both.
 
 **None of these routes is an existence oracle.** Every one of them resolves the
 caller's role in the workspace *first*: a workspace the caller is not in and one

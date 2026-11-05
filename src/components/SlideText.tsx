@@ -27,7 +27,8 @@ import { SlideMath } from "./SlideMath";
 // exactly one attacker-controlled attribute in the output — a link's `href` —
 // and {@link safeSlideLinkHref} allowlists the schemes that may reach it. A
 // `javascript:` URL is not sanitised into something harmless; it never becomes
-// a link at all.
+// a link at all. A passage marked as another language (REQ133) adds a second
+// attribute, `lang`, and only a value shaped like a language tag reaches it.
 //
 // A formula (REQ093) is found here like any other markup and drawn by
 // `<SlideMath/>`, the one subtree React does not build itself: KaTeX builds it
@@ -89,7 +90,7 @@ export const SLIDE_TEXT_SIZE_OPTIONS: ChoiceOption<SlideTextSize>[] = [
  * parser does not keep.
  */
 export const SLIDE_MARKDOWN_HINT =
-	"Heading and body take simple markdown: **bold**, *italic*, `code`, # sub-headings, and - or 1. lists. Links are written [like this](https://example.com) — or just paste an address starting with https://. They open in a new tab. Math is TeX between dollar signs: $x^2$ within a line, $$x^2$$ on a line of its own, and \\$ for a plain dollar sign.";
+	"Heading and body take simple markdown: **bold**, *italic*, `code`, # sub-headings, and - or 1. lists. Links are written [like this](https://example.com) — or just paste an address starting with https://. They open in a new tab. Math is TeX between dollar signs: $x^2$ within a line, $$x^2$$ on a line of its own, and \\$ for a plain dollar sign. A passage in another language is written [like this]{lang=fr}, so a screen reader pronounces it in that language.";
 
 /** The accent-underlined treatment every link in authored text wears. */
 export const SLIDE_LINK =
@@ -104,6 +105,11 @@ export type SlideInlineNode =
 	| { kind: "emphasis"; children: SlideInlineNode[] }
 	| { kind: "code"; text: string }
 	| { kind: "link"; href: string; children: SlideInlineNode[] }
+	/**
+	 * A passage in a language other than the deck's (REQ133), written
+	 * `[passage]{lang=fr}`. `lang` has passed {@link isSlideLanguageTag}.
+	 */
+	| { kind: "language"; lang: string; children: SlideInlineNode[] }
 	/**
 	 * A formula (REQ093). `tex` is what KaTeX is handed; `source` is the formula
 	 * exactly as typed, delimiters included — what the slide shows instead when
@@ -457,10 +463,204 @@ function readEmphasisRun(
 		: { content: source.slice(from, close), end: close + marker.length };
 }
 
+/**
+ * The braces that close a bracketed span: `{…}` straight after its `]`, with no
+ * brace or line break inside.
+ */
+const SPAN_ATTRIBUTES = /^\{([^{}\n]*)\}/;
+
+/**
+ * A language tag's shape (REQ133): BCP 47's, without its registry — a primary
+ * subtag of two or three letters, then any hyphen-separated subtags of one to
+ * eight letters or digits. `fr`, `de-CH`, `zh-Hant-TW` and `sr-Latn` pass; `1`,
+ * `english`, `fr_FR` and a quoted `"fr"` do not.
+ */
+const LANGUAGE_TAG = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$/;
+
+/** The longest tag accepted — the length BCP 47 asks every reader to hold. */
+const LANGUAGE_TAG_MAX_LENGTH = 35;
+
+/**
+ * Whether `tag` is shaped like a language tag, and so may become a `lang`
+ * attribute (REQ133).
+ *
+ * The value is authored, and it is the second attacker-controlled attribute
+ * this module emits after a link's `href`, so it is held to a shape rather than
+ * passed through: whatever does not look like a language never reaches the
+ * DOM. Restated in `plainTextFromMarkdown` (`server/deck-pdf.ts`), and the two
+ * are held together by `SlideText.test.ts`.
+ */
+export function isSlideLanguageTag(tag: string): boolean {
+	return tag.length <= LANGUAGE_TAG_MAX_LENGTH && LANGUAGE_TAG.test(tag);
+}
+
+/**
+ * The index just past the token that starts at `index`, as a bracketed span's
+ * scan reads the text (REQ133): an escaped character, a code span or a formula
+ * is one token, so a bracket inside it is not counted; anything else is one
+ * character.
+ *
+ * Depends on nothing before `index`, which is what lets every scan that reaches
+ * a position share the one reading of it.
+ */
+function spanTokenEnd(source: string, index: number): number {
+	const character = source[index] as string;
+	if (character === "\\" && ESCAPABLE.includes(source[index + 1] ?? "")) {
+		return index + 2;
+	}
+	if (character === "`") {
+		const close = source.indexOf("`", index + 1);
+		const code = close === -1 ? "" : source.slice(index + 1, close);
+		return code.length > 0 && !code.includes("\n") ? close + 1 : index + 1;
+	}
+	if (character === "$") {
+		const formula = readFormula(source, index);
+		return formula?.end ?? index + (source[index + 1] === "$" ? 2 : 1);
+	}
+	return index + 1;
+}
+
+/** A `[passage]{…}` span, with `end` counted from its opening bracket. */
+type BracketedSpan = { passage: string; lang: string | null; end: number };
+
+/** Not yet read, in the reader's tables. */
+const UNREAD = -2;
+/** Nothing closes it before a line break or the end of the text. */
+const UNCLOSED = -1;
+
+/**
+ * Reads the `[passage]{…}` spans of one run of text (REQ133): `read(start)` is
+ * the span that opens at the `[` at `start`, or `null` when that bracket closes
+ * no span.
+ *
+ * The closing `]` is the one that balances the opening bracket, so a link can
+ * sit inside the passage — `[voir [la doc](https://example.com)]{lang=fr}` —
+ * and a bracket inside code, inside a formula or behind a backslash is not
+ * counted; a line break before the balancing `]` means no span. `lang` is
+ * `null` when the braces are something other than one well-shaped `lang=` tag;
+ * the caller then shows the whole span as typed.
+ *
+ * One reader serves every bracket of the text, and that is the point of it.
+ * Scanning forward afresh from each `[` costs the length of the text per
+ * bracket, so five thousand unclosed ones (an authored field's length) took
+ * time quadratic in it. Here each token is read once, by whichever scan reaches
+ * it first, and each bracket's closer is found once, by a stack over that scan.
+ * A scan that runs into a position an earlier one read stops there and takes
+ * the rest from it: its still-open brackets close where the text from that
+ * position first drops below its own level, found by stepping over whole
+ * bracket pairs and remembered for every position on the way. So the work is
+ * linear in the text, and `steps` counts it: tokens read plus positions
+ * stepped, never more than twice the text's length.
+ *
+ * Exported so the test can hold `steps` to that bound.
+ */
+export function createBracketedSpanReader(source: string): {
+	read: (start: number) => BracketedSpan | null;
+	readonly steps: number;
+} {
+	const tokenEnd = new Int32Array(source.length).fill(UNREAD);
+	const closeOf = new Int32Array(source.length).fill(UNREAD);
+	const dropFrom = new Int32Array(source.length).fill(UNREAD);
+	let steps = 0;
+
+	/**
+	 * The first `]` that closes a level below the one open at `from`, or
+	 * `UNCLOSED`. Every position from `from` on is already read.
+	 */
+	function closerBelow(from: number): number {
+		const stepped: number[] = [];
+		let index = from;
+		let found = UNCLOSED;
+		while (index < source.length) {
+			if (dropFrom[index] !== UNREAD) {
+				found = dropFrom[index] as number;
+				break;
+			}
+			steps += 1;
+			stepped.push(index);
+			const character = source[index];
+			if (character === "\n") break;
+			if (character === "]") {
+				found = index;
+				break;
+			}
+			if (character === "[") {
+				const close = closeOf[index] as number;
+				if (close === UNCLOSED) break;
+				index = close + 1;
+				continue;
+			}
+			index = tokenEnd[index] as number;
+		}
+		for (const position of stepped) dropFrom[position] = found;
+		return found;
+	}
+
+	/** Read forward from `start` until the end or a position already read. */
+	function scan(start: number): void {
+		const open: number[] = [];
+		let index = start;
+		while (index < source.length) {
+			if (index !== start && tokenEnd[index] !== UNREAD) break;
+			steps += 1;
+			const character = source[index];
+			tokenEnd[index] = spanTokenEnd(source, index);
+			if (character === "\n") {
+				for (const bracket of open) closeOf[bracket] = UNCLOSED;
+				open.length = 0;
+			} else if (character === "[") {
+				open.push(index);
+			} else if (character === "]") {
+				const bracket = open.pop();
+				if (bracket !== undefined) closeOf[bracket] = index;
+			}
+			index = tokenEnd[index] as number;
+		}
+		// What is still open closes, innermost first, on the text already read.
+		let from = index;
+		while (open.length > 0) {
+			const bracket = open.pop() as number;
+			const close = from < source.length ? closerBelow(from) : UNCLOSED;
+			closeOf[bracket] = close;
+			if (close === UNCLOSED) {
+				for (const outer of open) closeOf[outer] = UNCLOSED;
+				break;
+			}
+			from = close + 1;
+		}
+	}
+
+	function read(start: number): BracketedSpan | null {
+		if (tokenEnd[start] === UNREAD) scan(start);
+		const close = closeOf[start] as number;
+		if (close < 0) return null;
+
+		const attributes = SPAN_ATTRIBUTES.exec(source.slice(close + 1));
+		const passage = source.slice(start + 1, close);
+		if (attributes === null || passage.trim().length === 0) return null;
+
+		const [, tag] = /^lang=(.*)$/.exec(attributes[1] as string) ?? [];
+		return {
+			passage,
+			lang: tag !== undefined && isSlideLanguageTag(tag) ? tag : null,
+			end: close + 1 + attributes[0].length - start,
+		};
+	}
+
+	return {
+		read,
+		get steps() {
+			return steps;
+		},
+	};
+}
+
 function parseInlineNodes(source: string, depth: number): SlideInlineNode[] {
 	const nodes: SlideInlineNode[] = [];
 	let literal = "";
 	let position = 0;
+	// One for the whole run, made at its first bracket (REQ133).
+	let spans: ReturnType<typeof createBracketedSpanReader> | null = null;
 
 	function flushLiteral(): void {
 		if (literal.length > 0) {
@@ -512,6 +712,29 @@ function parseInlineNodes(source: string, depth: number): SlideInlineNode[] {
 			const unopened = source[position + 1] === "$" ? "$$" : "$";
 			literal += unopened;
 			position += unopened.length;
+			continue;
+		}
+
+		// Before links, so the `[` that opens a span around a link is read as the
+		// span's rather than taken as the start of a longer label.
+		const span =
+			character === "[" && depth < INLINE_NESTING_LIMIT
+				? (spans ??= createBracketedSpanReader(source)).read(position)
+				: null;
+		if (span) {
+			flushLiteral();
+			// Braces that are not one well-shaped `lang=` are not half-applied: the
+			// whole span stays on the slide as typed, as a refused link does.
+			nodes.push(
+				span.lang === null
+					? { kind: "text", text: rest.slice(0, span.end) }
+					: {
+							kind: "language",
+							lang: span.lang,
+							children: parseInlineNodes(span.passage, depth + 1),
+						},
+			);
+			position += span.end;
 			continue;
 		}
 
@@ -602,8 +825,9 @@ function parseInlineNodes(source: string, depth: number): SlideInlineNode[] {
 }
 
 /**
- * One run of authored text with its inline markup read (REQ088, REQ089): bold,
- * italic, code, and links — markdown-style or typed bare.
+ * One run of authored text with its inline markup read (REQ088, REQ089, REQ133):
+ * bold, italic, code, links — markdown-style or typed bare — and passages
+ * marked as another language.
  *
  * Line breaks are kept as literal text rather than turned into blocks, which is
  * what makes this the right parse for a *heading*: a slide's question is one
@@ -619,7 +843,8 @@ function inlineHasMath(nodes: SlideInlineNode[]): boolean {
 			node.kind === "math" ||
 			((node.kind === "strong" ||
 				node.kind === "emphasis" ||
-				node.kind === "link") &&
+				node.kind === "link" ||
+				node.kind === "language") &&
 				inlineHasMath(node.children)),
 	);
 }
@@ -876,6 +1101,14 @@ function renderInline(nodes: SlideInlineNode[]): ReactNode[] {
 						{renderInline(node.children)}
 					</a>
 				);
+			case "language":
+				// `lang` and nothing else: the passage looks exactly like its
+				// neighbours and is only *pronounced* differently (REQ133).
+				return (
+					<span key={index} lang={node.lang}>
+						{renderInline(node.children)}
+					</span>
+				);
 			case "math":
 				return (
 					<SlideMath
@@ -948,7 +1181,7 @@ function renderBlock(block: SlideTextBlock, index: number): ReactNode {
 }
 
 /**
- * Authored slide text, rendered (REQ088, REQ089, REQ091).
+ * Authored slide text, rendered (REQ088, REQ089, REQ091, REQ133).
  *
  * Two variants, because a slide's text is two different things:
  *

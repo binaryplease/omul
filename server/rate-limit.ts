@@ -626,6 +626,29 @@ export const PARTICIPANT_FEEDBACK_RULE: RateLimitRule = {
  */
 export const DECK_PDF_RULE: RateLimitRule = { limit: 60, windowMs: 5 * 60_000 };
 
+/**
+ * Creating a folder (REQ126), counted per account.
+ *
+ * On this list for what a folder buys, which is not disk: a new folder has a
+ * new id, and `POST /api/folders/:id/collaborators` budgets its email lookup by
+ * that id, so each creation starts a fresh {@link SUBMISSION_PARTICIPANT_RULE}
+ * budget. Security audit NST16341 (finding 3) read that from the code. Counted
+ * per account because the account is what holds the folders: a client-keyed
+ * ceiling would give the same account a fresh count from each address.
+ *
+ * Thirty in an hour is more folders than a person sets up in one sitting. A
+ * script gets one every two minutes. The window does not bound how many folders
+ * an account holds, because a folder's budget refills every minute for as long
+ * as the folder exists, so `FOLDERS_PER_ACCOUNT_LIMIT`
+ * (`server/services/folders.ts`) bounds that. This window bounds what the cap
+ * cannot: deleting a folder and creating another, which mints a new id without
+ * adding to the count.
+ */
+export const FOLDER_CREATE_RULE: RateLimitRule = {
+	limit: 30,
+	windowMs: 60 * 60_000,
+};
+
 /** How many PDF renders may run at once, and how many may wait for a turn. */
 export interface RenderGateRule {
 	concurrent: number;
@@ -736,6 +759,7 @@ const participantFeedbackWindow = createSlidingWindow(
 	PARTICIPANT_FEEDBACK_RULE,
 );
 const deckPdfWindow = createSlidingWindow(DECK_PDF_RULE);
+const folderCreateWindow = createSlidingWindow(FOLDER_CREATE_RULE);
 const deckPdfRenderGate = createRenderGate(DECK_PDF_RENDER_GATE);
 
 /** Drop every counter. For tests that need a clean slate between cases. */
@@ -750,6 +774,7 @@ export function resetRateLimits(): void {
 	feedbackWindow.reset();
 	participantFeedbackWindow.reset();
 	deckPdfWindow.reset();
+	folderCreateWindow.reset();
 }
 
 // ── Route guards ────────────────────────────────────────────
@@ -786,6 +811,8 @@ const FEEDBACK_MESSAGE =
 	"Too much feedback sent from here — please wait a moment";
 const DECK_PDF_MESSAGE =
 	"Too many PDF exports from here — please wait a moment";
+const FOLDER_CREATE_MESSAGE =
+	"Too many folders created on this account — please wait a moment";
 
 /** Rate-limit `POST /api/presentations`. */
 export function guardCreate({ request, server }: GuardContext): Response | null {
@@ -859,6 +886,19 @@ export function guardDeckPdf({ request, server }: GuardContext): Response | null
 	const verdict = deckPdfWindow.check(clientKey(request, server));
 	if (verdict.allowed) return null;
 	return tooManyRequests(verdict.retryAfterSeconds, DECK_PDF_MESSAGE);
+}
+
+/**
+ * Rate-limit `POST /api/folders` (REQ126), under {@link FOLDER_CREATE_RULE}.
+ *
+ * Takes the account rather than a {@link GuardContext}: the count names no
+ * address, and the route calls this once it knows who is asking.
+ */
+export function guardFolderCreate(accountId: string): Response | null {
+	if (!rateLimitsEnabled()) return null;
+	const verdict = folderCreateWindow.check(accountId);
+	if (verdict.allowed) return null;
+	return tooManyRequests(verdict.retryAfterSeconds, FOLDER_CREATE_MESSAGE);
 }
 
 const DECK_PDF_BUSY_MESSAGE =
