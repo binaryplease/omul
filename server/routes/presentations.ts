@@ -392,10 +392,13 @@ async function resultsCallerFor(
 	return {
 		canEdit,
 		hasResultsLink: link.valid,
-		// REQ085 — what the profanity filter withheld is an editor's to read, and
-		// only on a read that asks for it: the same credentials poll the projector.
-		// A results link is a delegation of the numbers, so asking with one alone
-		// changes nothing.
+		// REQ085 — what the profanity filter withheld is for the deck's owner, its
+		// edit token and its collaborators at any level to read: `canEdit` holds for
+		// every non-null level of `resolveDeckAccess`, so a `view` or `comment` grant
+		// on the deck or its folder qualifies, and so does every role in the deck's
+		// workspace. They read it only on a read that asks for it: the same credentials
+		// poll the projector. A results link is a delegation of the numbers, so asking
+		// with one alone changes nothing.
 		includeFilteredAnswers: canEdit && includeFilteredAnswers,
 	};
 }
