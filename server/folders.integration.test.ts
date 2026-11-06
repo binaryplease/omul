@@ -614,13 +614,51 @@ describe("Deck folders (REQ126)", () => {
 			expect(
 				(await shareFolder(ownerKey, folder.id, GRANTEE_EMAIL, level)).status,
 			).toBe(201);
+			return { folder, deck, ...(await startWithOneThemedAnswer(deck.id)) };
+		}
 
+		/**
+		 * A started workspace deck the grantee reaches only through its `role` in
+		 * the workspace, holding one submitted answer and one theme.
+		 */
+		async function deckInWorkspace(role: string) {
+			const workspace = await (
+				await fetch(`${baseUrl}/api/workspaces`, {
+					method: "POST",
+					headers: keyed(ownerKey),
+					body: JSON.stringify({ name: `Results work ${role}` }),
+				})
+			).json();
+			const added = await fetch(
+				`${baseUrl}/api/workspaces/${workspace.id}/members`,
+				{
+					method: "POST",
+					headers: keyed(ownerKey),
+					body: JSON.stringify({ email: GRANTEE_EMAIL, role }),
+				},
+			);
+			expect(added.status).toBe(201);
+			const deck = await createDeck(ownerKey, "Results work", RESULTS_WORK_SLIDES);
+			const moved = await fetch(
+				`${baseUrl}/api/presentations/${deck.id}/workspace`,
+				{
+					method: "POST",
+					headers: keyed(ownerKey),
+					body: JSON.stringify({ workspaceId: workspace.id }),
+				},
+			);
+			expect(moved.status).toBe(200);
+			return { deck, ...(await startWithOneThemedAnswer(deck.id)) };
+		}
+
+		/** Start the deck, submit one answer to `open` and create one theme on it. */
+		async function startWithOneThemedAnswer(deckId: string) {
 			const started = await fetch(
-				`${baseUrl}/api/presentations/${deck.id}/start`,
+				`${baseUrl}/api/presentations/${deckId}/start`,
 				{ method: "POST", headers: keyed(ownerKey) },
 			);
 			expect(started.status).toBe(200);
-			const vote = await fetch(`${baseUrl}/api/presentations/${deck.id}/vote`, {
+			const vote = await fetch(`${baseUrl}/api/presentations/${deckId}/vote`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
@@ -631,14 +669,14 @@ describe("Deck folders (REQ126)", () => {
 			});
 			expect(vote.status).toBe(200);
 			const results = await (
-				await fetch(`${baseUrl}/api/presentations/${deck.id}/results/open`, {
+				await fetch(`${baseUrl}/api/presentations/${deckId}/results/open`, {
 					headers: keyed(ownerKey),
 				})
 			).json();
 			const answerId: string = results.responses[0].id;
 
 			const created = await fetch(
-				`${baseUrl}/api/presentations/${deck.id}/slides/open/answer-themes`,
+				`${baseUrl}/api/presentations/${deckId}/slides/open/answer-themes`,
 				{
 					method: "POST",
 					headers: keyed(ownerKey),
@@ -646,7 +684,7 @@ describe("Deck folders (REQ126)", () => {
 				},
 			);
 			expect(created.status).toBe(201);
-			return { folder, deck, answerId, theme: await created.json() };
+			return { answerId, theme: await created.json() };
 		}
 
 		/**
@@ -743,6 +781,40 @@ describe("Deck folders (REQ126)", () => {
 				headers: keyed(ownerKey),
 			});
 			expect((await read.json()).countdownRuns).toEqual({});
+		});
+
+		test("a workspace commenter is refused the four answer-theme writes and changes nothing", async () => {
+			const { deck, answerId, theme } = await deckInWorkspace("commenter");
+			expect(await accessLevelOn(granteeKey, deck.id)).toBe("comment");
+			const deckUrl = `${baseUrl}/api/presentations/${deck.id}`;
+			const readThemes = async () =>
+				(
+					await fetch(`${deckUrl}/slides/open/answer-themes`, {
+						headers: keyed(ownerKey),
+					})
+				).json();
+			const readResults = async () =>
+				(await fetch(`${deckUrl}/results/open`, { headers: keyed(ownerKey) })).json();
+			const themesBefore = await readThemes();
+			const resultsBefore = await readResults();
+
+			const themeWrites = resultsWorkRoutes(deck.id, theme.id, answerId).filter(
+				({ name }) => name.includes("theme") || name.includes("answer"),
+			);
+			expect(themeWrites.map(({ name }) => name)).toEqual([
+				"create theme",
+				"rename theme",
+				"group answer",
+				"delete theme",
+			]);
+			for (const { name, call } of themeWrites) {
+				const res = await call();
+				expect(`${name}:${res.status}`).toBe(`${name}:403`);
+			}
+
+			expect(themesBefore.themes).toEqual([theme]);
+			expect(await readThemes()).toEqual(themesBefore);
+			expect(await readResults()).toEqual(resultsBefore);
 		});
 
 		test("the same requests pass once the owner raises the grant to edit", async () => {
@@ -1343,6 +1415,42 @@ describe("Deck folders (REQ126)", () => {
 			});
 		});
 
+		test("a 409 at the cap spends none of the window", async () => {
+			const { FOLDER_CREATE_RULE } = await import("./rate-limit");
+			const { FOLDERS_PER_ACCOUNT_LIMIT } = await import("./services/folders");
+			await withLimits("false", async () => {
+				const account = await limitedAccount();
+				await seedFolders(account.id, FOLDERS_PER_ACCOUNT_LIMIT);
+
+				for (let sent = 0; sent <= FOLDER_CREATE_RULE.limit; sent++) {
+					expect((await postFolder(account.key)).status).toBe(409);
+				}
+
+				const held = await foldersOf(account.key);
+				const removed = await fetch(`${baseUrl}/api/folders/${held[0].id}`, {
+					method: "DELETE",
+					headers: keyed(account.key),
+				});
+				expect(removed.status).toBe(200);
+				expect((await postFolder(account.key)).status).toBe(201);
+
+				// The window still holds 29 more creations, then refuses as before.
+				const remove = async () => {
+					const [first] = await foldersOf(account.key);
+					await fetch(`${baseUrl}/api/folders/${first.id}`, {
+						method: "DELETE",
+						headers: keyed(account.key),
+					});
+				};
+				for (let sent = 1; sent < FOLDER_CREATE_RULE.limit; sent++) {
+					await remove();
+					expect((await postFolder(account.key)).status).toBe(201);
+				}
+				await remove();
+				expect((await postFolder(account.key)).status).toBe(429);
+			});
+		});
+
 		test("the environment switch does not lift the cap", async () => {
 			const { FOLDERS_PER_ACCOUNT_LIMIT } = await import("./services/folders");
 			await withLimits("true", async () => {
@@ -1403,9 +1511,9 @@ describe("Deck folders (REQ126)", () => {
 		}
 
 		/** `POST /api/auth/delete-user`, the route the account screen calls. */
-		async function deleteAccount(
+		async function postDeletion(
 			cookie: string,
-			password: string = PASSWORD,
+			body: { password?: string; token?: string },
 		): Promise<Response> {
 			const { auth } = await import("./accounts");
 			return auth.handler(
@@ -1416,9 +1524,27 @@ describe("Deck folders (REQ126)", () => {
 						origin: "http://localhost:3000",
 						cookie,
 					},
-					body: JSON.stringify({ password }),
+					body: JSON.stringify(body),
 				}),
 			);
+		}
+
+		function deleteAccount(
+			cookie: string,
+			password: string = PASSWORD,
+		): Promise<Response> {
+			return postDeletion(cookie, { password });
+		}
+
+		/** An account with a filed deck in a folder another account reads at `view`. */
+		async function accountWithSharedFolder() {
+			const leaver = await newAccount();
+			const grantee = await newAccount();
+			const folder = await createFolder(leaver.key, "Shared");
+			const deck = await createDeck(leaver.key, "Filed");
+			expect((await fileDeck(leaver.key, deck.id, folder.id)).status).toBe(200);
+			await shareFolder(leaver.key, folder.id, grantee.email, "view");
+			return { leaver, grantee, deck };
 		}
 
 		/** The three collections read directly, past every function under test. */
@@ -1528,6 +1654,75 @@ describe("Deck folders (REQ126)", () => {
 			expect(await accessLevelOn(grantee.key, deck.id)).toBe("view");
 		});
 
+		// The server requires the password on every deletion request
+		// (`requireDeletionPassword` in server/accounts.ts). Without it Better Auth
+		// would accept a session under a day old with no password at all.
+		test.each([
+			["no password", {}],
+			["an empty password", { password: "" }],
+		])("a session under a day old is refused with %s, and nothing is removed", async (_label, body) => {
+			const { findUserById } = await import("./accounts");
+			const { leaver, grantee, deck } = await accountWithSharedFolder();
+
+			const refused = await postDeletion(leaver.cookie, body);
+			expect(refused.status).toBe(400);
+			expect(((await refused.json()) as Any).code).toBe("PASSWORD_REQUIRED");
+
+			expect(findUserById(leaver.id)?.id).toBe(leaver.id);
+			expect(await rowsNaming(leaver.id)).toHaveLength(2);
+			expect(await accessLevelOn(grantee.key, deck.id)).toBe("view");
+
+			expect((await deleteAccount(leaver.cookie)).status).toBe(200);
+			expect(findUserById(leaver.id)).toBeNull();
+			expect(await rowsNaming(leaver.id)).toEqual([]);
+		});
+
+		test("the emailed-token deletion route is refused, and nothing is removed", async () => {
+			const { auth, findUserById } = await import("./accounts");
+			const { leaver, grantee, deck } = await accountWithSharedFolder();
+			// No route mints this row (no `sendDeleteAccountVerification`); it is
+			// written here so the refusal is the hook's and not a missing token's.
+			await (await auth.$context).internalAdapter.createVerificationValue({
+				identifier: "delete-account-planted",
+				value: leaver.id,
+				expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+			});
+
+			const viaCallback = await auth.handler(
+				new Request(
+					"http://localhost:3000/api/auth/delete-user/callback?token=planted",
+					{ headers: { origin: "http://localhost:3000", cookie: leaver.cookie } },
+				),
+			);
+			expect(viaCallback.status).toBe(400);
+			const viaBodyToken = await postDeletion(leaver.cookie, { token: "planted" });
+			expect(viaBodyToken.status).toBe(400);
+
+			expect(findUserById(leaver.id)?.id).toBe(leaver.id);
+			expect(await rowsNaming(leaver.id)).toHaveLength(2);
+			expect(await accessLevelOn(grantee.key, deck.id)).toBe("view");
+		});
+
+		test("a session over a day old needs the password, and a refusal removes nothing", async () => {
+			const { auth } = await import("./accounts");
+			const { leaver, grantee, deck } = await accountWithSharedFolder();
+			const context = await auth.$context;
+			await context.adapter.updateMany({
+				model: "session",
+				where: [{ field: "userId", value: leaver.id }],
+				update: { createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
+			});
+
+			for (const body of [{}, { password: "" }]) {
+				expect((await postDeletion(leaver.cookie, body)).status).toBe(400);
+				expect(await rowsNaming(leaver.id)).toHaveLength(2);
+				expect(await accessLevelOn(grantee.key, deck.id)).toBe("view");
+			}
+
+			expect((await deleteAccount(leaver.cookie)).status).toBe(200);
+			expect(await rowsNaming(leaver.id)).toEqual([]);
+		});
+
 		test("a row written while the deletion runs goes with the account", async () => {
 			const { auth } = await import("./accounts");
 			const { createFolder: insertFolder, grantFolderAccess } = await import(
@@ -1542,8 +1737,8 @@ describe("Deck folders (REQ126)", () => {
 			if (!deletionOptions || !firstSweep) {
 				throw new Error("the deletion route has no beforeDelete sweep");
 			}
-			deletionOptions.beforeDelete = async (user, request) => {
-				await firstSweep(user, request);
+			deletionOptions.beforeDelete = async (user) => {
+				await firstSweep(user);
 				await insertFolder(leaver.id, "Created in flight");
 				await grantFolderAccess(folder.id, leaver.id, "edit");
 				expect(await rowsNaming(leaver.id)).toHaveLength(2);

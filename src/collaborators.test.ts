@@ -106,20 +106,29 @@ describe("access through a shared folder (REQ126)", () => {
 	});
 
 	test("a revoke says what the account keeps through the folder", () => {
-		expect(revokedGrantNotice(row, [standing])).toBe(
+		expect(revokedGrantNotice("deck", row, [standing])).toBe(
 			"Ada no longer has a grant on this deck, but keeps “Can edit” through the folder “Talks”",
 		);
-		expect(revokeTitle(row, [standing])).toContain("they keep “Can edit”");
+		expect(revokeTitle("deck", row, [standing])).toContain("they keep “Can edit”");
 	});
 
 	test("a revoke says access ended when no folder grant remains", () => {
-		expect(revokedGrantNotice(row, [])).toBe("Ada no longer has access");
+		expect(revokedGrantNotice("deck", row, [])).toBe("Ada no longer has access");
 		expect(
-			revokedGrantNotice({ ...row, email: "b@example.com", name: "Bo" }, [
+			revokedGrantNotice("deck", { ...row, email: "b@example.com", name: "Bo" }, [
 				standing,
 			]),
 		).toBe("Bo no longer has access");
-		expect(revokeTitle(row, [])).toContain("it stops at their next request");
+		expect(revokeTitle("deck", row, [])).toContain("it stops at their next request");
+	});
+
+	test("a folder revoke names only the folder's access", () => {
+		const notice = revokedGrantNotice("folder", row, []);
+		expect(notice).toBe("Ada no longer has access through this folder");
+		expect(notice).not.toContain("deck");
+		const title = revokeTitle("folder", row, []);
+		expect(title).toContain("through this folder");
+		expect(title).not.toContain("deck");
 	});
 
 	test("two deleted accounts are not matched by their empty emails", () => {

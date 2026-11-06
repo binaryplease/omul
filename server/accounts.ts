@@ -25,6 +25,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { apiKey } from "@better-auth/api-key";
 import { betterAuth } from "better-auth";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
 import { resolveAuthSecret } from "./auth-secret";
 import { siblingDbPath } from "./sibling-db-path";
@@ -235,15 +236,27 @@ export function createAuth() {
 				},
 			},
 			// Self-serve account deletion. `enabled: true` mounts `POST
-			// /api/auth/delete-user`; with email+password the client must pass the
-			// account **password**, which Better Auth verifies before proceeding (the
-			// UI additionally requires typing a confirmation phrase as an accident
-			// guard). No `sendDeleteAccountVerification` is set, so a password-verified
-			// request deletes immediately rather than emailing a second confirmation.
+			// /api/auth/delete-user`. The server requires (REQ246) the account **password** on
+			// every request, whatever the session's age: `requireDeletionPassword`
+			// (the `hooks.before` below) refuses a body without a non-empty password
+			// with `400 PASSWORD_REQUIRED`, and Better Auth then verifies the one it
+			// carries (`400 INVALID_PASSWORD` when wrong). Without that hook Better
+			// Auth (`better-auth@1.6.23`) verifies a password only when the body
+			// carries one and otherwise accepts a session under `session.freshAge`
+			// old (24 hours by default). Do not reach for `freshAge: 0` instead,
+			// because Better Auth then skips that check and a session of any age
+			// deletes without a password. The hook also refuses `GET
+			// /delete-user/callback`, which carries no password. The account screen
+			// sends the password and also requires typing a confirmation phrase as an
+			// accident guard. No `sendDeleteAccountVerification` is set, so an
+			// accepted request deletes immediately rather than emailing a second
+			// confirmation.
 			//
 			// The docstore rows naming the account go in two sweeps, both after the
-			// password check. `beforeDelete` runs before Better Auth removes any auth
-			// row, so a failed sweep aborts the deletion and the person can retry.
+			// password check. `beforeDelete` runs before Better Auth removes any auth row, so a
+			// failed sweep aborts the deletion and the person can retry. If the sweep
+			// succeeds and the auth write then throws, nothing restores the swept
+			// rows, and the account survives without them.
 			// `afterDelete` removes what a request already in flight wrote between
 			// the first sweep and the `user` row going. REQ126 records why these two
 			// hooks and not `databaseHooks.user.delete`: by the time that hook runs,
@@ -275,7 +288,39 @@ export function createAuth() {
 		plugins: [
 			apiKey({ enableSessionForAPIKeys: true, rateLimit: { enabled: false } }),
 		],
+		hooks: {
+			before: createAuthMiddleware(async (context) => {
+				requireDeletionPassword(context.path, context.body);
+			}),
+		},
 	});
+}
+
+const DELETION_PASSWORD_REQUIRED = {
+	code: "PASSWORD_REQUIRED",
+	message: "Enter your password to delete your account",
+};
+
+/**
+ * Refuse an account-deletion request that does not carry a non-empty password.
+ * `/delete-user` is let through only with one, which Better Auth then verifies;
+ * `/delete-user/callback` (the emailed-token route, a GET with no body) is
+ * refused outright, because it can carry no password. Every other path passes.
+ * Runs as a `hooks.before`, so a refusal happens before `beforeDelete` and
+ * removes nothing.
+ */
+function requireDeletionPassword(path: string, body: unknown): void {
+	if (path === "/delete-user/callback") {
+		throw APIError.from("BAD_REQUEST", DELETION_PASSWORD_REQUIRED);
+	}
+	if (path !== "/delete-user") return;
+	const password =
+		body && typeof body === "object"
+			? (body as { password?: unknown }).password
+			: undefined;
+	if (typeof password !== "string" || password.length === 0) {
+		throw APIError.from("BAD_REQUEST", DELETION_PASSWORD_REQUIRED);
+	}
 }
 
 export const auth = createAuth();

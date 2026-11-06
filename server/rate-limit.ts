@@ -79,6 +79,12 @@ export interface RateLimitVerdict {
 export interface SlidingWindow {
 	/** Record a hit for `key` and say whether it is allowed. */
 	check(key: string): RateLimitVerdict;
+	/**
+	 * Take back the newest hit recorded for `key`, for a caller whose allowed
+	 * request was then refused for another reason and so spent nothing. A key
+	 * with no recorded hit is left alone.
+	 */
+	refund(key: string): void;
 	/** Forget every tracked key (tests). */
 	reset(): void;
 	/** How many keys are currently tracked (tests, introspection). */
@@ -143,8 +149,16 @@ export function createSlidingWindow(
 		return { allowed: true, retryAfterSeconds: 0 };
 	}
 
+	function refund(key: string): void {
+		const recorded = hitsByKey.get(key);
+		if (!recorded || recorded.length === 0) return;
+		recorded.pop();
+		if (recorded.length === 0) hitsByKey.delete(key);
+	}
+
 	return {
 		check,
+		refund,
 		reset: () => hitsByKey.clear(),
 		trackedKeys: () => hitsByKey.size,
 	};
@@ -899,6 +913,18 @@ export function guardFolderCreate(accountId: string): Response | null {
 	const verdict = folderCreateWindow.check(accountId);
 	if (verdict.allowed) return null;
 	return tooManyRequests(verdict.retryAfterSeconds, FOLDER_CREATE_MESSAGE);
+}
+
+/**
+ * Give back the creation {@link guardFolderCreate} counted for a `POST
+ * /api/folders` that then created nothing: the account was at
+ * `FOLDERS_PER_ACCOUNT_LIMIT` and got `409`. Without it, retrying at the cap
+ * spends the hour's 30 creations and a folder deleted afterwards cannot be
+ * replaced until the window moves on.
+ */
+export function refundFolderCreate(accountId: string): void {
+	if (!rateLimitsEnabled()) return;
+	folderCreateWindow.refund(accountId);
 }
 
 const DECK_PDF_BUSY_MESSAGE =

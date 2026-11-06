@@ -23,8 +23,9 @@ export const authClient = createAuthClient({
 // signed-in user's email change — the server emails a confirmation link to the
 // current address, then a verification link to the new one (see
 // server/accounts.ts) — so this call only kicks the flow off. `deleteUser`
-// permanently deletes the signed-in account: it takes the account `password`
-// (verified server-side) before the user is removed.
+// permanently deletes the signed-in account: the account screen passes the
+// `password`, which the server requires and verifies on every request (see
+// server/accounts.ts).
 export const {
 	useSession,
 	signIn,
