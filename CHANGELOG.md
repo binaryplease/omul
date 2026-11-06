@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-06
+
 ### Added
 
 - A countdown slide, a new slide type that shows a clock of a set length, from 1 second to 1 hour (1 minute by default):
@@ -47,6 +49,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A formula that cannot be typeset — a typo, or a command that is not allowed, such as `\href` or `\includegraphics` — is shown exactly as it was written. No link, picture or HTML attribute is ever produced from a formula.
   - In the editor a heading with a formula in it is shown typeset, and turns back into its TeX while you type in it. A formula wider than a phone's screen scrolls sideways instead of running off the edge.
   - The PDF and spreadsheet exports show a formula as its TeX source.
+- A passage of slide text can be marked as another language with `[passage]{lang=fr}`, so a screen reader pronounces it in that language. It works in headings, body text and presenter notes, and markup inside the passage, a link included, still renders. A tag that is not shaped like a language tag, or braces that hold anything but `lang=`, leave the text as typed. The editor's markdown hint names the syntax, and the PDF export keeps the passage's words and drops the marking.
+- A signed-in account can group its presentations into folders on the home page:
+  - "New folder" above the list creates a folder, and each folder heading has buttons to rename, share and delete it. "Move this deck into a folder" on a card files the presentation in one folder, or back under "Unfiled". Only the presentation's owner can file it.
+  - The list shows the account's presentations folder by folder, then the ones in no folder under "Unfiled". An account without folders sees the list as before.
+  - Deleting a folder keeps its presentations, which go back under "Unfiled". A presentation leaves its folder when it is deleted, moved into a workspace or given to another owner.
+  - Filing a presentation changes nothing a participant sees and does not count as an edit of it.
+  - The routes are `GET` and `POST /api/folders`, `PATCH` and `DELETE /api/folders/:id`, and `PUT /api/presentations/:id/folder`.
+- A folder can be shared with other accounts at view, comment or edit level:
+  - The share button on a folder heading opens the same dialog a presentation's share button does. A share reaches every presentation filed in the folder, for as long as the presentation stays in it and still belongs to the folder's owner.
+  - An account that also has a share on the presentation itself, or a role in its workspace, gets the strongest of them. Edit access through a folder works like edit access through a presentation's own share: it cannot delete the presentation or change who it is shared with.
+  - The account it is shared with finds those presentations under "Shared with You", each listed once at that level. There is no list of the shared folders themselves, and the command-line client does not manage folder sharing.
+  - A presentation's share dialog lists the accounts that reach it through its folder in a section of their own, read-only and with the folder's name; that access is changed or removed on the folder. Removing a presentation's own share from an account that also has folder access says which level the account keeps. `GET /api/presentations/:id/collaborators` returns these rows with `folder` set to the folder's `id` and `name`, and `folder: null` on the presentation's own shares.
+  - The routes are `GET` and `POST /api/folders/:id/collaborators` and `PATCH` and `DELETE /api/folders/:id/collaborators/:collaboratorId`, for the folder's owner only.
+- A workspace can give an account the Commenter role. A commenter opens every presentation the workspace owns and comments on its slides, and cannot create, edit, present or export one, start one from a template, or move one into the workspace. Admins and owners pick it in the member's role menu; an account added to a workspace still starts as Member.
+- Saving a presentation that someone else saved after it was opened no longer overwrites their changes:
+  - Every presentation carries a `revision`. The editor sends the revision it loaded with each Save as `baseRevision`, and the server refuses a save based on an older revision with `409` and `refused: "stale-revision"`, writes nothing, and returns the current presentation. A `PATCH` without `baseRevision`, which the command-line client and API-key callers send, is applied as before.
+  - The editor then merges the two versions setting by setting and slide by slide. What only one side changed is kept, and the merged presentation is saved at once.
+  - When both sides changed the same setting or the same slide differently, one deleted a slide the other edited, or both reordered the slides differently, a dialog titled "Someone else saved this deck" asks which version to keep for each of them. It saves nothing until every one has a choice. Cancel leaves the edits on screen, unsaved.
+  - Changing the Q&A settings, the channels or results visibility also counts as a save, so an editor that is open at the same time merges those changes instead of reverting them.
 
 ### Changed
 
@@ -75,6 +96,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Exporting a presentation as PDF can no longer stall the server. Turning slide text into plain words for the PDF took time that grew with the square of the text for some markup; it now grows linearly, and the output is unchanged.
 - `GET /api/presentations/:id/deck.pdf` is now rate-limited: 60 exports per 5 minutes per client. Over the limit it answers `429` with a `Retry-After` header, like the other limited routes. `OMUL_RATE_LIMITS_DISABLED=true` turns it off with the rest.
 - A PDF export no longer holds up other requests while it renders: the renderer hands the server's thread back every few milliseconds. One export renders at a time across all callers, with up to four waiting; past that the export answers `503` with a `Retry-After` header. This bound protects the server rather than limiting a rate, so `OMUL_RATE_LIMITS_DISABLED` does not turn it off.
+- Deleting an account now requires its password on every request. Before, `POST /api/auth/delete-user` with no password or an empty one deleted the account from a session less than a day old. The account screen always sent the password, so only a request built outside it could do this. Such a request now answers `400` with `PASSWORD_REQUIRED` and removes nothing. `GET /api/auth/delete-user/callback`, which deletes on an emailed token and carries no password, is refused the same way; omul sends no such email.
+- Deleting an account removes the folders it owns, with their filings and shares, and every folder share it holds on another account's folder. Its presentations are kept as before, and no account reaches them through a folder any more, so an account that a deleted owner had given edit access through a folder can no longer edit them.
+- Creating folders is limited per account: past 30 new folders in an hour, `POST /api/folders` answers `429` with a `Retry-After` header, and an account that holds 100 folders gets `409` until it deletes one. `OMUL_RATE_LIMITS_DISABLED=true` lifts the hourly limit and not the 100. A creation refused at 100 does not count toward the 30. Each new folder used to bring a fresh allowance of email lookups on the folder share route.
 
 ## [1.1.0] - 2026-10-21
 
