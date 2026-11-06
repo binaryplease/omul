@@ -40,14 +40,14 @@ otherwise; the AGPL grant explicitly does not (sections 15 and 16).
 
 ## Supported versions
 
-There is one release series and it is the current one. omul is at `1.1.0` (the
-version in [package.json](package.json)); the only earlier release is `1.0.0`
-on the same line, so there is no earlier line to maintain and nothing to
-back-port to.
+There is one release series and it is the current one. omul is at `1.2.0` (the
+version in [package.json](package.json)); the earlier releases `1.0.0` and
+`1.1.0` are on the same line, so there is no earlier line to maintain and
+nothing to back-port to.
 
 | Version | Gets security fixes |
 |---|---|
-| `1.1.0` — the current release — and `main` | Yes |
+| `1.2.0` — the current release — and `main` | Yes |
 | Earlier `1.x` tags | No — update to the current release |
 
 A fix lands on `main` and goes out with the next release, and the container
