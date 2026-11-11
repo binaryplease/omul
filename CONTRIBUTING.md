@@ -115,8 +115,8 @@ lines and match them by hand: tabs, double quotes, trailing commas.
 
 ## How the work is tracked
 
-Everything planned, in progress and done lives in `docs/requirements/`, one
-`REQxxx.md` file per requirement. That catalog is the single authority for
+Everything planned, in progress and done, except bugs, lives in
+`docs/requirements/`, one `REQxxx.md` file per requirement. That catalog is the single authority for
 planned work; the closed historical logs under `task/` hold no status. Bugs are
 tracked as issues: report a defect in existing behaviour as an issue in this
 repository, and write no requirement for it.

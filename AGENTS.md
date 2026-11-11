@@ -134,8 +134,8 @@ mechanism in its `AGENTS.md`. **omul's mechanism is `docs/requirements/`**, one
 `REQxxx.md` file per requirement — the single authority for what is planned, in
 progress and done. Bugs are the one kind of work it does not hold: they are
 GitHub issues, as the next paragraph says.
-How many there are is a count, not a fact worth freezing in prose: ask
-`bun scripts/triage.ts stats`, for the same reason the last section of this
+How many requirements there are is a count, not a fact worth freezing in
+prose: ask `bun scripts/triage.ts stats`, for the same reason the last section of this
 chapter gives. File format and full CLI reference in
 [docs/README.md](docs/README.md).
 
@@ -147,20 +147,18 @@ ceiling and a hardening stay requirements. Who files where:
 - **A maintainer, or an agent working in a maintainer's checkout**, opens the
   issue in the private development copy, which is that checkout's `origin`
   remote ([docs/maintaining.md](docs/maintaining.md)), with `gh issue create`.
-  The checkout also has a `public` remote, so confirm that `gh` targets
-  `origin` (`gh repo set-default --view`) before you create the issue.
+  The checkout also has a `public` remote, so run `gh repo set-default origin`
+  before you create the issue if `gh repo set-default --view` names no default
+  or names another repository.
 - **A contributor in a fork** reports the bug as an issue in this public
   repository, as [CONTRIBUTING.md](CONTRIBUTING.md) describes.
 - **A security problem** goes by [SECURITY.md](SECURITY.md) and never into a
   public issue.
 
-Requirements already written for defects stay in the catalog; the rule applies
-to bugs reported from now on.
-
-These are **source-code requirements (SCR)**: what the code must do. The
-business half — user stories, target users, plan and packaging, competitive
-provenance — lives in a **private documentation sidecar**, a separate
-repository that is not published, as business requirements `BRxxx`. Business
+The `REQxxx.md` files are **source-code requirements (SCR)**: what the code
+must do. The business half — user stories, target users, plan and packaging,
+competitive provenance — lives in a **private documentation sidecar**, a
+separate repository that is not published, as business requirements `BRxxx`. Business
 requirements derive source-code requirements, and each SCR names the ones it
 answers in its `source` field.
 
