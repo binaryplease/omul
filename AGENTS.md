@@ -132,11 +132,30 @@ of the maintainers' setup runs in your fork (REQ193).
 Work tracking is each repository's own to choose, and each one declares its
 mechanism in its `AGENTS.md`. **omul's mechanism is `docs/requirements/`**, one
 `REQxxx.md` file per requirement — the single authority for what is planned, in
-progress and done.
+progress and done. Bugs are the one kind of work it does not hold: they are
+GitHub issues, as the next paragraph says.
 How many there are is a count, not a fact worth freezing in prose: ask
 `bun scripts/triage.ts stats`, for the same reason the last section of this
 chapter gives. File format and full CLI reference in
 [docs/README.md](docs/README.md).
+
+**A bug is filed as a GitHub issue, and no `REQxxx.md` file is written for
+it.** A bug is a defect in behaviour omul already has — a copied link that is
+missing its `https://`, for example. New or changed behaviour, a performance
+ceiling and a hardening stay requirements. Who files where:
+
+- **A maintainer, or an agent working in a maintainer's checkout**, opens the
+  issue in the private development copy, which is that checkout's `origin`
+  remote ([docs/maintaining.md](docs/maintaining.md)), with `gh issue create`.
+  The checkout also has a `public` remote, so confirm that `gh` targets
+  `origin` (`gh repo set-default --view`) before you create the issue.
+- **A contributor in a fork** reports the bug as an issue in this public
+  repository, as [CONTRIBUTING.md](CONTRIBUTING.md) describes.
+- **A security problem** goes by [SECURITY.md](SECURITY.md) and never into a
+  public issue.
+
+Requirements already written for defects stay in the catalog; the rule applies
+to bugs reported from now on.
 
 These are **source-code requirements (SCR)**: what the code must do. The
 business half — user stories, target users, plan and packaging, competitive
@@ -149,8 +168,8 @@ answers in its `source` field.
   it.** An SCR is self-contained by construction, so an agent can pick one up
   with this repository alone. That is the whole reason the split exists.
 - **`source` is a closed vocabulary** — `BR042`, `BR042, BR116`, or `internal`
-  for a requirement this codebase raised itself (a defect, a performance
-  ceiling, a hardening). The parser rejects anything else, a URL above all.
+  for a requirement this codebase raised itself (a performance ceiling, a
+  hardening). The parser rejects anything else, a URL above all.
 - **A BR reference is an opaque identifier.** The bare number, nowhere else in
   the file: no BR title, no gloss on what the BR says, no link into the private
   repository. A reference that quotes its target has carried the target across.
@@ -177,7 +196,9 @@ answers in its `source` field.
 - **A new requirement that starts from a business need starts in the sidecar.**
   Write `BR<n>` there, then the SCRs it derives here — each at this catalog's
   next free number, with `source: BR<n>`. A requirement that starts from the
-  code (defect, perf, hardening) is written here alone with `source: internal`.
+  code (perf, hardening) is written here alone with `source: internal`. A
+  defect also starts from the code and is filed as a GitHub issue, per the bug
+  paragraph at the top of this section.
 - **The `status` set is omul's own**, defined in `scripts/requirements.ts`
   (`VALID_STATUSES`) — not a corpus-wide vocabulary. `validate` enforces it.
   Status lives here and only here; a BR carries none.
