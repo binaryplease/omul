@@ -102,7 +102,12 @@ ones are omitted rather than written as `null`.
 |---|---|
 | `BR042` | derives from that business requirement in the sidecar |
 | `BR042, BR116` | derives from several |
-| `internal` | no BR behind it — a defect, a performance ceiling or a hardening this codebase raised itself |
+| `internal` | no BR behind it — a performance ceiling or a hardening this codebase raised itself |
+
+A defect in behaviour omul already has is not written here under `internal` or
+any other `source`: it is filed as a GitHub issue, and
+[AGENTS.md](../AGENTS.md) ("How work is tracked here") says which repository
+takes it.
 
 It deliberately cannot hold a URL. A requirement points at the BR that derives
 it, and provenance is recorded there, in the sidecar; a field that cannot
