@@ -586,6 +586,7 @@ describe("a refused quiz answer keeps the participant on the slide (REQ232)", ()
 		"quiz-window-closed": "The time for this quiz question is over",
 		"quiz-already-answered": "Your answer to this quiz question is final",
 		"participation-closed": "The presenter has closed this slide to submissions",
+		"repeat-passes-off": "This presentation does not let a device answer it again",
 	};
 
 	/** What a German deck's participant reads for each of them. */
@@ -594,6 +595,7 @@ describe("a refused quiz answer keeps the participant on the slide (REQ232)", ()
 		"quiz-window-closed": "Die Zeit für diese Frage ist vorbei",
 		"quiz-already-answered": "Deine Antwort steht fest",
 		"participation-closed": "Der Präsentator hat diese Frage geschlossen",
+		"repeat-passes-off": "Der Veranstalter erlaubt kein erneutes Antworten mehr",
 	};
 
 	/** The vote route answering every request with `status` and `body`. */
@@ -860,7 +862,7 @@ describe("an answer the deck moved on under keeps the participant in the deck (R
 		for (const refused of Object.keys(MOVED_ON) as DeckMovedOnCode[]) {
 			const notices: string[] = [];
 			routeSubmissionFailure(
-				new ApiError(MOVED_ON[refused].error, null, 400, refused),
+				new ApiError(MOVED_ON[refused].error, null, 400, null, refused),
 				getDict("de"),
 				{
 					refused: () => {},

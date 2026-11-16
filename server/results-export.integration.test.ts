@@ -407,7 +407,7 @@ describe("Results & Export (REQ095, REQ101)", () => {
 		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
 			method: "POST",
 		});
-		await runSession(pres.id);
+		await runSession(pres);
 
 		const fetched = await (
 			await authed(`/api/presentations/${pres.id}`, pres.creatorToken)

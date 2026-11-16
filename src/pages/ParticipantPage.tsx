@@ -797,7 +797,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<AppMenu />
+					<AppMenu language={promptLanguage} />
 				</div>
 				<div
 					lang={promptLanguage}

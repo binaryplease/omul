@@ -195,6 +195,7 @@ describe("every surface draws a countdown at its full length (REQ107)", () => {
 					upvoteResponse: async () => {},
 				} as never,
 				onError: () => {},
+				onDeckMovedOn: () => {},
 			}),
 		);
 		expect(markup).toContain("5:00");
@@ -299,6 +300,7 @@ describe("a running countdown is drawn in step on the live surfaces (REQ107)", (
 					upvoteResponse: async () => {},
 				} as never,
 				onError: () => {},
+				onDeckMovedOn: () => {},
 			}),
 		);
 	}

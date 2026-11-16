@@ -81,6 +81,7 @@ import {
 	slideTextSizeFor,
 	snapGuessToGrid,
 	tallyVisibleToAudience,
+	isVoteRefusalCode,
 	VOTE_VALUE_MAX_LENGTH,
 } from "../types";
 
@@ -283,6 +284,7 @@ const VOTE_REFUSAL_WORDING: Record<VoteRefusalCode, (dict: Dict) => string> = {
 	"quiz-not-started": (dict) => dict.quizWaitingToStart,
 	"quiz-window-closed": (dict) => dict.quizWindowClosed,
 	"quiz-already-answered": (dict) => dict.quizAnswerLocked,
+	"repeat-passes-off": (dict) => dict.passOff,
 };
 
 /**
@@ -322,7 +324,7 @@ export function routeSubmissionFailure(
 	},
 ): void {
 	const refused = thrown instanceof ApiError ? thrown.refused : null;
-	if (refused) {
+	if (isVoteRefusalCode(refused)) {
 		report.refused(VOTE_REFUSAL_WORDING[refused](dict));
 		return;
 	}

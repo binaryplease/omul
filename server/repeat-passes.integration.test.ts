@@ -832,6 +832,15 @@ describe("Repeat passes (REQ083)", () => {
 				pass,
 			});
 
+			// A scorecard's verdicts are the answer key, so the room reads them only
+			// once it may see the key (REQ228); ending the deck releases them.
+			const ended = await authed(
+				`/api/presentations/${presentation.id}/end`,
+				presentation.creatorToken,
+				{ method: "POST" },
+			);
+			expect(ended.status).toBe(200);
+
 			const first = await scorecard(presentation.id, "kiosk");
 			expect(first.pass).toBe(1);
 			expect(first.slides[0].optionId).toBe("five");
