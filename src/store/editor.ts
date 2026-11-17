@@ -98,8 +98,11 @@ export interface EditorSlice extends EditorDocument {
 
 	/** Populate the editor from a fetched presentation (Edit mode). */
 	loadEditor: (input: EditorDocumentInput) => void;
-	/** Reset to a blank single-slide draft (Create mode). */
-	resetEditor: () => void;
+	/**
+	 * Reset to a blank single-slide draft (Create mode), its audience language
+	 * starting at `language` — English when none is given.
+	 */
+	resetEditor: (language?: ParticipantLanguage) => void;
 
 	addSlide: (type: SlideType) => void;
 	updateSlide: (slideId: string, changes: Partial<Slide>) => void;
@@ -316,7 +319,7 @@ export function createEditorSlice(set: AppSet, get: AppGet): EditorSlice {
 
 		loadEditor: (input) => set(editorDocumentFor(input)),
 
-		resetEditor: () => set(blankDocument()),
+		resetEditor: (language) => set(blankDocument(language)),
 
 		addSlide: (type) => {
 			// The write boundary refuses a deck past SLIDE_LIMIT (REQ159), so the

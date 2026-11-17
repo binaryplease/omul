@@ -33,6 +33,7 @@ import {
 } from "../../interface-language";
 import {
 	ENGLISH_INTERFACE_TEXT,
+	fillText,
 	INTERFACE_LANGUAGE_NAMES,
 	INTERFACE_LANGUAGES,
 	type InterfaceLanguage,
@@ -41,8 +42,11 @@ import {
 } from "../../interface-text";
 import { routeForLocation } from "../../router";
 import type { FeedbackSurface, LegalLinks } from "../../types";
+import { BRAND_NAME } from "../BrandMark";
 import {
 	FeedbackForm,
+	type FeedbackFormContact,
+	type FeedbackFormHeading,
 	type FeedbackFormLabels,
 	feedbackFormLabelsFor,
 } from "../FeedbackForm";
@@ -537,6 +541,8 @@ function AppMenuFeedbackDialog({
 	onClose,
 	labels,
 	lang,
+	heading,
+	contact,
 }: {
 	id: string;
 	origin: FeedbackOrigin;
@@ -544,6 +550,12 @@ function AppMenuFeedbackDialog({
 	labels: AppMenuLabels;
 	/** The language `labels` are in, as on the panel. */
 	lang?: string;
+	/**
+	 * The heading and the contact box in the interface language, on an
+	 * organizer's screen (REQ248). Without them they are English.
+	 */
+	heading?: FeedbackFormHeading;
+	contact?: FeedbackFormContact;
 }) {
 	const { data: session } = useSession();
 	const contactEmail = session?.user.email ?? null;
@@ -600,6 +612,8 @@ function AppMenuFeedbackDialog({
 					<FeedbackForm
 						headingId={headingId}
 						labels={labels.feedbackForm}
+						heading={heading}
+						contact={contact}
 						contactEmail={contactEmail}
 						onSend={sendFeedback}
 						onDone={onClose}
@@ -637,6 +651,22 @@ export type AppMenuLeading = {
 	heading: string;
 	rows: (close: () => void) => ReactNode;
 };
+
+/** The feedback dialog's heading in the interface language (REQ248). */
+function feedbackHeadingFor(text: InterfaceText["appMenu"]): FeedbackFormHeading {
+	return {
+		lead: fillText(text.feedbackHeadingLead, { brand: BRAND_NAME }),
+		recipient: fillText(text.feedbackHeadingRecipient, { brand: BRAND_NAME }),
+	};
+}
+
+/** The feedback dialog's contact box in the interface language (REQ248). */
+function feedbackContactFor(text: InterfaceText["appMenu"]): FeedbackFormContact {
+	return {
+		label: text.contactMe,
+		address: (email) => fillText(text.contactAddress, { email }),
+	};
+}
 
 /** Focus on open with a leading section: its first enabled row, else the theme. */
 const LEADING_INITIAL_FOCUS = `[${BAR_MENU_ROW_ATTRIBUTE}]:not(:disabled), [role="radio"][tabindex="0"]`;
@@ -813,6 +843,8 @@ export function AppMenu({
 								onClose={() => close(true)}
 								labels={labels}
 								lang={menuLanguage}
+								heading={languageText && feedbackHeadingFor(languageText)}
+								contact={languageText && feedbackContactFor(languageText)}
 							/>
 						)}
 					</>,

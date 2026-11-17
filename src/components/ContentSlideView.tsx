@@ -5,8 +5,10 @@ import {
 	slideTextSizeFor,
 	slideVideoFor,
 } from "../types";
+import { fillText } from "../interface-text";
 import { type CountdownRun, CountdownSlideFace } from "./CountdownFace";
 import { DeckMark } from "./DeckTheme";
+import { ENGLISH_RESULTS_WORDING, type ResultsWording } from "./Results";
 import {
 	INSTRUCTION_FALLBACK_HEADING,
 	type SlideCanvasEditing,
@@ -46,6 +48,7 @@ export function ContentSlideView({
 	compact,
 	countdownRun = null,
 	editing = null,
+	wording,
 }: {
 	slide: Slide;
 	/** Required for "instruction" slides to render the join info. */
@@ -73,7 +76,17 @@ export function ContentSlideView({
 	 * `scripts/guard-frontend-conventions.ts` is what keeps it that way.
 	 */
 	editing?: SlideCanvasEditing | null;
+	/**
+	 * Who reads which words (REQ248), handed in by the shared screen: what the
+	 * slide says to the room in the deck's language, and the notices that tell
+	 * the presenter what is missing in the interface language. Every other
+	 * caller — a phone, the editor — draws the English it always has.
+	 */
+	wording?: ResultsWording;
 }) {
+	const { room, presenter, presenterLanguage } =
+		wording ?? ENGLISH_RESULTS_WORDING;
+	const notices = presenter.slideView;
 	const textSize = slideTextSizeFor(slide);
 	// The typographic slot the heading sits in on this surface — the one place
 	// `compact` decides how big a caption is, composed by all five branches.
@@ -91,6 +104,7 @@ export function ContentSlideView({
 					slide={slide}
 					className={headingClass}
 					editing={editing}
+					room={room}
 				/>
 				{slide.body ? (
 					<div
@@ -103,7 +117,9 @@ export function ContentSlideView({
 						<SlideText text={slide.body} size={textSize} variant="blocks" />
 					</div>
 				) : (
-					<p className="text-text-dim italic text-sm">No body text</p>
+					<p lang={presenterLanguage} className="text-text-dim italic text-sm">
+						{notices.noBodyText}
+					</p>
 				)}
 				{slide.mediaUrl && (
 					<img
@@ -127,6 +143,7 @@ export function ContentSlideView({
 					slide={slide}
 					className={headingClass}
 					editing={editing}
+					room={room}
 				/>
 				{slide.mediaUrl ? (
 					/* An accessible name *names* the slide rather than showing it, so
@@ -144,8 +161,11 @@ export function ContentSlideView({
 						}
 					/>
 				) : (
-					<div className="px-6 py-12 rounded-xl border border-dashed border-border text-text-dim text-sm">
-						No image URL set
+					<div
+						lang={presenterLanguage}
+						className="px-6 py-12 rounded-xl border border-dashed border-border text-text-dim text-sm"
+					>
+						{notices.noImageUrl}
 					</div>
 				)}
 				{slide.body && (
@@ -175,6 +195,7 @@ export function ContentSlideView({
 					slide={slide}
 					className={headingClass}
 					editing={editing}
+					room={room}
 				/>
 				{video ? (
 					<VideoPlayer
@@ -183,15 +204,18 @@ export function ContentSlideView({
 							/* The frame's accessible name *names* the video rather than
 							   showing it, so the heading falls back through
 							   slideTextToPlain() the way the image slide's alt text does. */
-							slideTextToPlain(slide.question ?? "") || "Video"
+							slideTextToPlain(slide.question ?? "") || notices.videoFrameName
 						}
 						compact={compact}
 					/>
 				) : (
-					<div className="px-6 py-12 rounded-xl border border-dashed border-border text-text-dim text-sm">
+					<div
+						lang={presenterLanguage}
+						className="px-6 py-12 rounded-xl border border-dashed border-border text-text-dim text-sm"
+					>
 						{(slide.mediaUrl ?? "").trim()
-							? "That video URL can't be played — use an http(s) link"
-							: "No video URL set"}
+							? notices.videoUnplayable
+							: notices.noVideoUrl}
 					</div>
 				)}
 				{slide.body && (
@@ -221,6 +245,7 @@ export function ContentSlideView({
 					slide={slide}
 					className={headingClass}
 					editing={editing}
+					room={room}
 				/>
 				{embed ? (
 					<EmbedFrame
@@ -236,10 +261,13 @@ export function ContentSlideView({
 						compact={compact}
 					/>
 				) : (
-					<div className="px-6 py-12 rounded-xl border border-dashed border-border text-text-dim text-sm">
+					<div
+						lang={presenterLanguage}
+						className="px-6 py-12 rounded-xl border border-dashed border-border text-text-dim text-sm"
+					>
 						{(slide.mediaUrl ?? "").trim()
-							? "That link can't be embedded — use a Google Slides, PowerPoint or Miro link"
-							: "No embed URL set"}
+							? notices.embedUnusable
+							: notices.noEmbedUrl}
 					</div>
 				)}
 				{slide.body && (
@@ -259,8 +287,7 @@ export function ContentSlideView({
 
 	if (slide.type === "instruction") {
 		// REQ065 + REQ118: auto-generated how-to-join slide with code + QR.
-		const fallbackBody =
-			"Go to the URL below or scan the QR code, then enter the code.";
+		const fallbackBody = room.instructionBody;
 		return (
 			<div className={`w-full flex flex-col gap-5 ${placement.items} ${placement.text}`}>
 				{/* REQ136 — the organizer's mark above the code, on the one slide whose
@@ -276,8 +303,11 @@ export function ContentSlideView({
 				<SlideQuestion
 					slide={slide}
 					className={headingClass}
-					fallback={INSTRUCTION_FALLBACK_HEADING}
+					fallback={
+						wording ? room.instructionHeading : INSTRUCTION_FALLBACK_HEADING
+					}
 					editing={editing}
+					room={room}
 				/>
 				<div
 					className={
@@ -298,13 +328,16 @@ export function ContentSlideView({
 					<QRCodeDisplay
 						url={joinUrl ?? "https://example.com/join/000000"}
 						size={compact ? 96 : 200}
+						alt={fillText(room.roomQrAlt, {
+							url: joinUrl ?? "https://example.com/join/000000",
+						})}
 					/>
 				</div>
 
 				{/* Join code (big + monospace) */}
 				<div className="flex flex-col items-center gap-1">
 					<span className="text-xs uppercase tracking-widest text-text-dim">
-						Code
+						{room.instructionCode}
 					</span>
 					<span
 						className={
@@ -341,6 +374,7 @@ export function ContentSlideView({
 					slide={slide}
 					className={headingClass}
 					editing={editing}
+					room={room}
 				/>
 				<CountdownSlideFace slide={slide} run={countdownRun} compact={compact} />
 			</div>

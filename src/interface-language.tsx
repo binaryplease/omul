@@ -1,6 +1,7 @@
 import type React from "react";
 import {
 	createContext,
+	Fragment,
 	useCallback,
 	useContext,
 	useEffect,
@@ -8,6 +9,7 @@ import {
 	useState,
 } from "react";
 import {
+	ENGLISH_INTERFACE_TEXT,
 	type InterfaceLanguage,
 	type InterfaceLanguagePreference,
 	type InterfaceText,
@@ -120,6 +122,30 @@ export function InterfaceLanguageProvider({
 	);
 }
 
+/**
+ * Draws `children` in `language` rather than the browser's interface language:
+ * for interface surfaces mounted on a screen that speaks the deck's language,
+ * the participant screen's sign-in dialog and reset landing (REQ134). That
+ * screen hands in the deck's language where it is an interface language and
+ * English where it is not. The stored choice and the way to change it pass
+ * through unchanged.
+ */
+export function InterfaceLanguageScope({
+	language,
+	children,
+}: {
+	language: InterfaceLanguage;
+	children: React.ReactNode;
+}) {
+	const outer = useContext(InterfaceLanguageContext);
+	const value = useMemo(() => ({ ...outer, language }), [outer, language]);
+	return (
+		<InterfaceLanguageContext.Provider value={value}>
+			{children}
+		</InterfaceLanguageContext.Provider>
+	);
+}
+
 /** The browser's choice, what it resolves to, and the way to change it. */
 export function useInterfaceLanguage(): InterfaceLanguageState {
 	return useContext(InterfaceLanguageContext);
@@ -139,6 +165,15 @@ export function useInterfaceText(): {
 }
 
 /**
+ * The English interface text, for a surface that does not follow the interface
+ * language (the app menu on the participant screen and the preview).
+ */
+export const englishInterfaceText = {
+	text: ENGLISH_INTERFACE_TEXT,
+	language: "en" as const,
+};
+
+/**
  * Sets `<html lang>` to `language` while the calling screen is mounted, and
  * hands it back to English on unmount. A screen calls it with the interface
  * language once its slice translates it, or with the deck's language where the
@@ -151,4 +186,44 @@ export function useDocumentLanguage(language: string | undefined) {
 		setDocumentLanguage(language);
 		return () => setDocumentLanguage(null);
 	}, [language, setDocumentLanguage]);
+}
+
+/**
+ * `template` with each `{placeholder}` replaced by `element`: a sentence that
+ * draws one of its words as an element of its own (a link, an emphasised title)
+ * wherever the language puts that word.
+ */
+export function textWithElement(
+	template: string,
+	placeholder: string,
+	element: React.ReactNode,
+): React.ReactNode {
+	return textWithElements(template, { [placeholder]: element });
+}
+
+/**
+ * `template` with each `{placeholder}` named in `elements` replaced by its
+ * element: a sentence that draws several of its words as elements of their own
+ * (two addresses), wherever the language puts each. A placeholder not named
+ * stays as written.
+ */
+export function textWithElements(
+	template: string,
+	elements: Record<string, React.ReactNode>,
+): React.ReactNode {
+	const parts = template.split(/\{(\w+)\}/);
+	return (
+		<>
+			{parts.map((part, index) =>
+				// Odd parts are the placeholders' names, between the text around them.
+				index % 2 === 0 ? (
+					part
+				) : (
+					<Fragment key={index}>
+						{part in elements ? elements[part] : `{${part}}`}
+					</Fragment>
+				),
+			)}
+		</>
+	);
 }

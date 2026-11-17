@@ -28,7 +28,16 @@ const page = readFileSync(
 	join(import.meta.dir, "..", "pages", "PresenterPage.tsx"),
 	"utf8",
 );
+// The view's and the page's English text (REQ248).
+const viewSection = readFileSync(
+	join(import.meta.dir, "..", "interface-text", "presenting-view.ts"),
+	"utf8",
+);
 const slideView = readFileSync(join(import.meta.dir, "PresenterSlideView.tsx"), "utf8");
+const pageSection = readFileSync(
+	join(import.meta.dir, "..", "interface-text", "presenter-page.ts"),
+	"utf8",
+);
 
 describe("the keys of the presenting view (REQ247)", () => {
 	const free = { modified: false, typing: false, overlayOpen: false };
@@ -221,7 +230,8 @@ describe("what the room sees, and the strip (REQ247)", () => {
 
 	test("the strip is one toolbar in the documented order", () => {
 		const strip = source.slice(source.indexOf('role="toolbar"'));
-		expect(strip).toContain('aria-label="Presenting controls"');
+		expect(strip).toContain("aria-label={viewText.controls}");
+		expect(viewSection).toContain('controls: "Presenting controls",');
 		const order = [
 			"onPage(paging.previous.index)",
 			"{position}",
@@ -231,7 +241,7 @@ describe("what the room sees, and the strip (REQ247)", () => {
 			"onClick={onShowQr}",
 			"{fullscreenOffered && (",
 			'<div aria-hidden className="w-px h-5 bg-border" />',
-			'aria-label="Leave presenting view (Esc)"',
+			"aria-label={viewText.leave}",
 		];
 		let at = 0;
 		for (const marker of order) {
@@ -241,10 +251,14 @@ describe("what the room sees, and the strip (REQ247)", () => {
 		}
 		expect(strip).toContain("disabled={paging.previous.disabled}");
 		expect(strip).toContain("disabled={blank.disabled}");
+		expect(viewSection).toContain('leave: "Leave presenting view (Esc)",');
 	});
 
-	test("the join line is quiet, and goes with the blank", () => {
-		expect(source).toMatch(/\{!blanked && \(\s*<p className="pointer-events-none [^"]*text-sm text-text-muted">\s*Join at \{join\.host\}/);
+	test("the join line is quiet, goes with the blank, and is in the deck's language", () => {
+		// The room reads it, so it is the deck's `Dict` and says so (REQ248).
+		expect(source).toMatch(/\{!blanked && \(\s*<p\s+lang=\{roomLanguage\}\s+className="pointer-events-none [^"]*text-sm text-text-muted"\s*>\s*\{getDict\(join\.language\)\.roomJoinAt\} \{join\.host\}/);
+		expect(source).toContain("const roomLanguage = resolveLang(join.language);");
+		expect(page).toMatch(/join=\{\{[^}]*language: pres\.language,/);
 		expect(source).toContain(
 			'<span className="font-mono font-bold text-accent-text tracking-widest">',
 		);
@@ -252,7 +266,7 @@ describe("what the room sees, and the strip (REQ247)", () => {
 });
 
 describe("how the presenter screen offers the view (REQ247)", () => {
-	const screen = page.slice(page.indexOf('aria-label="Shared screen"'));
+	const screen = page.slice(page.indexOf("aria-label={pageText.sharedScreenGroup}"));
 	const screenGroup = screen.slice(0, screen.indexOf("</div>"));
 
 	test("Present follows Blank in the Screen group, from `sm`", () => {
@@ -261,8 +275,9 @@ describe("how the presenter screen offers the view (REQ247)", () => {
 		);
 		expect(screenGroup).toContain("className={`${BAR_GROUP_ITEM} max-sm:hidden`}");
 		expect(screenGroup).not.toContain("aria-pressed={presenting");
-		expect(page).toContain(
-			'const presentLabel = "Present — show only the slide, full screen (F)";',
+		expect(page).toContain("const presentLabel = pageText.presentLabel;");
+		expect(pageSection).toContain(
+			'presentLabel: "Present — show only the slide, full screen (F)",',
 		);
 	});
 
@@ -277,6 +292,7 @@ describe("how the presenter screen offers the view (REQ247)", () => {
 	});
 
 	test("the hint under the slide names the key", () => {
-		expect(page).toContain("(arrow keys · F to present)");
+		expect(page).toContain("{pageText.pagingHint}");
+		expect(pageSection).toContain('pagingHint: "(arrow keys · F to present)",');
 	});
 });

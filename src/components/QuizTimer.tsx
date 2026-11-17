@@ -258,6 +258,7 @@ export function QuizTimer({
 	spokenLabel,
 	expiredLabel,
 	className = "",
+	lang,
 }: {
 	countdown: QuizCountdown;
 	/** Unit suffix beside the number, e.g. "s left" — localized by the caller. */
@@ -267,6 +268,11 @@ export function QuizTimer({
 	/** What the closed state says, e.g. "Time's up". */
 	expiredLabel: string;
 	className?: string;
+	/**
+	 * The labels' language, where it is not the page's — the shared screen draws
+	 * the room's countdown in the deck's language (REQ248).
+	 */
+	lang?: string;
 }) {
 	if (!countdown.timed) return null;
 	const { expired, remainingSeconds, remainingShare } = countdown;
@@ -285,7 +291,7 @@ export function QuizTimer({
 		// The tone sits on the wrapper so the bar can be filled with
 		// `currentColor` — one colour decision, worn by the number and the bar
 		// together, rather than two that could drift apart.
-		<div className={`w-full max-w-xs mx-auto ${tone} ${className}`}>
+		<div lang={lang} className={`w-full max-w-xs mx-auto ${tone} ${className}`}>
 			<div className="flex items-center justify-center gap-2">
 				{expired ? <TimerOff size={16} /> : <Timer size={16} />}
 				<span

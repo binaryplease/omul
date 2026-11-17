@@ -45,8 +45,8 @@ import {
 	useSlideComments,
 } from "../components/SlideComments";
 import {
-	RESULTS_VISIBILITY_LABEL,
-	RESULTS_VISIBILITY_OPTIONS,
+	resultsVisibilityLabels,
+	resultsVisibilityOptions,
 	SlideEditor,
 } from "../components/SlideEditor";
 import {
@@ -61,6 +61,13 @@ import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { useToast } from "../components/ui/Toast";
+import { useDocumentLanguage, useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceText,
+	pluralText,
+} from "../interface-text";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 import { slideSaveRefusalFor } from "../slide-save-refusal";
@@ -99,6 +106,7 @@ import {
 	EMPTY_DECK_BRAND,
 	participantLanguageFor,
 	profanityFilterLanguageFor,
+	SLIDE_LIMIT,
 	slideWriteRefusalFor,
 	slideHasResults,
 } from "../types";
@@ -132,8 +140,13 @@ export type Selection = number | "settings";
  * they are standing in. The rail's own wording for the deck panel, so the two
  * ways of reaching it agree on what it is called.
  */
-export function editorColumnLabel(selected: Selection): string {
-	return selected === "settings" ? "Presentation settings" : "Slide settings";
+export function editorColumnLabel(
+	selected: Selection,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	return selected === "settings"
+		? text.editor.presentationSettings
+		: text.editor.slideSettings;
 }
 
 export function CreatePage({
@@ -299,6 +312,16 @@ export function CreatePage({
 	const { addToast } = useToast();
 	const storeApi = useStoreApi();
 	const isEdit = !!editId;
+	const { text, language: interfaceLanguage } = useInterfaceText();
+	const editorText = text.editor;
+	/**
+	 * The interface language a new deck starts its participant language in
+	 * (REQ248): only the starting value of REQ084's picker, which stays the
+	 * presenter's to change. A ref, so choosing another interface language
+	 * while a draft is open re-labels the page without resetting the draft.
+	 */
+	const startingDeckLanguage = useRef(interfaceLanguage);
+	startingDeckLanguage.current = interfaceLanguage;
 
 	/**
 	 * Whether this caller may edit the deck that is open — the same question the
@@ -332,7 +355,10 @@ export function CreatePage({
 		canReadDeckComments(commentAccess) ? (editId ?? null) : null,
 	);
 
-	usePageTitle(isEdit ? "Edit Presentation" : "Create Presentation");
+	usePageTitle(isEdit ? editorText.pageTitleEdit : editorText.pageTitleCreate);
+	// Every word of the editor's own is in the interface language (REQ248), so
+	// the page says so; the canvas's previews of the room carry the deck's.
+	useDocumentLanguage(interfaceLanguage);
 
 	// Populate the editor: a blank draft for Create, the fetched document for
 	// Edit. Callers who cannot save are redirected to the presenter view, which
@@ -350,7 +376,7 @@ export function CreatePage({
 	// round trip on the way to the page they were going to anyway.
 	useEffect(() => {
 		if (!editId) {
-			resetEditor();
+			resetEditor(startingDeckLanguage.current);
 			return;
 		}
 		api
@@ -620,12 +646,12 @@ export function CreatePage({
 
 	const handleSubmit = async () => {
 		if (!title.trim()) {
-			setError("Title is required");
+			setError(editorText.titleRequired);
 			return;
 		}
 		// The editor's own rules (REQ220: the refusal names the slide, and the
 		// slide is selected so the author lands in front of it).
-		const saveRefusal = slideSaveRefusalFor(slides);
+		const saveRefusal = slideSaveRefusalFor(slides, text);
 		if (saveRefusal) {
 			setSelected(saveRefusal.slideIndex);
 			setError(saveRefusal.message);
@@ -638,11 +664,22 @@ export function CreatePage({
 		// failed". This is also the only way an author learns what to trim on a
 		// deck stored before a cap existed: such a deck still reads (the stored
 		// shape is deliberately uncapped) but no save of it lands until the
-		// oversized field is cut down.
+		// oversized field is cut down. Both refusals are worded in the interface
+		// language (REQ248): the deck's size here, a field's from the facts the
+		// shared check reports beside its English sentence.
+		if (slides.length > SLIDE_LIMIT) {
+			setError(
+				fillText(editorText.deckOverLimit, {
+					count: slides.length,
+					limit: SLIDE_LIMIT,
+				}),
+			);
+			return;
+		}
 		const writeRefusal = slideWriteRefusalFor(slides);
 		if (writeRefusal) {
 			if (writeRefusal.slideIndex !== null) setSelected(writeRefusal.slideIndex);
-			setError(writeRefusal.message);
+			setError(slideWriteRefusalMessage(writeRefusal, text));
 			return;
 		}
 
@@ -679,7 +716,7 @@ export function CreatePage({
 				const base = baseDocument.current;
 				if (base === null || baseRevision === null) {
 					await api.updatePresentation(editId, edits);
-					addToast("Presentation updated", "success");
+					addToast(editorText.presentationUpdated, "success");
 					go({ page: "present", id: editId });
 				} else {
 					settleDeckSave(
@@ -717,7 +754,9 @@ export function CreatePage({
 			}
 		} catch (submitError: unknown) {
 			setError(
-				submitError instanceof Error ? submitError.message : "Unknown error",
+				submitError instanceof Error
+					? submitError.message
+					: text.presenterPage.unknownError,
 			);
 		} finally {
 			setSaving(false);
@@ -762,8 +801,8 @@ export function CreatePage({
 		if (outcome.status === "saved") {
 			addToast(
 				outcome.merged > 0
-					? "Presentation updated, together with the changes someone else saved meanwhile"
-					: "Presentation updated",
+					? editorText.presentationUpdatedMerged
+					: editorText.presentationUpdated,
 				"success",
 			);
 			go({ page: "present", id: editId as string });
@@ -775,9 +814,7 @@ export function CreatePage({
 				overlaps: outcome.overlaps,
 			});
 		} else {
-			setError(
-				"Not saved: this deck kept being saved by someone else while yours was on its way. Your edits, combined with theirs, are still here — save again.",
-			);
+			setError(editorText.saveRaced);
 		}
 	};
 
@@ -810,7 +847,9 @@ export function CreatePage({
 			);
 		} catch (submitError: unknown) {
 			setError(
-				submitError instanceof Error ? submitError.message : "Unknown error",
+				submitError instanceof Error
+					? submitError.message
+					: text.presenterPage.unknownError,
 			);
 		} finally {
 			setSaving(false);
@@ -820,9 +859,7 @@ export function CreatePage({
 	/** Leaving the choice unmade saves nothing and keeps every edit on screen. */
 	const handleCancelMerge = () => {
 		setMergeConflict(null);
-		setError(
-			"Not saved: someone else saved this deck after you opened it, and you both changed the same things. Your edits are still here — save again to choose.",
-		);
+		setError(editorText.saveOverlapCancelled);
 	};
 
 	const leave = () =>
@@ -840,25 +877,32 @@ export function CreatePage({
 	return (
 		<div className="h-screen w-full bg-void bg-grid bg-noise flex flex-col overflow-hidden">
 			{/* Top action bar */}
-			<header className="relative z-10 border-b border-border bg-surface/80 backdrop-blur-sm flex-shrink-0">
+			{/* The frame speaks the interface language (REQ248); the canvas
+			    between its regions previews the deck in the deck's language, so
+			    each region the frame owns declares its own `lang`. */}
+			<header
+				lang={interfaceLanguage}
+				className="relative z-10 border-b border-border bg-surface/80 backdrop-blur-sm flex-shrink-0"
+			>
 				<div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-6 py-2.5">
 					<button
 						type="button"
 						className="flex items-center gap-1 text-sm text-text-muted hover:text-text transition-colors flex-shrink-0"
 						onClick={leave}
+						aria-label={text.presenterPage.back}
 					>
 						<ChevronLeft size={16} />
-						<span className="hidden sm:inline">Back</span>
+						<span className="hidden sm:inline">{text.presenterPage.back}</span>
 					</button>
 					<div className="w-px h-5 bg-border hidden sm:block" />
 
 					{/* Inline editable deck title */}
 					<input
 						className="flex-1 min-w-0 bg-transparent rounded-lg px-2 py-1 text-base sm:text-xl font-bold outline-none hover:bg-surface-raised focus:bg-surface-raised focus:ring-1 focus:ring-accent/40 transition-colors placeholder:text-text-muted placeholder:font-medium"
-						placeholder="Untitled presentation"
+						placeholder={editorText.titlePlaceholder}
 						value={title}
 						onChange={(event) => setTitle(event.target.value)}
-						aria-label="Presentation title"
+						aria-label={editorText.titleName}
 						// title is the first thing a new deck needs
 						autoFocus={!isEdit}
 					/>
@@ -883,7 +927,7 @@ export function CreatePage({
 							className="btn-secondary text-sm hidden sm:block"
 							onClick={leave}
 						>
-							Cancel
+							{editorText.cancel}
 						</button>
 						<button
 							type="button"
@@ -893,11 +937,11 @@ export function CreatePage({
 						>
 							{saving
 								? isEdit
-									? "Saving…"
-									: "Creating…"
+									? editorText.saving
+									: editorText.creating
 								: isEdit
-									? "Save Changes"
-									: "Create"}
+									? editorText.saveChanges
+									: editorText.create}
 						</button>
 					</div>
 				</div>
@@ -908,7 +952,8 @@ export function CreatePage({
 				    not, so the edit form carries no notice. */}
 				{!isEdit && (
 					<LegalNotice
-						action="creating this presentation"
+						action={text.legalNotice.creatingPresentation}
+						wording={text.legalNotice}
 						className="px-3 sm:px-6 pb-2 text-right"
 					/>
 				)}
@@ -939,7 +984,10 @@ export function CreatePage({
 			{/* Rail + canvas stage + settings column */}
 			<div className="relative z-10 flex-1 flex flex-col md:flex-row md:overflow-hidden">
 				{/* Slide rail */}
-				<nav className="md:w-60 flex-shrink-0 border-b md:border-b-0 md:border-r border-border bg-surface/50 overflow-x-auto md:overflow-y-auto p-2 md:p-3 flex md:flex-col gap-2">
+				<nav
+					lang={interfaceLanguage}
+					className="md:w-60 flex-shrink-0 border-b md:border-b-0 md:border-r border-border bg-surface/50 overflow-x-auto md:overflow-y-auto p-2 md:p-3 flex md:flex-col gap-2"
+				>
 					<button
 						type="button"
 						className={`flex-shrink-0 md:w-full flex items-center gap-2 p-2 md:p-3 rounded-lg border text-sm transition-all ${slideRailItemSurface(
@@ -949,14 +997,17 @@ export function CreatePage({
 							setSettingsCanvasIndex(0);
 							setSelected("settings");
 						}}
+						aria-label={editorText.presentationSettings}
 					>
 						<Settings size={15} />
-						<span className="hidden md:inline">Presentation settings</span>
+						<span className="hidden md:inline">
+							{editorText.presentationSettings}
+						</span>
 					</button>
 
 					<div className="hidden md:flex items-center justify-between px-1 pt-2 pb-1">
 						<span className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-							Slides
+							{editorText.slides}
 						</span>
 						<span className="font-mono text-xs text-text-muted">
 							{slides.length}
@@ -1017,10 +1068,14 @@ export function CreatePage({
 							type="button"
 							className={`w-full flex items-center justify-center md:justify-start gap-2 p-2 md:p-3 rounded-lg border border-dashed border-border text-sm hover:border-accent/50 ${ICON_BUTTON_HOVER}`}
 							onClick={() => setAddMenuOpen((open) => !open)}
+							aria-expanded={addMenuOpen}
+							aria-label={
+								addMenuOpen ? editorText.closeSlideTypes : editorText.addSlide
+							}
 						>
 							{addMenuOpen ? <X size={15} /> : <Plus size={15} />}
 							<span className="hidden md:inline">
-								{addMenuOpen ? "Close" : "Add slide"}
+								{addMenuOpen ? editorText.closeSlideTypes : editorText.addSlide}
 							</span>
 						</button>
 						{addMenuOpen && (
@@ -1062,6 +1117,7 @@ export function CreatePage({
 									view={canvasView}
 									onViewChange={setCanvasView}
 									deckQuizCount={deckQuizCount}
+									deckLanguage={language}
 								/>
 								{/* What on this slide a reader may not manage to read or
 								    follow (REQ132), under the slide it is about, each finding
@@ -1114,7 +1170,7 @@ export function CreatePage({
 					    overflow as a floor, because a structured answer shape — twenty
 					    form fields, a scale's statements — is longer than any column. */}
 					<section
-						aria-label={editorColumnLabel(selected)}
+						aria-label={editorColumnLabel(selected, text)}
 						className={`w-full flex-shrink-0 border-t border-border bg-surface/30 p-4 sm:p-6 xl:border-t-0 xl:border-l xl:overflow-y-auto ${
 							selected === "settings"
 								? "xl:w-[26rem] 2xl:w-[30rem]"
@@ -1188,6 +1244,30 @@ export function CreatePage({
 	);
 }
 
+/**
+ * Why a save is refused for one slide's field (`slideWriteRefusalFor`, REQ159),
+ * in the interface language (REQ248): the slide by its place, the field by its
+ * path, and the ceiling it is over.
+ */
+export function slideWriteRefusalMessage(
+	refusal: NonNullable<ReturnType<typeof slideWriteRefusalFor>>,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	const words = text.editor;
+	if (refusal.slideIndex === null) return refusal.message;
+	const template =
+		refusal.limit === null
+			? words.writeRefusalInvalid
+			: refusal.limit.kind === "characters"
+				? words.writeRefusalCharacters
+				: words.writeRefusalItems;
+	return fillText(template, {
+		number: refusal.slideIndex + 1,
+		field: refusal.field === "" ? words.writeRefusalWholeSlide : refusal.field,
+		maximum: refusal.limit?.maximum ?? "",
+	});
+}
+
 // ── Deck settings panel (language + pace) ─────────────────────────────
 //
 // Presentation-level settings. Composed from the same EditorControls as the
@@ -1217,32 +1297,37 @@ const PARTICIPANT_LANGUAGE_OPTIONS = Object.entries(
 	PARTICIPANT_LANGUAGE_LABELS,
 ) as [ParticipantLanguage, string][];
 
-/** The words over the audience-language select, and its accessible name. */
-export const AUDIENCE_LANGUAGE_LABEL = "Audience language";
+/** The words over the audience-language select, and its accessible name, in English. */
+export const AUDIENCE_LANGUAGE_LABEL =
+	ENGLISH_INTERFACE_TEXT.deckSettings.audienceLanguage;
 
 /**
  * The deck's audience language (REQ084). The `Field` caption heads its control
  * rather than binding to it, so the select carries the caption's words as its
- * own name (REQ239) — the way the quiz time-limit box does (REQ231).
+ * own name (REQ239) — the way the quiz time-limit box does (REQ231). The
+ * caption is the author's, in the interface language (REQ248); each language
+ * is named in itself, and marked so.
  */
 export function AudienceLanguageField({
 	language,
 	onLanguageChange,
+	label = AUDIENCE_LANGUAGE_LABEL,
 }: {
 	language: string;
 	onLanguageChange: (language: string) => void;
+	label?: string;
 }) {
 	return (
-		<Field label={AUDIENCE_LANGUAGE_LABEL}>
+		<Field label={label}>
 			<select
 				className="input"
-				aria-label={AUDIENCE_LANGUAGE_LABEL}
+				aria-label={label}
 				value={language}
 				onChange={(event) => onLanguageChange(event.target.value)}
 			>
-				{PARTICIPANT_LANGUAGE_OPTIONS.map(([value, label]) => (
-					<option key={value} value={value}>
-						{label}
+				{PARTICIPANT_LANGUAGE_OPTIONS.map(([value, optionLabel]) => (
+					<option key={value} value={value} lang={value}>
+						{optionLabel}
 					</option>
 				))}
 			</select>
@@ -1250,7 +1335,7 @@ export function AudienceLanguageField({
 	);
 }
 
-function DeckSettings({
+export function DeckSettings({
 	language,
 	mode,
 	allowRepeatPasses,
@@ -1340,6 +1425,11 @@ function DeckSettings({
 	onThemeLogoUrlChange: (themeLogoUrl: string) => void;
 	onThemeLogoAltChange: (themeLogoAlt: string) => void;
 }) {
+	// REQ248 — the panel's words in the presenter's interface language.
+	const { text, language: interfaceLanguage } = useInterfaceText();
+	const themeText = text.deckTheme;
+	const words = text.deckSettings;
+	const visibilityLabels = resultsVisibilityLabels(text);
 	// REQ136 — what the logo field actually resolves to, asked of the same
 	// function every render surface asks. A URL no `<img>` may be pointed at
 	// resolves to nothing, and the organizer is told so here, in the editor,
@@ -1366,8 +1456,8 @@ function DeckSettings({
 		<div className="max-w-2xl mx-auto slide-in space-y-6">
 			<PanelHeader
 				icon={<Settings size={18} />}
-				eyebrow="Deck"
-				title="Presentation settings"
+				eyebrow={words.eyebrow}
+				title={text.editor.presentationSettings}
 			/>
 
 			{/* Theme (REQ079) — the deck's colours, type and slide backgrounds, on
@@ -1377,15 +1467,15 @@ function DeckSettings({
 			    authored today is not pinned to today's palette. */}
 			<div {...accessibilityFieldMarker({ scope: "deck", name: "theme" })}>
 				<Section
-					title="Theme"
-					description="Colours, typeface and slide backgrounds, across the presenter, participant and join surfaces."
+					title={themeText.themeTitle}
+					description={themeText.themeDescription}
 				>
 					<ChoiceCards
-						ariaLabel="Deck theme"
+						ariaLabel={themeText.themePickerName}
 						columns={2}
 						value={theme}
 						onChange={onThemeChange}
-						options={deckThemeOptions(authoredBrand)}
+						options={deckThemeOptions(authoredBrand, text)}
 					/>
 				</Section>
 			</div>
@@ -1396,17 +1486,17 @@ function DeckSettings({
 			    authorable whichever theme is currently selected: trying `Ember` on
 			    must not throw away the colours somebody typed in. */}
 			<Section
-				title="Your own theme"
-				description="An organization's colours and typeface, authored on this deck and applied exactly as a built-in theme is."
+				title={themeText.ownThemeTitle}
+				description={themeText.ownThemeDescription}
 			>
 				<div className="flex flex-col gap-3">
 					<Field
-						label="Theme name"
-						hint="What this theme is called in the picker above."
+						label={themeText.themeNameLabel}
+						hint={themeText.themeNameHint}
 					>
 						<input
 							className="input"
-							placeholder="Custom"
+							placeholder={themeText.unnamedTheme}
 							value={themeBrand.name}
 							onChange={(event) =>
 								onThemeBrandChange({ name: event.target.value })
@@ -1414,15 +1504,15 @@ function DeckSettings({
 						/>
 					</Field>
 					<ColorField
-						label="Brand colour"
-						hint="Everything live: bars, links, the wash behind a slide."
+						label={themeText.brandColorLabel}
+						hint={themeText.brandColorHint}
 						placeholder="#2e5cff"
 						value={themeBrand.accent}
 						onChange={(accent) => onThemeBrandChange({ accent })}
 					/>
 					<ColorField
-						label="Canvas"
-						hint="The surface a slide is drawn on. How light it is decides which colour scheme these colours were authored for — the other one is derived from them, so a reader who prefers the opposite still gets your brand."
+						label={themeText.canvasLabel}
+						hint={themeText.canvasHint}
 						placeholder="#131316"
 						value={themeBrand.canvas}
 						onChange={(canvas) => onThemeBrandChange({ canvas })}
@@ -1432,23 +1522,23 @@ function DeckSettings({
 					    that is only about being read. */}
 					<div {...accessibilityFieldMarker({ scope: "deck", name: "themeBrand" })}>
 						<ColorField
-							label="Text"
-							hint="The words on that canvas. Left empty, it is derived from the canvas."
+							label={themeText.textColorLabel}
+							hint={themeText.textColorHint}
 							placeholder="#f4f4f5"
 							value={themeBrand.text}
-							onChange={(text) => onThemeBrandChange({ text })}
+							onChange={(color) => onThemeBrandChange({ text: color })}
 						/>
 					</div>
 					<Field
-						label="Typeface"
-						hint="Only faces this build ships, so every screen in the room resolves the same one."
+						label={themeText.typefaceLabel}
+						hint={themeText.typefaceHint}
 					>
 						<ChoiceCards
-							ariaLabel="Theme typeface"
+							ariaLabel={themeText.typefacePickerName}
 							columns={2}
 							value={themeBrand.font}
 							onChange={(font) => onThemeBrandChange({ font })}
-							options={deckFontOptions()}
+							options={deckFontOptions(text)}
 						/>
 					</Field>
 					{/* Whether these colours are the ones on screen is a different
@@ -1458,8 +1548,8 @@ function DeckSettings({
 					<div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface/40 p-3">
 						<p className="text-xs text-text-muted">
 							{wearsOwnTheme
-								? "This deck is drawn in the theme above."
-								: "Stored with the deck, but not what the room sees — it currently wears the built-in theme selected above."}
+								? themeText.ownThemeInUse
+								: themeText.ownThemeNotInUse}
 						</p>
 						<button
 							type="button"
@@ -1467,12 +1557,10 @@ function DeckSettings({
 							onClick={() => onThemeChange(CUSTOM_DECK_THEME_ID)}
 							disabled={wearsOwnTheme}
 							title={
-								wearsOwnTheme
-									? "This deck already wears its own theme."
-									: undefined
+								wearsOwnTheme ? themeText.ownThemeAlreadyInUse : undefined
 							}
 						>
-							Use this theme
+							{themeText.useOwnTheme}
 						</button>
 					</div>
 				</div>
@@ -1482,13 +1570,13 @@ function DeckSettings({
 			    facing surfaces in place of ours. An image URL, exactly like a
 			    slide's: nothing here uploads or stores a picture. */}
 			<Section
-				title="Logo"
-				description="Shown on the join, waiting and participant screens in place of the default mark."
+				title={themeText.logoTitle}
+				description={themeText.logoDescription}
 			>
 				<div className="flex flex-col gap-3">
 					<Field
-						label="Logo image URL"
-						hint="An http(s) link, or a path this deployment serves. Leave empty to keep the default mark."
+						label={themeText.logoUrlLabel}
+						hint={themeText.logoUrlHint}
 					>
 						<input
 							className="input"
@@ -1500,11 +1588,11 @@ function DeckSettings({
 						/>
 					</Field>
 					<Field
-						label="Logo description"
+						label={themeText.logoAltLabel}
 						hint={
 							logo && logo.alt === ""
-								? "Read out by screen readers. With no description and no deck title, the mark is treated as decorative."
-								: "Read out by screen readers. Defaults to the deck's title."
+								? themeText.logoAltHintDecorative
+								: themeText.logoAltHint
 						}
 					>
 						<input
@@ -1514,9 +1602,7 @@ function DeckSettings({
 							onChange={(event) => onThemeLogoAltChange(event.target.value)}
 							disabled={authoredLogoUrl === ""}
 							title={
-								authoredLogoUrl === ""
-									? "There is no logo to describe yet — add an image URL above."
-									: undefined
+								authoredLogoUrl === "" ? themeText.logoAltNoLogo : undefined
 							}
 						/>
 					</Field>
@@ -1530,10 +1616,10 @@ function DeckSettings({
 						/>
 						<p className="text-xs text-text-muted">
 							{logo
-								? "This is the mark the audience sees."
+								? themeText.logoShown
 								: authoredLogoUrl === ""
-									? "No logo set — the audience sees the default mark."
-									: "That link can't be used as an image — use an http(s) address or a path starting with “/”. The audience sees the default mark until it is fixed."}
+									? themeText.logoNone
+									: themeText.logoUnusable}
 						</p>
 					</div>
 				</div>
@@ -1541,37 +1627,34 @@ function DeckSettings({
 
 			{/* Language (REQ084) */}
 			<Section
-				title="Language"
-				description="Participant-facing UI strings are shown in this language."
+				title={words.languageTitle}
+				description={words.languageDescription}
 			>
 				<AudienceLanguageField
 					language={language}
 					onLanguageChange={onLanguageChange}
+					label={words.audienceLanguage}
 				/>
 			</Section>
 
 			{/* Pace mode (REQ003 / REQ082) */}
-			<Section
-				title="Pace"
-				description="Who advances the slides during the presentation."
-			>
+			<Section title={words.paceTitle} description={words.paceDescription}>
 				<ChoiceCards
-					ariaLabel="Presentation pace"
+					ariaLabel={words.pacePickerName}
 					columns={2}
 					value={mode}
 					onChange={onModeChange}
 					options={[
 						{
 							value: "live",
-							label: "Presenter pace",
-							description: "You control the slide. Participants follow along.",
+							label: words.pacePresenter,
+							description: words.pacePresenterDescription,
 							icon: <MonitorPlay size={18} />,
 						},
 						{
 							value: "survey",
-							label: "Audience pace",
-							description:
-								"Participants navigate on their own. Great for async surveys. Adds the option to let a device answer more than once.",
+							label: words.paceAudience,
+							description: words.paceAudienceDescription,
 							icon: <Users size={18} />,
 						},
 					]}
@@ -1585,8 +1668,8 @@ function DeckSettings({
 				{mode === "survey" && (
 					<div className="mt-3">
 						<Toggle
-							label="Let a device answer more than once"
-							description="Once a participant reaches the last slide they can go through the deck again. Each pass is kept as its own set of answers rather than replacing the last, and counts as its own respondent in the results and both exports."
+							label={words.repeatPasses}
+							description={words.repeatPassesDescription}
 							checked={allowRepeatPasses}
 							onChange={onAllowRepeatPassesChange}
 						/>
@@ -1602,14 +1685,14 @@ function DeckSettings({
 			    one operation (REQ018). It sits here, under the setting it applies,
 			    rather than in the page chrome. */}
 			<Section
-				title="Results visibility"
-				description="When aggregated results reach the audience. Any slide can override this from its own settings."
+				title={words.visibilityTitle}
+				description={words.visibilityDescription}
 			>
 				<ChoiceCards
-					ariaLabel="Results visibility"
+					ariaLabel={words.visibilityPickerName}
 					value={resultsVisibility}
 					onChange={onResultsVisibilityChange}
-					options={RESULTS_VISIBILITY_OPTIONS}
+					options={resultsVisibilityOptions(text)}
 				/>
 				<div className="mt-3 flex flex-col gap-2">
 					<button
@@ -1618,21 +1701,22 @@ function DeckSettings({
 						disabled={overriddenSlideCount === 0}
 						title={
 							overriddenSlideCount === 0
-								? "Every question slide already follows this setting — there is no per-slide override left to clear."
-								: `Clear the results-visibility override on ${overriddenSlideCount} slide${
-										overriddenSlideCount === 1 ? "" : "s"
-									} so the whole deck follows “${RESULTS_VISIBILITY_LABEL[resultsVisibility]}”.`
+								? words.applyNothingToClear
+								: pluralText(
+										interfaceLanguage,
+										overriddenSlideCount,
+										words.applyTitle,
+										{ mode: visibilityLabels[resultsVisibility] },
+									)
 						}
 						onClick={onApplyResultsVisibilityToDeck}
 					>
-						Apply to every question slide
+						{words.applyToAll}
 					</button>
 					<p className="text-xs text-text-muted">
 						{overriddenSlideCount === 0
-							? "Every question slide follows this setting."
-							: `${overriddenSlideCount} slide${
-									overriddenSlideCount === 1 ? " overrides" : "s override"
-								} it. Applying clears those overrides — including any that were withholding a Pin on Image target area until you reveal it.`}
+							? words.allFollow
+							: pluralText(interfaceLanguage, overriddenSlideCount, words.overrides)}
 					</p>
 				</div>
 			</Section>
@@ -1644,34 +1728,26 @@ function DeckSettings({
 			    the list the server will read; saving it mid-session re-draws the wall
 			    at once. */}
 			<Section
-				title="Profanity filter"
-				description="Keep offensive free-text answers off the shared screen and every phone."
+				title={words.profanityTitle}
+				description={words.profanityDescription}
 			>
 				<div className="flex flex-col gap-3">
 					<Toggle
-						label="Withhold answers containing profanity"
-						description="A word-cloud, open-ended or typed quiz answer containing a word on the list is kept off the wall and counted instead. It is still recorded and scored — you read it, marked as filtered, on the results page and in both exports."
+						label={words.profanityToggle}
+						description={words.profanityToggleDescription}
 						checked={profanityFilterEnabled}
 						onChange={onProfanityFilterEnabledChange}
 					/>
 					<Field
-						label="Word list"
-						hint={
-							profanityFilterEnabled
-								? "Whole words only, ignoring case and accents. Follows the audience language unless you pick one."
-								: "Not in use while the filter is off — switch it on above to choose a list."
-						}
+						label={words.wordList}
+						hint={profanityFilterEnabled ? words.wordListHint : words.wordListOff}
 					>
 						<select
 							className="input"
-							aria-label="Profanity filter word list"
+							aria-label={words.wordListPickerName}
 							value={profanityFilterLanguage ?? ""}
 							disabled={!profanityFilterEnabled}
-							title={
-								profanityFilterEnabled
-									? undefined
-									: "Not in use while the filter is off — switch it on above to choose a list."
-							}
+							title={profanityFilterEnabled ? undefined : words.wordListOff}
 							onChange={(event) =>
 								onProfanityFilterLanguageChange(
 									event.target.value === ""
@@ -1681,12 +1757,13 @@ function DeckSettings({
 							}
 						>
 							<option value="">
-								{`Same as the audience language (${
-									PARTICIPANT_LANGUAGE_LABELS[participantLanguageFor(language)]
-								})`}
+								{fillText(words.wordListSameAsAudience, {
+									language:
+										PARTICIPANT_LANGUAGE_LABELS[participantLanguageFor(language)],
+								})}
 							</option>
 							{PARTICIPANT_LANGUAGE_OPTIONS.map(([value, label]) => (
-								<option key={value} value={value}>
+								<option key={value} value={value} lang={value}>
 									{label}
 								</option>
 							))}
@@ -1694,8 +1771,10 @@ function DeckSettings({
 					</Field>
 					<p className="text-xs text-text-muted">
 						{filterListInForce === null
-							? "Off — every answer reaches the wall exactly as it was typed."
-							: `On — answers are held against the word list for ${PARTICIPANT_LANGUAGE_LABELS[filterListInForce]}.`}
+							? words.filterOff
+							: fillText(words.filterOn, {
+									language: PARTICIPANT_LANGUAGE_LABELS[filterListInForce],
+								})}
 					</p>
 				</div>
 			</Section>
@@ -1705,35 +1784,30 @@ function DeckSettings({
 			    from slide 4 belongs to the presentation, not to slide 4. The
 			    presenter can still flip both switches live from the Q&A panel
 			    during a session; this is where the deck starts out. */}
-			<Section
-				title="Q&A"
-				description="Let the audience ask questions from any slide, not only from a Q&A slide."
-			>
+			<Section title={words.qaTitle} description={words.qaDescription}>
 				<div className="flex flex-col gap-3">
 					<Toggle
-						label="Questions from the audience"
-						description="Questions can be asked at any point during the presentation."
+						label={words.qaToggle}
+						description={words.qaToggleDescription}
 						checked={qaEnabled}
 						onChange={onQAEnabledChange}
 					/>
 					<ChoiceCards
-						ariaLabel="Who sees the submitted questions"
+						ariaLabel={words.qaVisibilityPickerName}
 						columns={2}
 						value={qaVisibility}
 						onChange={onQAVisibilityChange}
 						options={[
 							{
 								value: "presenter",
-								label: "Only the presenter",
-								description:
-									"Questions arrive in your moderation panel. Participants see only what they asked themselves.",
+								label: words.qaPresenter,
+								description: words.qaPresenterDescription,
 								icon: <Settings size={18} />,
 							},
 							{
 								value: "everyone",
-								label: "Everyone",
-								description:
-									"The whole room reads the list and upvotes it, which is what orders your queue.",
+								label: words.qaEveryone,
+								description: words.qaEveryoneDescription,
 								icon: <MessageCircleQuestion size={18} />,
 							},
 						]}
@@ -1756,19 +1830,19 @@ function DeckSettings({
 			    Both start closed, and the presenter can open either live from the
 			    audience panel during a session; this is where the deck starts out. */}
 			<Section
-				title="Audience channels"
-				description="What the room can send besides answers to your questions."
+				title={words.channelsTitle}
+				description={words.channelsDescription}
 			>
 				<div className="flex flex-col gap-3">
 					<Toggle
-						label="Reactions"
-						description="Participants can react to any slide, whatever its type. Reactions are shown live and never stored — counted in no tally, and in no export."
+						label={words.reactions}
+						description={words.reactionsDescription}
 						checked={reactionsEnabled}
 						onChange={onReactionsEnabledChange}
 					/>
 					<Toggle
-						label="Live chat"
-						description="A channel the room talks in during the session, separate from the Q&A queue and from slide answers. Messages are kept with the session and cleared when you reset it."
+						label={words.chat}
+						description={words.chatDescription}
 						checked={chatEnabled}
 						onChange={onChatEnabledChange}
 					/>
@@ -1784,13 +1858,13 @@ function DeckSettings({
 
 			    Off on every fresh deck, here as everywhere else. */}
 			<Section
-				title="Participants"
-				description="Whether the people joining this deck say who they are, and whether they must be signed in."
+				title={words.participantsTitle}
+				description={words.participantsDescription}
 			>
 				<div className="flex flex-col gap-3">
 					<Toggle
-						label="Ask for a name on joining"
-						description="Everyone joining states a name before their first slide. The name is stored with their answers, listed on your participants panel while you present, and carried into both exports. Names are cleared when you reset the session, and a deck that never asks collects none."
+						label={words.askName}
+						description={words.askNameDescription}
 						checked={requireParticipantName}
 						onChange={onRequireParticipantNameChange}
 					/>
@@ -1798,8 +1872,8 @@ function DeckSettings({
 					    turns away anybody without an account, and each answer is
 					    attributable to the account that sent it. */}
 					<Toggle
-						label="Require participants to sign in"
-						description="Only people signed in to an account can join and answer. Anyone else is asked to sign in first and comes back to this deck afterwards. Each participant's answers are tied to the account they signed in with."
+						label={words.requireSignIn}
+						description={words.requireSignInDescription}
 						checked={requireParticipantSignIn}
 						onChange={onRequireParticipantSignInChange}
 					/>

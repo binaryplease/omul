@@ -17,6 +17,8 @@ import {
 	useState,
 } from "react";
 import { flushSync } from "react-dom";
+import { getDict, resolveLang } from "../i18n";
+import { useInterfaceText } from "../interface-language";
 import { BAR_GROUP, BAR_GROUP_ITEM } from "./ShareCluster";
 
 // ── Presenting view (REQ247) ─────────────────────────────────
@@ -171,8 +173,11 @@ export function PresentingView({
 	startCardShown,
 	onDismissStartCard,
 }: {
-	/** Where the room joins. */
-	join: { host: string; code: string };
+	/**
+	 * Where the room joins. The join line is the room's, so it is in the deck's
+	 * `language` (REQ084) rather than the interface language (REQ248).
+	 */
+	join: { host: string; code: string; language?: string };
 	/** Whether the room's screen is blanked (REQ109): the stage is then controls only. */
 	blanked: boolean;
 	/** The slide, or on a blanked screen its curtain's controls. */
@@ -197,6 +202,9 @@ export function PresentingView({
 	startCardShown: boolean;
 	onDismissStartCard: () => void;
 }) {
+	const { text } = useInterfaceText();
+	const viewText = text.presentingView;
+	const roomLanguage = resolveLang(join.language);
 	const [layerUp, setLayerUp] = useState(false);
 	const viewRef = useRef<HTMLDivElement>(null);
 	const stripRef = useRef<HTMLDivElement>(null);
@@ -324,8 +332,11 @@ export function PresentingView({
 			{/* The room's standing invitation (REQ191), made quiet. Gone with
 			    everything else while the screen is blanked. */}
 			{!blanked && (
-				<p className="pointer-events-none absolute inset-x-0 top-3 z-20 px-4 text-center text-sm text-text-muted">
-					Join at {join.host}{" "}
+				<p
+					lang={roomLanguage}
+					className="pointer-events-none absolute inset-x-0 top-3 z-20 px-4 text-center text-sm text-text-muted"
+				>
+					{getDict(join.language).roomJoinAt} {join.host}{" "}
 					<span className="font-mono font-bold text-accent-text tracking-widest">
 						{join.code}
 					</span>
@@ -349,8 +360,7 @@ export function PresentingView({
 						className="pointer-events-auto flex max-w-sm flex-col items-center gap-4 rounded-2xl border border-border bg-surface-raised p-6 text-center shadow-lg"
 					>
 						<p id={startCardTextId} className="text-sm text-text">
-							Drag this window to the projector, then press F or choose Full
-							screen
+							{viewText.startCard}
 						</p>
 						<div className="flex flex-wrap items-center justify-center gap-3">
 							<button
@@ -360,19 +370,19 @@ export function PresentingView({
 								disabled={!fullscreenOffered}
 								title={
 									fullscreenOffered
-										? "Full screen"
-										: "Full screen — this browser does not offer it here"
+										? viewText.fullScreen
+										: viewText.fullScreenUnavailable
 								}
 							>
 								<Maximize size={16} aria-hidden />
-								Full screen
+								{viewText.fullScreen}
 							</button>
 							<button
 								type="button"
 								className="btn-secondary text-sm"
 								onClick={onDismissStartCard}
 							>
-								Dismiss
+								{viewText.dismiss}
 							</button>
 						</div>
 					</div>
@@ -384,7 +394,7 @@ export function PresentingView({
 				<div
 					ref={stripRef}
 					role="toolbar"
-					aria-label="Presenting controls"
+					aria-label={viewText.controls}
 					className={`${BAR_GROUP} pointer-events-auto shadow-lg ${
 						layerUp ? LAYER_SHOWN : LAYER_HIDDEN
 					}`}
@@ -428,8 +438,8 @@ export function PresentingView({
 						type="button"
 						onClick={onShowQr}
 						aria-haspopup="dialog"
-						aria-label="Show QR code"
-						title="Show QR code"
+						aria-label={viewText.showQrCode}
+						title={viewText.showQrCode}
 						className={BAR_GROUP_ITEM}
 					>
 						<QrCode size={16} aria-hidden />
@@ -438,8 +448,8 @@ export function PresentingView({
 						<button
 							type="button"
 							onClick={onRequestFullscreen}
-							aria-label="Full screen"
-							title="Full screen"
+							aria-label={viewText.fullScreen}
+							title={viewText.fullScreen}
 							className={BAR_GROUP_ITEM}
 						>
 							<Maximize size={16} aria-hidden />
@@ -449,12 +459,12 @@ export function PresentingView({
 					<button
 						type="button"
 						onClick={onLeave}
-						aria-label="Leave presenting view (Esc)"
-						title="Leave presenting view (Esc)"
+						aria-label={viewText.leave}
+						title={viewText.leave}
 						className={BAR_GROUP_ITEM}
 					>
 						<Minimize2 size={16} aria-hidden />
-						<span className="hidden sm:inline">Exit</span>
+						<span className="hidden sm:inline">{viewText.exit}</span>
 					</button>
 				</div>
 			</div>

@@ -18,6 +18,7 @@ import {
 	api,
 	buildExportPayload,
 	claimLocalPresentations,
+	ImportFileError,
 	listMyPresentations,
 	listSharedPresentations,
 } from "../api";
@@ -29,7 +30,10 @@ import {
 	deckAccessLevelLabel,
 } from "../components/CollaboratorsDialog";
 import { REMOVE_BUTTON_HOVER } from "../components/EditorControls";
-import { EmailRecoveryPrompt } from "../components/EmailRecoveryPrompt";
+import {
+	EmailRecoveryPrompt,
+	emailRecoveryPromptLabelsFor,
+} from "../components/EmailRecoveryPrompt";
 import { MoveToWorkspaceDialog } from "../components/MoveToWorkspaceDialog";
 import { ICON_BUTTON_HOVER } from "../components/ShareCluster";
 import { AppMenu } from "../components/ui/AppMenu";
@@ -46,6 +50,9 @@ import {
 	emailRecoveryPromptDismissed,
 	useAccountSeenInThisBrowser,
 } from "../email-recovery-prompt";
+import { getDict } from "../i18n";
+import { useDocumentLanguage, useInterfaceText } from "../interface-language";
+import { fillText, formatDate, pluralText } from "../interface-text";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 import {
@@ -99,6 +106,8 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 	const [importing, setImporting] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const { addToast } = useToast();
+	const { text, language } = useInterfaceText();
+	const words = text.home;
 	// The signed-in account (if any). Its id drives the load below, so signing in
 	// or out re-resolves the visible presentations.
 	const { data: session, isPending: sessionPending } = useSession();
@@ -126,6 +135,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 	});
 
 	usePageTitle("");
+	useDocumentLanguage(language);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -169,7 +179,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 		if (!deleteTarget) return;
 		await api.deletePresentation(deleteTarget.id);
 		setPresentations((ps) => ps.filter((p) => p.id !== deleteTarget.id));
-		addToast("Presentation deleted", "success");
+		addToast(words.presentationDeleted, "success");
 		setDeleteTarget(null);
 	};
 
@@ -183,7 +193,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 			addToast(
 				folderError instanceof Error
 					? folderError.message
-					: "Could not change your folders",
+					: words.foldersFailed,
 				"error",
 			);
 		}
@@ -226,15 +236,19 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 			const data = JSON.parse(text);
 			const created = await api.importPresentation(data);
 			setPresentations((ps) => [created, ...ps]);
-			addToast("Presentation imported", "success");
+			addToast(words.presentationImported, "success");
 			go({ page: "edit", id: created.id });
 		} catch (e: unknown) {
 			const msg =
 				e instanceof SyntaxError
-					? "Invalid JSON file"
-					: e instanceof Error
-						? e.message
-						: "Failed to import presentation";
+					? words.invalidJson
+					: e instanceof ImportFileError
+						? e.reason === "not-object"
+							? words.importNotObject
+							: words.importMissingFields
+						: e instanceof Error
+							? e.message
+							: words.importFailed;
 			addToast(msg, "error");
 		} finally {
 			setImporting(false);
@@ -248,11 +262,11 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 		try {
 			const copy = await api.duplicatePresentation(source.id);
 			setPresentations((ps) => [copy, ...ps]);
-			addToast("Presentation duplicated", "success");
+			addToast(words.presentationDuplicated, "success");
 			go({ page: "edit", id: copy.id });
 		} catch (e: unknown) {
 			addToast(
-				e instanceof Error ? e.message : "Failed to duplicate presentation",
+				e instanceof Error ? e.message : words.duplicateFailed,
 				"error",
 			);
 		} finally {
@@ -276,13 +290,10 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 						<BrandMark heightPx={28} />
 					</div>
 					<h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-4">
-						Live Interactive
-						<span className="text-accent-text"> Presentations</span>
+						{words.heroTitleStart}
+						<span className="text-accent-text">{words.heroTitleAccent}</span>
 					</h1>
-					<p className="text-text-muted text-lg max-w-xl">
-						Create polls, word clouds, Q&A sessions, and quizzes. Participants
-						join with a code on any device.
-					</p>
+					<p className="text-text-muted text-lg max-w-xl">{words.heroIntro}</p>
 				</header>
 
 				{/* Verify-email nudge for signed-in, unverified accounts (renders
@@ -298,7 +309,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 						type="button"
 						onClick={() => go({ page: "create" })}
 					>
-						Create Presentation
+					{words.createPresentation}
 					</button>
 					{/* The catalog of prebuilt decks (REQ005), beside the blank-deck
 					    button it is the alternative to. */}
@@ -306,10 +317,10 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 						className="btn-secondary text-lg px-8 py-3 inline-flex items-center gap-2"
 						type="button"
 						onClick={() => go({ page: "templates" })}
-						title="Start from a prebuilt deck you can edit"
+						title={words.useTemplateTitle}
 					>
 						<LayoutTemplate size={18} />
-						Use a Template
+						{words.useTemplate}
 					</button>
 					{/* Drafting from a prompt (REQ007) — the third way a deck starts,
 					    beside the blank one and the prebuilt one. Whether this build
@@ -320,10 +331,10 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 						className="btn-secondary text-lg px-8 py-3 inline-flex items-center gap-2"
 						type="button"
 						onClick={() => go({ page: "generate" })}
-						title="Describe a session and get a draft deck to edit"
+						title={words.generateDraftTitle}
 					>
 						<Sparkles size={18} />
-						Generate a Draft
+						{words.generateDraft}
 					</button>
 					{/* Workspaces (REQ128) — the other owner a deck can have. Always
 					    offered, whether or not this browser is signed in: the page
@@ -333,27 +344,27 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 						className="btn-secondary text-lg px-8 py-3 inline-flex items-center gap-2"
 						type="button"
 						onClick={() => go({ page: "workspaces" })}
-						title="Decks a team owns together"
+						title={words.workspacesTitle}
 					>
 						<Building2 size={18} />
-						Workspaces
+						{words.workspaces}
 					</button>
 					<button
 						className="btn-secondary text-lg px-8 py-3"
 						type="button"
 						onClick={() => go({ page: "join" })}
 					>
-						Join with Code
+					{words.joinWithCode}
 					</button>
 					<button
 						className="btn-secondary text-lg px-8 py-3 inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-wait"
 						type="button"
 						onClick={() => fileInputRef.current?.click()}
 						disabled={importing}
-						title="Import a presentation from a .omul.json file"
+						title={words.importTitle}
 					>
 						<Upload size={18} />
-						{importing ? "Importing…" : "Import"}
+						{importing ? words.importing : words.importDeck}
 					</button>
 					<input
 						ref={fileInputRef}
@@ -373,7 +384,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 				<section className="slide-in slide-in-delay-2">
 					<div className="flex flex-wrap items-center justify-between gap-3 mb-6">
 						<h2 className="text-xl font-semibold text-text-muted">
-							Your Presentations
+						{words.yourPresentations}
 						</h2>
 						{/* Folders group this list (REQ126), so the way to make one sits
 						    on the list. Signed out it is disabled with the reason: a
@@ -384,13 +395,11 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 							onClick={() => setNameDialog({ folder: null })}
 							disabled={userId === null}
 							title={
-								userId === null
-									? "New folder — sign in to group your decks into folders"
-									: "Make a folder to group your decks"
+								userId === null ? words.newFolderSignedOut : words.newFolderTitle
 							}
 						>
 							<FolderPlus size={16} />
-							New folder
+							{words.newFolder}
 						</button>
 					</div>
 					{/* The offer to keep these decks with an account (REQ194), on the
@@ -399,6 +408,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 						<div className="mb-6 max-w-3xl">
 							<EmailRecoveryPrompt
 								offer={emailRecoveryOffer}
+								labels={emailRecoveryPromptLabelsFor(getDict(language))}
 								onTakeOffer={() => setRecoveryDialogTab(emailRecoveryOffer)}
 								onDismiss={() => {
 									dismissEmailRecoveryPrompt();
@@ -415,11 +425,10 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 								<BarChart3 size={28} />
 							</div>
 							<h3 className="text-lg font-semibold mb-2">
-								No presentations yet
+							{words.noPresentations}
 							</h3>
 							<p className="text-text-muted mb-6 max-w-sm mx-auto">
-								Create your first presentation to start collecting live
-								responses from your audience.
+							{words.noPresentationsBody}
 							</p>
 							<div className="flex flex-wrap items-center justify-center gap-3">
 								<button
@@ -427,7 +436,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 									type="button"
 									onClick={() => go({ page: "create" })}
 								>
-									Create your first presentation
+								{words.createFirst}
 								</button>
 								{/* The emptier this list is, the more useful a prebuilt deck
 								    is (REQ005) — so the offer is here too, not only in the
@@ -438,7 +447,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 									onClick={() => go({ page: "templates" })}
 								>
 									<LayoutTemplate size={16} />
-									Start from a template
+									{words.startFromTemplate}
 								</button>
 							</div>
 						</div>
@@ -456,7 +465,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 													className="text-text-dim shrink-0"
 												/>
 												<h3 className="font-semibold truncate min-w-0">
-													{folder?.name ?? "Unfiled"}
+													{folder?.name ?? words.unfiled}
 												</h3>
 												<span className="text-sm text-text-dim shrink-0">
 													{decks.length}
@@ -469,7 +478,9 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 															type="button"
 															className={`${OWN_DECK_ACTION} ${ICON_BUTTON_HOVER}`}
 															onClick={() => setShareFolderTarget(folder)}
-															title={`Share the folder “${folder.name}” and every deck in it with another account`}
+															title={fillText(words.shareFolderTitle, {
+																name: folder.name,
+															})}
 														>
 															<Users size={16} />
 														</button>
@@ -477,7 +488,9 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 															type="button"
 															className={`${OWN_DECK_ACTION} ${ICON_BUTTON_HOVER}`}
 															onClick={() => setNameDialog({ folder })}
-															title={`Rename the folder “${folder.name}”`}
+															title={fillText(words.renameFolderTitle, {
+																name: folder.name,
+															})}
 														>
 															<Pencil size={16} />
 														</button>
@@ -485,7 +498,9 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 															type="button"
 															className={`${OWN_DECK_ACTION} transition-colors ${REMOVE_BUTTON_HOVER}`}
 															onClick={() => setDeleteFolderTarget(folder)}
-															title={`Delete the folder “${folder.name}” — its decks are kept`}
+															title={fillText(words.deleteFolderTitle, {
+																name: folder.name,
+															})}
 														>
 															<Trash2 size={16} />
 														</button>
@@ -494,8 +509,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 											</div>
 											{decks.length === 0 ? (
 												<p className="text-sm text-text-dim">
-													No decks in this folder yet. Use the folder button
-													on a deck to file it here.
+												{words.emptyFolder}
 												</p>
 											) : (
 												renderDeckGrid(decks)
@@ -517,7 +531,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 				<div className="relative z-10 w-full px-6 sm:px-12 lg:px-24 pb-16">
 					<section className="slide-in">
 						<h2 className="text-xl font-semibold mb-6 text-text-muted">
-							Shared with You
+						{words.sharedWithYou}
 						</h2>
 						<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
 							{shared.map((pres) => (
@@ -540,12 +554,10 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 											{/* What this account may do with it, in the same words
 											    the owner chose it by. */}
 											<span className="text-accent-text">
-												{deckAccessLevelLabel(pres.accessLevel ?? null)}
+												{deckAccessLevelLabel(pres.accessLevel ?? null, text)}
 											</span>
 											<span className="font-mono">{pres.code}</span>
-											<span>
-												{new Date(pres.createdAt).toLocaleDateString()}
-											</span>
+											<span>{formatDate(language, pres.createdAt)}</span>
 										</div>
 									</div>
 								</div>
@@ -578,7 +590,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 
 			{fileTarget && (
 				<Modal
-					title="Move to a folder"
+					title={words.moveToFolder}
 					icon={FolderInput}
 					onClose={() => setFileTarget(null)}
 				>
@@ -596,22 +608,29 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 										disabled={current}
 										title={
 											current
-												? "The deck is already here"
+											? words.alreadyHere
 												: folder
-													? `File “${fileTarget.title}” in ${folder.name}`
-													: `Take “${fileTarget.title}” out of its folder`
+												? fillText(words.fileIn, {
+														title: fileTarget.title,
+														folder: folder.name,
+													})
+												: fillText(words.takeOutOfFolder, {
+														title: fileTarget.title,
+													})
 										}
 										onClick={() => {
 											setFileTarget(null);
 											changeFolders(
 												() => api.fileDeck(fileTarget.id, folder?.id ?? null),
-												folder ? `Filed in ${folder.name}` : "Moved to Unfiled",
+												folder
+													? fillText(words.filedIn, { folder: folder.name })
+													: words.movedToUnfiled,
 											);
 										}}
 									>
 										<FolderIcon size={16} className="text-text-dim shrink-0" />
 										<span className="flex-1 min-w-0 truncate">
-											{folder?.name ?? "No folder"}
+											{folder?.name ?? words.noFolder}
 										</span>
 									</button>
 								</li>
@@ -619,10 +638,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 						})}
 					</ul>
 					{folders.length === 0 && (
-						<p className="mt-3 text-sm text-text-muted">
-							You have no folders yet — make one with New folder above your
-							decks.
-						</p>
+						<p className="mt-3 text-sm text-text-muted">{words.noFoldersYet}</p>
 					)}
 				</Modal>
 			)}
@@ -639,7 +655,9 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 								renaming
 									? api.renameFolder(renaming.id, name)
 									: api.createFolder(name),
-							renaming ? "Folder renamed" : `Folder “${name}” created`,
+							renaming
+								? words.folderRenamed
+								: fillText(words.folderCreated, { name }),
 						);
 					}}
 				/>
@@ -647,15 +665,20 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 
 			<ConfirmModal
 				open={!!deleteFolderTarget}
-				title="Delete folder"
-				message={`Delete the folder "${deleteFolderTarget?.name}"? Its decks are kept and go back to Unfiled.`}
-				confirmLabel="Delete folder"
+				title={words.deleteFolder}
+				message={fillText(words.deleteFolderMessage, {
+					name: deleteFolderTarget?.name ?? "",
+				})}
+				confirmLabel={words.deleteFolder}
 				variant="danger"
 				onConfirm={() => {
 					const target = deleteFolderTarget;
 					setDeleteFolderTarget(null);
 					if (target) {
-						changeFolders(() => api.deleteFolder(target.id), "Folder deleted");
+						changeFolders(
+							() => api.deleteFolder(target.id),
+							words.folderDeleted,
+						);
 					}
 				}}
 				onCancel={() => setDeleteFolderTarget(null)}
@@ -690,9 +713,11 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 
 			<ConfirmModal
 				open={!!deleteTarget}
-				title="Delete presentation"
-				message={`Are you sure you want to delete "${deleteTarget?.title}"? This action cannot be undone.`}
-				confirmLabel="Delete"
+				title={words.deletePresentation}
+				message={fillText(words.deletePresentationMessage, {
+					title: deleteTarget?.title ?? "",
+				})}
+				confirmLabel={words.deleteConfirm}
 				variant="danger"
 				onConfirm={handleDelete}
 				onCancel={() => setDeleteTarget(null)}
@@ -749,6 +774,8 @@ export function OwnDeckCard({
 	onDuplicate: () => void;
 	onDelete: () => void;
 }) {
+	const { text, language } = useInterfaceText();
+	const words = text.home;
 	const slideCount = pres.slides.length;
 	return (
 		<div
@@ -767,10 +794,10 @@ export function OwnDeckCard({
 			<div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-text-muted">
 				<span className="font-mono whitespace-nowrap">{pres.code}</span>
 				<span className="whitespace-nowrap">
-					{slideCount} slide{slideCount !== 1 ? "s" : ""}
+					{pluralText(language, slideCount, words.slideCount)}
 				</span>
 				<span className="whitespace-nowrap">
-					{new Date(pres.createdAt).toLocaleDateString()}
+				{formatDate(language, pres.createdAt)}
 				</span>
 			</div>
 			<div className="flex items-center justify-end gap-1 mt-3 pt-2 border-t border-border-subtle">
@@ -788,10 +815,10 @@ export function OwnDeckCard({
 					disabled={!owned}
 					title={
 						owned
-							? "Share this deck with another account"
+						? words.shareDeck
 							: signedIn
-								? "Share this deck — only its owner can, and this account does not own it"
-								: "Share this deck — sign in with the account that owns it first"
+							? words.shareDeckNotOwner
+							: words.shareDeckSignedOut
 					}
 				>
 					<Users size={18} />
@@ -808,10 +835,10 @@ export function OwnDeckCard({
 					disabled={!owned}
 					title={
 						owned
-							? "Move this deck into a folder"
+						? words.fileDeck
 							: signedIn
-								? "Move this deck into a folder — only its owner can, and this account does not own it"
-								: "Move this deck into a folder — sign in with the account that owns it first"
+							? words.fileDeckNotOwner
+							: words.fileDeckSignedOut
 					}
 				>
 					<FolderInput size={18} />
@@ -831,10 +858,10 @@ export function OwnDeckCard({
 					disabled={!owned}
 					title={
 						owned
-							? "Move this deck into a workspace"
+						? words.moveDeck
 							: signedIn
-								? "Move this deck into a workspace — only its owner can, and this account does not own it"
-								: "Move this deck into a workspace — sign in with the account that owns it first"
+							? words.moveDeckNotOwner
+							: words.moveDeckSignedOut
 					}
 				>
 					<Building2 size={18} />
@@ -846,7 +873,7 @@ export function OwnDeckCard({
 						event.stopPropagation();
 						onExport();
 					}}
-					title="Export presentation as JSON"
+					title={words.exportDeck}
 				>
 					<Download size={18} />
 				</button>
@@ -858,7 +885,7 @@ export function OwnDeckCard({
 						onDuplicate();
 					}}
 					disabled={duplicating}
-					title="Duplicate presentation"
+					title={words.duplicateDeck}
 				>
 					<Copy size={18} />
 				</button>
@@ -869,7 +896,7 @@ export function OwnDeckCard({
 						event.stopPropagation();
 						onDelete();
 					}}
-					title="Delete presentation"
+					title={words.deleteDeck}
 				>
 					<Trash2 size={18} />
 				</button>
@@ -915,10 +942,12 @@ function FolderNameDialog({
 	onSubmit: (name: string) => void;
 }) {
 	const [name, setName] = useState(folder?.name ?? "");
+	const { text } = useInterfaceText();
+	const words = text.home;
 	const trimmed = name.trim();
 	return (
 		<Modal
-			title={folder ? "Rename folder" : "New folder"}
+		title={folder ? words.renameFolder : words.newFolder}
 			icon={FolderPlus}
 			onClose={onClose}
 		>
@@ -932,8 +961,8 @@ function FolderNameDialog({
 				<input
 					className="input text-sm"
 					type="text"
-					placeholder="Name the folder"
-					aria-label="Folder name"
+					placeholder={words.folderNamePlaceholder}
+					aria-label={words.folderName}
 					autoFocus
 					maxLength={FOLDER_NAME_MAX_LENGTH}
 					value={name}
@@ -943,9 +972,9 @@ function FolderNameDialog({
 					type="submit"
 					className="btn-primary text-sm shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
 					disabled={!trimmed}
-					title={trimmed ? "Save this name" : "Give the folder a name first"}
+					title={trimmed ? words.saveName : words.nameFirst}
 				>
-					{folder ? "Rename" : "Create"}
+				{folder ? words.rename : words.create}
 				</button>
 			</form>
 		</Modal>

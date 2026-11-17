@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import { X } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef } from "react";
+import { useInterfaceText } from "../../interface-language";
 
 // ── Modal ──────────────────────────────────────────────────────
 //
@@ -16,6 +17,11 @@ import { type ReactNode, useEffect, useId, useRef } from "react";
 // is, not only inside the panel: a button the dialog disables while it works —
 // "Create link" while the link is minted — drops focus on the page, and before
 // this the panel could then only be left with the mouse.
+//
+// The close control's name is the interface language's (REQ248): a dialog is
+// read by the person who opened it on their own screen, not by the room. The
+// panel carries that language's `lang`, so a dialog opened over a screen in
+// another language (the participant screen's sign-in) is still read in its own.
 
 export function Modal({
 	title,
@@ -28,6 +34,7 @@ export function Modal({
 	onClose: () => void;
 	children: ReactNode;
 }) {
+	const { text, language } = useInterfaceText();
 	const titleId = useId();
 	const panelRef = useRef<HTMLDivElement>(null);
 	// The latest close handler, so the listeners below are installed once per
@@ -83,6 +90,7 @@ export function Modal({
 				aria-labelledby={titleId}
 				tabIndex={-1}
 				className="relative w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-2xl slide-in outline-none"
+				lang={language}
 				onClick={(e) => e.stopPropagation()}
 				// Keys typed in a modal dialog are the dialog's: an arrow or Space
 				// on its buttons must not also page the live deck behind it through
@@ -105,8 +113,8 @@ export function Modal({
 						type="button"
 						onClick={onClose}
 						className="text-text-dim hover:text-accent transition-colors p-1"
-						title="Close"
-						aria-label="Close"
+						title={text.ui.close}
+						aria-label={text.ui.close}
 					>
 						<X size={18} />
 					</button>

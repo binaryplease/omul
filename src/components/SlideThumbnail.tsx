@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { type DragEvent, type MouseEvent, useEffect, useRef } from "react";
 import { POLL_COLORS } from "../constants";
+import { useInterfaceText } from "../interface-language";
 import type { Slide } from "../types";
 import {
 	countdownSecondsFor,
@@ -20,9 +21,7 @@ import {
 	slideEmbedFor,
 } from "../types";
 import { accessibilityFindingCountLabel } from "./AccessibilityFindings";
-import { QUIZ_NO_ANSWER_KEY_WARNING } from "./QuizAnswerKeyWarning";
 import { SLIDE_PLACEMENT_CLASSES } from "./SlideAppearance";
-import { SLIDE_TYPE_LABELS } from "./SlideEditor";
 import { SkippedSlideMarker, slideRailItemSurface } from "./SlideRail";
 import { slideTextToPlain } from "./SlideText";
 import { SlideTypeIcon } from "./SlideTypeIcon";
@@ -37,6 +36,7 @@ import { SlideTypeIcon } from "./SlideTypeIcon";
 
 /** A slim, type-specific gist of the slide content shown inside the canvas. */
 function ThumbnailGist({ slide }: { slide: Slide }) {
+	const { noEmbedLink } = useInterfaceText().text.editor;
 	switch (slide.type) {
 		case "multiple-choice":
 		case "quiz": {
@@ -254,7 +254,9 @@ function ThumbnailGist({ slide }: { slide: Slide }) {
 				<div className="flex items-center gap-1 text-text-dim">
 					<Presentation size={12} />
 					<span className="truncate text-[9px]">
-						{embed ? EMBED_PROVIDERS[embed.provider].label : "No embed link"}
+						{embed
+							? EMBED_PROVIDERS[embed.provider].label
+							: noEmbedLink}
 					</span>
 				</div>
 			);
@@ -337,8 +339,14 @@ export function SlideThumbnail({
 	// The rail's gist, not the slide: markup comes off (REQ089) for the same
 	// reason it does in SlideRailItem — two lines of clamped text name a slide
 	// better as words than as the stars and brackets they were typed with.
+	const { text, language } = useInterfaceText();
 	const title =
-		slideTextToPlain(slide.question ?? "") || SLIDE_TYPE_LABELS[slide.type];
+		slideTextToPlain(slide.question ?? "") ||
+		text.editor.slideTypeNames[slide.type];
+	const findingCountLabel = accessibilityFindingCountLabel(
+		accessibilityFindingCount,
+		language,
+	);
 
 	// REQ219 — a quiz nobody can get right is flagged in the list, so a deck
 	// with several is scannable without opening each slide. The badge is drawn
@@ -384,13 +392,13 @@ export function SlideThumbnail({
 				active,
 			)}`}
 			title={
-				answerKeyMissing ? `${title} — ${QUIZ_NO_ANSWER_KEY_WARNING}` : title
+				answerKeyMissing ? `${title} — ${text.quizAnswerKey.noAnswerKey}` : title
 			}
 		>
 			{/* Meta row: ordinal + type icon + answer-key warning + accessibility findings + drag handle */}
 			<div className="flex items-center gap-1.5 px-0.5 pb-1">
 				<span className="font-mono text-[11px] text-text-muted">{index + 1}</span>
-				<SlideTypeIcon type={slide.type} />
+				<SlideTypeIcon type={slide.type} labels={text.slideView.slideTypes} />
 				{slide.skipped && <SkippedSlideMarker />}
 				{answerKeyMissing && (
 					<>
@@ -399,18 +407,18 @@ export function SlideThumbnail({
 							className="text-warning"
 							aria-hidden
 						/>
-						<span className="sr-only">{QUIZ_NO_ANSWER_KEY_WARNING}</span>
+						<span className="sr-only">{text.quizAnswerKey.noAnswerKey}</span>
 					</>
 				)}
 				{accessibilityFindingCount > 0 && (
 					<span
 						className="ml-auto inline-flex items-center gap-0.5 font-mono text-[11px] text-warning"
-						title={accessibilityFindingCountLabel(accessibilityFindingCount)}
+						title={findingCountLabel}
 					>
 						<AlertTriangle size={11} aria-hidden />
 						<span aria-hidden="true">{accessibilityFindingCount}</span>
 						<span className="sr-only">
-							{`, ${accessibilityFindingCountLabel(accessibilityFindingCount)}`}
+							{`, ${findingCountLabel}`}
 						</span>
 					</span>
 				)}

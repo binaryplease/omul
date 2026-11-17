@@ -1,10 +1,17 @@
 import { BarChart3, Monitor, SquarePen } from "lucide-react";
 import { useId } from "react";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	formatNumber,
+	type InterfaceLanguage,
+	type InterfaceText,
+} from "../interface-text";
 import type { DeckThemeSettings, Slide } from "../types";
 import { slideHasResults } from "../types";
 import { DeckThemeScope } from "./DeckTheme";
 import { type ChoiceOption, Segmented } from "./EditorControls";
-import { SHARED_SCREEN_LABEL } from "./PresenterSlideView";
 import type { SlideCanvasEditing } from "./SlideCanvasFields";
 import { SlidePreview, type SlideCanvasView } from "./SlidePreview";
 
@@ -25,7 +32,9 @@ import { SlidePreview, type SlideCanvasView } from "./SlidePreview";
 // (REQ079). Everything inside `<DeckThemeScope/>` wears the deck's colours and
 // face; the caption above it, and all the chrome the page draws around this
 // component, stay in the app's own scheme. The caption is what names which of
-// the two the reader is looking at, where they are looking at it.
+// the two the reader is looking at, where they are looking at it. So the caption
+// and the switch speak the interface language, and the slide inside the frame
+// the deck's (REQ084, REQ248) — the same split the presenter screen draws.
 //
 // It is also where the slide is *written* (REQ153). `editing` is the editor's
 // own layer — the four store actions the fields on the slide report through —
@@ -42,16 +51,25 @@ import { SlidePreview, type SlideCanvasView } from "./SlidePreview";
 /**
  * What the canvas calls itself: the screen it is a picture of, and which slide
  * of the deck is currently on it. One reading, composed from the same label the
- * dry run's presenter pane wears, so no two surfaces name that screen
- * differently.
+ * dry run's presenter pane wears (`SHARED_SCREEN_LABEL`, in English), so no two
+ * surfaces name that screen differently.
  */
-export function slideCanvasCaption(index: number, total: number): string {
-	return `${SHARED_SCREEN_LABEL} · Slide ${index + 1} of ${total}`;
+export function slideCanvasCaption(
+	index: number,
+	total: number,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+	language: InterfaceLanguage = "en",
+): string {
+	const copy = text.slideCanvas;
+	return fillText(copy.stageCaption, {
+		screen: copy.sharedScreen,
+		number: formatNumber(language, index + 1),
+		total: formatNumber(language, total),
+	});
 }
 
 /** Why a slide type cannot be looked at through its results. */
-export const NO_RESULTS_REASON =
-	"This slide collects nothing, so it has no results to draw.";
+export const NO_RESULTS_REASON = ENGLISH_INTERFACE_TEXT.slideCanvas.noResults;
 
 /**
  * The stage's two views as one descriptor — the switch on the frame
@@ -65,20 +83,22 @@ export const NO_RESULTS_REASON =
  */
 export function slideCanvasViewOptions(
 	slide: Slide,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
 ): ChoiceOption<SlideCanvasView>[] {
+	const copy = text.slideCanvas;
 	const hasResults = slideHasResults(slide.type);
 	return [
 		{
 			value: "question",
-			label: "Question",
+			label: copy.viewQuestion,
 			icon: <SquarePen size={14} />,
 		},
 		{
 			value: "results",
-			label: "Results",
+			label: copy.viewResults,
 			icon: <BarChart3 size={14} />,
 			disabled: !hasResults,
-			disabledReason: hasResults ? undefined : NO_RESULTS_REASON,
+			disabledReason: hasResults ? undefined : copy.noResults,
 		},
 	];
 }
@@ -109,6 +129,7 @@ export function SlideCanvas({
 	view = "question",
 	onViewChange,
 	deckQuizCount = 0,
+	deckLanguage,
 }: {
 	slide: Slide;
 	index: number;
@@ -133,7 +154,14 @@ export function SlideCanvas({
 	 * view of a leaderboard slide, which sums the deck around it.
 	 */
 	deckQuizCount?: number;
+	/**
+	 * The deck's participant language (REQ084) — what the slide inside the
+	 * frame says to the room is drawn in it, as the participant screen draws it.
+	 * Absent draws the room's words in English.
+	 */
+	deckLanguage?: string;
 }) {
+	const { text, language } = useInterfaceText();
 	// The stage is a landmark of its own, named by the caption that already names
 	// it on screen — a reader arriving here by landmark is told which screen this
 	// is a picture of, the same thing a reader arriving by eye is told.
@@ -142,6 +170,7 @@ export function SlideCanvas({
 	return (
 		<section
 			aria-labelledby={captionId}
+			lang={language}
 			className="mx-auto flex w-full max-w-3xl flex-col"
 		>
 			<div className="mb-2 flex items-center justify-between gap-3 px-1">
@@ -151,20 +180,18 @@ export function SlideCanvas({
 						className="flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-text-muted"
 					>
 						<Monitor size={14} className="flex-shrink-0 self-center" />
-						{slideCanvasCaption(index, total)}
+						{slideCanvasCaption(index, total, text, language)}
 					</h2>
-					<p className="text-xs text-text-muted">
-						Drawn in the deck's own theme — the editor around it is not.
-					</p>
+					<p className="text-xs text-text-muted">{text.slideCanvas.themeNote}</p>
 				</div>
 				{/* On the frame it governs, not in the page's chrome: this
 				    switch changes what the box below it draws and nothing else on the
 				    page. */}
 				<Segmented<SlideCanvasView>
-					ariaLabel="What the stage draws — the question or its results"
+					ariaLabel={text.slideCanvas.viewName}
 					value={shown}
 					onChange={onViewChange}
-					options={slideCanvasViewOptions(slide)}
+					options={slideCanvasViewOptions(slide, text)}
 				/>
 			</div>
 			<DeckThemeScope deck={deck}>
@@ -178,6 +205,7 @@ export function SlideCanvas({
 					editing={shown === "results" ? null : editing}
 					view={shown}
 					deckQuizCount={deckQuizCount}
+					deckLanguage={deckLanguage}
 				/>
 			</DeckThemeScope>
 		</section>

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from "react";
+import { useInterfaceText } from "../../interface-language";
 
 // ── Confirmation modal ────────────────────────────────────────
 //
@@ -42,6 +43,7 @@ export function ConfirmModal({
 		return () => opener?.focus();
 	}, [open]);
 
+	const { text } = useInterfaceText();
 	if (!open) return null;
 	return (
 		// Click-outside-to-dismiss on the full-screen backdrop. Keyboard users
@@ -81,7 +83,7 @@ export function ConfirmModal({
 						className="btn-secondary text-sm px-4 py-2"
 						onClick={onCancel}
 					>
-						Cancel
+						{text.presenterPage.confirmCancel}
 					</button>
 					<button
 						type="button"
@@ -92,7 +94,7 @@ export function ConfirmModal({
 						}`}
 						onClick={onConfirm}
 					>
-						{confirmLabel ?? "Confirm"}
+						{confirmLabel ?? text.presenterPage.confirmConfirm}
 					</button>
 				</div>
 			</div>

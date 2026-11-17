@@ -3,6 +3,12 @@ import { Download, FileChartColumn, FileSpreadsheet, FileText } from "lucide-rea
 import { useState } from "react";
 import { api, type DownloadedExport } from "../api";
 import { saveBlobAs } from "../download";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceText,
+} from "../interface-text";
 import { ICON_BUTTON_HOVER } from "./ShareCluster";
 import { Modal } from "./ui/Modal";
 import { useToast } from "./ui/Toast";
@@ -19,6 +25,11 @@ import { useToast } from "./ui/Toast";
 // what an export takes out is the session, so it belongs beside it rather than
 // in global chrome — and every row is always drawn, disabled with its reason
 // where it cannot be used.
+//
+// Its words are the presenter's, so they are the interface language's
+// (REQ248, `dialogs` in `src/interface-text/`). The English label and summary
+// on each descriptor are the English entries' copies, held equal by
+// `ExportDialog.test.ts`.
 
 /** Which shape a deck leaves in. */
 export type DeckExportFormatId = "xlsx" | "pdf-results" | "pdf-deck";
@@ -68,6 +79,34 @@ export const DECK_EXPORT_FORMATS: DeckExportFormat[] = [
 	},
 ];
 
+/** Where each format's row reads its words in the interface text (REQ248). */
+const FORMAT_TEXT_KEYS: Record<
+	DeckExportFormatId,
+	{
+		label: keyof InterfaceText["dialogs"];
+		summary: keyof InterfaceText["dialogs"];
+	}
+> = {
+	xlsx: { label: "exportXlsxLabel", summary: "exportXlsxSummary" },
+	"pdf-results": {
+		label: "exportPdfResultsLabel",
+		summary: "exportPdfResultsSummary",
+	},
+	"pdf-deck": { label: "exportPdfDeckLabel", summary: "exportPdfDeckSummary" },
+};
+
+/** A format's label and summary in the interface language. */
+export function deckExportFormatText(
+	id: DeckExportFormatId,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): { label: string; summary: string } {
+	const keys = FORMAT_TEXT_KEYS[id];
+	return {
+		label: text.dialogs[keys.label],
+		summary: text.dialogs[keys.summary],
+	};
+}
+
 /**
  * The accessible name of the control that opens this dialog.
  *
@@ -77,10 +116,11 @@ export const DECK_EXPORT_FORMATS: DeckExportFormat[] = [
  * say both what leaves the building and, for somebody who does not hold the
  * deck, why it cannot.
  */
-export function exportButtonLabel(canExport: boolean): string {
-	return canExport
-		? "Export this session — download it as a spreadsheet or as a PDF"
-		: "Export this session — you cannot edit this presentation, so its responses are not yours to download";
+export function exportButtonLabel(
+	canExport: boolean,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	return canExport ? text.dialogs.exportButton : text.dialogs.exportButtonNoAccess;
 }
 
 export function ExportDialog({
@@ -91,21 +131,23 @@ export function ExportDialog({
 	onClose: () => void;
 }) {
 	const { addToast } = useToast();
+	const { text } = useInterfaceText();
 	/** Which format is in flight, or `null` — one at a time, per format. */
 	const [downloading, setDownloading] = useState<DeckExportFormatId | null>(null);
 
 	const run = async (format: DeckExportFormat): Promise<void> => {
+		const { label } = deckExportFormatText(format.id, text);
 		setDownloading(format.id);
 		try {
 			const file = await format.download(presentationId);
 			saveBlobAs(file.blob, file.filename);
-			addToast(`${format.label} exported`, "success");
+			addToast(fillText(text.dialogs.exportDone, { format: label }), "success");
 			onClose();
 		} catch (exportError: unknown) {
 			addToast(
 				exportError instanceof Error
 					? exportError.message
-					: `Failed to export the ${format.label}`,
+					: fillText(text.dialogs.exportFailed, { format: label }),
 				"error",
 			);
 		} finally {
@@ -114,11 +156,14 @@ export function ExportDialog({
 	};
 
 	return (
-		<Modal title="Export this session" icon={Download} onClose={onClose}>
+		<Modal title={text.dialogs.exportTitle} icon={Download} onClose={onClose}>
 			<div className="flex flex-col gap-2">
 				{DECK_EXPORT_FORMATS.map((format) => {
 					const busy = downloading === format.id;
-					const label = busy ? `Exporting the ${format.label}…` : format.label;
+					const words = deckExportFormatText(format.id, text);
+					const label = busy
+						? fillText(text.dialogs.exportBusy, { format: words.label })
+						: words.label;
 					return (
 						<button
 							key={format.id}
@@ -137,16 +182,15 @@ export function ExportDialog({
 							</span>
 							<span className="flex-1">
 								<span className="block text-sm font-semibold text-text">{label}</span>
-								<span className="block text-xs text-text-muted">{format.summary}</span>
+								<span className="block text-xs text-text-muted">
+									{words.summary}
+								</span>
 							</span>
 						</button>
 					);
 				})}
 			</div>
-			<p className="mt-4 text-xs text-text-dim">
-				Each file is a snapshot of the session as it stands right now. Export
-				before you reset the deck — clearing the results cannot be undone.
-			</p>
+			<p className="mt-4 text-xs text-text-dim">{text.dialogs.exportFootnote}</p>
 		</Modal>
 	);
 }

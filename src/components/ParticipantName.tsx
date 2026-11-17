@@ -2,6 +2,15 @@ import { Pencil, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { getDict } from "../i18n";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	formatNumber,
+	type InterfaceLanguage,
+	type InterfaceText,
+	pluralText,
+} from "../interface-text";
 import { PARTICIPANT_NAME_MAX_LENGTH } from "../types";
 import type { ParticipantRosterEntry } from "../types";
 import { ICON_BUTTON_HOVER } from "./ShareCluster";
@@ -227,9 +236,13 @@ export const ROSTER_POLL_MS = 5000;
 /** What the roster panel is called, and what it says when it holds nothing. */
 export function participantRosterHeading(
 	roster: ParticipantRosterEntry[] | null,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+	language: InterfaceLanguage = "en",
 ): string {
-	if (!roster) return "Participants";
-	return `Participants (${roster.length})`;
+	if (!roster) return text.panels.rosterHeading;
+	return fillText(text.panels.rosterHeadingCount, {
+		count: formatNumber(language, roster.length),
+	});
 }
 
 /**
@@ -300,26 +313,18 @@ export function ParticipantRosterPanel({
 	/** Whether the deck asks for names at all — what an empty list means. */
 	requiresName: boolean;
 }) {
+	const { text, language } = useInterfaceText();
+
 	if (!requiresName) {
-		return (
-			<p className="text-sm text-text-dim">
-				This deck does not ask participants for a name, so there is no roster.
-				Turn it on in the editor to collect one.
-			</p>
-		);
+		return <p className="text-sm text-text-dim">{text.panels.rosterNotAsked}</p>;
 	}
 
 	if (!roster) {
-		return <p className="text-sm text-text-dim">Loading participants...</p>;
+		return <p className="text-sm text-text-dim">{text.panels.rosterLoading}</p>;
 	}
 
 	if (roster.length === 0) {
-		return (
-			<p className="text-sm text-text-dim">
-				Nobody has stated a name yet — the question is asked as each participant
-				joins.
-			</p>
-		);
+		return <p className="text-sm text-text-dim">{text.panels.rosterEmpty}</p>;
 	}
 
 	return (
@@ -332,17 +337,16 @@ export function ParticipantRosterPanel({
 					>
 						<span className="min-w-0 truncate text-sm">{entry.name}</span>
 						<span className="shrink-0 font-mono text-xs text-text-muted">
-							{entry.answeredSlides === 1
-								? "1 slide"
-								: `${entry.answeredSlides} slides`}
+							{pluralText(
+								language,
+								entry.answeredSlides,
+								text.panels.rosterAnsweredSlides,
+							)}
 						</span>
 					</li>
 				))}
 			</ul>
-			<p className="text-xs text-text-dim">
-				Anyone who answered without stating a name is not listed here — they are
-				in the results export, under their participant id.
-			</p>
+			<p className="text-xs text-text-dim">{text.panels.rosterUnnamedNote}</p>
 		</div>
 	);
 }

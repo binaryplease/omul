@@ -60,6 +60,7 @@ import {
 	forgetStatedParticipantName,
 	getParticipantPass,
 	getStatedParticipantName,
+	ImportFileError,
 	rememberParticipantPass,
 	onWsEvent,
 	pulseWs,
@@ -67,6 +68,7 @@ import {
 	SOCKET_PULSE_MS,
 	staleDeckWriteOf,
 } from "./api";
+import { ENGLISH_INTERFACE_TEXT, interfaceTextFor } from "./interface-text";
 import { RESULTS_TOKEN_KEY, TOKEN_KEY } from "./storage";
 
 const realFetch = globalThis.fetch;
@@ -870,5 +872,32 @@ describe("staleDeckWriteOf", () => {
 			),
 		).toBeNull();
 		expect(staleDeckWriteOf(new Error("offline"))).toBeNull();
+	});
+});
+
+// Review (REQ248 batch, finding 4): importing `{}` on a German home page showed
+// the client's own English refusal. The refusal now carries why, so the page
+// words it in the interface language; its message stays the English it was.
+describe("a file the import refuses before asking the server (REQ248)", () => {
+	test("says why by code, with the English as its message", async () => {
+		const missing = await api.importPresentation({}).catch((error) => error);
+		expect(missing).toBeInstanceOf(ImportFileError);
+		expect(missing.reason).toBe("missing-fields");
+		expect(missing.message).toBe("Invalid file: missing `title` or `slides`");
+		const notObject = await api.importPresentation(null).catch((error) => error);
+		expect(notObject.reason).toBe("not-object");
+		expect(notObject.message).toBe("Invalid file: expected a JSON object");
+	});
+
+	test("the home page words both refusals in the interface language", () => {
+		const german = interfaceTextFor("de").home;
+		expect(german.importMissingFields).toContain("Ungültige Datei");
+		expect(german.importNotObject).toContain("Ungültige Datei");
+		expect(ENGLISH_INTERFACE_TEXT.home.importMissingFields).toBe(
+			new ImportFileError("missing-fields").message,
+		);
+		expect(ENGLISH_INTERFACE_TEXT.home.importNotObject).toBe(
+			new ImportFileError("not-object").message,
+		);
 	});
 });

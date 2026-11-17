@@ -34,6 +34,8 @@ import { LegalNotice } from "./components/LegalLinks";
 import { Modal } from "./components/ui/Modal";
 import { NoticeFrame } from "./components/ui/NoticeFrame";
 import { useAccountSeenInThisBrowser } from "./email-recovery-prompt";
+import { textWithElements, useInterfaceText } from "./interface-language";
+import { fillText, type InterfaceText } from "./interface-text";
 import {
 	appHomeUrl,
 	appReturnUrl,
@@ -77,13 +79,35 @@ const CHANGE_EMAIL_MODE = "change-email";
 // key itself lives in `src/storage.ts` with every other key this browser holds
 // and the retired spelling it was renamed from (REQ175).
 
-// The exact phrase a user must type to confirm account deletion. A fixed
-// intent-stating phrase (not the account email) is the accident guard here:
-// delete-user always targets the single signed-in account, so there's no "wrong
-// target" to disambiguate — the password already proves account control — and a
-// short phrase you type deliberately resists the copy-paste an on-screen email
-// invites. Matched case-insensitively on the trimmed input.
-const DELETE_CONFIRM_PHRASE = "delete my account";
+// Every word these surfaces draw is the interface language's (REQ248, the
+// `account` section of `src/interface-text/`). What the auth server answers
+// when it refuses is its own message and is shown as it words it; the
+// fallbacks below are drawn only when it gives none.
+
+/** The account surfaces' words, in one language. */
+type AccountText = InterfaceText["account"];
+
+/** The account surfaces' words in the interface language. */
+function useAccountText(): AccountText {
+	return useInterfaceText().text.account;
+}
+
+/** `template` with the product's name filled in and `{email}`-style addresses drawn as emphasised elements. */
+function withAddresses(
+	template: string,
+	addresses: Record<string, string>,
+	className = "text-text",
+): React.ReactNode {
+	return textWithElements(
+		fillText(template, { brand: BRAND_NAME }),
+		Object.fromEntries(
+			Object.entries(addresses).map(([name, address]) => [
+				name,
+				<span className={className}>{address}</span>,
+			]),
+		),
+	);
+}
 
 // The absolute callbackURL handed to Better Auth for both the sign-up email and
 // any later resend. Absolute (not a bare path) because the link is followed from
@@ -127,17 +151,26 @@ export function AuthControls() {
 	// A change-email link (either the confirm-from-old-address or verify-new-address
 	// step) lands back here. Shown regardless of signed-in state.
 	const change = useChangeEmailLanding();
+	const words = useAccountText();
 
 	const resetModal = reset && <PasswordResetModal reset={reset} />;
 
 	const verifyModal = verify && (
-		<Modal title="Email verification" icon={MailCheck} onClose={verify.dismiss}>
+		<Modal
+			title={words.verificationTitle}
+			icon={MailCheck}
+			onClose={verify.dismiss}
+		>
 			<VerificationLanding tokenError={verify.error} onDone={verify.dismiss} />
 		</Modal>
 	);
 
 	const changeModal = change && (
-		<Modal title="Email change" icon={AtSign} onClose={change.dismiss}>
+		<Modal
+			title={words.emailChangeTitle}
+			icon={AtSign}
+			onClose={change.dismiss}
+		>
 			<ChangeEmailLanding tokenError={change.error} onDone={change.dismiss} />
 		</Modal>
 	);
@@ -172,7 +205,7 @@ export function AuthControls() {
 					onClick={() => setDialog("auth")}
 					className="btn-secondary text-sm px-3 py-1.5 inline-flex items-center gap-1.5"
 				>
-					<LogIn size={16} /> Sign in
+					<LogIn size={16} /> {words.signIn}
 				</button>
 				{dialog === "auth" && <AuthDialog onClose={() => setDialog(null)} />}
 				{landings}
@@ -192,8 +225,8 @@ export function AuthControls() {
 				type="button"
 				onClick={() => setDialog("account")}
 				className={ICON_BTN}
-				title="Account settings"
-				aria-label="Account settings"
+				title={words.accountSettings}
+				aria-label={words.accountSettings}
 			>
 				<UserCog size={18} />
 			</button>
@@ -201,8 +234,8 @@ export function AuthControls() {
 				type="button"
 				onClick={() => setDialog("keys")}
 				className={ICON_BTN}
-				title="API keys"
-				aria-label="API keys"
+				title={words.apiKeys}
+				aria-label={words.apiKeys}
 			>
 				<Key size={18} />
 			</button>
@@ -210,14 +243,14 @@ export function AuthControls() {
 				type="button"
 				onClick={() => void signOut()}
 				className={ICON_BTN}
-				title="Sign out"
-				aria-label="Sign out"
+				title={words.signOut}
+				aria-label={words.signOut}
 			>
 				<LogOut size={18} />
 			</button>
 			{dialog === "account" && (
 				<Modal
-					title="Account settings"
+					title={words.accountSettings}
 					icon={UserCog}
 					onClose={() => setDialog(null)}
 				>
@@ -225,7 +258,7 @@ export function AuthControls() {
 				</Modal>
 			)}
 			{dialog === "keys" && (
-				<Modal title="API keys" icon={Key} onClose={() => setDialog(null)}>
+				<Modal title={words.apiKeys} icon={Key} onClose={() => setDialog(null)}>
 					<ApiKeysManager />
 				</Modal>
 			)}
@@ -258,9 +291,10 @@ export function AuthDialog({
 	returnTo?: string;
 	onClose: () => void;
 }) {
+	const words = useAccountText();
 	return (
 		<Modal
-			title={`Sign in to ${BRAND_NAME}`}
+			title={fillText(words.signInTitle, { brand: BRAND_NAME })}
 			icon={UserCircle}
 			onClose={onClose}
 		>
@@ -292,6 +326,8 @@ function AuthForm({
 	// place of the form (we always claim success to avoid leaking which emails
 	// have accounts — matching Better Auth's own response).
 	const [resetSent, setResetSent] = useState(false);
+	const words = useAccountText();
+	const { legalNotice } = useInterfaceText().text;
 
 	const submit = async () => {
 		setBusy(true);
@@ -308,7 +344,7 @@ function AuthForm({
 					redirectTo: appReturnUrl(returnTo, "mode=reset-password"),
 				});
 				if (result.error) {
-					setError(result.error.message ?? "Could not send reset email");
+					setError(result.error.message ?? words.resetEmailFailed);
 					setBusy(false);
 					return;
 				}
@@ -329,18 +365,14 @@ function AuthForm({
 						})
 					: await signIn.email({ email, password });
 			if (result.error) {
-				setError(result.error.message ?? "Authentication failed");
+				setError(result.error.message ?? words.authFailed);
 				setBusy(false);
 				return;
 			}
 			// useSession updates on its own; just close the dialog.
 			onDone();
 		} catch (authError) {
-			setError(
-				authError instanceof Error
-					? authError.message
-					: "Authentication failed",
-			);
+			setError(authError instanceof Error ? authError.message : words.authFailed);
 			setBusy(false);
 		}
 	};
@@ -352,10 +384,7 @@ function AuthForm({
 			<div className="space-y-4">
 				<div className="flex items-start gap-2 rounded-lg border border-success bg-surface p-3 font-mono text-xs leading-relaxed text-text-muted">
 					<Send size={16} className="mt-0.5 shrink-0 text-success" />
-					<span>
-						If an account exists for <span className="text-text">{email}</span>,
-						a password reset link is on its way. Check your inbox.
-					</span>
+					<span>{withAddresses(words.resetSent, { email })}</span>
 				</div>
 				<button
 					type="button"
@@ -365,7 +394,7 @@ function AuthForm({
 					}}
 					className={BTN_SECONDARY}
 				>
-					Back to sign in
+					{words.backToSignIn}
 				</button>
 			</div>
 		);
@@ -383,7 +412,7 @@ function AuthForm({
 							: "text-text-dim"
 					}`}
 				>
-					Sign in
+					{words.signIn}
 				</button>
 				<button
 					type="button"
@@ -392,14 +421,13 @@ function AuthForm({
 						mode === "signup" ? "bg-surface-raised text-text" : "text-text-dim"
 					}`}
 				>
-					Create account
+					{words.createAccount}
 				</button>
 			</div>
 
 			{mode === "forgot" && (
 				<p className="font-mono text-xs leading-relaxed text-text-dim">
-					Enter your account email and we'll send a link to choose a new
-					password.
+					{words.forgotIntro}
 				</p>
 			)}
 
@@ -416,7 +444,7 @@ function AuthForm({
 						disabled={busy}
 						onChange={(changeEvent) => setName(changeEvent.target.value)}
 						className={FIELD_CLASS}
-						placeholder="Name (optional)"
+						placeholder={words.namePlaceholder}
 						autoComplete="name"
 					/>
 				)}
@@ -425,7 +453,7 @@ function AuthForm({
 					disabled={busy}
 					onChange={(changeEvent) => setEmail(changeEvent.target.value)}
 					className={FIELD_CLASS}
-					placeholder="you@example.com"
+					placeholder={words.emailPlaceholder}
 					type="email"
 					autoComplete="email"
 					required
@@ -436,7 +464,7 @@ function AuthForm({
 						disabled={busy}
 						onChange={(changeEvent) => setPassword(changeEvent.target.value)}
 						className={FIELD_CLASS}
-						placeholder="Password (min 8 characters)"
+						placeholder={words.passwordPlaceholder}
 						type="password"
 						autoComplete={
 							mode === "signup" ? "new-password" : "current-password"
@@ -455,16 +483,18 @@ function AuthForm({
 
 				{/* Signing up concludes a contract, so the terms and the privacy
 				    policy are named here, above the button that submits it (REQ183). */}
-				{mode === "signup" && <LegalNotice action="creating an account" />}
+				{mode === "signup" && (
+					<LegalNotice action={legalNotice.creatingAccount} wording={legalNotice} />
+				)}
 
 				<button type="submit" disabled={busy} className={BTN_PRIMARY}>
 					{busy
-						? "Working…"
+						? words.working
 						: mode === "signup"
-							? "Create account"
+							? words.createAccount
 							: mode === "forgot"
-								? "Send reset link"
-								: "Sign in"}
+								? words.sendResetLink
+								: words.signIn}
 				</button>
 			</form>
 
@@ -479,7 +509,7 @@ function AuthForm({
 					}}
 					className="w-full text-center font-mono text-xs text-text-dim underline"
 				>
-					Back to sign in
+					{words.backToSignIn}
 				</button>
 			) : (
 				mode === "signin" && (
@@ -491,7 +521,7 @@ function AuthForm({
 						}}
 						className="w-full text-center font-mono text-xs text-text-dim underline"
 					>
-						Forgot password?
+						{words.forgotPassword}
 					</button>
 				)
 			)}
@@ -535,8 +565,9 @@ function usePasswordResetLanding(): ResetLanding | null {
 }
 
 function PasswordResetModal({ reset }: { reset: ResetLanding }) {
+	const words = useAccountText();
 	return (
-		<Modal title="Reset your password" icon={Lock} onClose={reset.dismiss}>
+		<Modal title={words.resetTitle} icon={Lock} onClose={reset.dismiss}>
 			<ResetPasswordForm
 				token={reset.token}
 				tokenError={reset.error}
@@ -625,6 +656,7 @@ function readVerificationLanding(): { error: string | null } | null {
 // and the signed-in banner so the call lives in one place.
 async function resendVerificationEmail(
 	email: string,
+	words: AccountText,
 ): Promise<{ ok: boolean; error: string | null }> {
 	try {
 		const result = await sendVerificationEmail({
@@ -634,7 +666,7 @@ async function resendVerificationEmail(
 		if (result.error) {
 			return {
 				ok: false,
-				error: result.error.message ?? "Could not send verification email",
+				error: result.error.message ?? words.verificationFailed,
 			};
 		}
 		return { ok: true, error: null };
@@ -642,9 +674,7 @@ async function resendVerificationEmail(
 		return {
 			ok: false,
 			error:
-				sendError instanceof Error
-					? sendError.message
-					: "Could not send verification email",
+				sendError instanceof Error ? sendError.message : words.verificationFailed,
 		};
 	}
 }
@@ -665,19 +695,17 @@ function VerificationLanding({
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [resent, setResent] = useState(false);
+	const words = useAccountText();
 
 	if (!tokenError) {
 		return (
 			<div className="space-y-4">
 				<div className="flex items-start gap-2 rounded-lg border border-success bg-surface p-3 font-mono text-xs leading-relaxed text-text-muted">
 					<MailCheck size={16} className="mt-0.5 shrink-0 text-success" />
-					<span>
-						Your email is verified. Thanks — your {BRAND_NAME} account is all
-						set.
-					</span>
+					<span>{withAddresses(words.verified, {})}</span>
 				</div>
 				<button type="button" onClick={onDone} className={BTN_PRIMARY}>
-					Continue
+					{words.continue}
 				</button>
 			</div>
 		);
@@ -688,13 +716,10 @@ function VerificationLanding({
 			<div className="space-y-4">
 				<div className="flex items-start gap-2 rounded-lg border border-success bg-surface p-3 font-mono text-xs leading-relaxed text-text-muted">
 					<Send size={16} className="mt-0.5 shrink-0 text-success" />
-					<span>
-						A fresh verification link is on its way to{" "}
-						<span className="text-text">{email}</span>. Check your inbox.
-					</span>
+					<span>{withAddresses(words.verificationResent, { email })}</span>
 				</div>
 				<button type="button" onClick={onDone} className={BTN_SECONDARY}>
-					Close
+					{words.close}
 				</button>
 			</div>
 		);
@@ -703,7 +728,7 @@ function VerificationLanding({
 	const submit = async () => {
 		setBusy(true);
 		setError(null);
-		const result = await resendVerificationEmail(email);
+		const result = await resendVerificationEmail(email, words);
 		if (!result.ok) {
 			setError(result.error);
 			setBusy(false);
@@ -723,17 +748,14 @@ function VerificationLanding({
 		>
 			<div className="flex items-start gap-2 font-mono text-xs leading-relaxed text-error">
 				<AlertTriangle size={16} className="mt-0.5 shrink-0" />
-				<span>
-					This verification link is invalid or has expired. Request a new one
-					below.
-				</span>
+				<span>{words.verificationInvalid}</span>
 			</div>
 			<input
 				value={email}
 				disabled={busy}
 				onChange={(changeEvent) => setEmail(changeEvent.target.value)}
 				className={FIELD_CLASS}
-				placeholder="you@example.com"
+				placeholder={words.emailPlaceholder}
 				type="email"
 				autoComplete="email"
 				required
@@ -745,7 +767,7 @@ function VerificationLanding({
 				</div>
 			)}
 			<button type="submit" disabled={busy} className={BTN_PRIMARY}>
-				{busy ? "Working…" : "Resend verification email"}
+				{busy ? words.working : words.resendVerification}
 			</button>
 		</form>
 	);
@@ -761,6 +783,7 @@ export function VerifyEmailBanner() {
 	const [busy, setBusy] = useState(false);
 	const [sent, setSent] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const words = useAccountText();
 
 	if (!data || data.user.emailVerified) return null;
 
@@ -768,7 +791,7 @@ export function VerifyEmailBanner() {
 	const resend = async () => {
 		setBusy(true);
 		setError(null);
-		const result = await resendVerificationEmail(email);
+		const result = await resendVerificationEmail(email, words);
 		if (!result.ok) {
 			setError(result.error);
 			setBusy(false);
@@ -782,18 +805,9 @@ export function VerifyEmailBanner() {
 		<NoticeFrame tone="warning">
 			<Mail size={18} className="shrink-0 text-warning" />
 			<div className="flex-1 font-mono text-xs leading-relaxed text-text-muted">
-				{sent ? (
-					<span>
-						Verification link sent to <span className="text-text">{email}</span>
-						. Check your inbox to confirm your address.
-					</span>
-				) : (
-					<span>
-						Verify your email (<span className="text-text">{email}</span>) to
-						confirm your account. You can keep using {BRAND_NAME} in the
-						meantime.
-					</span>
-				)}
+				<span>
+					{withAddresses(sent ? words.bannerSent : words.bannerAsk, { email })}
+				</span>
 				{error && (
 					<span className="mt-1 flex items-center gap-2 text-error">
 						<AlertTriangle size={13} className="shrink-0" />
@@ -806,12 +820,14 @@ export function VerifyEmailBanner() {
 				onClick={() => void resend()}
 				disabled={busy || sent}
 				className="btn-secondary text-sm px-3 py-1.5 shrink-0 inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
-				title={
-					sent ? "Verification email sent" : "Resend the verification email"
-				}
+				title={sent ? words.bannerSentTitle : words.bannerResendTitle}
 			>
 				<Send size={15} />
-				{busy ? "Sending…" : sent ? "Sent" : "Resend email"}
+				{busy
+					? words.bannerSending
+					: sent
+						? words.bannerSentButton
+						: words.bannerResend}
 			</button>
 		</NoticeFrame>
 	);
@@ -825,12 +841,11 @@ export function VerifyEmailBanner() {
 // change is served by the reset-by-email flow, API keys by their own panel).
 function AccountSettings({ onDone }: { onDone: () => void }) {
 	const { data } = useSession();
+	const words = useAccountText();
 	// The modal only opens for a signed-in user; guard so the types stay honest.
 	if (!data) {
 		return (
-			<p className="font-mono text-xs text-text-dim">
-				Sign in to manage your account.
-			</p>
+			<p className="font-mono text-xs text-text-dim">{words.signInToManage}</p>
 		);
 	}
 	return (
@@ -854,6 +869,9 @@ function AccountSettings({ onDone }: { onDone: () => void }) {
 // disabled until both gates are satisfied, with the reason surfaced beneath it.
 // On success the account is gone server-side and the session cookie cleared, so
 // we hard-reload to the signed-out home rather than leave a stale session.
+/** The phrase the danger zone asks to be typed back, in every interface language. */
+const DELETE_CONFIRM_PHRASE = "delete my account";
+
 function DeleteAccountForm({ currentEmail }: { currentEmail: string }) {
 	const [open, setOpen] = useState(false);
 	const [password, setPassword] = useState("");
@@ -861,11 +879,19 @@ function DeleteAccountForm({ currentEmail }: { currentEmail: string }) {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [done, setDone] = useState(false);
+	const words = useAccountText();
 
 	// Both gates must pass: the confirmation phrase typed back, and a non-empty
-	// password. The phrase match is case-insensitive on the trimmed input.
+	// password. The phrase is a fixed intent-stating one (not the account
+	// email): delete-user always targets the single signed-in account, so
+	// there's no "wrong target" to disambiguate — the password already proves
+	// account control — and a short phrase you type deliberately resists the
+	// copy-paste an on-screen email invites. Matched case-insensitively on the
+	// trimmed input. The phrase is the same in every interface language: the
+	// text around it is translated (REQ248), what deletion checks is not.
+	const deletePhrase = DELETE_CONFIRM_PHRASE;
 	const phraseMatches =
-		confirmText.trim().toLowerCase() === DELETE_CONFIRM_PHRASE;
+		confirmText.trim().toLowerCase() === deletePhrase.toLowerCase();
 	const canDelete = phraseMatches && password.length > 0 && !busy;
 
 	const submit = async () => {
@@ -875,7 +901,7 @@ function DeleteAccountForm({ currentEmail }: { currentEmail: string }) {
 		try {
 			const result = await deleteUser({ password });
 			if (result.error) {
-				setError(result.error.message ?? "Could not delete your account");
+				setError(result.error.message ?? words.deleteFailed);
 				setBusy(false);
 				return;
 			}
@@ -884,9 +910,7 @@ function DeleteAccountForm({ currentEmail }: { currentEmail: string }) {
 			setDone(true);
 		} catch (deleteError) {
 			setError(
-				deleteError instanceof Error
-					? deleteError.message
-					: "Could not delete your account",
+				deleteError instanceof Error ? deleteError.message : words.deleteFailed,
 			);
 			setBusy(false);
 		}
@@ -897,10 +921,7 @@ function DeleteAccountForm({ currentEmail }: { currentEmail: string }) {
 			<div className="space-y-4 rounded-xl border border-error bg-surface p-4">
 				<div className="flex items-start gap-2 font-mono text-xs leading-relaxed text-text-muted">
 					<Check size={16} className="mt-0.5 shrink-0 text-success" />
-					<span>
-						Your account has been permanently deleted. Thanks for using{" "}
-						{BRAND_NAME}.
-					</span>
+					<span>{withAddresses(words.deleted, {})}</span>
 				</div>
 				<button
 					type="button"
@@ -911,7 +932,7 @@ function DeleteAccountForm({ currentEmail }: { currentEmail: string }) {
 					}
 					className={BTN_PRIMARY}
 				>
-					Continue
+					{words.continue}
 				</button>
 			</div>
 		);
@@ -921,12 +942,10 @@ function DeleteAccountForm({ currentEmail }: { currentEmail: string }) {
 		<div className="space-y-3 rounded-xl border border-error/60 bg-surface p-4">
 			<div className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest text-error">
 				<AlertTriangle size={14} className="shrink-0" />
-				Danger zone
+				{words.dangerZone}
 			</div>
 			<p className="font-mono text-xs leading-relaxed text-text-dim">
-				Permanently delete the account for{" "}
-				<span className="text-text">{currentEmail}</span>. This cannot be
-				undone.
+				{withAddresses(words.deleteIntro, { email: currentEmail })}
 			</p>
 
 			{!open ? (
@@ -935,7 +954,7 @@ function DeleteAccountForm({ currentEmail }: { currentEmail: string }) {
 					onClick={() => setOpen(true)}
 					className="btn-secondary w-full inline-flex items-center justify-center gap-2 border-error/60 text-error hover:bg-error/10"
 				>
-					<Trash2 size={16} /> Delete account…
+					<Trash2 size={16} /> {words.deleteAccountOpen}
 				</button>
 			) : (
 				<form
@@ -947,14 +966,14 @@ function DeleteAccountForm({ currentEmail }: { currentEmail: string }) {
 				>
 					<label className="block space-y-1">
 						<span className="font-mono text-xs text-text-dim">
-							Your password
+							{words.yourPassword}
 						</span>
 						<input
 							value={password}
 							disabled={busy}
 							onChange={(changeEvent) => setPassword(changeEvent.target.value)}
 							className={FIELD_CLASS}
-							placeholder="Password"
+							placeholder={words.passwordField}
 							type="password"
 							autoComplete="current-password"
 							required
@@ -962,8 +981,13 @@ function DeleteAccountForm({ currentEmail }: { currentEmail: string }) {
 					</label>
 					<label className="block space-y-1">
 						<span className="font-mono text-xs text-text-dim">
-							Type <span className="text-text">{DELETE_CONFIRM_PHRASE}</span> to
-							confirm
+							{textWithElements(words.typeToConfirm, {
+								phrase: (
+									<span lang="en" className="text-text">
+										{deletePhrase}
+									</span>
+								),
+							})}
 						</span>
 						<input
 							value={confirmText}
@@ -972,7 +996,8 @@ function DeleteAccountForm({ currentEmail }: { currentEmail: string }) {
 								setConfirmText(changeEvent.target.value)
 							}
 							className={FIELD_CLASS}
-							placeholder={DELETE_CONFIRM_PHRASE}
+							lang="en"
+							placeholder={deletePhrase}
 							type="text"
 							autoComplete="off"
 							autoCapitalize="none"
@@ -993,22 +1018,22 @@ function DeleteAccountForm({ currentEmail }: { currentEmail: string }) {
 						disabled={!canDelete}
 						title={
 							!phraseMatches
-								? `Type "${DELETE_CONFIRM_PHRASE}" to confirm`
+								? fillText(words.deleteTitlePhrase, { phrase: deletePhrase })
 								: password.length === 0
-									? "Enter your password to confirm"
-									: "Permanently delete your account"
+									? words.deleteTitlePassword
+									: words.deleteTitleReady
 						}
 						className="btn-secondary w-full inline-flex items-center justify-center gap-2 border-error bg-error/10 text-error hover:bg-error/20"
 					>
 						<Trash2 size={16} />
-						{busy ? "Deleting…" : "Delete my account permanently"}
+						{busy ? words.deleting : words.deletePermanently}
 					</button>
 					{/* The reason the action is unavailable (disable + explain). */}
 					{!canDelete && !busy && (
 						<p className="font-mono text-[11px] leading-relaxed text-text-dim">
 							{!phraseMatches
-								? `Enter your password and type "${DELETE_CONFIRM_PHRASE}" above to enable deletion.`
-								: "Enter your password above to enable deletion."}
+								? fillText(words.deleteWhyPhrase, { phrase: deletePhrase })
+								: words.deleteWhyPassword}
 						</p>
 					)}
 				</form>
@@ -1036,6 +1061,7 @@ function ChangeEmailForm({
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [requested, setRequested] = useState(false);
+	const words = useAccountText();
 
 	const submit = async () => {
 		setBusy(true);
@@ -1046,7 +1072,7 @@ function ChangeEmailForm({
 				callbackURL: changeEmailCallbackUrl(),
 			});
 			if (result.error) {
-				setError(result.error.message ?? "Could not start the email change");
+				setError(result.error.message ?? words.changeEmailFailed);
 				setBusy(false);
 				return;
 			}
@@ -1061,9 +1087,7 @@ function ChangeEmailForm({
 			setBusy(false);
 		} catch (changeError) {
 			setError(
-				changeError instanceof Error
-					? changeError.message
-					: "Could not start the email change",
+				changeError instanceof Error ? changeError.message : words.changeEmailFailed,
 			);
 			setBusy(false);
 		}
@@ -1077,22 +1101,15 @@ function ChangeEmailForm({
 			<div className="space-y-4">
 				<div className="flex items-start gap-2 rounded-lg border border-success bg-surface p-3 font-mono text-xs leading-relaxed text-text-muted">
 					<Send size={16} className="mt-0.5 shrink-0 text-success" />
-					{emailVerified ? (
-						<span>
-							Check <span className="text-text">{currentEmail}</span> for a link
-							to approve the change. Once you do, we'll email{" "}
-							<span className="text-text">{newEmail.trim()}</span> to verify it
-							— your account email switches after that.
-						</span>
-					) : (
-						<span>
-							We've emailed <span className="text-text">{newEmail.trim()}</span>
-							. Open the link there to verify the address and finish the switch.
-						</span>
-					)}
+					<span>
+						{withAddresses(
+							emailVerified ? words.changeApprove : words.changeVerifyNew,
+							{ email: currentEmail, newEmail: newEmail.trim() },
+						)}
+					</span>
 				</div>
 				<button type="button" onClick={onDone} className={BTN_PRIMARY}>
-					Done
+					{words.done}
 				</button>
 			</div>
 		);
@@ -1103,12 +1120,15 @@ function ChangeEmailForm({
 			<div className="flex items-center gap-2 font-mono text-xs text-text-dim">
 				<AtSign size={14} className="shrink-0" />
 				<span>
-					Signed in as <span className="text-text-muted">{currentEmail}</span>
+					{withAddresses(
+						words.signedInAs,
+						{ email: currentEmail },
+						"text-text-muted",
+					)}
 				</span>
 			</div>
 			<p className="font-mono text-xs leading-relaxed text-text-dim">
-				Enter a new address — we'll email a link to confirm the change before it
-				takes effect.
+				{words.changeEmailIntro}
 			</p>
 			<form
 				className="space-y-3"
@@ -1122,7 +1142,7 @@ function ChangeEmailForm({
 					disabled={busy}
 					onChange={(changeEvent) => setNewEmail(changeEvent.target.value)}
 					className={FIELD_CLASS}
-					placeholder="new@example.com"
+					placeholder={words.newEmailPlaceholder}
 					type="email"
 					autoComplete="email"
 					required
@@ -1134,7 +1154,7 @@ function ChangeEmailForm({
 					</div>
 				)}
 				<button type="submit" disabled={busy} className={BTN_PRIMARY}>
-					{busy ? "Working…" : "Change email"}
+					{busy ? words.working : words.changeEmail}
 				</button>
 			</form>
 		</div>
@@ -1211,6 +1231,7 @@ function ChangeEmailLanding({
 	// The pending target the user asked to switch to (null on a different browser).
 	const [pending] = useState<string | null>(() => readPendingEmailChange());
 	const done = Boolean(pending && data?.user.email === pending);
+	const words = useAccountText();
 
 	// Once the switch completes, drop the stash so a later reload doesn't resurface
 	// a stale "verify your new address" message.
@@ -1223,13 +1244,10 @@ function ChangeEmailLanding({
 			<div className="space-y-4">
 				<div className="flex items-start gap-2 font-mono text-xs leading-relaxed text-error">
 					<AlertTriangle size={16} className="mt-0.5 shrink-0" />
-					<span>
-						This email-change link is invalid or has expired. Start again from
-						Account settings.
-					</span>
+					<span>{words.changeLinkInvalid}</span>
 				</div>
 				<button type="button" onClick={onDone} className={BTN_SECONDARY}>
-					Close
+					{words.close}
 				</button>
 			</div>
 		);
@@ -1241,24 +1259,16 @@ function ChangeEmailLanding({
 				<MailCheck size={16} className="mt-0.5 shrink-0 text-success" />
 				{done ? (
 					<span>
-						Your account email is now{" "}
-						<span className="text-text">{data?.user.email}</span>. All set.
+						{withAddresses(words.changeDone, { email: data?.user.email ?? "" })}
 					</span>
 				) : pending ? (
-					<span>
-						Change approved. We've emailed{" "}
-						<span className="text-text">{pending}</span> — open the link there
-						to verify the new address and finish the switch.
-					</span>
+					<span>{withAddresses(words.changeApproved, { email: pending })}</span>
 				) : (
-					<span>
-						Your email-change request was processed. If you were asked to verify
-						a new address, open the link we sent there to finish.
-					</span>
+					<span>{words.changeProcessed}</span>
 				)}
 			</div>
 			<button type="button" onClick={onDone} className={BTN_PRIMARY}>
-				Continue
+				{words.continue}
 			</button>
 		</div>
 	);
@@ -1277,6 +1287,7 @@ function ResetPasswordForm({
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [done, setDone] = useState(false);
+	const words = useAccountText();
 
 	// The link itself was bad (expired/used). Nothing to submit — point the user
 	// back at requesting a fresh one.
@@ -1285,13 +1296,10 @@ function ResetPasswordForm({
 			<div className="space-y-4">
 				<div className="flex items-start gap-2 font-mono text-xs leading-relaxed text-error">
 					<AlertTriangle size={16} className="mt-0.5 shrink-0" />
-					<span>
-						This reset link is invalid or has expired. Request a new one from
-						the sign-in dialog.
-					</span>
+					<span>{words.resetLinkInvalid}</span>
 				</div>
 				<button type="button" onClick={onDone} className={BTN_SECONDARY}>
-					Close
+					{words.close}
 				</button>
 			</div>
 		);
@@ -1302,10 +1310,10 @@ function ResetPasswordForm({
 			<div className="space-y-4">
 				<div className="flex items-start gap-2 rounded-lg border border-success bg-surface p-3 font-mono text-xs leading-relaxed text-text-muted">
 					<Check size={16} className="mt-0.5 shrink-0 text-success" />
-					<span>Your password has been reset. You're now signed in.</span>
+					<span>{words.resetDone}</span>
 				</div>
 				<button type="button" onClick={onDone} className={BTN_PRIMARY}>
-					Continue
+					{words.continue}
 				</button>
 			</div>
 		);
@@ -1317,18 +1325,14 @@ function ResetPasswordForm({
 		try {
 			const result = await resetPassword({ newPassword: password, token });
 			if (result.error) {
-				setError(result.error.message ?? "Could not reset password");
+				setError(result.error.message ?? words.resetFailed);
 				setBusy(false);
 				return;
 			}
 			setDone(true);
 			setBusy(false);
 		} catch (resetError) {
-			setError(
-				resetError instanceof Error
-					? resetError.message
-					: "Could not reset password",
-			);
+			setError(resetError instanceof Error ? resetError.message : words.resetFailed);
 			setBusy(false);
 		}
 	};
@@ -1342,14 +1346,14 @@ function ResetPasswordForm({
 			}}
 		>
 			<p className="font-mono text-xs leading-relaxed text-text-dim">
-				Choose a new password for your account.
+				{words.resetIntro}
 			</p>
 			<input
 				value={password}
 				disabled={busy}
 				onChange={(changeEvent) => setPassword(changeEvent.target.value)}
 				className={FIELD_CLASS}
-				placeholder="New password (min 8 characters)"
+				placeholder={words.newPasswordPlaceholder}
 				type="password"
 				autoComplete="new-password"
 				minLength={8}
@@ -1362,7 +1366,7 @@ function ResetPasswordForm({
 				</div>
 			)}
 			<button type="submit" disabled={busy} className={BTN_PRIMARY}>
-				{busy ? "Working…" : "Set new password"}
+				{busy ? words.working : words.setNewPassword}
 			</button>
 		</form>
 	);
@@ -1383,16 +1387,18 @@ function ApiKeysManager() {
 	const [creating, setCreating] = useState(false);
 	const [newName, setNewName] = useState("");
 	const [freshKey, setFreshKey] = useState<string | null>(null);
+	const words = useAccountText();
+	const { keysLoadFailed } = words;
 
 	const refresh = useCallback(async () => {
 		setError(null);
 		const result = await authClient.apiKey.list();
 		if (result.error) {
-			setError(result.error.message ?? "Failed to load keys");
+			setError(result.error.message ?? keysLoadFailed);
 			return;
 		}
 		setKeys(result.data?.apiKeys ?? []);
-	}, []);
+	}, [keysLoadFailed]);
 
 	useEffect(() => {
 		void refresh();
@@ -1406,7 +1412,7 @@ function ApiKeysManager() {
 				name: newName.trim() || `${BRAND_NAME}-cli`,
 			});
 			if (result.error) {
-				setError(result.error.message ?? "Failed to create key");
+				setError(result.error.message ?? words.keyCreateFailed);
 				return;
 			}
 			setFreshKey(result.data?.key ?? null);
@@ -1421,7 +1427,7 @@ function ApiKeysManager() {
 		setError(null);
 		const result = await authClient.apiKey.delete({ keyId });
 		if (result.error) {
-			setError(result.error.message ?? "Failed to revoke key");
+			setError(result.error.message ?? words.keyRevokeFailed);
 			return;
 		}
 		await refresh();
@@ -1430,16 +1436,18 @@ function ApiKeysManager() {
 	return (
 		<div className="space-y-4">
 			<p className="font-mono text-xs leading-relaxed text-text-dim">
-				Send a key as the <span className="text-text-muted">x-api-key</span>{" "}
-				header to authenticate API requests as your account without a cookie
-				session. The secret is shown once at creation.
+				{textWithElements(words.apiKeysIntro, {
+					header: <span className="text-text-muted">x-api-key</span>,
+				})}
 			</p>
 
 			{freshKey && (
 				<FreshKeyBanner value={freshKey} onDismiss={() => setFreshKey(null)} />
 			)}
 
-			<div className="flex gap-2">
+			{/* Stacked on a phone, where the field beside the button is too narrow
+			    for its placeholder in either language (REQ248). */}
+			<div className="flex flex-col gap-2 sm:flex-row">
 				<input
 					value={newName}
 					disabled={creating}
@@ -1451,15 +1459,15 @@ function ApiKeysManager() {
 						}
 					}}
 					className={FIELD_CLASS}
-					placeholder="Key name (e.g. laptop)"
+					placeholder={words.keyNamePlaceholder}
 				/>
 				<button
 					type="button"
 					onClick={() => void create()}
 					disabled={creating}
-					className="btn-primary shrink-0 inline-flex items-center gap-2"
+					className="btn-primary shrink-0 inline-flex items-center justify-center gap-2"
 				>
-					<Plus size={16} /> {creating ? "Creating…" : "Create"}
+					<Plus size={16} /> {creating ? words.creatingKey : words.createKey}
 				</button>
 			</div>
 
@@ -1471,9 +1479,9 @@ function ApiKeysManager() {
 			)}
 
 			{keys === null ? (
-				<div className="font-mono text-xs text-text-dim">Loading keys…</div>
+				<div className="font-mono text-xs text-text-dim">{words.loadingKeys}</div>
 			) : keys.length === 0 ? (
-				<div className="font-mono text-xs text-text-dim">No keys yet.</div>
+				<div className="font-mono text-xs text-text-dim">{words.noKeys}</div>
 			) : (
 				<ul className="space-y-1.5 max-h-60 overflow-y-auto">
 					{keys.map((key) => (
@@ -1486,7 +1494,7 @@ function ApiKeysManager() {
 								className="flex-1 min-w-0 truncate font-mono text-sm text-text"
 								title={key.name ?? ""}
 							>
-								{key.name || "Unnamed key"}
+								{key.name || words.unnamedKey}
 								{key.start && (
 									<span className="text-text-dim"> · {key.start}…</span>
 								)}
@@ -1495,8 +1503,12 @@ function ApiKeysManager() {
 								type="button"
 								onClick={() => void revoke(key.id)}
 								className={ICON_BTN}
-								title="Revoke key"
-								aria-label={`Revoke ${key.name ?? "key"}`}
+								title={words.revokeKey}
+								aria-label={
+									key.name
+										? fillText(words.revokeNamedKey, { name: key.name })
+										: words.revokeKey
+								}
 							>
 								<Trash2 size={15} />
 							</button>
@@ -1516,6 +1528,7 @@ function FreshKeyBanner({
 	onDismiss: () => void;
 }) {
 	const [copied, setCopied] = useState(false);
+	const words = useAccountText();
 	const copy = async () => {
 		try {
 			await navigator.clipboard.writeText(value);
@@ -1528,7 +1541,7 @@ function FreshKeyBanner({
 	return (
 		<div className="space-y-2 rounded-xl border border-success bg-surface p-3">
 			<div className="font-mono text-xs uppercase tracking-widest text-success">
-				Copy your key now — it won't be shown again
+				{words.copyKeyNow}
 			</div>
 			<div className="flex gap-2">
 				<input
@@ -1543,7 +1556,7 @@ function FreshKeyBanner({
 					className="btn-secondary shrink-0 inline-flex items-center gap-2"
 				>
 					{copied ? <Check size={16} /> : <Copy size={16} />}
-					{copied ? "Copied" : "Copy"}
+					{copied ? words.copied : words.copy}
 				</button>
 			</div>
 			<button
@@ -1551,7 +1564,7 @@ function FreshKeyBanner({
 				onClick={onDismiss}
 				className="font-mono text-xs text-text-dim underline"
 			>
-				Done
+				{words.done}
 			</button>
 		</div>
 	);

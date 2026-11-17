@@ -16,6 +16,7 @@ import { useSession } from "../auth-client";
 import { type ChoiceOption, Segmented } from "../components/EditorControls";
 import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
+import { useInterfaceText } from "../interface-language";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 import type {
@@ -176,6 +177,11 @@ export function AdminFeedbackScreen({
 	onLoadMore: () => void;
 	onBack: () => void;
 }) {
+	// The page itself is English (outside REQ248); the account controls and the
+	// app menu it shares with every screen are in the interface language, and
+	// marked so.
+	const { language: interfaceLanguage } = useInterfaceText();
+
 	if (state.kind === "loading") {
 		return (
 			<div className="min-h-screen w-full bg-void bg-grid bg-noise flex items-center justify-center">
@@ -188,7 +194,10 @@ export function AdminFeedbackScreen({
 		const refusal = refusalCopy(state);
 		return (
 			<div className="min-h-screen w-full bg-void bg-grid bg-noise flex items-center justify-center p-6">
-				<div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+				<div
+					className="absolute top-4 right-4 z-20 flex items-center gap-2"
+					lang={interfaceLanguage}
+				>
 					<AuthControls />
 					<AppMenu />
 				</div>
@@ -204,7 +213,10 @@ export function AdminFeedbackScreen({
 	const { page } = state;
 	return (
 		<div className="min-h-screen w-full bg-void bg-grid bg-noise">
-			<div className="absolute top-4 right-4 sm:top-6 sm:right-6 lg:right-12 z-20 flex items-center gap-2">
+			<div
+				className="absolute top-4 right-4 sm:top-6 sm:right-6 lg:right-12 z-20 flex items-center gap-2"
+				lang={interfaceLanguage}
+			>
 				<AuthControls />
 				<AppMenu />
 			</div>

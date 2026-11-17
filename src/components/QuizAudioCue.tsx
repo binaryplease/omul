@@ -1,5 +1,11 @@
 import { Play, Square, Volume2, VolumeOff, VolumeX } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceText,
+} from "../interface-text";
 import type { Presentation, PresentationMode, Slide } from "../types";
 import { quizAudioCueFor, slideAcceptsSubmissions } from "../types";
 import { quizWindowFor } from "./QuizTimer";
@@ -226,28 +232,32 @@ export type QuizAudioCueControlState = {
  * Never dropped: a state with nothing to press is drawn disabled and says why,
  * which on a projector is the difference between "there is no cue" and "the cue
  * cannot play here".
+ *
+ * Its words are the presenter's, in the interface language (REQ248).
  */
-export function quizAudioCueControlFor({
-	status,
-	muted,
-}: {
-	status: QuizAudioCueStatus;
-	muted: boolean;
-}): QuizAudioCueControlState {
+export function quizAudioCueControlFor(
+	{
+		status,
+		muted,
+	}: {
+		status: QuizAudioCueStatus;
+		muted: boolean;
+	},
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): QuizAudioCueControlState {
+	const { liveRoom } = text;
 	switch (status) {
 		case "elsewhere":
 			return {
-				text: "Audio cue plays on the presenter's screen",
-				label:
-					"Audio cue — it plays on the presenter's screen, not this one: you cannot edit this presentation",
+				text: liveRoom.audioCueElsewhereText,
+				label: liveRoom.audioCueElsewhereLabel,
 				action: null,
 				attention: false,
 			};
 		case "unpaced":
 			return {
-				text: "Audio cue off — audience-paced deck",
-				label:
-					"Audio cue — this deck is audience-paced, so there is no shared answer window for it to play over",
+				text: liveRoom.audioCueUnpacedText,
+				label: liveRoom.audioCueUnpacedLabel,
 				action: null,
 				attention: false,
 			};
@@ -256,49 +266,43 @@ export function quizAudioCueControlFor({
 			// dropped for a moment reads the same, and the track is asked for
 			// again the next time the question's window opens.
 			return {
-				text: "Audio cue unavailable",
-				label:
-					"Audio cue — the track at this address could not be loaded. It is tried again the next time the question opens; if it keeps failing, check its link in the editor",
+				text: liveRoom.audioCueUnavailableText,
+				label: liveRoom.audioCueUnavailableLabel,
 				action: null,
 				attention: true,
 			};
 		case "blocked":
 			return {
-				text: "Play audio cue",
-				label:
-					"Play the audio cue — this browser holds sound back until somebody clicks on this screen",
+				text: liveRoom.audioCueBlockedText,
+				label: liveRoom.audioCueBlockedLabel,
 				action: "play",
 				attention: true,
 			};
 		case "playing":
 			return muted
 				? {
-						text: "Audio cue muted — unmute",
-						label:
-							"Unmute the audio cue — it has kept running silently while the question is open",
+						text: liveRoom.audioCueMutedText,
+						label: liveRoom.audioCuePlayingMutedLabel,
 						action: "toggle-mute",
 						attention: false,
 					}
 				: {
-						text: "Mute audio cue",
-						label:
-							"Mute the audio cue playing on this screen — the question stays open",
+						text: liveRoom.audioCueMuteText,
+						label: liveRoom.audioCuePlayingLabel,
 						action: "toggle-mute",
 						attention: false,
 					};
 		case "waiting":
 			return muted
 				? {
-						text: "Audio cue muted — unmute",
-						label:
-							"Unmute the audio cue — it plays on this screen while the question is open",
+						text: liveRoom.audioCueMutedText,
+						label: liveRoom.audioCueWaitingMutedLabel,
 						action: "toggle-mute",
 						attention: false,
 					}
 				: {
-						text: "Mute audio cue",
-						label:
-							"Mute the audio cue — it plays on this screen while the question is open",
+						text: liveRoom.audioCueMuteText,
+						label: liveRoom.audioCueWaitingLabel,
 						action: "toggle-mute",
 						attention: false,
 					};
@@ -329,6 +333,17 @@ export type QuizAudioOption = (typeof QUIZ_AUDIO_PRESETS)[number]["id"] | "custo
 
 /** What the row reads as. `none` is a question with no track and no field open. */
 export type QuizAudioChoice = QuizAudioOption | "none";
+
+/**
+ * A bundled track's name as the editor shows it, in the interface language
+ * (REQ248). `label` stays the English name the license file records.
+ */
+export function quizAudioPresetLabel(
+	preset: (typeof QUIZ_AUDIO_PRESETS)[number],
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	return text.slideSettings.audioPresets[preset.id] ?? preset.label;
+}
 
 /** The bundled track stored at `authored`, if it is one. An exact match only. */
 function quizAudioPresetAt(authored: string) {
@@ -387,9 +402,13 @@ export function quizAudioUrlForOption(
  */
 export function quizAudioCueRowValue(
 	slide: Pick<Slide, "type" | "quizAudioUrl">,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
 ): string {
-	if (quizAudioCueFor(slide) === "") return "None";
-	return quizAudioPresetAt(slide.quizAudioUrl ?? "")?.label ?? "Custom";
+	if (quizAudioCueFor(slide) === "") return text.slideSettings.audioNone;
+	const preset = quizAudioPresetAt(slide.quizAudioUrl ?? "");
+	return preset
+		? quizAudioPresetLabel(preset, text)
+		: text.slideSettings.audioCustom;
 }
 
 /**
@@ -407,31 +426,22 @@ export function quizAudioCueAuthoringNote(
 	slide: Pick<Slide, "type" | "quizAudioUrl">,
 	deckMode: PresentationMode,
 	customOpen = false,
+	interfaceText: InterfaceText = ENGLISH_INTERFACE_TEXT,
 ): { text: string; warning: boolean } {
+	const copy = interfaceText.slideSettings;
 	if ((slide.quizAudioUrl ?? "").trim() === "") {
 		return {
-			text: customOpen
-				? "A link to an audio file, played on your presenter screen while the question is open — never on participants' phones. Nothing is uploaded."
-				: "No track: this question runs in silence. A track you pick plays on your presenter screen while the question is open — never on participants' phones.",
+			text: customOpen ? copy.audioNoteEmpty : copy.audioNoteSilent,
 			warning: false,
 		};
 	}
 	if (quizAudioCueFor(slide) === "") {
-		return {
-			text: "That address can't be played — use an http(s) or root-relative URL.",
-			warning: true,
-		};
+		return { text: copy.audioNoteUnplayable, warning: true };
 	}
 	if (deckMode === "survey") {
-		return {
-			text: "Not in effect: this deck is audience-paced, so there is no shared answer window and the cue never plays.",
-			warning: true,
-		};
+		return { text: copy.audioNoteNotInEffect, warning: true };
 	}
-	return {
-		text: "Plays on your presenter screen from the moment the question opens until it closes, looping — never on participants' phones.",
-		warning: false,
-	};
+	return { text: copy.audioNotePlays, warning: false };
 }
 
 /** The cue of the slide on screen, as one presenter screen holds it. */
@@ -935,10 +945,11 @@ export function useQuizAudioCue({
  * too, where it names what it does and nothing the deck says.
  */
 export function QuizAudioCueControl({ cue }: { cue: QuizAudioCue }) {
-	const control = quizAudioCueControlFor({
-		status: cue.status,
-		muted: cue.muted,
-	});
+	const { text } = useInterfaceText();
+	const control = quizAudioCueControlFor(
+		{ status: cue.status, muted: cue.muted },
+		text,
+	);
 	const icon =
 		control.action === "play" ? (
 			<Play size={13} />
@@ -987,17 +998,28 @@ export type QuizAudioPreviewControl = {
 export function quizAudioPreviewControlFor(
 	trackLabel: string,
 	state: QuizAudioPreviewState,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
 ): QuizAudioPreviewControl {
+	const copy = text.slideSettings;
+	const track = { track: trackLabel };
 	switch (state) {
 		case "idle":
-			return { name: `Play ${trackLabel}`, icon: "play", reason: null };
+			return {
+				name: fillText(copy.audioPreviewPlay, track),
+				icon: "play",
+				reason: null,
+			};
 		case "playing":
-			return { name: `Stop ${trackLabel}`, icon: "stop", reason: null };
+			return {
+				name: fillText(copy.audioPreviewStop, track),
+				icon: "stop",
+				reason: null,
+			};
 		case "failed":
 			return {
-				name: `Play ${trackLabel}`,
+				name: fillText(copy.audioPreviewPlay, track),
 				icon: "play",
-				reason: `${trackLabel} could not be loaded. Press play to try again.`,
+				reason: fillText(copy.audioPreviewFailed, track),
 			};
 	}
 }
@@ -1120,7 +1142,8 @@ export function QuizAudioPreviewButton({
 	reasonId: string;
 	onToggle: () => void;
 }) {
-	const control = quizAudioPreviewControlFor(trackLabel, state);
+	const { text } = useInterfaceText();
+	const control = quizAudioPreviewControlFor(trackLabel, state, text);
 	return (
 		<button
 			type="button"

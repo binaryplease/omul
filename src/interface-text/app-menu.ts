@@ -1,7 +1,8 @@
 // The app menu's interface text (`src/components/ui/AppMenu.tsx`, REQ183,
-// REQ248): the Language section and the names the menu takes while it holds
-// one. The menu's other words — Appearance and its themes, "Send feedback", the
-// Legal section, the feedback dialog — are in every deck dictionary already
+// REQ248): the Language section, the names the menu takes while it holds one,
+// and the feedback dialog's heading and contact box. The menu's other words —
+// Appearance and its themes, "Send feedback", the Legal section, the feedback
+// form's fields — are in every deck dictionary already
 // (REQ225, `src/i18n.ts`), so an organizer's menu reads them from the
 // dictionary of the interface language and they are not restated here.
 
@@ -22,6 +23,23 @@ export const en = {
 	 * keeps its nouns capitalised.
 	 */
 	nameInList: (name: string) => name.toLowerCase(),
+	/**
+	 * A bar menu's backdrop (`BarMenu.tsx`, REQ190); `{menu}` is the menu's name
+	 * as `nameInList` gives it.
+	 */
+	closeMenu: "Close {menu} menu",
+	/**
+	 * The feedback dialog's heading and contact box (REQ185), which no deck
+	 * dictionary holds: only an organizer's menu draws them in a language other
+	 * than English. The heading says first who reads it; `{brand}` is the
+	 * product.
+	 */
+	feedbackHeadingLead: "Feedback about {brand}",
+	feedbackHeadingRecipient:
+		"goes to the people who run {brand} here, not to the presenter or organizer",
+	contactMe: "You can contact me about this",
+	/** `{email}` is the signed-in account's address. */
+	contactAddress: "We'd write to {email} (your account email)",
 };
 
 export const de: Partial<typeof en> = {
@@ -34,4 +52,11 @@ export const de: Partial<typeof en> = {
 	closeWithLanguageAndFeedback:
 		"Menü „Darstellung, Sprache, Feedback und Rechtliches“ schließen",
 	nameInList: (name: string) => name,
+	closeMenu: "Menü „{menu}“ schließen",
+	feedbackHeadingLead: "Feedback zu {brand}",
+	feedbackHeadingRecipient:
+		"geht an die Betreiber von {brand} hier, nicht an die Vortragenden oder Veranstalter",
+	contactMe: "Ihr dürft mich dazu kontaktieren",
+	contactAddress:
+		"Wir würden an {email} schreiben (die E-Mail-Adresse deines Kontos)",
 };

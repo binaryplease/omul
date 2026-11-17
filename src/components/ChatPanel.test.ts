@@ -13,11 +13,13 @@
 
 import { describe, expect, test } from "bun:test";
 import { getDict } from "../i18n";
+import { ENGLISH_INTERFACE_TEXT, interfaceTextFor } from "../interface-text";
 import { CHAT_HISTORY_LIMIT } from "../types";
 import {
 	CHAT_LABELS_EN,
 	chatCountLabel,
 	chatLabelsFor,
+	presenterChatLabels,
 	isChatSurfaceVisible,
 	readChatFeed,
 } from "./ChatPanel";
@@ -187,6 +189,31 @@ describe("chatCountLabel (REQ078)", () => {
 		// false about the room.
 		expect(chatCountLabel(feedOf(CHAT_HISTORY_LIMIT))).toBe(
 			`the newest ${CHAT_HISTORY_LIMIT} chat messages`,
+		);
+	});
+});
+
+// ── The presenter screen's reading, in the interface language (REQ248) ──
+
+describe("presenterChatLabels (REQ248)", () => {
+	test("in English it is the presenter's wording exactly as it was", () => {
+		expect(presenterChatLabels(ENGLISH_INTERFACE_TEXT)).toEqual(CHAT_LABELS_EN);
+	});
+
+	test("in German every label is the interface text's, not the deck's", () => {
+		const german = interfaceTextFor("de");
+		const labels = presenterChatLabels(german);
+		expect(labels.title).toBe(german.panels.chatTitle);
+		expect(labels.send).toBe("Senden");
+		expect(labels.you).toBe("Du");
+	});
+
+	test("the count follows the language's plural rules and number format", () => {
+		const german = interfaceTextFor("de");
+		expect(chatCountLabel(feedOf(1), german, "de")).toBe("1 Chatnachricht");
+		expect(chatCountLabel(feedOf(7), german, "de")).toBe("7 Chatnachrichten");
+		expect(chatCountLabel(feedOf(CHAT_HISTORY_LIMIT), german, "de")).toBe(
+			`die neuesten ${CHAT_HISTORY_LIMIT} Chatnachrichten`,
 		);
 	});
 });

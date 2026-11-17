@@ -133,8 +133,9 @@ const DEFAULT_SCREEN_LANGUAGE = "en";
 
 /**
  * The UI language of the screen an element sits on: the nearest `lang` above
- * it. The app's chrome is English (`<html lang="en">`); the participant's
- * screens are in the deck's language and say so on their own wrapper.
+ * it. The app's chrome is in the interface language and its screens set
+ * `<html lang>` to it (REQ248); the participant's screens are in the deck's
+ * language and say so on their own wrapper.
  */
 export function screenLanguage(element: Element | null): string {
 	const declared = element?.closest("[lang]")?.getAttribute("lang")?.trim();

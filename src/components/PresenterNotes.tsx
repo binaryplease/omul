@@ -1,8 +1,10 @@
 import { EyeOff, StickyNote } from "lucide-react";
 import { useState } from "react";
+import { useInterfaceText } from "../interface-language";
+import { ENGLISH_INTERFACE_TEXT, type InterfaceText } from "../interface-text";
 import type { Slide } from "../types";
 import { SLIDE_TEXT_MAX_LENGTH, slideTextSizeFor } from "../types";
-import { SLIDE_MARKDOWN_HINT, SlideText, slideTextToPlain } from "./SlideText";
+import { SlideText, slideTextToPlain } from "./SlideText";
 
 // ── Presenter notes (REQ090) ──────────────────────────────────────────
 //
@@ -19,6 +21,9 @@ import { SLIDE_MARKDOWN_HINT, SlideText, slideTextToPlain } from "./SlideText";
 // deck through the same function — so this module is only ever handed notes its
 // holder authored. A panel that decided for itself who may read a note would be
 // a second, weaker copy of a rule that is already settled on the wire.
+//
+// The panel and the toggle's name read the interface language (REQ248); the
+// editor's strip is REQ248's second slice and still reads English.
 
 /**
  * The notes on a slide, trimmed — `""` when the author wrote none.
@@ -46,26 +51,28 @@ export function hasPresenterNotes(slide: {
  * actually do with it (the button is never dropped, so each of its
  * states has to say out loud why it reads the way it does).
  */
-export function presenterNotesToggleLabel({
-	canRead,
-	open,
-	hasNotes,
-}: {
-	canRead: boolean;
-	open: boolean;
-	hasNotes: boolean;
-}): string {
+export function presenterNotesToggleLabel(
+	{
+		canRead,
+		open,
+		hasNotes,
+	}: {
+		canRead: boolean;
+		open: boolean;
+		hasNotes: boolean;
+	},
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	const { panels } = text;
 	if (!canRead) {
 		// Names the standing rather than the edit token, because the token is only
 		// one of the two ways to have it (REQ149): the deck's owner and an `edit`
 		// collaborator read these notes holding no token at all, and a viewer who
 		// really has neither is not helped by being told to find a token.
-		return "Show presenter notes — you don't have edit access to this presentation, so its notes are not yours to read";
+		return panels.notesToggleNoAccess;
 	}
-	if (open) return "Hide presenter notes";
-	return hasNotes
-		? "Show presenter notes — what you wrote for yourself about this slide"
-		: "Show presenter notes — this slide has none yet";
+	if (open) return panels.notesToggleHide;
+	return hasNotes ? panels.notesToggleShow : panels.notesToggleShowEmpty;
 }
 
 /**
@@ -90,10 +97,11 @@ export function presenterNotesSummary(slide: {
  * The affordance does not disappear with its content — an empty strip that drew
  * nothing would be a feature an author finds once and never again.
  */
-export function presenterNotesStripLabel(slide: {
-	notes?: string | undefined;
-}): string {
-	return presenterNotesSummary(slide) || "Add presenter notes…";
+export function presenterNotesStripLabel(
+	slide: { notes?: string | undefined },
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	return presenterNotesSummary(slide) || text.editor.notesInvitation;
 }
 
 /**
@@ -102,7 +110,7 @@ export function presenterNotesStripLabel(slide: {
  * marker states a fact that already holds on the wire rather than a promise this
  * strip keeps.
  */
-export const PRESENTER_NOTES_PRIVACY_LABEL = "Only you";
+export const PRESENTER_NOTES_PRIVACY_LABEL = ENGLISH_INTERFACE_TEXT.editor.notesPrivacy;
 
 /**
  * Presenter notes, written where the slide is (REQ156).
@@ -130,45 +138,49 @@ export function PresenterNotesStrip({
 	onUpdate: (changes: Partial<Slide>) => void;
 }) {
 	const [open, setOpen] = useState(false);
+	const { text, language } = useInterfaceText();
+	const editor = text.editor;
 	const notes = presenterNotesFor(slide);
 
 	if (!open) {
 		return (
-			<div className="mx-auto flex w-full max-w-3xl items-center gap-2 rounded-xl border border-border bg-surface/40 px-3 py-2">
+			<div
+				lang={language}
+				className="mx-auto flex w-full max-w-3xl items-center gap-2 rounded-xl border border-border bg-surface/40 px-3 py-2"
+			>
 				<StickyNote size={14} className="flex-shrink-0 text-text-muted" />
 				<button
 					type="button"
 					aria-expanded={false}
-					aria-label={
-						notes
-							? "Edit presenter notes for this slide"
-							: "Add presenter notes for this slide"
-					}
+					aria-label={notes ? editor.notesEditName : editor.notesAddName}
 					onClick={() => setOpen(true)}
 					className={`min-w-0 flex-1 truncate text-left text-sm transition-colors hover:text-text ${
 						notes ? "text-text-muted" : "text-text-muted italic"
 					}`}
 				>
-					{presenterNotesStripLabel(slide)}
+					{presenterNotesStripLabel(slide, text)}
 				</button>
 				<span className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-xs text-text-muted">
 					<EyeOff size={12} />
-					{PRESENTER_NOTES_PRIVACY_LABEL}
+					{editor.notesPrivacy}
 				</span>
 			</div>
 		);
 	}
 
 	return (
-		<div className="mx-auto w-full max-w-3xl space-y-2 rounded-xl border border-border bg-surface/40 px-3 py-2.5">
+		<div
+			lang={language}
+			className="mx-auto w-full max-w-3xl space-y-2 rounded-xl border border-border bg-surface/40 px-3 py-2.5"
+		>
 			<div className="flex items-center gap-2">
 				<StickyNote size={14} className="flex-shrink-0 text-text-muted" />
 				<span className="min-w-0 flex-1 text-sm font-medium text-text">
-					Presenter notes
+					{editor.notesHeading}
 				</span>
 				<span className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-xs text-text-muted">
 					<EyeOff size={12} />
-					{PRESENTER_NOTES_PRIVACY_LABEL}
+					{editor.notesPrivacy}
 				</span>
 			</div>
 			<textarea
@@ -180,19 +192,19 @@ export function PresenterNotesStrip({
 				// deviations table in docs/frontend.md).
 				autoFocus
 				maxLength={SLIDE_TEXT_MAX_LENGTH}
-				placeholder="Cues, timings, the number you never remember…"
+				placeholder={editor.notesPlaceholder}
 				value={slide.notes ?? ""}
 				onChange={(event) => onUpdate({ notes: event.target.value })}
-				aria-label="Presenter notes for this slide"
+				aria-label={editor.notesFieldName}
 			/>
 			<div className="flex items-center justify-between gap-3">
-				<p className="min-w-0 text-xs text-text-muted">{SLIDE_MARKDOWN_HINT}</p>
+				<p className="min-w-0 text-xs text-text-muted">{editor.markdownHint}</p>
 				<button
 					type="button"
 					className="flex-shrink-0 text-xs text-text-muted transition-colors hover:text-text"
 					onClick={() => setOpen(false)}
 				>
-					Done
+					{editor.notesDone}
 				</button>
 			</div>
 		</div>
@@ -219,6 +231,7 @@ export function PresenterNotesPanel({
 	slide: Slide;
 	className?: string;
 }) {
+	const { panels } = useInterfaceText().text;
 	const notes = presenterNotesFor(slide);
 	return (
 		<section className={`flex flex-col gap-3 ${className}`}>
@@ -227,10 +240,10 @@ export function PresenterNotesPanel({
 					<StickyNote size={14} />
 				</span>
 				<div className="min-w-0">
-					<h3 className="text-sm font-semibold text-text">Presenter notes</h3>
-					<p className="text-xs text-text-dim">
-						Yours only — never sent to participants or exported.
-					</p>
+					<h3 className="text-sm font-semibold text-text">
+						{panels.notesHeading}
+					</h3>
+					<p className="text-xs text-text-dim">{panels.notesPrivacy}</p>
 				</div>
 			</div>
 			{notes ? (
@@ -243,8 +256,7 @@ export function PresenterNotesPanel({
 				</div>
 			) : (
 				<p className="rounded-xl border border-dashed border-border px-3 py-4 text-xs text-text-dim">
-					No notes on this slide. Add them in the editor — they follow the slide
-					and only ever appear here.
+					{panels.notesEmpty}
 				</p>
 			)}
 		</section>

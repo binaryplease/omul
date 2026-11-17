@@ -7,11 +7,22 @@ import {
 	ImageOff,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	formatNumber,
+	type InterfaceLanguage,
+	type InterfaceText,
+	interfaceTextFor,
+	pluralText,
+} from "../interface-text";
 import type { Slide } from "../types";
-import type {
-	SlideAccessibilityField,
-	SlideAccessibilityFinding,
-	SlideAccessibilityRisk,
+import {
+	accessibilityFindingMessage,
+	type SlideAccessibilityField,
+	type SlideAccessibilityFinding,
+	type SlideAccessibilityRisk,
 } from "./DeckAccessibility";
 import { ICON_BUTTON_HOVER } from "./ShareCluster";
 import { slideQuestionLabel } from "./SlideCanvasFields";
@@ -56,24 +67,39 @@ export function accessibilityFieldMarker(field: SlideAccessibilityField) {
 export function accessibilityFieldLabel(
 	field: SlideAccessibilityField,
 	slide: Slide,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
 ): string {
+	const words = text.accessibility;
 	if (field.scope === "deck") {
-		return field.name === "theme" ? "Deck theme" : "Your own theme";
+		return field.name === "theme" ? words.fieldDeckTheme : words.fieldOwnTheme;
 	}
 	switch (field.name) {
 		case "textColor":
-			return "Text colour";
+			return words.fieldTextColor;
 		case "backgroundColor":
-			return "Background colour";
+			return words.fieldBackgroundColor;
 		case "backgroundImage":
-			return "Background image";
+			return words.fieldBackgroundImage;
 		case "textSize":
-			return "Text size";
+			return words.fieldTextSize;
 		case "mediaAlt":
-			return "Alt text";
+			return words.fieldMediaAlt;
 		case "question":
-			return slideQuestionLabel(slide);
+			return slideQuestionLabel(slide, text);
 	}
+}
+
+/** The accessible name of the control that goes to `field`. */
+export function accessibilityGoToFieldLabel(
+	field: SlideAccessibilityField,
+	slide: Slide,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	const label = accessibilityFieldLabel(field, slide, text);
+	return fillText(text.accessibility.goToField, {
+		field: label,
+		fieldLowercase: label.toLowerCase(),
+	});
 }
 
 /** Each slide's findings, keyed by slide id, in the order the check gave them. */
@@ -160,8 +186,15 @@ const RISK_ICONS: Record<SlideAccessibilityRisk, ReactNode> = {
 };
 
 /** How many findings, said the way the strip and the rail say it. */
-export function accessibilityFindingCountLabel(count: number): string {
-	return count === 1 ? "1 accessibility finding" : `${count} accessibility findings`;
+export function accessibilityFindingCountLabel(
+	count: number,
+	language: InterfaceLanguage = "en",
+): string {
+	return pluralText(
+		language,
+		count,
+		interfaceTextFor(language).editor.accessibilityFindingCount,
+	);
 }
 
 /**
@@ -183,18 +216,25 @@ export function AccessibilityFindingsStrip({
 	deckFindingCount: number;
 	onGoToFinding: (finding: SlideAccessibilityFinding) => void;
 }) {
+	const { text, language } = useInterfaceText();
+	const words = text.accessibility;
 	const elsewhere = deckFindingCount - findings.length;
 	const elsewhereNote =
 		elsewhere > 0
-			? `${elsewhere} on other slides — marked in the rail.`
-			: "None on other slides.";
+			? fillText(words.findingsElsewhere, {
+					count: formatNumber(language, elsewhere),
+				})
+			: words.noFindingsElsewhere;
 
 	if (findings.length === 0) {
 		return (
-			<div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-x-2 gap-y-0.5 rounded-xl border border-border bg-surface/40 px-3 py-2">
+			<div
+				lang={language}
+				className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-x-2 gap-y-0.5 rounded-xl border border-border bg-surface/40 px-3 py-2"
+			>
 				<Accessibility size={14} className="flex-shrink-0 text-text-muted" />
 				<p className="min-w-0 flex-1 basis-56 text-sm text-text-muted">
-					No accessibility risks found on this slide.
+					{words.noFindings}
 				</p>
 				<span className="text-xs text-text-muted">
 					{elsewhereNote}
@@ -205,13 +245,16 @@ export function AccessibilityFindingsStrip({
 
 	return (
 		<section
-			aria-label="Accessibility findings on this slide"
+			lang={language}
+			aria-label={words.findingsName}
 			className="mx-auto w-full max-w-3xl space-y-2 rounded-xl border border-warning/40 bg-surface/40 px-3 py-2.5"
 		>
 			<div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
 				<Accessibility size={14} className="flex-shrink-0 text-warning" />
 				<span className="min-w-0 flex-1 basis-56 text-sm font-medium text-text">
-					{accessibilityFindingCountLabel(findings.length)} on this slide
+					{fillText(words.findingsOnSlide, {
+						findings: accessibilityFindingCountLabel(findings.length, language),
+					})}
 				</span>
 				<span className="text-xs text-text-muted">
 					{elsewhereNote}
@@ -226,15 +269,17 @@ export function AccessibilityFindingsStrip({
 						<span aria-hidden="true" className="mt-0.5 flex-shrink-0 text-warning">
 							{RISK_ICONS[finding.risk]}
 						</span>
-						<p className="min-w-0 flex-1 text-sm text-text-muted">{finding.message}</p>
+						<p className="min-w-0 flex-1 text-sm text-text-muted">
+							{accessibilityFindingMessage(finding, text, language)}
+						</p>
 						{finding.field && (
 							<button
 								type="button"
 								className={`inline-flex flex-shrink-0 items-center gap-0.5 whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${ICON_BUTTON_HOVER}`}
-								aria-label={`Go to ${accessibilityFieldLabel(finding.field, slide).toLowerCase()}`}
+								aria-label={accessibilityGoToFieldLabel(finding.field, slide, text)}
 								onClick={() => onGoToFinding(finding)}
 							>
-								{accessibilityFieldLabel(finding.field, slide)}
+								{accessibilityFieldLabel(finding.field, slide, text)}
 								<ChevronRight size={12} aria-hidden="true" />
 							</button>
 						)}

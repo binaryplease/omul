@@ -13,12 +13,37 @@
 // and nothing here imports React, so the reading is testable without a DOM.
 //
 // A section is one surface's strings, and each belongs to one slice of REQ248
-// (`interface-text.test.ts`): once a slice is done, a key of its sections
-// without a German entry fails the test. A surface whose slice is not built
-// yet has no section and is still written in English in its component.
+// (`interface-text.test.ts`): a key of a done slice's sections without a
+// German entry fails the test.
 
 import { fillTemplate, type PluralForms } from "../i18n";
+import * as accessibility from "./accessibility";
+import * as account from "./account";
+import * as answerThemes from "./answer-themes";
 import * as appMenu from "./app-menu";
+import * as deckMerge from "./deck-merge";
+import * as deckSettings from "./deck-settings";
+import * as deckTheme from "./deck-theme";
+import * as dialogs from "./dialogs";
+import * as editor from "./editor";
+import * as generate from "./generate";
+import * as home from "./home";
+import * as join from "./join";
+import * as legalNotice from "./legal-notice";
+import * as liveRoom from "./live-room";
+import * as panels from "./panels";
+import * as presenterPage from "./presenter-page";
+import * as presentingView from "./presenting-view";
+import * as quizAnswerKey from "./quiz-answer-key";
+import * as share from "./share";
+import * as sharedResults from "./shared-results";
+import * as sharing from "./sharing";
+import * as slideCanvas from "./slide-canvas";
+import * as slideSettings from "./slide-settings";
+import * as slideView from "./slide-view";
+import * as templates from "./templates";
+import * as ui from "./ui";
+import * as workspaces from "./workspaces";
 
 /**
  * The interface languages, in the order the app menu offers them. Each is also
@@ -68,7 +93,33 @@ export function resolveInterfaceLanguage(
 }
 
 const SECTIONS = {
+	accessibility,
+	account,
+	answerThemes,
 	appMenu,
+	deckMerge,
+	deckSettings,
+	deckTheme,
+	dialogs,
+	editor,
+	generate,
+	home,
+	join,
+	legalNotice,
+	liveRoom,
+	panels,
+	presenterPage,
+	presentingView,
+	quizAnswerKey,
+	share,
+	sharedResults,
+	sharing,
+	slideCanvas,
+	slideSettings,
+	slideView,
+	templates,
+	ui,
+	workspaces,
 };
 
 export type InterfaceSection = keyof typeof SECTIONS;
@@ -117,6 +168,32 @@ export function interfaceTextFor(language: InterfaceLanguage): InterfaceText {
  * as the default argument of helpers that take a `text`.
  */
 export const ENGLISH_INTERFACE_TEXT = INTERFACE_TEXTS.en;
+
+/**
+ * `template` with each `{name}` replaced by its value — the deck's
+ * `fillTemplate`, under the name the interface surfaces call it by.
+ */
+export function fillText(
+	template: string,
+	values: Record<string, string | number>,
+): string {
+	return fillTemplate(template, values);
+}
+
+/**
+ * A text that changes with a count: the deck's `PluralForms`, one form per
+ * plural category English and German use (`one` and `other`). A language with
+ * more categories adds them when it joins.
+ */
+export type PluralText = PluralForms;
+
+/** A date, without its time, in the interface language's format. */
+export function formatDate(
+	language: InterfaceLanguage,
+	value: string | number | Date,
+): string {
+	return new Date(value).toLocaleDateString(language);
+}
 
 /** A number in the interface language's format: `1,200` in English, `1.200` in German. */
 export function formatNumber(language: InterfaceLanguage, value: number): string {

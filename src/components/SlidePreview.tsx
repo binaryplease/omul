@@ -1,4 +1,13 @@
 import { POLL_COLORS } from "../constants";
+import { type Dict, getDict, resolveLang } from "../i18n";
+import { useInterfaceText } from "../interface-language";
+import {
+	fillText,
+	formatNumber,
+	type InterfaceText,
+	interfaceTextFor,
+	resolveInterfaceLanguage,
+} from "../interface-text";
 import type { DeckThemeSettings, Slide } from "../types";
 import {
 	acceptedQuizAnswers,
@@ -18,13 +27,13 @@ import {
 import { ContentSlideView } from "./ContentSlideView";
 import { GridPlot } from "./GridPlot";
 import { GuessDistribution } from "./GuessDistribution";
-import {
-	LEADERBOARD_LABELS_EN,
-	Leaderboard,
-	readLeaderboard,
-} from "./Leaderboard";
+import { Leaderboard, leaderboardLabelsFor, readLeaderboard } from "./Leaderboard";
 import { PinCanvas } from "./PinImage";
-import { ResultsDisplay } from "./Results";
+import {
+	ResultsDisplay,
+	type ResultsWording,
+	resultLabelsFor,
+} from "./Results";
 import { sampleTallyFor, sampleTallyNote } from "./SampleTally";
 import { SlideAppearanceScope, slidePlacementClasses } from "./SlideAppearance";
 import { SlideBackground } from "./SlideBackground";
@@ -52,6 +61,13 @@ import { SlideTypeIcon } from "./SlideTypeIcon";
 // is the room's own renderer (`ResultsDisplay`) fed a stand-in tally — the
 // editor cannot promise a chart the projector will not draw, because it draws
 // through the projector's code.
+//
+// Who reads which words (REQ248) follows the presenter screen's split: what the
+// slide says to the room — the heading a board or a front door falls back to,
+// "type your answer", the multi-select line, the results' captions — is in the
+// deck's language (REQ084) and the frame carries its `lang`; the notes the
+// canvas adds for the author under its picture of a slide are in the interface
+// language and carry theirs.
 
 /** Which of the stage's two views is on screen (REQ152 question / REQ154 results). */
 export type SlideCanvasView = "question" | "results";
@@ -62,10 +78,24 @@ export type SlideCanvasView = "question" | "results";
  * other type shows in its place). One reading, so the question view and the
  * results view cannot title the same slide two ways.
  */
-function slidePreviewHeading(slide: Slide): string {
+function slidePreviewHeading(
+	slide: Slide,
+	room: Dict,
+	text: InterfaceText,
+): string {
 	return slide.type === "leaderboard"
-		? LEADERBOARD_LABELS_EN.title
-		: "Untitled question";
+		? room.leaderboardTitle
+		: text.slideCanvas.untitledQuestion;
+}
+
+/**
+ * The stand-in room's own words, in the deck's language where that is an
+ * interface language and in English where it is not — the same reading the
+ * slide image takes for its presenter line (`slideImageWording`).
+ */
+function sampleRoomText(roomLanguage: string): InterfaceText["slideCanvas"] {
+	return interfaceTextFor(resolveInterfaceLanguage("auto", [roomLanguage]))
+		.slideCanvas;
 }
 
 export function SlidePreview({
@@ -75,6 +105,7 @@ export function SlidePreview({
 	editing = null,
 	view = "question",
 	deckQuizCount = 0,
+	deckLanguage,
 }: {
 	slide: Slide;
 	index: number;
@@ -101,7 +132,23 @@ export function SlidePreview({
 	 * leaderboard's results need that its own slide does not carry.
 	 */
 	deckQuizCount?: number;
+	/** The deck's participant language (REQ084); absent reads English. */
+	deckLanguage?: string;
 }) {
+	const { text, language } = useInterfaceText();
+	const copy = text.slideCanvas;
+	const room = getDict(deckLanguage);
+	const roomLanguage = resolveLang(deckLanguage);
+	// The author's notes inside the frame say which language they are in when it
+	// is not the room's.
+	const noteLanguage = language === roomLanguage ? undefined : language;
+	const wording: ResultsWording = {
+		room,
+		presenter: text,
+		presenterLanguage: language,
+	};
+	const roomText = sampleRoomText(roomLanguage);
+	const number = (value: number) => formatNumber(language, value);
 	const isContent = isContentSlideType(slide.type);
 	// The slide's own placement (REQ087) — what an organizer is looking at while
 	// they author it has to be the layout the room will get.
@@ -109,7 +156,10 @@ export function SlidePreview({
 
 	return (
 		<SlideAppearanceScope deck={deck} slide={slide}>
-			<div className="rounded-xl border border-border bg-surface overflow-hidden">
+			<div
+				lang={roomLanguage}
+				className="rounded-xl border border-border bg-surface overflow-hidden"
+			>
 				{/* Mock slide display */}
 				<div
 					className={`relative bg-void p-6 min-h-[320px] flex flex-col justify-center ${placement.items} ${placement.text}`}
@@ -117,7 +167,12 @@ export function SlidePreview({
 					<SlideBackground slide={slide} />
 					<div className={`relative z-10 flex w-full flex-col justify-center ${placement.items}`}>
 						{view === "results" ? (
-							<SlideSampleResults slide={slide} deckQuizCount={deckQuizCount} />
+							<SlideSampleResults
+								slide={slide}
+								deckQuizCount={deckQuizCount}
+								wording={wording}
+								roomText={roomText}
+							/>
 						) : isContent ? (
 							<ContentSlideView
 								slide={slide}
@@ -125,10 +180,11 @@ export function SlidePreview({
 								joinCode="------"
 								joinUrl={`${window.location.origin}/join/------`}
 								editing={editing}
+								wording={wording}
 							/>
 						) : (
 							<>
-								<SlideTypeIcon type={slide.type} large />
+								<SlideTypeIcon type={slide.type} large labels={room.slideTypeNames} />
 								{/* The heading with its markup resolved and at the author's own
 								    step (REQ088/REQ089/REQ091), so what an organizer looks at
 								    while they type is what the room will read — and, on the
@@ -139,10 +195,13 @@ export function SlidePreview({
 								<SlideQuestion
 									slide={slide}
 									className="text-lg font-bold mt-3 mb-1 px-2 break-words w-full max-w-full"
-									fallback={slidePreviewHeading(slide)}
+									fallback={slidePreviewHeading(slide, room, text)}
 									editing={editing}
+									room={room}
 								/>
-								<p className="text-xs text-text-dim mb-4">Slide {index + 1}</p>
+								<p lang={noteLanguage} className="text-xs text-text-dim mb-4">
+									{fillText(copy.slideNumber, { number: number(index + 1) })}
+								</p>
 
 								{/* Optional media thumbnail — not on a pin slide, whose picture is
 								    the answer surface previewed below rather than an illustration
@@ -167,14 +226,12 @@ export function SlidePreview({
 										<PinCanvas
 											image={pinImageFor(slide)}
 											area={pinAreaFor(slide)}
-											areaLabel={pinAreaFor(slide) ? "Correct area" : undefined}
+											areaLabel={pinAreaFor(slide) ? copy.correctArea : undefined}
 											className="mx-auto max-w-[13rem]"
-											emptyLabel="Add an image for participants to pin on"
+											emptyLabel={copy.pinEmpty}
 										/>
-										<p className="text-center text-xs text-text-dim">
-											{pinAreaFor(slide)
-												? "Participants tap a spot · correct area marked"
-												: "Participants tap a spot"}
+										<p lang={noteLanguage} className="text-center text-xs text-text-dim">
+											{pinAreaFor(slide) ? copy.pinTapWithArea : copy.pinTap}
 										</p>
 									</div>
 								)}
@@ -191,12 +248,14 @@ export function SlidePreview({
 										return (
 											<div className="w-full space-y-2 px-2">
 												<div className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-left text-sm text-text-dim italic">
-													Type your answer...
+													{room.quizTypeAnswer}
 												</div>
-												<p className="text-xs text-text-dim">
+												<p lang={noteLanguage} className="text-xs text-text-dim">
 													{accepted.length === 0
-														? "No accepted answer yet"
-														: `Accepted: ${accepted.join(" · ")}`}
+														? copy.noAcceptedAnswer
+														: fillText(copy.acceptedAnswers, {
+																answers: accepted.join(" · "),
+															})}
 												</p>
 											</div>
 										);
@@ -208,40 +267,38 @@ export function SlidePreview({
 								    never be typed into a card the audience gets a different
 								    shape of (REQ153). */}
 								{isChoiceShapedSlide(slide) && (
-									<SlideOptionList slide={slide} editing={editing} />
+									<SlideOptionList slide={slide} editing={editing} room={room} />
 								)}
 
 								{/* Word cloud placeholder */}
 								{slide.type === "word-cloud" && (
 									<div className="flex flex-wrap items-center justify-center gap-2 px-2">
-										{["idea", "creativity", "teamwork", "innovation"].map(
-											(w, i) => (
-												<span
-													key={w}
-													className="rounded-full px-3 py-1 text-sm font-medium"
-													style={{
-														background: POLL_COLORS[i % POLL_COLORS.length],
-														opacity: 0.7 + (i % 3) * 0.1,
-														fontSize: `${0.75 + (i % 3) * 0.15}rem`,
-														color: "white",
-													}}
-												>
-													{w}
-												</span>
-											),
-										)}
+										{roomText.previewWords.map((word, wordIndex) => (
+											<span
+												key={word}
+												className="rounded-full px-3 py-1 text-sm font-medium"
+												style={{
+													background: POLL_COLORS[wordIndex % POLL_COLORS.length],
+													opacity: 0.7 + (wordIndex % 3) * 0.1,
+													fontSize: `${0.75 + (wordIndex % 3) * 0.15}rem`,
+													color: "white",
+												}}
+											>
+												{word}
+											</span>
+										))}
 									</div>
 								)}
 
 								{/* Open text placeholder */}
 								{slide.type === "open-text" && (
 									<div className="w-full space-y-2 px-2">
-										{["Great session!", "Very informative"].map((t) => (
+										{roomText.previewResponses.map((response) => (
 											<div
-												key={t}
+												key={response}
 												className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text-dim italic text-left"
 											>
-												{t}
+												{response}
 											</div>
 										))}
 									</div>
@@ -265,7 +322,7 @@ export function SlidePreview({
 														item.text ? "text-text" : "text-text-dim italic"
 													}
 												>
-													{item.text || `Item ${itemIndex + 1}`}
+													{item.text || fillText(copy.item, { number: itemIndex + 1 })}
 												</span>
 											</div>
 										))}
@@ -291,15 +348,17 @@ export function SlidePreview({
 															: "flex-1 text-text-dim italic"
 													}
 												>
-													{item.text || `Item ${itemIndex + 1}`}
+													{item.text || fillText(copy.item, { number: itemIndex + 1 })}
 												</span>
 												<span className="shrink-0 font-mono text-xs text-text-dim">
 													0
 												</span>
 											</div>
 										))}
-										<p className="text-center text-xs text-text-dim">
-											{POINTS_BUDGET} points to distribute
+										<p lang={noteLanguage} className="text-center text-xs text-text-dim">
+											{fillText(copy.pointsToDistribute, {
+												budget: number(POINTS_BUDGET),
+											})}
 										</p>
 									</div>
 								)}
@@ -326,11 +385,21 @@ export function SlidePreview({
 													}))}
 													correctRange={correctGuessRangeFor(reference)}
 													reference={reference ? reference.value : null}
+													roomDict={room}
 												/>
-												<p className="text-center text-xs text-text-dim">
-													{`${range.min}–${range.max}`}
-													{range.step > 1 ? ` in steps of ${range.step}` : ""}
-													{reference ? ` · correct answer ${reference.value}` : ""}
+												<p lang={noteLanguage} className="text-center text-xs text-text-dim">
+													{fillText(copy.guessRange, {
+														min: number(range.min),
+														max: number(range.max),
+													})}
+													{range.step > 1
+														? fillText(copy.guessSteps, { step: number(range.step) })
+														: ""}
+													{reference
+														? fillText(copy.guessCorrect, {
+																value: number(reference.value),
+															})
+														: ""}
 												</p>
 											</div>
 										);
@@ -352,7 +421,7 @@ export function SlidePreview({
 															field.label ? "text-text" : "text-text-dim italic"
 														}
 													>
-														{field.label || `Field ${fieldIndex + 1}`}
+														{field.label || fillText(copy.field, { number: fieldIndex + 1 })}
 													</span>
 													{field.required && (
 														<span className="ml-1 text-accent-text">*</span>
@@ -367,7 +436,8 @@ export function SlidePreview({
 																	option.text ? "text-text" : "text-text-dim italic"
 																}`}
 															>
-																{option.text || `Option ${optionIndex + 1}`}
+																{option.text ||
+																	fillText(copy.option, { number: optionIndex + 1 })}
 															</span>
 														))}
 													</div>
@@ -376,8 +446,8 @@ export function SlidePreview({
 												)}
 											</div>
 										))}
-										<p className="text-center text-xs text-text-dim">
-											Answers go to you only — the room sees how many replied.
+										<p lang={noteLanguage} className="text-center text-xs text-text-dim">
+											{text.slideSettings.formConsequence}
 										</p>
 									</div>
 								)}
@@ -388,9 +458,15 @@ export function SlidePreview({
 								    preview a competition that has not happened. */}
 								{slide.type === "leaderboard" && (
 									<div className="w-full space-y-2 px-2">
-										<Leaderboard board={readLeaderboard(null)} compact />
-										<p className="text-center text-xs text-text-dim">
-											{`Top ${leaderboardSizeFor(slide)} across the deck's quiz questions`}
+										<Leaderboard
+											board={readLeaderboard(null)}
+											compact
+											labels={leaderboardLabelsFor(room)}
+										/>
+										<p lang={noteLanguage} className="text-center text-xs text-text-dim">
+											{fillText(copy.leaderboardTop, {
+												count: number(leaderboardSizeFor(slide)),
+											})}
 										</p>
 									</div>
 								)}
@@ -425,7 +501,7 @@ export function SlidePreview({
 																	item.text ? "text-text" : "text-text-dim italic"
 																}
 															>
-																{item.text || `Item ${itemIndex + 1}`}
+																{item.text || fillText(copy.item, { number: itemIndex + 1 })}
 															</span>
 														</span>
 													))}
@@ -451,7 +527,7 @@ export function SlidePreview({
 														{statements.map((st) => (
 															<div key={st.id} className="space-y-0.5">
 																<p className="text-[10px] text-text-dim truncate text-left">
-																	{st.text || "(empty statement)"}
+																	{st.text || copy.emptyStatement}
 																</p>
 																<div className="h-1.5 rounded-full bg-surface-raised border border-border overflow-hidden">
 																	<div className="h-full rounded-full bg-accent/40 w-1/2" />
@@ -504,8 +580,8 @@ export function SlidePreview({
 				{/* Footer info */}
 				<div className="border-t border-border bg-surface/50 px-4 py-2 flex items-center justify-between">
 					<span className="text-xs text-text-dim font-mono">#{index + 1}</span>
-					<span className="text-xs text-text-muted capitalize">
-						{slide.type.replace("-", " ")}
+					<span lang={noteLanguage} className="text-xs text-text-muted">
+						{text.editor.slideTypeNames[slide.type]}
 					</span>
 				</div>
 			</div>
@@ -536,21 +612,36 @@ export function SlidePreview({
 function SlideSampleResults({
 	slide,
 	deckQuizCount,
+	wording,
+	roomText,
 }: {
 	slide: Slide;
 	deckQuizCount: number;
+	/** Who reads which words — the room's in the deck's language (REQ248). */
+	wording: ResultsWording;
+	/** The stand-in room's own words. */
+	roomText: InterfaceText["slideCanvas"];
 }) {
-	const tally = sampleTallyFor(slide, deckQuizCount);
+	const tally = sampleTallyFor(slide, deckQuizCount, roomText);
+	const { room, presenter, presenterLanguage } = wording;
 	return (
 		<div className="w-full space-y-4 px-2">
 			<SlideQuestion
 				slide={slide}
 				className="text-lg font-bold break-words w-full max-w-full"
-				fallback={slidePreviewHeading(slide)}
+				fallback={slidePreviewHeading(slide, room, presenter)}
 			/>
-			{tally && <ResultsDisplay slide={slide} results={tally} />}
-			<p className="text-center text-xs text-text-muted">
-				{sampleTallyNote(slide)}
+			{tally && (
+				<ResultsDisplay
+					slide={slide}
+					results={tally}
+					wording={wording}
+					labels={resultLabelsFor(room)}
+					answerFilterLabel={room.answersFiltered}
+				/>
+			)}
+			<p lang={presenterLanguage} className="text-center text-xs text-text-muted">
+				{sampleTallyNote(slide, presenter)}
 			</p>
 		</div>
 	);

@@ -1,6 +1,13 @@
 import { Check, Plus, X } from "lucide-react";
 import { useState } from "react";
 import { POLL_COLORS } from "../constants";
+import { type Dict, getDict } from "../i18n";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceText,
+} from "../interface-text";
 import type { Slide, SlideOption } from "../types";
 import {
 	isMultiSelect,
@@ -13,7 +20,6 @@ import {
 } from "../types";
 import { accessibilityFieldMarker } from "./AccessibilityFindings";
 import { REMOVE_BUTTON_HOVER } from "./EditorControls";
-import { LEADERBOARD_LABELS_EN } from "./Leaderboard";
 import {
 	SLIDE_TEXT_LEADING,
 	SLIDE_TEXT_SCALE,
@@ -100,7 +106,10 @@ export const MIN_CHOICE_OPTIONS = 2;
  * default, so the canvas's placeholder and the join screen agree on what an
  * unauthored front door says.
  */
-export const INSTRUCTION_FALLBACK_HEADING = "Join the presentation";
+export const INSTRUCTION_FALLBACK_HEADING = getDict("en").instructionHeading;
+
+/** The English the canvas fields read where no deck language is handed in. */
+const ENGLISH_ROOM = getDict("en");
 
 /**
  * What the slide's first authored string is called, per type — a heading on a
@@ -109,23 +118,27 @@ export const INSTRUCTION_FALLBACK_HEADING = "Join the presentation";
  * by anything else that has to name it, so the canvas and a screen reader do not
  * call the same box two things.
  */
-export function slideQuestionLabel(slide: Slide): string {
+export function slideQuestionLabel(
+	slide: Slide,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	const copy = text.slideCanvas;
 	if (
 		slide.type === "text" ||
 		slide.type === "instruction" ||
 		slide.type === "leaderboard" ||
 		slide.type === "countdown"
 	) {
-		return "Heading";
+		return copy.heading;
 	}
 	if (
 		slide.type === "image" ||
 		slide.type === "video" ||
 		slide.type === "embed"
 	) {
-		return "Caption";
+		return copy.caption;
 	}
-	return "Question";
+	return copy.question;
 }
 
 /**
@@ -146,21 +159,29 @@ export function slideQuestionLabel(slide: Slide): string {
  * a leaderboard's reads the title the room will see in its place. A placeholder
  * implying a rule that does not exist is a worse blank than no placeholder at
  * all.
+ *
+ * So the two room defaults are in the deck's language (`room`, REQ084) and the
+ * rest, which only the author reads, in the interface language (REQ248).
  */
-export function slideQuestionPlaceholder(slide: Slide): string {
-	if (slide.type === "instruction") return INSTRUCTION_FALLBACK_HEADING;
-	if (slide.type === "leaderboard") return LEADERBOARD_LABELS_EN.title;
+export function slideQuestionPlaceholder(
+	slide: Slide,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+	room: Dict = ENGLISH_ROOM,
+): string {
+	const copy = text.slideCanvas;
+	if (slide.type === "instruction") return room.instructionHeading;
+	if (slide.type === "leaderboard") return room.leaderboardTitle;
 	if (slide.type === "text" || slide.type === "countdown") {
-		return "Optional heading";
+		return copy.optionalHeading;
 	}
 	if (
 		slide.type === "image" ||
 		slide.type === "video" ||
 		slide.type === "embed"
 	) {
-		return "Optional caption";
+		return copy.optionalCaption;
 	}
-	return "Type your question…";
+	return copy.typeQuestion;
 }
 
 /**
@@ -189,10 +210,13 @@ export function singleLineQuestion(authored: string): string {
  * lives. A quiz scores it and rewards answering it quickly (REQ054);
  * a plain choice slide reveals it as the solution once results are shown.
  */
-export function correctOptionHint(slide: Slide): string {
+export function correctOptionHint(
+	slide: Slide,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
 	return slide.type === "quiz"
-		? "Participants who pick it score automatically, and the sooner they do the more it is worth."
-		: "The solution is revealed once results are shown.";
+		? text.slideCanvas.correctHintQuiz
+		: text.slideCanvas.correctHintChoice;
 }
 
 /**
@@ -219,7 +243,10 @@ export function isChoiceShapedSlide(slide: Slide): boolean {
  * travels with the answer so it can reach a tooltip *and* an accessible name,
  * rather than being a button that quietly is not there.
  */
-export function canvasOptionRemoval(optionCount: number): {
+export function canvasOptionRemoval(
+	optionCount: number,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): {
 	enabled: boolean;
 	reason: string;
 } {
@@ -227,7 +254,9 @@ export function canvasOptionRemoval(optionCount: number): {
 		? { enabled: true, reason: "" }
 		: {
 				enabled: false,
-				reason: `A choice slide needs at least ${MIN_CHOICE_OPTIONS} options`,
+				reason: fillText(text.slideCanvas.optionFloor, {
+					count: MIN_CHOICE_OPTIONS,
+				}),
 			};
 }
 
@@ -236,7 +265,10 @@ export function canvasOptionRemoval(optionCount: number): {
  * ceiling (REQ159) — the sentence saying why it may not. The store's
  * `addOption` holds the same ceiling; this is the reason the dead control gives.
  */
-export function canvasOptionAddition(optionCount: number): {
+export function canvasOptionAddition(
+	optionCount: number,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): {
 	enabled: boolean;
 	reason: string;
 } {
@@ -244,7 +276,9 @@ export function canvasOptionAddition(optionCount: number): {
 		? { enabled: true, reason: "" }
 		: {
 				enabled: false,
-				reason: `A choice slide can hold at most ${SLIDE_OPTION_LIMIT} options`,
+				reason: fillText(text.slideCanvas.optionCeiling, {
+					count: SLIDE_OPTION_LIMIT,
+				}),
 			};
 }
 
@@ -270,6 +304,7 @@ export function SlideQuestion({
 	className = "",
 	fallback = "",
 	editing = null,
+	room = ENGLISH_ROOM,
 }: {
 	slide: Slide;
 	/** The typographic slot the heading sits in on this surface. */
@@ -277,7 +312,13 @@ export function SlideQuestion({
 	/** What the room shows when the heading is unauthored, if anything. */
 	fallback?: string;
 	editing?: SlideCanvasEditing | null;
+	/**
+	 * The deck's dictionary (REQ084), for the placeholder of a heading whose
+	 * empty state the room really reads (an instruction slide, a leaderboard).
+	 */
+	room?: Dict;
 }) {
+	const { text: interfaceText } = useInterfaceText();
 	const text = slide.question ?? "";
 	const size = slideTextSizeFor(slide);
 	const scale = `${SLIDE_TEXT_SCALE[size]} ${SLIDE_TEXT_LEADING.inline}`;
@@ -286,8 +327,8 @@ export function SlideQuestion({
 	const [typing, setTyping] = useState(false);
 
 	if (editing) {
-		const label = slideQuestionLabel(slide).toLowerCase();
-		const placeholder = slideQuestionPlaceholder(slide);
+		const label = slideQuestionLabel(slide, interfaceText);
+		const placeholder = slideQuestionPlaceholder(slide, interfaceText, room);
 		// What the field shows is what the room will read, break for break — so a
 		// heading that arrived carrying one (a deck saved before this rule, a JSON
 		// import) is drawn the way every screen is about to draw it rather than the
@@ -348,7 +389,10 @@ export function SlideQuestion({
 						maxLength={SLIDE_TEXT_MAX_LENGTH}
 						value={authored}
 						placeholder={placeholder}
-						aria-label={`Slide ${label}`}
+						aria-label={fillText(interfaceText.slideCanvas.fieldName, {
+							label,
+							labelLower: label.toLowerCase(),
+						})}
 						// Where a finding about a missing heading goes (REQ132).
 						{...accessibilityFieldMarker({ scope: "slide", name: "question" })}
 						// Every TeX command is a misspelling, and the marks would be drawn
@@ -394,16 +438,21 @@ export function SlideQuestion({
 export function SlideOptionList({
 	slide,
 	editing = null,
+	room = ENGLISH_ROOM,
 }: {
 	slide: Slide;
 	editing?: SlideCanvasEditing | null;
+	/** The deck's dictionary (REQ084), for the line over the options the room reads. */
+	room?: Dict;
 }) {
+	const { text, language } = useInterfaceText();
+	const copy = text.slideCanvas;
 	const options = slide.options ?? [];
-	const removal = canvasOptionRemoval(options.length);
-	const addition = canvasOptionAddition(options.length);
+	const removal = canvasOptionRemoval(options.length, text);
+	const addition = canvasOptionAddition(options.length, text);
 	// What marking one correct will do (REQ013). Read once for the whole list: it
 	// is a property of the slide, and the tool it travels on is per row.
-	const correctHint = correctOptionHint(slide);
+	const correctHint = correctOptionHint(slide, text);
 
 	return (
 		<div className="w-full space-y-2 px-2">
@@ -412,8 +461,8 @@ export function SlideOptionList({
 			{isMultiSelect(slide) && (
 				<p className="text-[10px] uppercase tracking-wider text-text-muted">
 					{maxSelectionsFor(slide) === 0
-						? "Select all that apply"
-						: `Select up to ${maxSelectionsFor(slide)}`}
+						? room.selectAllThatApply
+						: fillText(room.selectUpTo, { max: maxSelectionsFor(slide) })}
 				</p>
 			)}
 			{options.map((option, optionIndex) => (
@@ -435,8 +484,8 @@ export function SlideOptionList({
 							className={`min-w-0 flex-1 border-0 bg-transparent px-1 py-0.5 text-left text-inherit [font:inherit] placeholder:text-text-muted placeholder:italic ${CANVAS_FIELD_SURFACE}`}
 							maxLength={SLIDE_ITEM_TEXT_MAX_LENGTH}
 							value={option.text}
-							placeholder={`Option ${optionIndex + 1}`}
-							aria-label={`Option ${optionIndex + 1}`}
+							placeholder={fillText(copy.option, { number: optionIndex + 1 })}
+							aria-label={fillText(copy.option, { number: optionIndex + 1 })}
 							onChange={(event) =>
 								editing.onUpdateOption(option.id, { text: event.target.value })
 							}
@@ -445,7 +494,7 @@ export function SlideOptionList({
 						<span
 							className={option.text ? "text-text" : "text-text-muted italic"}
 						>
-							{option.text || `Option ${optionIndex + 1}`}
+							{option.text || fillText(copy.option, { number: optionIndex + 1 })}
 						</span>
 					)}
 					{editing ? (
@@ -470,8 +519,11 @@ export function SlideOptionList({
 						/* REQ013 — a marked solution previews on choice slides too, not
 						   just quiz. */
 						option.isCorrect && (
-							<span className="ml-auto text-xs font-medium text-success">
-								Correct
+							<span
+								lang={language}
+								className="ml-auto text-xs font-medium text-success"
+							>
+								{copy.correct}
 							</span>
 						)
 					)}
@@ -480,13 +532,14 @@ export function SlideOptionList({
 			{editing && (
 				<button
 					type="button"
+					lang={language}
 					onClick={editing.onAddOption}
 					disabled={!addition.enabled}
 					title={addition.enabled ? undefined : addition.reason}
 					className="flex w-full items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-sm text-text-muted transition-colors hover:border-accent/60 hover:text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:text-text-muted"
 				>
 					<Plus size={14} className="flex-shrink-0" />
-					Add option
+					{copy.addOption}
 				</button>
 			)}
 		</div>
@@ -519,17 +572,21 @@ function CorrectOptionToggle({
 	hint: string;
 	onToggle: () => void;
 }) {
+	const { text, language } = useInterfaceText();
+	const copy = text.slideCanvas;
 	return (
 		<button
 			type="button"
+			lang={language}
 			aria-pressed={marked}
 			onClick={onToggle}
-			aria-label={
-				marked
-					? `Option ${position} is marked correct`
-					: `Mark option ${position} correct`
-			}
-			title={`${marked ? "Marked correct" : "Mark as correct answer"} — ${hint}`}
+			aria-label={fillText(marked ? copy.optionMarked : copy.markOption, {
+				number: position,
+			})}
+			title={fillText(copy.correctToolTitle, {
+				state: marked ? copy.markedCorrect : copy.markAsCorrect,
+				hint,
+			})}
 			className={`ml-auto inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
 				marked
 					? "border-success/40 bg-success-dim text-success"
@@ -537,7 +594,7 @@ function CorrectOptionToggle({
 			}`}
 		>
 			<Check size={13} />
-			{marked && "Correct"}
+			{marked && copy.correct}
 		</button>
 	);
 }
@@ -568,18 +625,25 @@ function RemoveOptionButton({
 	removal: { enabled: boolean; reason: string };
 	onRemove: () => void;
 }) {
+	const { text, language } = useInterfaceText();
+	const copy = text.slideCanvas;
+	const name = fillText(copy.removeOption, { number: position });
 	return (
 		<button
 			type="button"
+			lang={language}
 			onClick={() => {
 				if (removal.enabled) onRemove();
 			}}
 			aria-disabled={!removal.enabled}
-			title={removal.enabled ? `Remove option ${position}` : removal.reason}
+			title={removal.enabled ? name : removal.reason}
 			aria-label={
 				removal.enabled
-					? `Remove option ${position}`
-					: `Remove option ${position} — ${removal.reason}`
+					? name
+					: fillText(copy.removeOptionReason, {
+							number: position,
+							reason: removal.reason,
+						})
 			}
 			className={`flex-shrink-0 rounded-md p-1 ${REMOVE_BUTTON_HOVER} aria-disabled:cursor-not-allowed aria-disabled:text-text-dim aria-disabled:hover:text-text-dim focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${CANVAS_TOOL_REVEAL}`}
 		>

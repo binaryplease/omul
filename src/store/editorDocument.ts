@@ -420,11 +420,18 @@ export function newSlide(type: SlideType): Slide {
 	return slide;
 }
 
-/** A blank single-slide draft — the document a Create session starts from. */
-export function blankDocument(): EditorDocument {
+/**
+ * A blank single-slide draft — the document a Create session starts from, in
+ * `language` for the audience (REQ084): the editor hands it the interface
+ * language the deck is being made in (REQ248), and English is what a draft
+ * started anywhere else reads.
+ */
+export function blankDocument(
+	language: ParticipantLanguage = "en",
+): EditorDocument {
 	return {
 		title: "",
-		language: "en",
+		language,
 		mode: "live",
 		// REQ083 — one set of answers per device, the default the schema and the
 		// create endpoint hold.

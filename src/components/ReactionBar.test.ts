@@ -15,10 +15,12 @@
 
 import { describe, expect, test } from "bun:test";
 import { getDict } from "../i18n";
+import { ENGLISH_INTERFACE_TEXT, interfaceTextFor } from "../interface-text";
 import { REACTION_KINDS } from "../types";
 import {
 	REACTION_ICONS,
 	REACTION_LABELS_EN,
+	presenterReactionLabels,
 	reactionLabelsFor,
 } from "./ReactionBar";
 
@@ -88,5 +90,21 @@ describe("reactionLabelsFor (REQ084)", () => {
 	test("a translated row still names one control per reaction", () => {
 		const labels = reactionLabelsFor(getDict("fr"));
 		expect(Object.keys(labels.kinds).sort()).toEqual([...REACTION_KINDS].sort());
+	});
+});
+
+describe("presenterReactionLabels (REQ248)", () => {
+	test("in English it is the presenter's wording exactly as it was", () => {
+		expect(presenterReactionLabels(ENGLISH_INTERFACE_TEXT)).toEqual(
+			REACTION_LABELS_EN,
+		);
+	});
+
+	test("in German it names every reaction, each differently", () => {
+		const labels = presenterReactionLabels(interfaceTextFor("de"));
+		expect(labels.title).toBe("Reaktionen");
+		const names = REACTION_KINDS.map((kind) => labels.kinds[kind]);
+		expect(new Set(names).size).toBe(names.length);
+		expect(labels.unavailable).not.toBe(REACTION_LABELS_EN.unavailable);
 	});
 });

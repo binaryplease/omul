@@ -10,9 +10,16 @@ import { useEffect, useState } from "react";
 export function QRCodeDisplay({
 	url,
 	size = 200,
+	alt = `QR code to join at ${url}`,
 }: {
 	url: string;
 	size?: number;
+	/**
+	 * What the image is to a screen reader. The code is put up for the room, so
+	 * a caller on the shared screen passes the deck's words (REQ248,
+	 * `Dict.roomQrAlt`); English otherwise.
+	 */
+	alt?: string;
 }) {
 	const [dataUrl, setDataUrl] = useState<string | null>(null);
 
@@ -62,7 +69,7 @@ export function QRCodeDisplay({
 	return (
 		<img
 			src={dataUrl}
-			alt={`QR code to join at ${url}`}
+			alt={alt}
 			width={size}
 			height={size}
 			className="rounded-lg"

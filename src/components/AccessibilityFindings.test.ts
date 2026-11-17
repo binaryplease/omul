@@ -21,13 +21,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
 	ACCESSIBILITY_FIELD_ATTRIBUTE,
 	AccessibilityFindingsStrip,
+	accessibilityFieldLabel,
 	accessibilityFieldTarget,
 	accessibilityFindingDestination,
 	accessibilityFindingsBySlide,
+	accessibilityGoToFieldLabel,
 	revealAccessibilityField,
 } from "./AccessibilityFindings";
 import type { SlideAccessibilityFinding } from "./DeckAccessibility";
-import { deckAccessibilityFindings } from "./DeckAccessibility";
+import {
+	accessibilityFindingMessage,
+	deckAccessibilityFindings,
+} from "./DeckAccessibility";
+import { interfaceTextFor } from "../interface-text";
 import { SlideQuestion } from "./SlideCanvasFields";
 import { SlideEditor } from "./SlideEditor";
 import type { Slide } from "../types";
@@ -119,6 +125,67 @@ describe("the per-slide list", () => {
 		expect(markup).toContain("No accessibility risks found on this slide.");
 		expect(markup).toContain("None on other slides.");
 		expect(markup).not.toContain("<button");
+	});
+});
+
+describe("the findings in the interface language (REQ248)", () => {
+	const german = interfaceTextFor("de");
+	const findings = deckAccessibilityFindings(null, [UNREADABLE, UNDESCRIBED]);
+
+	test("the slides cover every risk the check can report", () => {
+		expect(new Set(findings.map((finding) => finding.risk))).toEqual(
+			new Set(["low-contrast", "small-text", "missing-alt", "missing-heading"]),
+		);
+	});
+
+	test("rebuilt in English, every finding reads exactly its stored message", () => {
+		for (const finding of findings) {
+			expect(accessibilityFindingMessage(finding)).toBe(finding.message);
+			expect(
+				accessibilityFindingMessage(finding, interfaceTextFor("en"), "en"),
+			).toBe(finding.message);
+		}
+	});
+
+	test("a contrast finding states its numbers the way it always has", () => {
+		const finding = {
+			risk: "low-contrast" as const,
+			contrast: { ratio: 2.1, required: 3, schemes: ["light" as const] },
+			message: "",
+		};
+		expect(accessibilityFindingMessage(finding)).toBe(
+			"The words on this slide reach 2.10:1 against what is behind them in light mode; large text needs 3:1.",
+		);
+		expect(accessibilityFindingMessage(finding, german, "de")).toBe(
+			"Die Schrift auf dieser Folie erreicht im hellen Modus 2,10:1 gegenüber ihrem Hintergrund; großer Text braucht 3:1.",
+		);
+	});
+
+	test("in German every finding is German, with German numbers", () => {
+		for (const finding of findings) {
+			const message = accessibilityFindingMessage(finding, german, "de");
+			expect(message).not.toBe(finding.message);
+			for (const english of ["slide", " mode", "needs", "screen reader", "This "]) {
+				expect(message).not.toContain(english);
+			}
+		}
+		const contrast = findings.find((finding) => finding.risk === "low-contrast");
+		const message = accessibilityFindingMessage(
+			contrast as SlideAccessibilityFinding,
+			german,
+			"de",
+		);
+		expect(message).toContain("normaler Text braucht 4,5:1");
+		expect(message).toMatch(/\d,\d\d:1/);
+	});
+
+	test("the control that goes to a field keeps a German noun capitalised", () => {
+		const field = { scope: "slide", name: "textColor" } as const;
+		expect(accessibilityGoToFieldLabel(field, UNREADABLE)).toBe("Go to text colour");
+		expect(accessibilityFieldLabel(field, UNREADABLE, german)).toBe("Textfarbe");
+		expect(accessibilityGoToFieldLabel(field, UNREADABLE, german)).toBe(
+			"Zum Feld „Textfarbe“",
+		);
 	});
 });
 

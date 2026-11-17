@@ -3,7 +3,13 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { countPhrase, fillTemplate, getDict, resolveLang } from "./i18n";
+import {
+	countPhrase,
+	fillTemplate,
+	getDict,
+	type PluralForms,
+	resolveLang,
+} from "./i18n";
 import { participantLanguageFor } from "./types";
 
 describe("getDict", () => {
@@ -109,13 +115,15 @@ describe("counted phrases (REQ225)", () => {
 	test("every counted phrase has both forms in every language, each carrying the count", () => {
 		for (const language of LANGUAGES) {
 			for (const [key, value] of Object.entries(getDict(language))) {
-				if (typeof value !== "object") continue;
-				expect(Object.keys(value).sort(), `${language}.${key}`).toEqual([
+				// The slide types' names (REQ248) are a table by type, not a phrase.
+				if (typeof value !== "object" || key === "slideTypeNames") continue;
+				const forms = value as Partial<PluralForms>;
+				expect(Object.keys(forms).sort(), `${language}.${key}`).toEqual([
 					"one",
 					"other",
 				]);
-				expect(value.one, `${language}.${key}.one`).toBeTruthy();
-				expect(value.other, `${language}.${key}.other`).toBeTruthy();
+				expect(forms.one, `${language}.${key}.one`).toBeTruthy();
+				expect(forms.other, `${language}.${key}.other`).toBeTruthy();
 			}
 		}
 	});

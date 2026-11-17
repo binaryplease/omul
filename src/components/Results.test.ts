@@ -20,15 +20,24 @@
 import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { Slide, SlideType } from "../types";
+import { getDict } from "../i18n";
+import { ENGLISH_INTERFACE_TEXT, interfaceTextFor } from "../interface-text";
+import type { Presentation, Slide, SlideType } from "../types";
 import { SLIDE_TYPE_LABELS } from "../types";
 import {
 	ANSWER_FILTER_LABEL_EN,
 	ANSWER_MODERATION_DENIED,
 	answerFilterReportOf,
 	answerModerationFor,
+	describeResponses,
+	ENGLISH_RESULTS_WORDING,
+	MC_VALUE_DISPLAY_OPTIONS,
+	mcValueDisplayOptions,
 	ResultsDisplay,
+	type ResultsWording,
+	resultLabelsFor,
 } from "./Results";
+import { PresenterSlideView } from "./PresenterSlideView";
 
 /** The two types an answer is *text somebody wrote* on. */
 const DELETABLE: SlideType[] = ["word-cloud", "open-text"];
@@ -261,6 +270,168 @@ describe("the filter's line under a tally (REQ085)", () => {
 		// Loading the page puts none of them on screen: they are drawn once opened.
 		expect(markup).not.toContain("first-withheld-word");
 		expect(markup).not.toContain("second-withheld-word");
+	});
+
+	// Review (REQ248 batch, finding 2): the owner opening /results under a
+	// German interface met "Show", the owner-only sentence and "Filtered" in
+	// English. Those words are the deck holder's, so they follow the wording's
+	// presenter text, which /results and the shared screen hand in.
+	test("the words only the deck holder reads follow the interface language", () => {
+		const german = interfaceTextFor("de");
+		const markup = renderToStaticMarkup(
+			createElement(ResultsDisplay, {
+				slide: cloudSlide,
+				results: cloudPayload({
+					filteredAnswers: [
+						{ id: "v1", text: "withheld", createdAt: "2026-10-21T00:00:00Z" },
+					],
+				}),
+				wording: { room: getDict("en"), presenter: german, presenterLanguage: "de" },
+			}),
+		);
+		expect(markup).toContain(`${ANSWER_FILTER_LABEL_EN}: 2`);
+		expect(markup).toMatch(/lang="de"[^>]*>Anzeigen/);
+		expect(markup).not.toContain(">Show<");
+		expect(german.slideView.answerFilterBadge).toBe("Gefiltert");
+		expect(german.slideView.answerFilterOwnerOnly).not.toBe(
+			ENGLISH_INTERFACE_TEXT.slideView.answerFilterOwnerOnly,
+		);
+	});
+});
+
+// ── Who reads a result's words (REQ248) ───────────────────────
+//
+// On the shared screen — the presenter's screen, which is also the projector —
+// a result's captions are the room's, in the deck's language, and the few words
+// meant for the presenter are in the interface language. Every other surface
+// keeps the English it drew before, a participant's phone above all.
+
+describe("a result's words follow who reads them (REQ248)", () => {
+	const germanDeck: ResultsWording = {
+		room: getDict("de"),
+		presenter: ENGLISH_INTERFACE_TEXT,
+		presenterLanguage: "en",
+	};
+	const emptyCloud = cloudPayload({ words: [], filteredCount: null });
+
+	test("the English default is the line every other surface already drew", () => {
+		expect(ENGLISH_RESULTS_WORDING.room.waitingForResponses).toBe(
+			"Waiting for responses...",
+		);
+		expect(rendered(cloudSlide, emptyCloud)).toContain("Waiting for responses...");
+	});
+
+	test("the shared screen draws the room's caption in the deck's language", () => {
+		const markup = renderToStaticMarkup(
+			createElement(ResultsDisplay, {
+				slide: cloudSlide,
+				results: emptyCloud,
+				wording: germanDeck,
+			}),
+		);
+		expect(markup).toContain(getDict("de").waitingForResponses);
+		expect(markup).not.toContain("Waiting for responses");
+	});
+
+	test("the response count reads in the deck's words, and English by default", () => {
+		const tally = { totalVotes: 3 };
+		expect(describeResponses(cloudSlide, tally)).toBe("3 responses");
+		expect(describeResponses(cloudSlide, { totalVotes: 1 })).toBe("1 response");
+		expect(
+			describeResponses(cloudSlide, tally, resultLabelsFor(getDict("de"))),
+		).toBe("3 Antworten");
+	});
+
+	test("the presenter's own words follow the interface language", () => {
+		const german = interfaceTextFor("de");
+		expect(
+			answerModerationFor(
+				{ slideType: "word-cloud", canControl: false, onDelete: () => {} },
+				german,
+			)?.disabledReason,
+		).toBe(german.slideView.answerDeleteDenied);
+		expect(mcValueDisplayOptions(german).map((option) => option.label)).toEqual([
+			"Anzahl",
+			"Prozent",
+			"Beides",
+		]);
+		// The constant other surfaces read stays the English list.
+		expect(MC_VALUE_DISPLAY_OPTIONS.map((option) => option.label)).toEqual([
+			"Count",
+			"Percent",
+			"Both",
+		]);
+	});
+});
+
+describe("the shared screen's slide speaks to the room in the deck's language (REQ248)", () => {
+	const questionSlide = {
+		id: "mc",
+		type: "multiple-choice",
+		question: "Lunch?",
+		options: [],
+	} as unknown as Slide;
+
+	function sharedScreen(changes: Record<string, unknown>): string {
+		const pres = {
+			id: "deck-1",
+			code: "123456",
+			title: "Workshop",
+			status: "live",
+			language: "de",
+			resultsVisibility: "instant",
+			revealedSlideIds: [],
+			closedSlideIds: [],
+			slides: [questionSlide],
+			...changes,
+		} as unknown as Presentation;
+		return renderToStaticMarkup(
+			createElement(PresenterSlideView, {
+				slide: questionSlide,
+				pres,
+				results: null,
+				serverClockOffsetMs: 0,
+				controls: {
+					canControl: true,
+					onReveal: () => {},
+					onRestartTimer: null,
+					onSetParticipation: null,
+					onSetCountdown: null,
+					onDeleteAnswer: null,
+					audioCue: null,
+				},
+				joinUrl: "https://omul.test/join/123456",
+			}),
+		);
+	}
+
+	test("a German deck's waiting line is German, marked as German", () => {
+		const markup = sharedScreen({});
+		expect(markup).toContain(`lang="de"`);
+		expect(markup).toContain(getDict("de").waitingForResponses);
+		expect(markup).not.toContain("Waiting for responses");
+	});
+
+	test("what the room may not see is said in the room's words alone", () => {
+		// REQ225: the projector carries no presenter-only line under a private
+		// tally, so the room's sentence is all there is, marked with its language.
+		const markup = sharedScreen({ resultsVisibility: "private" });
+		expect(markup).toContain(
+			`<div lang="de" class="text-center text-text-dim py-16">${getDict("de").resultsPrivate}</div>`,
+		);
+		expect(markup).not.toContain("not shown on the shared screen");
+	});
+
+	test("an English deck reads exactly as the shared screen always did", () => {
+		const markup = sharedScreen({ language: "en", resultsVisibility: "private" });
+		expect(markup).toContain("Results are private");
+	});
+
+	test("before the deck is live, the presenter is told in the interface language", () => {
+		const markup = sharedScreen({ status: "draft" });
+		// No provider here, so the interface is English.
+		expect(markup).toContain(ENGLISH_INTERFACE_TEXT.slideView.startToCollect);
+		expect(markup).not.toContain(getDict("de").waitingForResponses);
 	});
 });
 

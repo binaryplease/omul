@@ -1,4 +1,9 @@
 import { isChoiceShapedSlide } from "./components/SlideCanvasFields";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceText,
+} from "./interface-text";
 import type { Slide } from "./types";
 import {
 	gridAxesFor,
@@ -26,6 +31,10 @@ import {
 // is warned about on the slide, in the slide list and at go-live instead — see
 // `quizHasAnswerKey`. And the write caps are `slideWriteRefusalFor`'s, checked
 // after these against the schema the boundary parses with.
+//
+// The words are the author's, so they are the interface language's (REQ248,
+// `editor` in `src/interface-text/`); the English default is what every caller
+// without a provider reads.
 
 /** A slide the editor refuses to save, and why — in the editor's own words. */
 export type SlideSaveRefusal = { slideIndex: number; message: string };
@@ -41,26 +50,36 @@ export type SlideSaveRefusal = { slideIndex: number; message: string };
  */
 export function slideSaveRefusalFor(
 	slides: readonly Slide[],
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
 ): SlideSaveRefusal | null {
 	for (const [slideIndex, slide] of slides.entries()) {
-		const reason = slideRefusalReason(slide);
+		const reason = slideRefusalReason(slide, text.editor);
 		if (reason) {
-			return { slideIndex, message: `Slide ${slideIndex + 1}: ${reason}` };
+			return {
+				slideIndex,
+				message: fillText(text.editor.saveRefusalOnSlide, {
+					number: slideIndex + 1,
+					reason,
+				}),
+			};
 		}
 	}
 	return null;
 }
 
 /** Why one slide cannot be saved, or `null` when it can. */
-function slideRefusalReason(slide: Slide): string | null {
+function slideRefusalReason(
+	slide: Slide,
+	words: InterfaceText["editor"],
+): string | null {
 	// Only a slide that collects answers needs a question (REQ220): a content
 	// slide shows something, and a leaderboard's empty heading is drawn as the
 	// board's own title on every surface.
 	if (slideRequiresQuestion(slide.type) && !slide.question.trim()) {
-		return "Slides that collect answers need a question";
+		return words.questionRequired;
 	}
 	if (slide.type === "image" && !slide.mediaUrl?.trim()) {
-		return "Image slides need an image URL";
+		return words.imageUrlRequired;
 	}
 	// REQ064 — a video slide is the video, so a deck cannot ship one that
 	// points at nothing, and it is refused here rather than discovered as a
@@ -68,20 +87,20 @@ function slideRefusalReason(slide: Slide): string | null {
 	// resolver is what the three rendering surfaces ask, so a URL it will not
 	// play is a slide that will not play.
 	if (slide.type === "video" && !slide.mediaUrl?.trim()) {
-		return "Video slides need a video URL";
+		return words.videoUrlRequired;
 	}
 	if (slide.type === "video" && !slideVideoFor(slide)) {
-		return "That video link can't be played — use an http(s) address";
+		return words.videoUnplayable;
 	}
 	// REQ066/REQ067/REQ068 — an embed slide is the external deck or board, so
 	// the same rule applies for the same reason, against the same resolver
 	// the three rendering surfaces ask. A link outside the three providers is
 	// refused here rather than framed on a guess later.
 	if (slide.type === "embed" && !slide.mediaUrl?.trim()) {
-		return "Embed slides need a deck or board URL";
+		return words.embedUrlRequired;
 	}
 	if (slide.type === "embed" && !slideEmbedFor(slide)) {
-		return "That link can't be embedded — use an https Google Slides, PowerPoint or Miro address";
+		return words.embedUnusable;
 	}
 	// Only the option rows the author can see (REQ220): a quiz answered by
 	// typing keeps the options it was created with but never shows them, so a
@@ -90,7 +109,7 @@ function slideRefusalReason(slide: Slide): string | null {
 		isChoiceShapedSlide(slide) &&
 		slide.options?.some((option) => !option.text.trim())
 	) {
-		return "All options need text";
+		return words.optionTextRequired;
 	}
 	// REQ034: a nameless item is unrankable — participants would be
 	// ordering a blank row against the ones they can read.
@@ -98,7 +117,7 @@ function slideRefusalReason(slide: Slide): string | null {
 		slide.type === "ranking" &&
 		slide.rankingItems?.some((item) => !item.text.trim())
 	) {
-		return "All ranking items need text";
+		return words.rankingItemTextRequired;
 	}
 	// REQ045: a nameless item cannot be funded — participants would be
 	// weighing a blank row against the ones they can read. Two items is
@@ -106,10 +125,10 @@ function slideRefusalReason(slide: Slide): string | null {
 	// there is no trade-off to force (REQ044).
 	if (slide.type === "points") {
 		if ((slide.pointsItems?.length ?? 0) < 2) {
-			return "100 Points slides need at least two items";
+			return words.pointsItemsTooFew;
 		}
 		if (slide.pointsItems?.some((item) => !item.text.trim())) {
-			return "All 100 Points items need text";
+			return words.pointsItemTextRequired;
 		}
 	}
 	// REQ040/REQ043 — the frame is what makes an estimate an estimate, so
@@ -118,10 +137,10 @@ function slideRefusalReason(slide: Slide): string | null {
 	if (slide.type === "guess-number") {
 		const range = guessRangeFor(slide);
 		if (range.max <= range.min) {
-			return "A Guess the Number slide needs a highest value above its lowest";
+			return words.guessRangeInverted;
 		}
 		if (range.step < 1 || range.step > range.max - range.min) {
-			return "The step must be at least 1 and no wider than the range";
+			return words.guessStepInvalid;
 		}
 		// REQ041/REQ042 — a reference no selectable value can reach claims a
 		// correct answer while scoring every participant wrong forever, which
@@ -130,7 +149,7 @@ function slideRefusalReason(slide: Slide): string | null {
 		// in tens is a fine question at ±10); what must hold is that the
 		// tolerance window contains at least one value the slide offers.
 		if (!isReachableGuessReference(range, guessReferenceFor(slide))) {
-			return "The correct answer is out of reach — no selectable value falls inside its tolerance";
+			return words.guessReferenceUnreachable;
 		}
 	}
 	// REQ061 — a form with no answerable field asks nothing: the vote
@@ -142,10 +161,10 @@ function slideRefusalReason(slide: Slide): string | null {
 	if (slide.type === "form") {
 		const fields = slide.formFields ?? [];
 		if (fields.length === 0) {
-			return "Form slides need at least one field";
+			return words.formFieldRequired;
 		}
 		if (fields.some((field) => !(field.label ?? "").trim())) {
-			return "All form fields need a label";
+			return words.formFieldLabelRequired;
 		}
 		// A choice field with nothing to choose between is the one way a
 		// labelled field can still be unanswerable.
@@ -156,7 +175,7 @@ function slideRefusalReason(slide: Slide): string | null {
 					!(field.options ?? []).some((option) => option.text.trim()),
 			)
 		) {
-			return "Choice fields need at least one option with text";
+			return words.choiceFieldOptionRequired;
 		}
 	}
 	// REQ052 — the image *is* the question here: without it there is no
@@ -165,7 +184,7 @@ function slideRefusalReason(slide: Slide): string | null {
 	// rather than left to be discovered on the projector.
 	if (slide.type === "pin-image") {
 		if (!pinImageFor(slide).url) {
-			return "Pin on Image slides need an image URL";
+			return words.pinImageRequired;
 		}
 		// REQ053 — an area part of which nobody can reach makes "how many were
 		// inside?" a number about the picture rather than about the room, so a
@@ -173,7 +192,7 @@ function slideRefusalReason(slide: Slide): string | null {
 		// guess reference is. A slide with no area at all is fine: it simply
 		// claims no correct answer.
 		if (slide.pinArea && !pinAreaFor(slide)) {
-			return "The correct area runs off the image — keep it inside the picture";
+			return words.pinAreaOffImage;
 		}
 	}
 	if (slide.type === "grid") {
@@ -182,17 +201,17 @@ function slideRefusalReason(slide: Slide): string | null {
 			!slide.gridItems?.length ||
 			slide.gridItems.some((item) => !item.text.trim())
 		) {
-			return "All grid items need text";
+			return words.gridItemTextRequired;
 		}
 		// REQ048 — an unnamed axis leaves "left vs right" to guesswork,
 		// which is exactly the misreading axis titles exist to prevent.
 		const { xAxis, yAxis } = gridAxesFor(slide);
 		if (!xAxis.title.trim() || !yAxis.title.trim()) {
-			return "Both grid axes need a title";
+			return words.gridAxisTitleRequired;
 		}
 		// REQ049 — endpoints must describe a range to place items along.
 		if (xAxis.min >= xAxis.max || yAxis.min >= yAxis.max) {
-			return "Each grid axis needs a low value below its high value";
+			return words.gridAxisRangeInverted;
 		}
 	}
 	return null;

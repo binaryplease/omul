@@ -1,3 +1,6 @@
+import { useInterfaceText } from "../interface-language";
+import { ENGLISH_INTERFACE_TEXT } from "../interface-text";
+import type { SlideSettingsGroupTitle } from "../interface-text/slide-settings";
 import { SLIDE_TYPE_LABELS, type SlideType } from "../types";
 import { SlideTypeIcon } from "./SlideTypeIcon";
 
@@ -18,27 +21,12 @@ import { SlideTypeIcon } from "./SlideTypeIcon";
 // printed page.
 export { SLIDE_TYPE_LABELS };
 
-/** One-line descriptions so the picker explains each type, not just names it. */
-export const SLIDE_TYPE_HINTS: Record<SlideType, string> = {
-	"multiple-choice": "Vote on preset options",
-	"word-cloud": "Crowd words into a live cloud",
-	"open-text": "Collect open responses & questions",
-	scale: "Rate statements on a numeric scale",
-	ranking: "Put options in order of priority",
-	grid: "Place items along two dimensions",
-	points: "Split 100 points across the options",
-	"guess-number": "Estimate a number within a range",
-	"pin-image": "Mark a spot on your image",
-	quiz: "Scored question against the clock",
-	form: "Collect several answers in one submission",
-	leaderboard: "Top scores across the deck's quiz questions",
-	text: "A heading with body copy",
-	image: "Show an image with a caption",
-	video: "Play a video from a link",
-	embed: "Frame a PowerPoint, Google Slides or Miro link",
-	instruction: "Join code & QR for the audience",
-	countdown: "A clock counting down a set length",
-};
+/**
+ * One-line descriptions so the picker explains each type, not just names it —
+ * in English here; the picker reads them in the interface language (REQ248).
+ */
+export const SLIDE_TYPE_HINTS: Record<SlideType, string> =
+	ENGLISH_INTERFACE_TEXT.editor.slideTypeHints;
 
 /**
  * Which groups of the settings column a slide type owns, and what each is
@@ -53,7 +41,9 @@ export const SLIDE_TYPE_HINTS: Record<SlideType, string> = {
  * The column composes it; nothing else re-derives it. A `null` is a group this
  * type does not own, and a string is both "it owns it" and the heading it wears
  * — a name is part of what a group *is*, and two declarations would let the two
- * disagree.
+ * disagree. The heading is the English one; the column reads it in the
+ * interface language through `slideSettings.groupTitles` (REQ248), whose keys
+ * are exactly these, so a heading with no translation does not type-check.
  *
  * The order the column draws them in is REQ155's authoring flow — type →
  * content → answers → scoring → results → style — with **content** the one
@@ -69,13 +59,13 @@ export const SLIDE_TYPE_HINTS: Record<SlideType, string> = {
  */
 export type SlideSettingsSections = {
 	/** What this slide shows besides its canvas-authored words. */
-	content: string | null;
+	content: SlideSettingsGroupTitle | null;
 	/** The rules and shapes its answers follow. */
-	answers: string | null;
+	answers: SlideSettingsGroupTitle | null;
 	/** How it is scored and timed (REQ054/REQ057) — a quiz, and nothing else. */
-	scoring: string | null;
+	scoring: SlideSettingsGroupTitle | null;
 	/** When its aggregate is shown, and how it is drawn (REQ102/REQ010/REQ011). */
-	results: string | null;
+	results: SlideSettingsGroupTitle | null;
 	/**
 	 * Whether this type's answer shape is a structured field set that may run
 	 * past the column's height (REQ155). Where it does, the group scrolls inside
@@ -251,10 +241,12 @@ export function SlideTypeMenu({
 	withHints?: boolean;
 	className?: string;
 }) {
+	const { text } = useInterfaceText();
+	const { slideTypeNames, slideTypeHints } = text.editor;
 	return (
 		<div className={`grid gap-1 ${className}`}>
-			{(Object.entries(SLIDE_TYPE_LABELS) as [SlideType, string][]).map(
-				([type, label]) => (
+			{(Object.keys(SLIDE_TYPE_LABELS) as SlideType[]).map(
+				(type) => (
 					<button
 						key={type}
 						type="button"
@@ -265,15 +257,15 @@ export function SlideTypeMenu({
 						)}`}
 					>
 						<span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-surface-raised border border-border-subtle">
-							<SlideTypeIcon type={type} />
+							<SlideTypeIcon type={type} labels={text.slideView.slideTypes} />
 						</span>
 						<span className="min-w-0">
 							<span className="block text-sm font-medium leading-tight text-text">
-								{label}
+								{slideTypeNames[type]}
 							</span>
 							{withHints && (
 								<span className="mt-0.5 block text-xs leading-tight text-text-muted">
-									{SLIDE_TYPE_HINTS[type]}
+									{slideTypeHints[type]}
 								</span>
 							)}
 						</span>

@@ -9,6 +9,14 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceLanguage,
+	type InterfaceText,
+	pluralText,
+} from "../interface-text";
 import {
 	ANSWER_THEME_NAME_MAX_LENGTH,
 	ANSWER_THEMES_PER_SLIDE_MAX,
@@ -40,16 +48,23 @@ import { ConfirmModal } from "./ui/ConfirmModal";
 // could not tell whether the feature worked. So the strip states its scope on
 // its one closed line, and the open panel opens with what themes are for and
 // where they do not appear — in every state, a failed read included.
+//
+// Its words are the interface language's (REQ248, `answerThemes` in
+// `src/interface-text/`); each pure helper below takes them, English by default.
+
+/** The surface's words, in one language. */
+type AnswerThemeWords = InterfaceText["answerThemes"];
+
+const ENGLISH_WORDS = ENGLISH_INTERFACE_TEXT.answerThemes;
 
 /** The strip's closed line: who sees themes, and that the room does not. */
-export const ANSWER_THEMES_SCOPE = "Editors only, not shown live";
+export const ANSWER_THEMES_SCOPE = ENGLISH_WORDS.scope;
 
 /**
  * What themes are for, at the top of the open panel: sorted by hand, read
  * here, and drawn on none of the surfaces a live deck is watched on.
  */
-export const ANSWER_THEMES_PURPOSE =
-	"Sort this slide's answers into themes by hand, for your own analysis here in the editor. Themes are never shown live: the presenter screen, the shared screen, participants' phones and the results link show the answers without them.";
+export const ANSWER_THEMES_PURPOSE = ENGLISH_WORDS.purpose;
 
 /** One individual answer, as the grouping surface lists it. */
 export type GroupableAnswer = { id: string; text: string };
@@ -136,21 +151,26 @@ export function themeIdOfAnswer(
  * server re-decides both bounds; this only keeps the button from offering a
  * write it would refuse.
  */
-export function answerThemeCreation({
-	name,
-	themeCount,
-}: {
-	name: string;
-	themeCount: number;
-}): { enabled: boolean; reason: string } {
+export function answerThemeCreation(
+	{
+		name,
+		themeCount,
+	}: {
+		name: string;
+		themeCount: number;
+	},
+	words: AnswerThemeWords = ENGLISH_WORDS,
+): { enabled: boolean; reason: string } {
 	if (themeCount >= ANSWER_THEMES_PER_SLIDE_MAX) {
 		return {
 			enabled: false,
-			reason: `A slide holds at most ${ANSWER_THEMES_PER_SLIDE_MAX} themes. Delete one to add another.`,
+			reason: fillText(words.tooManyThemes, {
+				limit: ANSWER_THEMES_PER_SLIDE_MAX,
+			}),
 		};
 	}
 	if (name.trim() === "") {
-		return { enabled: false, reason: "Name the theme to add it." };
+		return { enabled: false, reason: words.nameFirst };
 	}
 	return { enabled: true, reason: "" };
 }
@@ -160,16 +180,23 @@ export function answerThemeCreation({
  * deck — one added since the last save — which has no answers to group yet; any
  * other refusal is the server's own sentence.
  */
-export function answerThemesLoadFailure(loadError: unknown): string {
+export function answerThemesLoadFailure(
+	loadError: unknown,
+	words: AnswerThemeWords = ENGLISH_WORDS,
+): string {
 	if (loadError instanceof ApiError && loadError.status === 404) {
-		return "This slide is not saved yet, so nobody can have answered it. Save the deck to group its answers.";
+		return words.notSaved;
 	}
-	return loadError instanceof Error ? loadError.message : "Unknown error";
+	return loadError instanceof Error ? loadError.message : words.unknownError;
 }
 
 /** How many answers a group line names, singular or plural. */
-export function answerCountLabel(count: number): string {
-	return count === 1 ? "1 answer" : `${count} answers`;
+export function answerCountLabel(
+	count: number,
+	language: InterfaceLanguage = "en",
+	words: AnswerThemeWords = ENGLISH_WORDS,
+): string {
+	return pluralText(language, count, words.answerCount);
 }
 
 /**
@@ -183,6 +210,7 @@ export function useAnswerThemes(
 	presentationId: string,
 	slideId: string,
 	slideType: SlideType,
+	words: AnswerThemeWords = ENGLISH_WORDS,
 ): {
 	answers: GroupableAnswer[];
 	themes: AnswerTheme[];
@@ -214,11 +242,11 @@ export function useAnswerThemes(
 			// would be a grouping this reader can no longer read.
 			setAnswers([]);
 			setThemes([]);
-			setError(answerThemesLoadFailure(loadError));
+			setError(answerThemesLoadFailure(loadError, words));
 		} finally {
 			if (read === latestRead.current) setLoading(false);
 		}
-	}, [presentationId, slideId, slideType]);
+	}, [presentationId, slideId, slideType, words]);
 
 	useEffect(() => {
 		load();
@@ -243,6 +271,7 @@ function AnswerThemeRow({
 	busy: boolean;
 	onAssign: (answerId: string, themeId: string | null) => void;
 }) {
+	const words = useInterfaceText().text.answerThemes;
 	return (
 		<li className="flex items-center gap-3 rounded-lg border border-border bg-surface-raised px-3 py-1.5 text-sm">
 			{/* The answer as it was written, rendered as text. */}
@@ -253,10 +282,10 @@ function AnswerThemeRow({
 					className="input text-xs"
 					value={themeIdOfAnswer(themes, answer.id) ?? ""}
 					disabled={busy}
-					aria-label={`Theme for "${answer.text}"`}
+					aria-label={fillText(words.themeFor, { answer: answer.text })}
 					onChange={(event) => onAssign(answer.id, event.target.value || null)}
 				>
-					<option value="">Ungrouped</option>
+					<option value="">{words.ungrouped}</option>
 					{themes.map((theme) => (
 						<option key={theme.id} value={theme.id}>
 							{theme.name}
@@ -283,6 +312,9 @@ function AnswerThemeHeading({
 	const [draft, setDraft] = useState<string | null>(null);
 	const { theme } = group;
 	const count = group.answers.length + group.unlisted;
+	const { text, language } = useInterfaceText();
+	const words = text.answerThemes;
+	const named = { name: theme.name };
 
 	if (draft !== null) {
 		const submit = async () => {
@@ -301,7 +333,7 @@ function AnswerThemeHeading({
 					className="input text-sm"
 					value={draft}
 					maxLength={ANSWER_THEME_NAME_MAX_LENGTH}
-					aria-label={`New name for the theme "${theme.name}"`}
+					aria-label={fillText(words.renameField, named)}
 					// The field exists only because its theme's rename was just pressed,
 					// and that button is gone from under the keyboard: focusing the
 					// field finishes the gesture rather than stealing focus from one.
@@ -315,16 +347,16 @@ function AnswerThemeHeading({
 					type="submit"
 					className={`shrink-0 ${ICON_BUTTON_HOVER} disabled:cursor-not-allowed disabled:opacity-50`}
 					disabled={busy || draft.trim() === ""}
-					title="Save the new name"
-					aria-label="Save the new name"
+					title={words.saveName}
+					aria-label={words.saveName}
 				>
 					<Check size={14} />
 				</button>
 				<button
 					type="button"
 					className={`shrink-0 ${ICON_BUTTON_HOVER}`}
-					title="Keep the old name"
-					aria-label="Keep the old name"
+					title={words.keepName}
+					aria-label={words.keepName}
 					onClick={() => setDraft(null)}
 				>
 					<X size={14} />
@@ -339,14 +371,14 @@ function AnswerThemeHeading({
 				{theme.name}
 			</h4>
 			<span className="flex-1 whitespace-nowrap text-xs text-text-dim">
-				{answerCountLabel(count)}
+				{answerCountLabel(count, language, words)}
 			</span>
 			<button
 				type="button"
 				className={`shrink-0 ${ICON_BUTTON_HOVER} disabled:cursor-not-allowed disabled:opacity-50`}
 				disabled={busy}
-				title={`Rename the theme "${theme.name}"`}
-				aria-label={`Rename the theme "${theme.name}"`}
+				title={fillText(words.rename, named)}
+				aria-label={fillText(words.rename, named)}
 				onClick={() => setDraft(theme.name)}
 			>
 				<Pencil size={13} />
@@ -355,8 +387,8 @@ function AnswerThemeHeading({
 				type="button"
 				className={`shrink-0 ${ICON_BUTTON_HOVER} disabled:cursor-not-allowed disabled:opacity-50`}
 				disabled={busy}
-				title={`Delete the theme "${theme.name}" — its answers become ungrouped`}
-				aria-label={`Delete the theme "${theme.name}" — its answers become ungrouped`}
+				title={fillText(words.delete, named)}
+				aria-label={fillText(words.delete, named)}
 				onClick={() => onDelete(theme)}
 			>
 				<Trash2 size={13} />
@@ -380,20 +412,24 @@ export function AnswerThemesPanel({
 	slideId: string;
 	slideType: SlideType;
 }) {
+	const { text, language } = useInterfaceText();
+	const words = text.answerThemes;
 	const { answers, themes, loading, error, load } = useAnswerThemes(
 		presentationId,
 		slideId,
 		slideType,
+		words,
 	);
 	const [newName, setNewName] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [writeError, setWriteError] = useState("");
 	const [deleting, setDeleting] = useState<AnswerTheme | null>(null);
 	const { groups, ungrouped } = groupAnswersByTheme(answers, themes);
-	const creation = answerThemeCreation({
-		name: newName,
-		themeCount: themes.length,
-	});
+	const creation = answerThemeCreation(
+		{ name: newName, themeCount: themes.length },
+		words,
+	);
+	const countLabel = (count: number) => answerCountLabel(count, language, words);
 
 	/** Run one write, then re-read — the server's state is the one drawn. */
 	const write = async (action: () => Promise<unknown>): Promise<boolean> => {
@@ -436,7 +472,7 @@ export function AnswerThemesPanel({
 	};
 
 	const purpose = (
-		<p className="text-xs text-text-muted">{ANSWER_THEMES_PURPOSE}</p>
+		<p className="text-xs text-text-muted">{words.purpose}</p>
 	);
 
 	if (error) {
@@ -454,17 +490,20 @@ export function AnswerThemesPanel({
 			<div className="flex items-center gap-2">
 				<p className="min-w-0 flex-1 text-xs text-text-dim">
 					{loading && answers.length === 0 && themes.length === 0
-						? "Loading answers…"
+						? words.loading
 						: answers.length === 0
-							? "Nobody has answered this slide yet. Themes can be set up ahead of the answers."
-							: `${answerCountLabel(answers.length)}, ${ungrouped.length} ungrouped. Grouping changes no answer. Answers sent since this list was read appear on refresh.`}
+							? words.noAnswers
+							: fillText(words.summary, {
+									answers: countLabel(answers.length),
+									ungrouped: ungrouped.length,
+								})}
 				</p>
 				<button
 					type="button"
 					className={`shrink-0 ${ICON_BUTTON_HOVER} disabled:cursor-not-allowed disabled:opacity-50`}
 					disabled={busy || loading}
-					title="Read this slide's answers and themes again"
-					aria-label="Read this slide's answers and themes again"
+					title={words.refresh}
+					aria-label={words.refresh}
 					onClick={() => load()}
 				>
 					<RefreshCw size={13} />
@@ -483,8 +522,8 @@ export function AnswerThemesPanel({
 						className="input text-sm"
 						value={newName}
 						maxLength={ANSWER_THEME_NAME_MAX_LENGTH}
-						placeholder="New theme…"
-						aria-label="Name of a new theme"
+						placeholder={words.newThemePlaceholder}
+						aria-label={words.newThemeName}
 						onChange={(event) => setNewName(event.target.value)}
 					/>
 					<button
@@ -492,7 +531,7 @@ export function AnswerThemesPanel({
 						className="btn-secondary shrink-0 text-xs"
 						disabled={!creation.enabled || busy}
 					>
-						Add theme
+						{words.addTheme}
 					</button>
 				</div>
 				{/* The control stays in every state and says why it is idle. */}
@@ -524,11 +563,10 @@ export function AnswerThemesPanel({
 					) : null}
 					{group.unlisted > 0 ? (
 						<p className="text-xs text-text-dim">
-							{answerCountLabel(group.unlisted)} held back by the profanity
-							filter, not listed here
+							{fillText(words.heldBack, { answers: countLabel(group.unlisted) })}
 						</p>
 					) : group.answers.length === 0 ? (
-						<p className="text-xs text-text-dim">No answers in this theme yet.</p>
+						<p className="text-xs text-text-dim">{words.themeEmpty}</p>
 					) : null}
 				</section>
 			))}
@@ -536,9 +574,9 @@ export function AnswerThemesPanel({
 			{ungrouped.length > 0 ? (
 				<section className="space-y-2">
 					<div className="flex items-center gap-2">
-						<h4 className="text-sm font-medium text-text">Ungrouped</h4>
+						<h4 className="text-sm font-medium text-text">{words.ungrouped}</h4>
 						<span className="text-xs text-text-dim">
-							{answerCountLabel(ungrouped.length)}
+							{countLabel(ungrouped.length)}
 						</span>
 					</div>
 					<ul className="space-y-1.5">
@@ -557,9 +595,9 @@ export function AnswerThemesPanel({
 
 			<ConfirmModal
 				open={deleting !== null}
-				title="Delete this theme?"
-				message={`"${deleting?.name ?? ""}" goes, and its answers become ungrouped. No answer is deleted.`}
-				confirmLabel="Delete theme"
+				title={words.deleteTitle}
+				message={fillText(words.deleteMessage, { name: deleting?.name ?? "" })}
+				confirmLabel={words.deleteConfirm}
 				variant="danger"
 				onConfirm={confirmDelete}
 				onCancel={() => setDeleting(null)}
@@ -584,6 +622,7 @@ export function AnswerThemesStrip({
 	slideType: SlideType;
 }) {
 	const [open, setOpen] = useState(false);
+	const words = useInterfaceText().text.answerThemes;
 
 	return (
 		<div className="mx-auto w-full max-w-3xl space-y-2 rounded-xl border border-border bg-surface/40 px-3 py-2">
@@ -592,21 +631,17 @@ export function AnswerThemesStrip({
 				<button
 					type="button"
 					aria-expanded={open}
-					aria-label={
-						open
-							? "Hide this slide's answer themes"
-							: "Show this slide's answers grouped into themes"
-					}
+					aria-label={open ? words.stripHide : words.stripShow}
 					onClick={() => setOpen((wasOpen) => !wasOpen)}
 					className="min-w-0 flex-1 truncate text-left text-sm text-text-muted transition-colors hover:text-text"
 				>
-					{open ? "Answer themes" : "Group this slide's answers into themes"}
+					{open ? words.stripOpen : words.stripClosed}
 				</button>
 				{/* The presenter-notes strip's marker, beside it under the canvas:
 				    the same shape for the same kind of fact. */}
 				<span className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-xs text-text-muted">
 					<EyeOff size={12} />
-					{ANSWER_THEMES_SCOPE}
+					{words.scope}
 				</span>
 			</div>
 			{open && (

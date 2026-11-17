@@ -1,10 +1,24 @@
 import { Group, Lock, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { Slide } from "../types";
-import { segmentSourcesFor, SLIDE_TYPE_LABELS } from "../types";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceLanguage,
+	type InterfaceText,
+	pluralText,
+} from "../interface-text";
+import type { Slide, SlideType } from "../types";
+import { segmentSourcesFor } from "../types";
 import { type ChoiceOption, ChoiceCards } from "./EditorControls";
-import { RESULT_LABELS_EN, type ResultLabels, ResultsDisplay } from "./Results";
+import {
+	ENGLISH_RESULTS_WORDING,
+	RESULT_LABELS_EN,
+	type ResultLabels,
+	ResultsDisplay,
+	type ResultsWording,
+} from "./Results";
 
 // ── Segmented results (REQ020, REQ116) ────────────────────────
 //
@@ -31,16 +45,24 @@ import { RESULT_LABELS_EN, type ResultLabels, ResultsDisplay } from "./Results";
 //
 // It sits inside the slide's own section, under that slide's chart, because
 // that is what it changes.
+//
+// Its words are the interface language's (REQ248, `sharedResults` in
+// `src/interface-text/`), and each pure helper below takes them, English by
+// default. The groups' charts are worded as the chart above them is.
+
+/** The breakdown's words, in one language. */
+type SegmentWords = InterfaceText["sharedResults"];
+
+const ENGLISH_SEGMENT_WORDS = ENGLISH_INTERFACE_TEXT.sharedResults;
 
 /** The value the picker carries when no breakdown is asked for. */
 export const NO_SEGMENT = "";
 
 /** What "do not break this down" is called, and what it means: the room, whole. */
-export const NO_SEGMENT_LABEL = "Everyone";
+export const NO_SEGMENT_LABEL = ENGLISH_SEGMENT_WORDS.everyone;
 
 /** Why the picker is inert on a slide with nothing before it to group by. */
-export const NO_SOURCES_REASON =
-	"Nothing earlier in this deck collects answers these results could be grouped by.";
+export const NO_SOURCES_REASON = ENGLISH_SEGMENT_WORDS.noSources;
 
 /**
  * The picker's entries: the room whole, then every earlier slide, the ones that
@@ -52,28 +74,35 @@ export const NO_SOURCES_REASON =
 export function segmentPickerOptions(
 	slides: Slide[],
 	targetSlideId: string,
+	words: SegmentWords = ENGLISH_SEGMENT_WORDS,
+	typeNames: Record<SlideType, string> = ENGLISH_INTERFACE_TEXT.editor
+		.slideTypeNames,
 ): ChoiceOption<string>[] {
 	const sources = segmentSourcesFor(slides, targetSlideId);
 	return [
 		{
 			value: NO_SEGMENT,
-			label: NO_SEGMENT_LABEL,
+			label: words.everyone,
 			// The one entry that is disabled by the *absence* of the others: with no
 			// earlier slide to group by there is nothing to switch away to, and a
 			// control that silently offered a single choice would read as broken.
 			disabled: sources.length === 0,
-			disabledReason: sources.length === 0 ? NO_SOURCES_REASON : undefined,
+			disabledReason: sources.length === 0 ? words.noSources : undefined,
 		},
 		...sources.map((source) => ({
 			value: source.slideId,
 			label: `${source.position}. ${
 				source.question.trim().length > 0
 					? source.question.trim()
-					: SLIDE_TYPE_LABELS[source.type]
+					: typeNames[source.type]
 			}`,
 			disabled: source.refusal !== null,
-			// The server's own sentence, carried rather than re-worded.
-			disabledReason: source.reason ?? undefined,
+			// Worded from the refusal's code in the reader's language; the
+			// English is the server's own sentence (`SEGMENT_REFUSAL_REASONS`).
+			disabledReason:
+				source.refusal === null
+					? undefined
+					: words.segmentRefusals[source.refusal],
 		})),
 	];
 }
@@ -139,9 +168,13 @@ export function readSegments(payload: any): SegmentedView {
  * How many people a group holds, in words rather than a bare number — or nothing
  * at all for a group whose count was not sent.
  */
-export function segmentCountLabel(respondentCount: number | null): string | null {
+export function segmentCountLabel(
+	respondentCount: number | null,
+	language: InterfaceLanguage = "en",
+	words: SegmentWords = ENGLISH_SEGMENT_WORDS,
+): string | null {
 	if (respondentCount === null) return null;
-	return respondentCount === 1 ? "1 answered" : `${respondentCount} answered`;
+	return pluralText(language, respondentCount, words.answeredCount);
 }
 
 /**
@@ -153,27 +186,31 @@ export function segmentCountLabel(respondentCount: number | null): string | null
  * out of the chart above. Naming only the first would tell a reader with a group
  * of nine that nine is fewer than five.
  */
-export function segmentSuppressedReason(minRespondents: number): string {
-	return `Not published. A group of fewer than ${minRespondents} people would name the people in it, and groups are held back at least two at a time so the missing answers cannot be worked out by subtracting the rest — so this one is held back too. The organizer reads every group in full.`;
+export function segmentSuppressedReason(
+	minRespondents: number,
+	words: SegmentWords = ENGLISH_SEGMENT_WORDS,
+): string {
+	return fillText(words.groupSuppressed, { count: minRespondents });
 }
 
 /** Why a whole breakdown is not on screen — one sentence per reason. */
 export function segmentedWithheldReason(
 	withheldReason: SegmentedView["withheldReason"],
+	words: SegmentWords = ENGLISH_SEGMENT_WORDS,
 ): string {
 	if (withheldReason === "identifiable") {
 		// Not a reveal-mode decision and must not read like one: no group size makes
 		// a list of what individual people wrote anonymous, so this breakdown is the
 		// organizer's alone whatever the deck publishes.
-		return "This slide's results list what each person answered, and no group is small enough — or large enough — to make that anonymous. Only the organizer can break these results down.";
+		return words.withheldIdentifiable;
 	}
 	if (withheldReason === "quiz-not-over") {
 		// Not the organizer's reveal setting either (REQ215): each group is one of
 		// the grouping question's options, counted, so it is that question's
 		// answer — and it waits for the question to end like the answer does.
-		return "This breakdown groups people by a quiz question that is not over yet, and how many picked each answer would give that answer away. It appears once the question is over.";
+		return words.withheldQuizNotOver;
 	}
-	return "This breakdown is not published — the organizer has kept one of the two slides' results back.";
+	return words.withheldRevealMode;
 }
 
 /**
@@ -190,6 +227,8 @@ export function SegmentedResults({
 	slides,
 	pollTick = 0,
 	labels = RESULT_LABELS_EN,
+	wording = ENGLISH_RESULTS_WORDING,
+	roomLanguage,
 }: {
 	presentationId: string;
 	slide: Slide;
@@ -202,12 +241,25 @@ export function SegmentedResults({
 	 * read "richtig" over "correct".
 	 */
 	labels?: ResultLabels;
+	/** How each group's chart words itself — as the chart above it does. */
+	wording?: ResultsWording;
+	/** The language of the room's words in those charts, for their `lang`. */
+	roomLanguage?: string;
 }) {
 	const [segmentBy, setSegmentBy] = useState<string>(NO_SEGMENT);
 	const [view, setView] = useState<SegmentedView | null>(null);
 	const [failure, setFailure] = useState<string | null>(null);
+	const { text, language } = useInterfaceText();
+	const words = text.sharedResults;
 	const slideId = String(slide.id ?? "");
-	const options = segmentPickerOptions(slides, slideId);
+	const options = segmentPickerOptions(
+		slides,
+		slideId,
+		words,
+		text.editor.slideTypeNames,
+	);
+	const countLabel = (count: number | null) =>
+		segmentCountLabel(count, language, words);
 
 	useEffect(() => {
 		if (segmentBy === NO_SEGMENT) {
@@ -237,13 +289,13 @@ export function SegmentedResults({
 		<div className="flex flex-col gap-3 border-t border-border pt-5">
 			<div className="flex items-center gap-2">
 				<Group size={15} className="text-text-muted" />
-				<span className="text-sm text-text-muted">Break these results down by</span>
+				<span className="text-sm text-text-muted">{words.breakDownBy}</span>
 			</div>
 			<ChoiceCards
 				value={segmentBy}
 				onChange={setSegmentBy}
 				options={options}
-				ariaLabel="Break these results down by an earlier slide's answers"
+				ariaLabel={words.breakDownByLabel}
 				variant="tile"
 				columns={2}
 			/>
@@ -254,7 +306,7 @@ export function SegmentedResults({
 				   (their group labels and counts *are* that slide's tally under
 				   another name), or a slide whose tally names individual people. */
 				<p className="text-sm text-text-muted">
-					{segmentedWithheldReason(view.withheldReason)}
+					{segmentedWithheldReason(view.withheldReason, words)}
 				</p>
 			)}
 			{view && !view.withheld && (
@@ -265,31 +317,41 @@ export function SegmentedResults({
 							className="flex flex-col gap-3 rounded-xl border border-border bg-surface/40 p-4"
 						>
 							<header className="flex items-baseline justify-between gap-3">
-								<h3 className="min-w-0 truncate text-sm font-semibold">
-									{segment.label}
+								{/* A group is one of the grouping slide's options, in the
+								    deck's words — or the people who did not answer it, in
+								    the reader's (the server's label is its English). */}
+								<h3
+									className="min-w-0 truncate text-sm font-semibold"
+									lang={segment.key === null ? undefined : roomLanguage}
+								>
+									{segment.key === null ? words.didNotAnswer : segment.label}
 								</h3>
 								{/* No chip at all where the count was not sent: a held-back
 								    group's head count is a fact about the people in it, and
 								    drawing a placeholder for it would only invite the reader
 								    to guess what it stood for. */}
-								{segmentCountLabel(segment.respondentCount) && (
+								{countLabel(segment.respondentCount) && (
 									<span className="flex shrink-0 items-center gap-1 text-xs text-text-muted">
 										<Users size={13} />
-										{segmentCountLabel(segment.respondentCount)}
+										{countLabel(segment.respondentCount)}
 									</span>
 								)}
 							</header>
 							{segment.suppressed ? (
 								<p className="flex items-start gap-2 text-sm text-text-muted">
 									<Lock size={14} className="mt-0.5 shrink-0" />
-									{segmentSuppressedReason(view.minRespondents)}
+									{segmentSuppressedReason(view.minRespondents, words)}
 								</p>
 							) : (
-								<ResultsDisplay
-									slide={slide}
-									results={segment.results}
-									labels={labels}
-								/>
+								<div lang={roomLanguage}>
+									<ResultsDisplay
+										slide={slide}
+										results={segment.results}
+										labels={labels}
+										answerFilterLabel={wording.room.answersFiltered}
+										wording={wording}
+									/>
+								</div>
 							)}
 						</section>
 					))}

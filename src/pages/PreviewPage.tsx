@@ -28,6 +28,7 @@ import { SlideRailItem } from "../components/SlideRail";
 import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { useToast } from "../components/ui/Toast";
+import { useDocumentLanguage } from "../interface-language";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 import type { Presentation, Slide } from "../types";
@@ -224,6 +225,8 @@ export function PreviewPage({
 	});
 
 	usePageTitle(pres ? `${pres.title} - Preview` : "Preview");
+	// The preview speaks the deck's language, not the interface's (REQ248).
+	useDocumentLanguage(pres?.language || undefined);
 
 	useEffect(() => {
 		let cancelled = false;

@@ -1,5 +1,13 @@
 import { ChevronDown, ChevronUp, Copy, SkipForward, Trash2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceLanguage,
+	interfaceTextFor,
+	pluralText,
+} from "../interface-text";
 import { SLIDE_LIMIT, type Slide } from "../types";
 import { ICON_BUTTON_HOVER } from "./ShareCluster";
 import { ConfirmModal } from "./ui/ConfirmModal";
@@ -19,11 +27,15 @@ import { ReasonButton } from "./ui/ReasonTip";
  * Why no delete may take the last slide away — worded once for the rail's bulk
  * delete and the editor's single-slide delete, which refuse for the same rule.
  */
-export const SLIDE_REMOVAL_FLOOR_REASON = "A presentation needs at least one slide";
+export const SLIDE_REMOVAL_FLOOR_REASON =
+	ENGLISH_INTERFACE_TEXT.editor.slideRemovalFloor;
 
 /** "1 slide" / "3 slides" — the one count the bar's wording is built from. */
-export function slideCountLabel(count: number): string {
-	return count === 1 ? "1 slide" : `${count} slides`;
+export function slideCountLabel(
+	count: number,
+	language: InterfaceLanguage = "en",
+): string {
+	return pluralText(language, count, interfaceTextFor(language).editor.slideCount);
 }
 
 /**
@@ -69,13 +81,14 @@ export function SlideSelectCheckbox({
 	revealed: boolean;
 	onToggle: () => void;
 }) {
+	const { editor } = useInterfaceText().text;
 	return (
 		<input
 			type="checkbox"
 			checked={checked}
 			onChange={onToggle}
-			aria-label={`Select slide ${index + 1}`}
-			title="Select this slide — or Ctrl- or Cmd-click it; Shift-click selects a range"
+			aria-label={fillText(editor.selectSlide, { number: index + 1 })}
+			title={editor.selectSlideTitle}
 			className={`absolute right-3 bottom-3 h-4 w-4 cursor-pointer accent-accent transition-opacity ${
 				revealed || checked
 					? ""
@@ -152,23 +165,29 @@ export function SlideBulkBar({
 	canCopy: boolean;
 }) {
 	const [confirmingRemoval, setConfirmingRemoval] = useState(false);
+	const { text, language } = useInterfaceText();
+	const editor = text.editor;
 	const count = selection.length;
 	// Before anything is ticked the controls still name what they act on.
-	const counted = count === 0 ? "selected slides" : slideCountLabel(count);
-	const none = count === 0 ? "Select slides first" : null;
+	const counted =
+		count === 0 ? editor.selectedSlides : slideCountLabel(count, language);
+	/** A bar wording with the selection filled in. */
+	const named = (template: string, values: Record<string, string | number> = {}) =>
+		fillText(template, { slides: counted, ...values });
+	const none = count === 0 ? editor.selectSlidesFirst : null;
 	const willSkip = slideBulkSkipIntent(selection);
 	const skippedCount = selection.filter((slide) => slide.skipped).length;
 	const allSelected = count === slides.length;
 
 	const skipLabel = willSkip
 		? skippedCount > 0
-			? `Skip all ${counted} — ${skippedCount} already skipped`
-			: `Skip ${counted} — Next and Previous step over them`
-		: `Include ${counted} again`;
-	const removeReason = none ?? (canRemove ? null : SLIDE_REMOVAL_FLOOR_REASON);
+			? named(editor.skipAllSomeSkipped, { skipped: skippedCount })
+			: named(editor.skipStepOver)
+		: named(editor.includeAgain);
+	const removeReason = none ?? (canRemove ? null : editor.slideRemovalFloor);
 	const copyReason =
 		none ??
-		(canCopy ? null : `A presentation holds at most ${SLIDE_LIMIT} slides`);
+		(canCopy ? null : fillText(editor.slideLimitReached, { limit: SLIDE_LIMIT }));
 
 	return (
 		<div className="flex-shrink-0 md:w-full flex items-center gap-1 rounded-lg border border-border bg-surface-raised/50 px-2 py-1">
@@ -181,29 +200,31 @@ export function SlideBulkBar({
 						if (input) input.indeterminate = count > 0 && !allSelected;
 					}}
 					onChange={count > 0 ? onClear : onSelectAll}
-					aria-label={count > 0 ? "Clear selection" : "Select all slides"}
+					aria-label={count > 0 ? editor.clearSelection : editor.selectAllSlides}
 				/>
 				<span aria-live="polite" className="truncate whitespace-nowrap">
-					{count > 0 ? `${count} selected` : "Select"}
+					{count > 0
+						? fillText(editor.selectedCount, { count })
+						: editor.select}
 				</span>
 			</label>
 			<div className="ml-auto flex items-center">
 				<BulkButton
-					label={`Move ${counted} up`}
-					reason={none ?? (canMoveUp ? null : "Already at the top")}
+					label={named(editor.moveUp)}
+					reason={none ?? (canMoveUp ? null : editor.alreadyAtTop)}
 					onClick={() => onMove(-1)}
 				>
 					<ChevronUp size={15} />
 				</BulkButton>
 				<BulkButton
-					label={`Move ${counted} down`}
-					reason={none ?? (canMoveDown ? null : "Already at the bottom")}
+					label={named(editor.moveDown)}
+					reason={none ?? (canMoveDown ? null : editor.alreadyAtBottom)}
 					onClick={() => onMove(1)}
 				>
 					<ChevronDown size={15} />
 				</BulkButton>
 				<BulkButton
-					label={count === 0 ? `Skip ${counted}` : skipLabel}
+					label={count === 0 ? named(editor.skip) : skipLabel}
 					reason={none}
 					pressed={
 						count > 0 && skippedCount === count
@@ -218,9 +239,7 @@ export function SlideBulkBar({
 				</BulkButton>
 				<BulkButton
 					label={
-						count === 0
-							? `Copy ${counted}`
-							: `Copy ${counted} — the copies follow the last one`
+						count === 0 ? named(editor.copy) : named(editor.copyAfterLast)
 					}
 					reason={copyReason}
 					onClick={onCopy}
@@ -228,7 +247,7 @@ export function SlideBulkBar({
 					<Copy size={15} />
 				</BulkButton>
 				<BulkButton
-					label={`Delete ${counted}`}
+					label={named(editor.delete)}
 					reason={removeReason}
 					danger
 					onClick={() => setConfirmingRemoval(true)}
@@ -238,9 +257,9 @@ export function SlideBulkBar({
 			</div>
 			<ConfirmModal
 				open={confirmingRemoval}
-				title={`Delete ${counted}?`}
-				message={`The ${counted} you selected leave the deck. Nothing is stored until you save, and there is no undo.`}
-				confirmLabel={`Delete ${counted}`}
+				title={named(editor.deleteConfirmTitle)}
+				message={pluralText(language, count, editor.deleteConfirmMessage)}
+				confirmLabel={named(editor.delete)}
 				variant="danger"
 				onConfirm={() => {
 					setConfirmingRemoval(false);

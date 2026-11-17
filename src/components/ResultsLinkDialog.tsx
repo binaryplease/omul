@@ -1,6 +1,13 @@
 import { Check, Copy, Link2, Link2Off, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api, getResultsToken, resultsLinkUrl } from "../api";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceLanguage,
+	type InterfaceText,
+} from "../interface-text";
 import type { ResultsLink } from "../types";
 import { ICON_BUTTON_HOVER } from "./ShareCluster";
 import { Modal } from "./ui/Modal";
@@ -64,12 +71,21 @@ export function resultsLinkView(
 	};
 }
 
-/** When a link was minted, in words, or a plain statement that nobody knows. */
-export function resultsLinkIssuedLabel(issuedAt: string | null): string {
-	if (!issuedAt) return "Active — minted at an unrecorded time.";
+/**
+ * When a link was minted, in words, or a plain statement that nobody knows —
+ * in the interface language, the instant in its format (REQ248).
+ */
+export function resultsLinkIssuedLabel(
+	issuedAt: string | null,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+	language: InterfaceLanguage = "en",
+): string {
+	if (!issuedAt) return text.dialogs.resultsLinkActiveUnknown;
 	const at = new Date(issuedAt);
-	if (Number.isNaN(at.getTime())) return "Active — minted at an unrecorded time.";
-	return `Active since ${at.toLocaleString()}.`;
+	if (Number.isNaN(at.getTime())) return text.dialogs.resultsLinkActiveUnknown;
+	return fillText(text.dialogs.resultsLinkActiveSince, {
+		time: at.toLocaleString(language),
+	});
 }
 
 export function ResultsLinkDialog({
@@ -82,6 +98,8 @@ export function ResultsLinkDialog({
 	/** How the dialog says what just happened — the surface's own toast. */
 	onNotify: (message: string, tone: "success" | "info" | "error") => void;
 }) {
+	const { text, language } = useInterfaceText();
+	const { dialogs } = text;
 	const [status, setStatus] = useState<ResultsLink | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
@@ -134,12 +152,12 @@ export function ResultsLinkDialog({
 				setCopied(true);
 				setTimeout(() => setCopied(false), 2000);
 			}
-			onNotify("Results link created and copied to clipboard", "success");
+			onNotify(dialogs.resultsLinkCreated, "success");
 		} catch (mintError: unknown) {
 			onNotify(
 				mintError instanceof Error
 					? mintError.message
-					: "Could not create the results link",
+					: dialogs.resultsLinkCreateFailed,
 				"error",
 			);
 		} finally {
@@ -152,7 +170,7 @@ export function ResultsLinkDialog({
 		await navigator.clipboard.writeText(view.url);
 		setCopied(true);
 		setTimeout(() => setCopied(false), 2000);
-		onNotify("Results link copied to clipboard", "success");
+		onNotify(dialogs.resultsLinkCopiedToast, "success");
 	};
 
 	const revoke = async () => {
@@ -160,12 +178,12 @@ export function ResultsLinkDialog({
 		try {
 			setStatus(await api.revokeResultsLink(presentationId));
 			setHeld(getResultsToken(presentationId));
-			onNotify("Results link revoked — it no longer opens anything", "info");
+			onNotify(dialogs.resultsLinkRevoked, "info");
 		} catch (revokeError: unknown) {
 			onNotify(
 				revokeError instanceof Error
 					? revokeError.message
-					: "Could not revoke the results link",
+					: dialogs.resultsLinkRevokeFailed,
 				"error",
 			);
 		} finally {
@@ -174,35 +192,24 @@ export function ResultsLinkDialog({
 	};
 
 	return (
-		<Modal title="Share the results" icon={Link2} onClose={onClose}>
+		<Modal title={dialogs.resultsLinkTitle} icon={Link2} onClose={onClose}>
 			<div className="flex flex-col gap-4">
-				<p className="text-sm text-text-muted">
-					A results link opens this deck's results in a read-only page, with no
-					account and no sign-in. Whoever holds it reads every slide's tally —
-					including the ones this deck keeps back from the room — and nothing
-					else: it cannot edit, start, end or reset the presentation, download
-					the spreadsheet, or read a running quiz question's answer key.
-				</p>
+				<p className="text-sm text-text-muted">{dialogs.resultsLinkIntro}</p>
 
 				<div className="rounded-lg border border-border bg-surface-raised px-4 py-3 text-sm">
 					{loading ? (
-						<span className="text-text-dim">Checking…</span>
+						<span className="text-text-dim">{dialogs.resultsLinkChecking}</span>
 					) : view.kind === "none" ? (
-						<span className="text-text-muted">
-							This deck has no results link. Nothing is shared until you create
-							one.
-						</span>
+						<span className="text-text-muted">{dialogs.resultsLinkNone}</span>
 					) : view.kind === "elsewhere" ? (
 						<span className="text-text-muted">
-							{resultsLinkIssuedLabel(view.issuedAt)} This browser cannot show
-							it: the link is stored only as a fingerprint, so a copy of it that
-							cannot be matched against this mint is not one to hand on. Creating
-							a new one replaces it.
+							{resultsLinkIssuedLabel(view.issuedAt, text, language)}{" "}
+							{dialogs.resultsLinkElsewhere}
 						</span>
 					) : (
 						<div className="flex flex-col gap-2">
 							<span className="text-text-muted">
-								{resultsLinkIssuedLabel(view.issuedAt)}
+								{resultsLinkIssuedLabel(view.issuedAt, text, language)}
 							</span>
 							<code className="font-mono text-xs text-accent-text break-all">
 								{view.url}
@@ -221,12 +228,12 @@ export function ResultsLinkDialog({
 						disabled={view.kind !== "held"}
 						title={
 							view.kind === "held"
-								? "Copy the results link to the clipboard"
-								: "Copy the results link — this browser does not hold it, so create a new one instead"
+								? dialogs.resultsLinkCopyName
+								: dialogs.resultsLinkCopyNotHeld
 						}
 					>
 						{copied ? <Check size={14} /> : <Copy size={14} />}
-						{copied ? "Copied!" : "Copy link"}
+						{copied ? dialogs.resultsLinkCopied : dialogs.resultsLinkCopy}
 					</button>
 					<button
 						type="button"
@@ -235,12 +242,14 @@ export function ResultsLinkDialog({
 						disabled={busy}
 						title={
 							view.kind === "none"
-								? "Create a results link and copy it"
-								: "Create a new results link — the current one stops working immediately"
+								? dialogs.resultsLinkCreateName
+								: dialogs.resultsLinkReplaceName
 						}
 					>
 						<RefreshCw size={14} />
-						{view.kind === "none" ? "Create link" : "Replace link"}
+						{view.kind === "none"
+							? dialogs.resultsLinkCreate
+							: dialogs.resultsLinkReplace}
 					</button>
 					<button
 						type="button"
@@ -249,21 +258,16 @@ export function ResultsLinkDialog({
 						disabled={busy || view.kind === "none"}
 						title={
 							view.kind === "none"
-								? "Revoke the results link — there is none to revoke"
-								: "Revoke the results link — every copy of it stops working immediately"
+								? dialogs.resultsLinkRevokeNone
+								: dialogs.resultsLinkRevokeName
 						}
 					>
 						<Link2Off size={14} />
-						Revoke
+						{dialogs.resultsLinkRevoke}
 					</button>
 				</div>
 
-				<p className="text-xs text-text-dim">
-					Revoking takes effect at once and applies to every copy of the link —
-					there is one per deck, not one per recipient. A results page somebody
-					already has open keeps the numbers it was last sent until it refreshes,
-					and anything they have already read stays with them.
-				</p>
+				<p className="text-xs text-text-dim">{dialogs.resultsLinkFootnote}</p>
 			</div>
 		</Modal>
 	);

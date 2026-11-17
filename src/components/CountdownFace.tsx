@@ -1,5 +1,7 @@
 import { Pause, Play, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useInterfaceText } from "../interface-language";
+import { ENGLISH_INTERFACE_TEXT, type InterfaceText } from "../interface-text";
 import type {
 	CountdownAction,
 	CountdownPhase,
@@ -138,41 +140,48 @@ export function CountdownSlideFace({
 
 /**
  * What the presenter's start/pause control says, as its accessible name and its
- * tooltip — including why it is dead when it is (ADR-0025).
+ * tooltip — including why it is dead when it is (ADR-0025). In the interface
+ * language (REQ248): the control is the presenter's.
  */
-export function countdownControlLabel({
-	phase,
-	canControl,
-	live,
-}: {
-	phase: CountdownPhase;
-	canControl: boolean;
-	live: boolean;
-}): string {
-	if (!canControl) return "Only an editor of this deck can run the countdown";
-	if (phase === "finished") {
-		return "The countdown reached 0:00. Reset it to run it again";
-	}
-	if (!live) return "Start the presentation to run the countdown";
-	if (phase === "running") return "Pause the countdown at the time left";
-	if (phase === "paused") return "Resume the countdown from the time left";
-	return "Start the countdown for the room";
+export function countdownControlLabel(
+	{
+		phase,
+		canControl,
+		live,
+	}: {
+		phase: CountdownPhase;
+		canControl: boolean;
+		live: boolean;
+	},
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	const { slideView } = text;
+	if (!canControl) return slideView.countdownNotEditor;
+	if (phase === "finished") return slideView.countdownFinishedLabel;
+	if (!live) return slideView.countdownNotLive;
+	if (phase === "running") return slideView.countdownPauseLabel;
+	if (phase === "paused") return slideView.countdownResumeLabel;
+	return slideView.countdownStartLabel;
 }
 
 /**
  * What the presenter's reset control says, as its accessible name and its
  * tooltip — including why it is dead when it is (ADR-0025).
  */
-export function countdownResetLabel({
-	phase,
-	canControl,
-}: {
-	phase: CountdownPhase;
-	canControl: boolean;
-}): string {
-	if (!canControl) return "Only an editor of this deck can reset the countdown";
-	if (phase === "idle") return "The countdown is already at its full length";
-	return "Return the countdown to its full length";
+export function countdownResetLabel(
+	{
+		phase,
+		canControl,
+	}: {
+		phase: CountdownPhase;
+		canControl: boolean;
+	},
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	const { slideView } = text;
+	if (!canControl) return slideView.countdownResetNotEditor;
+	if (phase === "idle") return slideView.countdownResetIdle;
+	return slideView.countdownResetLabel;
 }
 
 /**
@@ -194,13 +203,14 @@ export function CountdownRunControls({
 	live: boolean;
 	onAction: (action: CountdownAction) => void;
 }) {
+	const { text, language } = useInterfaceText();
 	useCountdownSeconds(slide, run);
 	const phase = countdownPhase(run.state, Date.now() + run.clockOffsetMs);
 	const running = phase === "running";
-	const label = countdownControlLabel({ phase, canControl, live });
-	const resetLabel = countdownResetLabel({ phase, canControl });
+	const label = countdownControlLabel({ phase, canControl, live }, text);
+	const resetLabel = countdownResetLabel({ phase, canControl }, text);
 	return (
-		<div className="flex flex-wrap items-center gap-3">
+		<div className="flex flex-wrap items-center gap-3" lang={language}>
 			<button
 				type="button"
 				onClick={() => onAction(running ? "pause" : "start")}
@@ -211,10 +221,10 @@ export function CountdownRunControls({
 			>
 				{running ? <Pause size={16} /> : <Play size={16} />}
 				{running
-					? "Pause countdown"
+					? text.slideView.countdownPause
 					: phase === "paused"
-						? "Resume countdown"
-						: "Start countdown"}
+						? text.slideView.countdownResume
+						: text.slideView.countdownStart}
 			</button>
 			<button
 				type="button"
@@ -225,7 +235,7 @@ export function CountdownRunControls({
 				className="btn-secondary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
 			>
 				<RotateCcw size={16} />
-				Reset countdown
+				{text.slideView.countdownReset}
 			</button>
 		</div>
 	);

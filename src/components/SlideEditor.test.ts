@@ -382,11 +382,11 @@ describe("a slide can be skipped from the editor (REQ110)", () => {
 		// The pill sits in a `min-w-0` column beside the header's buttons. Without
 		// a width cap it overflowed that column at desktop widths and lay over
 		// Skip slide, so a click there opened the type menu instead.
-		const label = header.slice(header.indexOf('aria-label="Change slide type"'));
+		const label = header.slice(header.indexOf("aria-label={copy.changeSlideType}"));
 		const trigger = /className="([^"]*)"/.exec(label)?.[1] ?? "";
 		expect(trigger.split(" ")).toContain("max-w-full");
 		expect(label).toMatch(
-			/<span className="([^"]* )?min-w-0 [^"]*\btruncate\b[^"]*">\s*\{SLIDE_TYPE_LABELS\[slide\.type\]\}/,
+			/<span className="([^"]* )?min-w-0 [^"]*\btruncate\b[^"]*">\s*\{text\.editor\.slideTypeNames\[slide\.type\]\}/,
 		);
 		// The fix is the width, not a z-index over the buttons.
 		expect(header).not.toMatch(/flex flex-shrink-0 items-center gap-0\.5[^"]*\bz-/);

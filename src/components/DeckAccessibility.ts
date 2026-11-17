@@ -2,6 +2,13 @@ import type { Rgb } from "./color";
 import { BLACK, contrastRatio, parseHexColor, WHITE } from "./color";
 import { deckThemeAppearance } from "./DeckTheme";
 import { SCRIM_TONES, slideAppearanceStyle } from "./SlideAppearance";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	formatNumber,
+	type InterfaceLanguage,
+	type InterfaceText,
+} from "../interface-text";
 import type { DeckThemeSettings, Slide } from "../types";
 import {
 	deckBrandFor,
@@ -114,7 +121,7 @@ export function slideAccessibilityFindings(
 			finding({
 				category: "contrast",
 				risk: "low-contrast",
-				message: `The words on this slide reach ${contrast.ratio.toFixed(2)}:1 against what is behind them in ${contrast.schemes.join(" and ")} mode; ${contrast.required === ACCESSIBILITY_MIN_CONTRAST.body ? "body" : "large"} text needs ${contrast.required}:1.`,
+				message: contrastFindingMessage(contrast),
 				field: contrastField(deck, slide),
 				contrast,
 			}),
@@ -126,8 +133,7 @@ export function slideAccessibilityFindings(
 			finding({
 				category: "text-size",
 				risk: "small-text",
-				message:
-					"This slide's text is set Small, which is hard to read on a phone at arm's length or from the back of the room.",
+				message: ENGLISH_INTERFACE_TEXT.accessibility.smallText,
 				field: { scope: "slide", name: "textSize" },
 			}),
 		);
@@ -138,8 +144,7 @@ export function slideAccessibilityFindings(
 			finding({
 				category: "structure",
 				risk: "missing-alt",
-				message:
-					"This slide's image has no alt text, so a screen reader announces nothing for it.",
+				message: ENGLISH_INTERFACE_TEXT.accessibility.missingAlt,
 				field: { scope: "slide", name: "mediaAlt" },
 			}),
 		);
@@ -150,14 +155,65 @@ export function slideAccessibilityFindings(
 			finding({
 				category: "structure",
 				risk: "missing-heading",
-				message:
-					"This slide has no heading, so nothing tells a screen-reader user what it is about.",
+				message: ENGLISH_INTERFACE_TEXT.accessibility.missingHeading,
 				field: { scope: "slide", name: "question" },
 			}),
 		);
 	}
 
 	return findings;
+}
+
+/**
+ * A finding's sentence in an interface language (REQ248) — the stored
+ * `message` is the English one, and this rebuilds it from the finding's risk
+ * and, for a contrast finding, its measurement, so the strip can say it in the
+ * presenter's language without the check knowing which that is.
+ */
+export function accessibilityFindingMessage(
+	finding: Pick<SlideAccessibilityFinding, "risk" | "contrast" | "message">,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+	language: InterfaceLanguage = "en",
+): string {
+	const words = text.accessibility;
+	switch (finding.risk) {
+		case "low-contrast":
+			// A contrast finding always carries its measurement; one that somehow
+			// did not still has the check's own sentence to show.
+			return finding.contrast
+				? contrastFindingMessage(finding.contrast, text, language)
+				: finding.message;
+		case "small-text":
+			return words.smallText;
+		case "missing-alt":
+			return words.missingAlt;
+		case "missing-heading":
+			return words.missingHeading;
+	}
+}
+
+/** The contrast sentence, with its ratio and minimum in the language's numbers. */
+function contrastFindingMessage(
+	contrast: SlideContrastMeasure,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+	language: InterfaceLanguage = "en",
+): string {
+	const words = text.accessibility;
+	const ratio = new Intl.NumberFormat(language, {
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2,
+	}).format(contrast.ratio);
+	return fillText(words.lowContrast, {
+		ratio,
+		schemes: contrast.schemes
+			.map((scheme) => (scheme === "dark" ? words.schemeDark : words.schemeLight))
+			.join(words.schemeJoin),
+		textKind:
+			contrast.required === ACCESSIBILITY_MIN_CONTRAST.body
+				? words.bodyText
+				: words.largeText,
+		required: formatNumber(language, contrast.required),
+	});
 }
 
 /**

@@ -1,6 +1,13 @@
 import { MessageSquare, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	type InterfaceLanguage,
+	type InterfaceText,
+	pluralText,
+} from "../interface-text";
 import {
 	canWriteDeckComments,
 	type DeckAccessLevel,
@@ -27,26 +34,36 @@ import { ICON_BUTTON_HOVER } from "./ShareCluster";
 // handed comments its reader was already entitled to, and what it draws when
 // they are not entitled is the server's own refusal, in words, in place of the
 // thread.
+//
+// The thread panel is drawn on the presenter screen as well as under the
+// editor's canvas, so it reads the interface language (REQ248); the editor's
+// strip around it is REQ248's second slice and still reads English.
 
 /** What one comment's author is called, as every row here reads it. */
-export function slideCommentAuthorLabel(comment: SlideComment): string {
-	if (comment.mine) return "You";
+export function slideCommentAuthorLabel(
+	comment: SlideComment,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	if (comment.mine) return text.panels.commentAuthorYou;
 	// A deleted account leaves its comments standing — a reply answering nothing
 	// is worse than an unnamed line — so the missing name is said rather than
 	// papered over with somebody else's.
-	return comment.authorName?.trim() || "Deleted account";
+	return comment.authorName?.trim() || text.panels.commentAuthorDeleted;
 }
 
 /**
- * When a comment was written, in the reader's own locale — `""` for a row with
- * no stamp, which is what an older document re-parses forward onto
+ * When a comment was written, in the interface language's format — `""` for a
+ * row with no stamp, which is what an older document re-parses forward onto
  * and which the row then simply does not draw.
  */
-export function slideCommentTimeLabel(createdAt: string): string {
+export function slideCommentTimeLabel(
+	createdAt: string,
+	language: InterfaceLanguage = "en",
+): string {
 	if (!createdAt) return "";
 	const written = new Date(createdAt);
 	if (Number.isNaN(written.getTime())) return "";
-	return written.toLocaleString(undefined, {
+	return written.toLocaleString(language, {
 		dateStyle: "medium",
 		timeStyle: "short",
 	});
@@ -129,9 +146,13 @@ export function withSlideCommentDraft(
  * invitation that stands in the same place when it carries none (the
  * affordance does not disappear with its content).
  */
-export function slideCommentStripLabel(count: number): string {
-	if (count === 0) return "No comments on this slide yet";
-	return count === 1 ? "1 comment" : `${count} comments`;
+export function slideCommentStripLabel(
+	count: number,
+	language: InterfaceLanguage = "en",
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	if (count === 0) return text.editor.commentStripEmpty;
+	return pluralText(language, count, text.editor.commentStripCount);
 }
 
 /**
@@ -147,22 +168,21 @@ export function slideCommentStripLabel(count: number): string {
  * account is told to sign in, which is the honest answer rather than a guess
  * made from a level that was never resolved.
  */
-export function slideCommentComposerState({
-	accessLevel,
-	error,
-}: {
-	accessLevel: DeckAccessLevel | null | undefined;
-	error: string | null;
-}): { enabled: boolean; reason: string } {
+export function slideCommentComposerState(
+	{
+		accessLevel,
+		error,
+	}: {
+		accessLevel: DeckAccessLevel | null | undefined;
+		error: string | null;
+	},
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): { enabled: boolean; reason: string } {
 	if (error) return { enabled: false, reason: error };
 	if (canWriteDeckComments(accessLevel ?? null)) {
 		return { enabled: true, reason: "" };
 	}
-	return {
-		enabled: false,
-		reason:
-			"You can read this deck's comments. Ask its owner for comment access to write on them.",
-	};
+	return { enabled: false, reason: text.panels.commentReadOnly };
 }
 
 /**
@@ -276,6 +296,7 @@ export function SlideCommentsPanel({
 	onSubmit: (slideId: string, body: string) => Promise<void>;
 	onDelete: (commentId: string) => Promise<void>;
 }) {
+	const { text, language } = useInterfaceText();
 	const [drafts, setDrafts] = useState<SlideCommentDrafts>({});
 	const [busy, setBusy] = useState(false);
 	const [writeError, setWriteError] = useState<{
@@ -283,7 +304,7 @@ export function SlideCommentsPanel({
 		message: string;
 	} | null>(null);
 	const thread = slideCommentsFor(comments, slideId);
-	const composer = slideCommentComposerState({ accessLevel, error });
+	const composer = slideCommentComposerState({ accessLevel, error }, text);
 	const draft = slideCommentDraftFor(drafts, slideId);
 	// A refusal is about the write that drew it, so it is held against that
 	// write's slide too: left standing under the next slide's composer it would
@@ -325,7 +346,7 @@ export function SlideCommentsPanel({
 	return (
 		<div className="space-y-3">
 			{loading && thread.length === 0 && !error ? (
-				<p className="text-xs text-text-dim">Loading comments…</p>
+				<p className="text-xs text-text-dim">{text.panels.commentsLoading}</p>
 			) : null}
 			{thread.length > 0 ? (
 				<ul className="space-y-2">
@@ -336,17 +357,17 @@ export function SlideCommentsPanel({
 						>
 							<div className="flex items-baseline gap-2">
 								<span className="min-w-0 truncate text-xs font-medium text-text">
-									{slideCommentAuthorLabel(comment)}
+									{slideCommentAuthorLabel(comment, text)}
 								</span>
 								<span className="flex-1 truncate text-xs text-text-dim">
-									{slideCommentTimeLabel(comment.createdAt)}
+									{slideCommentTimeLabel(comment.createdAt, language)}
 								</span>
 								{comment.mine && (
 									<button
 										type="button"
 										className={`flex-shrink-0 ${ICON_BUTTON_HOVER}`}
-										title="Delete this comment"
-										aria-label="Delete this comment"
+										title={text.panels.commentDelete}
+										aria-label={text.panels.commentDelete}
 										onClick={() => remove(comment.id)}
 									>
 										<Trash2 size={13} />
@@ -363,10 +384,7 @@ export function SlideCommentsPanel({
 				</ul>
 			) : null}
 			{!loading && thread.length === 0 && !error ? (
-				<p className="text-xs text-text-dim">
-					Nothing here yet. Comments stay between the accounts this deck is
-					shared with — the room never sees them.
-				</p>
+				<p className="text-xs text-text-dim">{text.panels.commentsEmpty}</p>
 			) : null}
 			<div className="space-y-2">
 				<textarea
@@ -375,8 +393,8 @@ export function SlideCommentsPanel({
 					maxLength={SLIDE_COMMENT_MAX_LENGTH}
 					value={draft}
 					disabled={!composer.enabled || !slideId}
-					placeholder="Comment on this slide…"
-					aria-label="Write a comment on this slide"
+					placeholder={text.panels.commentPlaceholder}
+					aria-label={text.panels.commentFieldName}
 					onChange={(event) =>
 						setDrafts((current) =>
 							withSlideCommentDraft(current, slideId, event.target.value),
@@ -396,7 +414,7 @@ export function SlideCommentsPanel({
 						disabled={!composer.enabled || busy || draft.trim() === ""}
 						onClick={submit}
 					>
-						{busy ? "Posting…" : "Comment"}
+						{busy ? text.panels.commentPosting : text.panels.commentSubmit}
 					</button>
 				</div>
 			</div>
@@ -441,6 +459,8 @@ export function SlideCommentsStrip({
 }) {
 	const [open, setOpen] = useState(false);
 	const count = slideCommentsFor(comments, slideId).length;
+	const { text, language } = useInterfaceText();
+	const words = text.editor;
 
 	return (
 		<div className="mx-auto w-full max-w-3xl space-y-2 rounded-xl border border-border bg-surface/40 px-3 py-2">
@@ -449,18 +469,16 @@ export function SlideCommentsStrip({
 				<button
 					type="button"
 					aria-expanded={open}
-					aria-label={
-						open
-							? "Hide comments on this slide"
-							: "Show comments on this slide"
-					}
+					aria-label={open ? words.commentStripHide : words.commentStripShow}
 					onClick={() => setOpen((wasOpen) => !wasOpen)}
 					className="min-w-0 flex-1 truncate text-left text-sm text-text-muted transition-colors hover:text-text"
 				>
-					{open ? "Comments on this slide" : slideCommentStripLabel(count)}
+					{open
+						? words.commentStripOpen
+						: slideCommentStripLabel(count, language, text)}
 				</button>
 				<span className="flex-shrink-0 whitespace-nowrap text-xs text-text-muted">
-					Only the accounts this deck is shared with
+					{words.commentStripAudience}
 				</span>
 			</div>
 			{open && (

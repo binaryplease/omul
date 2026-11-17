@@ -25,23 +25,23 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, getCreatorToken, getParticipantId } from "../api";
 import {
-	CHAT_LABELS_EN,
 	ChatChannelControl,
 	chatCountLabel,
 	ChatComposer,
 	ChatHeading,
 	ChatMessageList,
+	presenterChatLabels,
 	useChatFeed,
 } from "../components/ChatPanel";
 import {
-	QA_LABELS_EN,
+	presenterQALabels,
 	QAHeading,
 	QALayerControls,
 	QAQuestionList,
 	useQAList,
 } from "../components/QAPanel";
 import {
-	REACTION_LABELS_EN,
+	presenterReactionLabels,
 	ReactionChannelControl,
 	ReactionStream,
 	useLiveReactions,
@@ -121,6 +121,15 @@ import { LoadingState } from "../components/ui/Loading";
 import { QRCodeDisplay } from "../components/ui/QRCode";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { useToast } from "../components/ui/Toast";
+import { getDict, resolveLang } from "../i18n";
+import { useDocumentLanguage, useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	formatNumber,
+	type InterfaceLanguage,
+	type InterfaceText,
+} from "../interface-text";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 import { useSessionSocket, useStore } from "../store";
@@ -168,10 +177,15 @@ export function panelCountTone(toggle: Pick<PanelToggle, "pressed" | "count">): 
 }
 
 function PanelCount({ toggle }: { toggle: PanelToggle }) {
+	const { language } = useInterfaceText();
 	const tone = panelCountTone(toggle);
 	return (
 		toggle.count !== null && (
-			<span className={`${BAR_COUNT} ${tone}`}>{toggle.count}</span>
+			<span className={`${BAR_COUNT} ${tone}`}>
+				{typeof toggle.count === "number"
+					? formatNumber(language, toggle.count)
+					: toggle.count}
+			</span>
 		)
 	);
 }
@@ -204,44 +218,57 @@ export interface SlidePagingDirection {
  * Skipped slides are stepped over (REQ110): each direction lands on the nearest
  * slide that is not skipped, and is shut — as it is at the deck's ends — when
  * only skipped slides lie that way. The label counts every slide, skipped or
- * not, so "slide 4 of 6" is the same 4 the rail shows.
+ * not, so "slide 4 of 6" is the same 4 the rail shows. The labels are in the
+ * interface language of `text`, numbers in `language`'s format (REQ248).
  */
-export function slidePagingFor({
-	slides,
-	activeSlideIndex,
-	refusal,
-}: {
-	slides: readonly { skipped?: boolean | undefined }[];
-	activeSlideIndex: number;
-	refusal: string | null;
-}): { previous: SlidePagingDirection; next: SlidePagingDirection } {
+export function slidePagingFor(
+	{
+		slides,
+		activeSlideIndex,
+		refusal,
+	}: {
+		slides: readonly { skipped?: boolean | undefined }[];
+		activeSlideIndex: number;
+		refusal: string | null;
+	},
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+	language: InterfaceLanguage = "en",
+): { previous: SlidePagingDirection; next: SlidePagingDirection } {
+	const pageText = text.presenterPage;
 	const slideCount = slides.length;
 	const previousIndex = steppedSlideIndex(slides, activeSlideIndex, -1);
 	const nextIndex = steppedSlideIndex(slides, activeSlideIndex, 1);
+	const slideOfCount = (index: number) =>
+		fillText(pageText.slideOfCount, {
+			number: formatNumber(language, index + 1),
+			count: formatNumber(language, slideCount),
+		});
 	return {
 		previous: {
 			index: previousIndex,
 			disabled: refusal !== null || previousIndex === null,
-			label: `Previous slide — ${
-				refusal ??
-				(previousIndex === null
-					? activeSlideIndex <= 0
-						? "this is the first slide"
-						: "every earlier slide is skipped"
-					: `slide ${previousIndex + 1} of ${slideCount}`)
-			}`,
+			label: fillText(pageText.previousSlideLabel, {
+				reason:
+					refusal ??
+					(previousIndex === null
+						? activeSlideIndex <= 0
+							? pageText.firstSlide
+							: pageText.earlierSlidesSkipped
+						: slideOfCount(previousIndex)),
+			}),
 		},
 		next: {
 			index: nextIndex,
 			disabled: refusal !== null || nextIndex === null,
-			label: `Next slide — ${
-				refusal ??
-				(nextIndex === null
-					? activeSlideIndex >= slideCount - 1
-						? "this is the last slide"
-						: "every later slide is skipped"
-					: `slide ${nextIndex + 1} of ${slideCount}`)
-			}`,
+			label: fillText(pageText.nextSlideLabel, {
+				reason:
+					refusal ??
+					(nextIndex === null
+						? activeSlideIndex >= slideCount - 1
+							? pageText.lastSlide
+							: pageText.laterSlidesSkipped
+						: slideOfCount(nextIndex)),
+			}),
 		},
 	};
 }
@@ -439,6 +466,15 @@ export function PresenterPage({
 	const presentControlRef = useRef<HTMLButtonElement>(null);
 	const wasPresentingRef = useRef(presenting);
 	const { addToast } = useToast();
+	// What the presenter reads is in the interface language (REQ248); what the
+	// room reads is in the deck's (`roomText`, below).
+	const { text, language } = useInterfaceText();
+	// The presenter screen is translated (REQ248 slice 2), so its `<html lang>`
+	// follows the interface language.
+	useDocumentLanguage(language);
+	const pageText = text.presenterPage;
+	const errorMessage = (caught: unknown) =>
+		caught instanceof Error ? caught.message : pageText.unknownError;
 
 	// Whether the current browser holds the creator token for this presentation.
 	// It is one of the two ways to control the deck — and the only one that can
@@ -484,7 +520,7 @@ export function PresenterPage({
 		canPlay: isOwner,
 	});
 
-	usePageTitle(pres?.title ?? "Presenter");
+	usePageTitle(pres?.title ?? pageText.pageTitle);
 
 	// Fetch presentation into the session slice; clear it on unmount.
 	useEffect(() => {
@@ -582,7 +618,9 @@ export function PresenterPage({
 	 * anyway" is one click away and "Cancel" leaves them where they were.
 	 */
 	const handleStart = () => {
-		const warning = pres ? quizAnswerKeyGoLiveWarning(pres.slides) : null;
+		const warning = pres
+			? quizAnswerKeyGoLiveWarning(pres.slides, text, language)
+			: null;
 		if (warning) {
 			setAnswerKeyWarning(warning);
 			return;
@@ -594,24 +632,24 @@ export function PresenterPage({
 		setAnswerKeyWarning(null);
 		try {
 			await startPresentation(id);
-			addToast("Presentation started", "success");
+			addToast(pageText.presentationStarted, "success");
 			// Start keeps the closed slides (REQ111), so a slide closed on the
 			// draft — or by the last session — refuses the room until reopened.
-			const startsClosed = pres ? closedAtStartNotice(pres) : null;
+			const startsClosed = pres
+				? closedAtStartNotice(pres, text, language)
+				: null;
 			if (startsClosed) addToast(startsClosed, "info");
 		} catch (startError: unknown) {
-			setError(
-				startError instanceof Error ? startError.message : "Unknown error",
-			);
+			setError(errorMessage(startError));
 		}
 	};
 
 	const handleEnd = async () => {
 		try {
 			await endPresentation(id);
-			addToast("Presentation ended", "info");
+			addToast(pageText.presentationEnded, "info");
 		} catch (endError: unknown) {
-			setError(endError instanceof Error ? endError.message : "Unknown error");
+			setError(errorMessage(endError));
 		}
 	};
 
@@ -627,11 +665,9 @@ export function PresenterPage({
 		setConfirmReset(false);
 		try {
 			await resetPresentation(id);
-			addToast("Results cleared — the deck is a fresh draft", "success");
+			addToast(pageText.resultsCleared, "success");
 		} catch (resetError: unknown) {
-			setError(
-				resetError instanceof Error ? resetError.message : "Unknown error",
-			);
+			setError(errorMessage(resetError));
 		}
 	};
 
@@ -653,16 +689,21 @@ export function PresenterPage({
 		const slide = pres?.slides.find((candidate) => candidate.id === slideId);
 		const { confirmation } = quizTimerControlFor(
 			!!slide && !!pres && quizAwaitingStart(slide, pres),
+			text,
 		);
 		try {
 			await restartSlideTimer(id, slideId);
 			addToast(confirmation, "success");
 		} catch (timerError: unknown) {
-			await routeTimerFailure(timerError, {
-				catchUp: () => catchUpPresenterDeck(id),
-				notice: (message) => addToast(message, "info"),
-				failed: setError,
-			});
+			await routeTimerFailure(
+				timerError,
+				{
+					catchUp: () => catchUpPresenterDeck(id),
+					notice: (message) => addToast(message, "info"),
+					failed: setError,
+				},
+				text,
+			);
 		} finally {
 			timerRequestInFlight.current = false;
 		}
@@ -676,11 +717,7 @@ export function PresenterPage({
 		try {
 			await controlCountdown(id, slideId, action);
 		} catch (countdownError: unknown) {
-			setError(
-				countdownError instanceof Error
-					? countdownError.message
-					: "Unknown error",
-			);
+			setError(errorMessage(countdownError));
 		}
 	};
 
@@ -699,15 +736,11 @@ export function PresenterPage({
 		try {
 			await setSlideParticipation(id, slideId, open);
 			addToast(
-				slideParticipationToast({ open, live: pres?.status === "live" }),
+				slideParticipationToast({ open, live: pres?.status === "live" }, text),
 				open ? "success" : "info",
 			);
 		} catch (participationError: unknown) {
-			setError(
-				participationError instanceof Error
-					? participationError.message
-					: "Unknown error",
-			);
+			setError(errorMessage(participationError));
 		}
 	};
 
@@ -728,11 +761,9 @@ export function PresenterPage({
 	const handleDeleteAnswer = async (slideId: string, answerId: string) => {
 		try {
 			await deleteSubmittedAnswer(id, slideId, answerId);
-			addToast("Answer deleted — the room's tally has been updated", "success");
+			addToast(pageText.answerDeleted, "success");
 		} catch (deleteError: unknown) {
-			setError(
-				deleteError instanceof Error ? deleteError.message : "Unknown error",
-			);
+			setError(errorMessage(deleteError));
 		}
 	};
 
@@ -748,9 +779,7 @@ export function PresenterPage({
 		try {
 			await setAudienceBlanked(id, blanked);
 		} catch (blankError: unknown) {
-			setError(
-				blankError instanceof Error ? blankError.message : "Unknown error",
-			);
+			setError(errorMessage(blankError));
 		}
 	};
 
@@ -767,7 +796,7 @@ export function PresenterPage({
 		try {
 			await setQASettings(id, changes);
 		} catch (qaError: unknown) {
-			setError(qaError instanceof Error ? qaError.message : "Unknown error");
+			setError(errorMessage(qaError));
 		}
 	};
 
@@ -779,11 +808,7 @@ export function PresenterPage({
 		try {
 			await api.setQuestionAnswered(id, questionId, answered);
 		} catch (answeredError: unknown) {
-			setError(
-				answeredError instanceof Error
-					? answeredError.message
-					: "Unknown error",
-			);
+			setError(errorMessage(answeredError));
 		}
 	};
 
@@ -792,9 +817,7 @@ export function PresenterPage({
 		try {
 			await api.approveQuestion(id, questionId);
 		} catch (approveError: unknown) {
-			setError(
-				approveError instanceof Error ? approveError.message : "Unknown error",
-			);
+			setError(errorMessage(approveError));
 		}
 	};
 
@@ -810,9 +833,7 @@ export function PresenterPage({
 		try {
 			await setParticipantChannels(id, changes);
 		} catch (channelError: unknown) {
-			setError(
-				channelError instanceof Error ? channelError.message : "Unknown error",
-			);
+			setError(errorMessage(channelError));
 		}
 	};
 
@@ -822,9 +843,7 @@ export function PresenterPage({
 		try {
 			await api.postChatMessage(id, text, getParticipantId());
 		} catch (sendError: unknown) {
-			setError(
-				sendError instanceof Error ? sendError.message : "Unknown error",
-			);
+			setError(errorMessage(sendError));
 		} finally {
 			setSendingMessage(false);
 		}
@@ -834,9 +853,7 @@ export function PresenterPage({
 		try {
 			await goToSlide(id, index);
 		} catch (slideError: unknown) {
-			setError(
-				slideError instanceof Error ? slideError.message : "Unknown error",
-			);
+			setError(errorMessage(slideError));
 		}
 	};
 
@@ -844,7 +861,7 @@ export function PresenterPage({
 		if (!pres) return;
 		await navigator.clipboard.writeText(pres.code);
 		setCodeCopied(true);
-		addToast("Join code copied to clipboard", "success");
+		addToast(pageText.joinCodeCopied, "success");
 		setTimeout(() => setCodeCopied(false), 2000);
 	};
 
@@ -853,7 +870,7 @@ export function PresenterPage({
 		const url = `${window.location.origin}/join/${pres.code}`;
 		await navigator.clipboard.writeText(url);
 		setLinkCopied(true);
-		addToast("Join link copied to clipboard", "success");
+		addToast(pageText.joinLinkCopied, "success");
 		setTimeout(() => setLinkCopied(false), 2000);
 	};
 
@@ -863,7 +880,7 @@ export function PresenterPage({
 		const snippet = `<iframe src="${url}" width="100%" height="600" frameborder="0" allow="clipboard-write" style="border:0;border-radius:12px;"></iframe>`;
 		await navigator.clipboard.writeText(snippet);
 		setEmbedCopied(true);
-		addToast("Embed code copied to clipboard", "success");
+		addToast(pageText.embedCodeCopied, "success");
 		setTimeout(() => setEmbedCopied(false), 2000);
 	};
 
@@ -871,7 +888,7 @@ export function PresenterPage({
 		if (!pres) return;
 		const token = getCreatorToken(pres.id);
 		if (!token) {
-			addToast("You don't have edit rights for this presentation", "error");
+			addToast(pageText.noEditRights, "error");
 			setConfirmShareEdit(false);
 			return;
 		}
@@ -879,7 +896,7 @@ export function PresenterPage({
 		await navigator.clipboard.writeText(url);
 		setEditLinkCopied(true);
 		setConfirmShareEdit(false);
-		addToast("Edit link copied to clipboard", "success");
+		addToast(pageText.editLinkCopied, "success");
 		setTimeout(() => setEditLinkCopied(false), 2000);
 	};
 
@@ -982,7 +999,9 @@ export function PresenterPage({
 		if (wasPresentingRef.current && !presenting) {
 			if (window.matchMedia("(width < 40rem)").matches) {
 				document
-					.querySelector<HTMLElement>('button[aria-label^="More — "]')
+					.querySelector<HTMLElement>(
+						`button[aria-label^="${pageText.more} — "]`,
+					)
 					?.focus();
 			} else {
 				presentControlRef.current?.focus();
@@ -1165,10 +1184,22 @@ export function PresenterPage({
 	// through the shared predicate rather than off the field, so this screen and
 	// a second browser projecting the same deck cannot disagree about it.
 	const screenBlanked = audienceViewBlanked(pres);
-	const blankButtonLabel = audienceBlankToggleLabel({
-		blanked: screenBlanked,
-		canControl: isOwner,
-	});
+	const blankButtonLabel = audienceBlankToggleLabel(
+		{
+			blanked: screenBlanked,
+			canControl: isOwner,
+		},
+		text,
+	);
+	// The words the room reads on this screen, in the deck's language (REQ084):
+	// the QR dialog's and the presenting view's join line (REQ248).
+	const roomText = getDict(pres.language);
+	const roomLanguage = resolveLang(pres.language);
+	const joinUrl = `${window.location.origin}/join/${pres.code}`;
+	// The presenter's own labels for the panels shared with the phone.
+	const qaLabels = presenterQALabels(text);
+	const chatLabels = presenterChatLabels(text);
+	const reactionLabels = presenterReactionLabels(text);
 
 	// Spelled out rather than left to the count inside the button: on its own,
 	// "4" is the whole accessible name, and a screen reader would announce a
@@ -1179,7 +1210,7 @@ export function PresenterPage({
 	// (REQ095/REQ096) or what a reset costs (REQ101). The export's own name is
 	// `exportButtonLabel` in `ExportDialog`, beside the formats it opens onto —
 	// what the control is called is part of what the affordance is.
-	const exportControlLabel = exportButtonLabel(isOwner);
+	const exportControlLabel = exportButtonLabel(isOwner, text);
 
 	// REQ098 — the read-only results link. Offered whatever the deck's status, for
 	// the reason the export beside it is: a link minted mid-session is a
@@ -1188,20 +1219,20 @@ export function PresenterPage({
 	// the deck — minting one is a decision about somebody else's
 	// results.
 	const resultsLinkButtonLabel = isOwner
-		? "Share the results — create, copy or revoke a read-only link to this deck's results"
-		: "Share the results — you cannot edit this presentation, so its results are not yours to share";
+		? pageText.shareResultsLabel
+		: pageText.shareResultsRefused;
 
-	const resetButtonLabel = isOwner
-		? "Reset results — clear every response and return the deck to draft, so it can be run again"
-		: "Reset results — you cannot edit this presentation, so its results are not yours to clear";
+	const resetButtonLabel = isOwner ? pageText.resetLabel : pageText.resetRefused;
 
 	const qaButtonLabel = !isOwner
-		? "Show the Q&A queue — you cannot edit this presentation, so the room's questions are not yours to read"
+		? pageText.qaRefused
 		: qaOpen
-			? "Hide the Q&A queue"
+			? pageText.qaHide
 			: pres.qaEnabled
-				? `Show the Q&A queue — ${qaList?.openCount ?? 0} open`
-				: "Show the Q&A queue — the layer is currently off";
+				? fillText(pageText.qaShowOpen, {
+						count: formatNumber(language, qaList?.openCount ?? 0),
+					})
+				: pageText.qaShowOff;
 
 	// REQ077/REQ078 — the audience panel: the two participant-channel switches and
 	// the chat transcript. Named for what it holds rather than for the chat alone,
@@ -1211,22 +1242,27 @@ export function PresenterPage({
 	// a viewer who does not hold the deck too, disabled with its reason rather than
 	// dropped.
 	const audienceButtonLabel = !isOwner
-		? "Show the audience panel — you cannot edit this presentation, so its channels are not yours to open"
+		? pageText.audienceRefused
 		: audienceOpen
-			? "Hide the audience panel"
+			? pageText.audienceHide
 			: pres.chatEnabled
-				? `Show the audience panel — ${chatCountLabel(chatFeed)}`
-				: "Show the audience panel — the chat is currently off";
+				? fillText(pageText.audienceShowMessages, {
+						messages: chatCountLabel(chatFeed, text, language),
+					})
+				: pageText.audienceShowOff;
 
 	// REQ090 — the notes for the slide on screen. Offered to a viewer who does
 	// not hold the deck too, disabled with its reason rather than dropped:
 	// what they are missing is the organizer's private script, and
 	// the server never sent it to them in the first place.
-	const notesButtonLabel = presenterNotesToggleLabel({
-		canRead: isOwner,
-		open: notesOpen,
-		hasNotes: Boolean(activeSlide) && hasPresenterNotes(activeSlide),
-	});
+	const notesButtonLabel = presenterNotesToggleLabel(
+		{
+			canRead: isOwner,
+			open: notesOpen,
+			hasNotes: Boolean(activeSlide) && hasPresenterNotes(activeSlide),
+		},
+		text,
+	);
 
 	// REQ074 — the thread on the slide currently on screen. The count is this
 	// slide's rather than the deck's: the panel draws one thread, so a deck-wide
@@ -1243,23 +1279,25 @@ export function PresenterPage({
 	// chip carries an icon and a number, so its accessible name is the whole
 	// control.
 	const rosterButtonLabel = !isOwner
-		? "Show who took part — you cannot edit this presentation, so its participants are not yours to read"
+		? pageText.rosterRefused
 		: !pres.requireParticipantName
-			? "Show who took part — this deck does not ask participants for a name"
+			? pageText.rosterNoNames
 			: rosterOpen
-				? "Hide who took part"
+				? pageText.rosterHide
 				: // The roster is only fetched while the panel is open, so a closed one
 					// has no count to report — and `?? 0` would announce an empty room on
 					// a deck this browser has not asked about, which is exactly what the
 					// visible chip's "—" refuses to claim. The two have to say
 					// the same thing; a screen-reader user is not reading the number.
-					"Show who took part — the names stated on this deck";
+					pageText.rosterShow;
 
 	const commentsButtonLabel = !canReadComments
-		? "Show comments — this deck has not been shared with your account, so its comments are not yours to read"
+		? pageText.commentsRefused
 		: commentsOpen
-			? "Hide comments"
-			: `Show comments — ${slideCommentCount} on this slide`;
+			? pageText.commentsHide
+			: fillText(pageText.commentsShowCount, {
+					count: formatNumber(language, slideCommentCount),
+				});
 
 	/**
 	 * REQ199 — whether each paging direction is open, and what it is called
@@ -1268,17 +1306,23 @@ export function PresenterPage({
 	 * name, so the dock keeps its shape rather than dropping the pair.
 	 */
 	const pagingRefusal = !isOwner
-		? "you cannot edit this presentation, so its slides are not yours to move"
+		? pageText.pagingRefusedNotEditor
 		: pres.status === "draft"
-			? "start the presentation to page through it"
+			? pageText.pagingRefusedDraft
 			: pres.status === "ended"
-				? "the session has ended; restart it to page through it"
+				? pageText.pagingRefusedEnded
 				: null;
-	const slidePaging = slidePagingFor({
-		slides: pres.slides,
-		activeSlideIndex: pres.activeSlideIndex,
-		refusal: pagingRefusal,
-	});
+	const slidePaging = slidePagingFor(
+		{
+			slides: pres.slides,
+			activeSlideIndex: pres.activeSlideIndex,
+			refusal: pagingRefusal,
+		},
+		text,
+		language,
+	);
+	// "4 / 12", in the interface language's digits.
+	const slidePosition = `${formatNumber(language, pres.activeSlideIndex + 1)} / ${formatNumber(language, pres.slides.length)}`;
 	const pageTo = (target: number | null) => {
 		if (target !== null) handleSlide(target);
 	};
@@ -1305,14 +1349,14 @@ export function PresenterPage({
 				onClick={() => pageTo(slidePaging.previous.index)}
 			>
 				<ChevronLeft size={16} />
-				Previous
+				{pageText.previous}
 			</button>
 			<div className="flex items-center gap-3">
 				<span className="text-text-muted font-mono text-sm">
-					{pres.activeSlideIndex + 1} / {pres.slides.length}
+					{slidePosition}
 				</span>
 				<span className="text-text-dim text-xs hidden sm:inline">
-					(arrow keys · F to present)
+					{pageText.pagingHint}
 				</span>
 			</div>
 			<button
@@ -1323,7 +1367,7 @@ export function PresenterPage({
 				title={slidePaging.next.label}
 				onClick={() => pageTo(slidePaging.next.index)}
 			>
-				Next
+				{pageText.next}
 				<ChevronRight size={16} />
 			</button>
 		</div>
@@ -1349,21 +1393,30 @@ export function PresenterPage({
 				className="slide-in flex w-full max-w-2xl lg:max-w-5xl max-h-full flex-col lg:flex-row items-center gap-4 sm:gap-5 lg:gap-10 overflow-y-auto rounded-2xl border border-border bg-surface-raised p-6 sm:p-10 text-center lg:text-left shadow-lg"
 				onClick={(e) => e.stopPropagation()}
 			>
-				<div className="flex-none rounded-xl bg-white p-3 sm:p-4 *:size-[min(44vh,calc(100vw-6rem),28rem)] lg:*:size-[min(60vh,28rem)]">
+				<div
+					lang={roomLanguage}
+					className="flex-none rounded-xl bg-white p-3 sm:p-4 *:size-[min(44vh,calc(100vw-6rem),28rem)] lg:*:size-[min(60vh,28rem)]"
+				>
 					<QRCodeDisplay
-						url={`${window.location.origin}/join/${pres.code}`}
+						url={joinUrl}
 						size={448}
+						alt={fillText(roomText.roomQrAlt, { url: joinUrl })}
 					/>
 				</div>
-				<div className="flex flex-col items-center lg:items-start gap-4 sm:gap-5">
+				{/* The room's words, in the deck's language; Close is the
+				    presenter's (REQ248). */}
+				<div
+					lang={roomLanguage}
+					className="flex flex-col items-center lg:items-start gap-4 sm:gap-5"
+				>
 					<h3
 						id="presenter-qr-heading"
 						className="text-2xl sm:text-4xl font-semibold"
 					>
-						Scan to join
+						{roomText.roomScanToJoin}
 					</h3>
 					<p className="flex flex-wrap items-baseline justify-center lg:justify-start gap-x-2 text-sm sm:text-lg text-text-muted">
-						<span>or go to</span>
+						<span>{roomText.roomOrGoTo}</span>
 						{/* May break before `/join` and nowhere else. */}
 						<span className="font-mono text-accent-text [overflow-wrap:anywhere]">
 							{window.location.host}
@@ -1373,7 +1426,7 @@ export function PresenterPage({
 					</p>
 					<div>
 						<p className="text-xs uppercase tracking-wider text-text-muted">
-							Join code
+							{roomText.roomJoinCode}
 						</p>
 						<p className="font-mono font-bold text-4xl sm:text-6xl tracking-widest text-text">
 							{pres.code}
@@ -1382,15 +1435,20 @@ export function PresenterPage({
 					<div className="flex flex-wrap items-center justify-center gap-4">
 						<span className="inline-flex items-center gap-1.5 font-mono tabular-nums text-sm text-text-muted">
 							<Users size={16} aria-hidden />
-							{participantCount} in the room
+							{fillText(roomText.roomHeadCount, {
+								count: new Intl.NumberFormat(roomLanguage).format(
+									participantCount,
+								),
+							})}
 						</span>
 						<button
 							type="button"
+							lang={language}
 							className="btn-secondary text-sm"
 							onClick={closeQr}
 							autoFocus
 						>
-							Close
+							{pageText.close}
 						</button>
 					</div>
 				</div>
@@ -1427,7 +1485,7 @@ export function PresenterPage({
 						pres={pres}
 						results={slideResults}
 						serverClockOffsetMs={serverClockOffsetMs}
-						joinUrl={`${window.location.origin}/join/${pres.code}`}
+						joinUrl={joinUrl}
 						controls={{
 							canControl: isOwner,
 							onReveal: (slideId, reveal) =>
@@ -1448,7 +1506,7 @@ export function PresenterPage({
 					)}
 				</div>
 			) : (
-				<div className="text-text-dim">No slides</div>
+				<div className="text-text-dim">{pageText.noSlides}</div>
 			)}
 		</SlideAppearanceScope>
 	);
@@ -1477,12 +1535,16 @@ export function PresenterPage({
 	 * stays — which panels are open comes back on leaving. Blanked, the view is
 	 * the theme's background with the curtain's controls under the layer.
 	 */
-	const presentLabel = "Present — show only the slide, full screen (F)";
+	const presentLabel = pageText.presentLabel;
 	if (presenting) {
 		return themed(
 			<div className="min-h-screen w-full bg-void bg-grid bg-noise">
 				<PresentingView
-					join={{ host: window.location.host, code: pres.code }}
+					join={{
+						host: window.location.host,
+						code: pres.code,
+						language: pres.language,
+					}}
 					blanked={screenBlanked}
 					stage={
 						screenBlanked ? (
@@ -1495,7 +1557,7 @@ export function PresenterPage({
 					}
 					paging={slidePaging}
 					onPage={pageTo}
-					position={`${pres.activeSlideIndex + 1} / ${pres.slides.length}`}
+					position={slidePosition}
 					blank={{
 						pressed: screenBlanked,
 						disabled: !isOwner,
@@ -1567,25 +1629,28 @@ export function PresenterPage({
 		);
 	}
 
-	const shareControls = buildShareControls({
-		code: pres.code,
-		host: window.location.host,
-		// The edit-link control alone stays on the token rather than on control of
-		// the deck: the link *is* the token, so a collaborator who was never given
-		// one has nothing to copy into it (see `buildShareControls`).
-		isOwner: heldEditToken,
-		copied: {
-			code: codeCopied,
-			link: linkCopied,
-			embed: embedCopied,
-			editLink: editLinkCopied,
+	const shareControls = buildShareControls(
+		{
+			code: pres.code,
+			host: window.location.host,
+			// The edit-link control alone stays on the token rather than on control
+			// of the deck: the link *is* the token, so a collaborator who was never
+			// given one has nothing to copy into it (see `buildShareControls`).
+			isOwner: heldEditToken,
+			copied: {
+				code: codeCopied,
+				link: linkCopied,
+				embed: embedCopied,
+				editLink: editLinkCopied,
+			},
+			onCopyCode: copyCode,
+			onCopyLink: copyLink,
+			onShowQr: openQr,
+			onCopyEmbed: copyEmbed,
+			onShareEdit: () => setConfirmShareEdit(true),
 		},
-		onCopyCode: copyCode,
-		onCopyLink: copyLink,
-		onShowQr: openQr,
-		onCopyEmbed: copyEmbed,
-		onShareEdit: () => setConfirmShareEdit(true),
-	});
+		text,
+	);
 
 	// REQ190 — the five panels beside the slide, as one descriptor: drawn as a
 	// group of chips from `sm` and as the rows of one menu below it, so the two
@@ -1603,7 +1668,7 @@ export function PresenterPage({
 			// queue.
 			key: "qa",
 			Icon: MessageCircleQuestion,
-			label: "Q&A",
+			label: pageText.qaPanel,
 			ariaLabel: qaButtonLabel,
 			pressed: qaOpen,
 			disabled: !isOwner,
@@ -1616,7 +1681,7 @@ export function PresenterPage({
 			// reads the same feed and the count is the same list for all of them.
 			key: "audience",
 			Icon: MessagesSquare,
-			label: "Audience",
+			label: pageText.audiencePanel,
 			ariaLabel: audienceButtonLabel,
 			pressed: audienceOpen,
 			disabled: !isOwner,
@@ -1628,7 +1693,7 @@ export function PresenterPage({
 			// whole of it, so a number would only announce that there is one.
 			key: "notes",
 			Icon: StickyNote,
-			label: "Presenter notes",
+			label: pageText.notesPanel,
 			ariaLabel: notesButtonLabel,
 			pressed: notesOpen,
 			disabled: !isOwner,
@@ -1642,7 +1707,7 @@ export function PresenterPage({
 			// zero would claim an empty thread they were never sent.
 			key: "comments",
 			Icon: MessageSquare,
-			label: "Comments",
+			label: pageText.commentsPanel,
 			ariaLabel: commentsButtonLabel,
 			pressed: commentsOpen,
 			disabled: !canReadComments,
@@ -1655,7 +1720,7 @@ export function PresenterPage({
 			// on a deck this browser has not asked about.
 			key: "roster",
 			Icon: UserRound,
-			label: "Who took part",
+			label: pageText.rosterPanel,
 			ariaLabel: rosterButtonLabel,
 			pressed: rosterOpen,
 			disabled: !isOwner,
@@ -1685,8 +1750,12 @@ export function PresenterPage({
 	// What the Deck rows offer, named once for the two triggers that open them:
 	// the Deck menu from `sm`, and More below it, where `AppMenu` adds its own
 	// sections to the name (REQ199).
-	const deckMenuOffers = `${deckEditable ? "edit, " : ""}preview, open presenting window, share results, export, reset`;
-	const deckMenuLabel = `Deck — ${deckMenuOffers}`;
+	const deckMenuOffers = deckEditable
+		? pageText.deckMenuOffersWithEdit
+		: pageText.deckMenuOffers;
+	const deckMenuLabel = fillText(pageText.deckMenuLabel, {
+		offers: deckMenuOffers,
+	});
 
 	/**
 	 * Everything about the deck that is not its lifecycle, as rows: drawn by the
@@ -1706,8 +1775,8 @@ export function PresenterPage({
 				<>
 					<BarMenuRow
 						icon={<Pencil size={16} />}
-						label="Edit presentation"
-						title="Edit presentation"
+						label={pageText.editPresentation}
+						title={pageText.editPresentation}
 						onClick={() => {
 							close();
 							go({ page: "edit", id: pres.id });
@@ -1730,8 +1799,8 @@ export function PresenterPage({
 			    both windows follow the deck through the broadcast. */}
 			<BarMenuRow
 				icon={<MonitorUp size={16} />}
-				label="Open presenting window"
-				title="Open presenting window — the slide alone, in a window for the projector"
+				label={pageText.openPresentingWindow}
+				title={pageText.openPresentingWindowTitle}
 				onClick={() => {
 					close();
 					window.open(
@@ -1743,7 +1812,7 @@ export function PresenterPage({
 			<div aria-hidden className={MENU_DIVIDER} />
 			<BarMenuRow
 				icon={<Link2 size={16} />}
-				label="Share results…"
+				label={pageText.shareResultsRow}
 				reason={disabledReason(resultsLinkButtonLabel)}
 				disabled={!isOwner}
 				ariaLabel={resultsLinkButtonLabel}
@@ -1755,7 +1824,7 @@ export function PresenterPage({
 			/>
 			<BarMenuRow
 				icon={<Download size={16} />}
-				label="Export…"
+				label={pageText.exportRow}
 				reason={disabledReason(exportControlLabel)}
 				disabled={!isOwner}
 				ariaLabel={exportControlLabel}
@@ -1768,7 +1837,7 @@ export function PresenterPage({
 			<div aria-hidden className={MENU_DIVIDER} />
 			<BarMenuRow
 				icon={<RefreshCw size={16} />}
-				label="Reset results…"
+				label={pageText.resetRow}
 				tone="danger"
 				reason={disabledReason(resetButtonLabel)}
 				disabled={!isOwner}
@@ -1788,7 +1857,7 @@ export function PresenterPage({
 		<>
 			<BarMenuRow
 				icon={<Presentation size={16} />}
-				label="Present"
+				label={pageText.present}
 				ariaLabel={presentLabel}
 				title={presentLabel}
 				onClick={() => {
@@ -1850,7 +1919,7 @@ export function PresenterPage({
 								onClick={() => go({ page: "home" })}
 							>
 								<ChevronLeft size={16} />
-								<span className="hidden sm:inline">Back</span>
+								<span className="hidden sm:inline">{pageText.back}</span>
 							</button>
 							<div className="w-px h-7 bg-border hidden sm:block flex-shrink-0" />
 							<div className="flex flex-col min-w-0">
@@ -1872,11 +1941,11 @@ export function PresenterPage({
 									{statusSeparator}
 									<span
 										className="inline-flex items-center gap-1 font-mono tabular-nums flex-shrink-0"
-										title="Participants in the room"
+										title={pageText.participantsInRoom}
 									>
 										<Users size={14} aria-hidden />
-										<span className="sr-only">Participants: </span>
-										{participantCount}
+										<span className="sr-only">{pageText.participantsPrefix}</span>
+										{formatNumber(language, participantCount)}
 									</span>
 								</div>
 							</div>
@@ -1911,7 +1980,7 @@ export function PresenterPage({
 							    From `sm` to `xl` it starts the second line's right
 							    edge, so the door holds Back's edge and the switches hold
 							    the app menu's (REQ199). */}
-							<div role="group" aria-label="Shared screen" className={`${BAR_GROUP} sm:max-xl:ml-auto`}>
+							<div role="group" aria-label={pageText.sharedScreenGroup} className={`${BAR_GROUP} sm:max-xl:ml-auto`}>
 								<button
 									type="button"
 									onClick={() => handleSetBlanked(!screenBlanked)}
@@ -1936,7 +2005,7 @@ export function PresenterPage({
 									className={`${BAR_GROUP_ITEM} max-sm:hidden`}
 								>
 									<Presentation size={16} aria-hidden />
-									<span>Present</span>
+									<span>{pageText.present}</span>
 								</button>
 							</div>
 
@@ -1945,7 +2014,7 @@ export function PresenterPage({
 							    fit beside the door. None earns a place of its own on a
 							    phone, and none is withdrawn either: Notes and the Q&A
 							    queue are what a remote is for (REQ199). */}
-							<div role="group" aria-label="Panels" className={`${BAR_GROUP} max-sm:hidden`}>
+							<div role="group" aria-label={pageText.panelsGroup} className={`${BAR_GROUP} max-sm:hidden`}>
 								{panelToggles.map((toggle) => (
 									<button
 										key={toggle.key}
@@ -1965,13 +2034,13 @@ export function PresenterPage({
 							<div
 								ref={phonePanelsRef}
 								role="group"
-								aria-label="Panels"
+								aria-label={pageText.panelsGroup}
 								className={`${BAR_GROUP} sm:hidden`}
 							>
 								<BarMenu
-									label="Panels — Q&A, audience, notes, comments, who took part"
-									title="Panels"
-									heading="Panels"
+									label={pageText.panelsMenuLabel}
+									title={pageText.panels}
+									heading={pageText.panels}
 									triggerClassName={BAR_GROUP_ITEM}
 									trigger={
 										<>
@@ -2021,7 +2090,7 @@ export function PresenterPage({
 							    cannot be paged from here, so the dock keeps its
 							    shape; Next carries the deck's one primary fill while
 							    it can be pressed. */}
-							<div role="group" aria-label="Slides" className={`${BAR_GROUP} ml-auto sm:hidden`}>
+							<div role="group" aria-label={pageText.slidesGroup} className={`${BAR_GROUP} ml-auto sm:hidden`}>
 								<button
 									type="button"
 									onClick={() => pageTo(slidePaging.previous.index)}
@@ -2052,13 +2121,13 @@ export function PresenterPage({
 							    lead the More menu instead (REQ199). */}
 							<BarMenu
 								label={deckMenuLabel}
-								title="Deck"
-								heading="Deck"
+								title={pageText.deck}
+								heading={pageText.deck}
 								triggerClassName={`flex ${BAR_CONTROL_HEIGHT} flex-shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface-raised px-3 text-sm font-medium text-text cursor-pointer transition-colors hover:bg-surface-hover aria-expanded:border-accent aria-expanded:bg-accent-dim aria-expanded:text-accent-text max-sm:hidden`}
 								trigger={
 									<>
 										<GalleryHorizontalEnd size={16} aria-hidden />
-										<span>Deck</span>
+										<span>{pageText.deck}</span>
 										<ChevronDown size={14} aria-hidden className="text-text-dim" />
 									</>
 								}
@@ -2074,9 +2143,9 @@ export function PresenterPage({
 							{!isOwner && (
 								<span
 									className={`inline-flex ${BAR_CONTROL_HEIGHT} flex-shrink-0 items-center text-xs text-text-dim font-mono uppercase tracking-wider px-2 rounded bg-surface-raised border border-border`}
-									title="You don't have edit access to this presentation"
+									title={pageText.viewOnlyTitle}
 								>
-									View only
+									{pageText.viewOnly}
 								</span>
 							)}
 							{isOwner && pres.status === "draft" && (
@@ -2085,8 +2154,10 @@ export function PresenterPage({
 									className={`btn-primary text-sm ${BAR_CONTROL_HEIGHT} py-0! px-3! sm:px-4!`}
 									onClick={handleStart}
 								>
-									<span className="hidden sm:inline">Start Presentation</span>
-									<span className="sm:hidden">Start</span>
+									<span className="hidden sm:inline">
+										{pageText.startPresentation}
+									</span>
+									<span className="sm:hidden">{pageText.start}</span>
 								</button>
 							)}
 							{isOwner && pres.status === "live" && (
@@ -2095,7 +2166,7 @@ export function PresenterPage({
 									className={`btn-secondary text-sm ${BAR_CONTROL_HEIGHT} py-0! px-3! sm:px-4! border-error! text-error! hover:bg-error/10!`}
 									onClick={handleEnd}
 								>
-									End
+									{pageText.end}
 								</button>
 							)}
 							{isOwner && pres.status === "ended" && (
@@ -2104,7 +2175,7 @@ export function PresenterPage({
 									className={`btn-primary text-sm ${BAR_CONTROL_HEIGHT} py-0! px-3! sm:px-4!`}
 									onClick={handleStart}
 								>
-									Restart
+									{pageText.restart}
 								</button>
 							)}
 
@@ -2118,9 +2189,11 @@ export function PresenterPage({
 							<AppMenu
 								className={`sm:hidden ${BAR_CONTROL_SIZE}`}
 								leading={{
-									label: `More — present, ${deckMenuOffers}`,
-									title: "More",
-									heading: "Deck",
+									label: fillText(pageText.moreMenuLabel, {
+										offers: deckMenuOffers,
+									}),
+									title: pageText.more,
+									heading: pageText.deck,
 									rows: moreMenuRows,
 								}}
 							/>
@@ -2166,13 +2239,13 @@ export function PresenterPage({
 					<div ref={panelSheetRef} className="sm:contents max-sm:hidden max-sm:has-[aside]:flex max-sm:flex-col max-sm:fixed max-sm:inset-x-0 max-sm:bottom-[var(--bottom-dock-height,0px)] max-sm:z-20 max-sm:max-h-[55dvh] max-sm:overflow-y-auto max-sm:overscroll-contain max-sm:scroll-pt-12 max-sm:border-t max-sm:border-border max-sm:bg-surface max-sm:shadow-2xl">
 						<div className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-surface py-1 pl-4 pr-1 sm:hidden">
 							<h2 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-								Panels
+								{pageText.panels}
 							</h2>
 							<button
 								type="button"
 								onClick={() => hidePanels("dock")}
-								aria-label="Hide panels"
-								title="Hide panels"
+								aria-label={pageText.hidePanels}
+								title={pageText.hidePanels}
 								className={`flex size-10 items-center justify-center rounded-lg border-none bg-transparent hover:bg-surface-hover ${ICON_BUTTON_HOVER}`}
 							>
 								<X size={18} aria-hidden />
@@ -2212,11 +2285,12 @@ export function PresenterPage({
 							<aside ref={revealInPanelSheet} className="md:w-80 flex-shrink-0 border-t md:border-t-0 md:border-l border-border bg-surface/50 overflow-y-auto p-4 flex flex-col gap-4">
 								<h3 className="flex items-center gap-2 text-base font-semibold">
 									<MessageSquare size={17} />
-									Comments
+									{pageText.commentsPanel}
 								</h3>
 								<p className="text-xs text-text-dim">
-									On slide {pres.activeSlideIndex + 1}. Only the accounts this
-									deck is shared with — never the room.
+									{fillText(pageText.commentsScope, {
+										number: formatNumber(language, pres.activeSlideIndex + 1),
+									})}
 								</p>
 								<SlideCommentsPanel
 									comments={comments}
@@ -2247,7 +2321,7 @@ export function PresenterPage({
 						    only where the room may vote. */}
 						{isOwner && qaOpen && (
 							<aside ref={revealInPanelSheet} className="md:w-80 flex-shrink-0 border-t md:border-t-0 md:border-l border-border bg-surface/50 overflow-y-auto p-4 flex flex-col gap-4">
-								<QAHeading labels={QA_LABELS_EN} list={qaList} />
+								<QAHeading labels={qaLabels} list={qaList} />
 								<QALayerControls
 									enabled={pres.qaEnabled}
 									visibility={pres.qaVisibility}
@@ -2257,7 +2331,7 @@ export function PresenterPage({
 								<div className="border-t border-border pt-4">
 									<QAQuestionList
 										list={qaList}
-										labels={QA_LABELS_EN}
+										labels={qaLabels}
 										onToggleAnswered={handleQuestionAnswered}
 										onApprove={
 											pres.qaApprovalRequired || (qaList?.pendingCount ?? 0) > 0
@@ -2287,7 +2361,7 @@ export function PresenterPage({
 							<aside ref={revealInPanelSheet} className="md:w-80 flex-shrink-0 border-t md:border-t-0 md:border-l border-border bg-surface/50 overflow-y-auto p-4 flex flex-col gap-4">
 								<h3 className="flex items-center gap-2 text-base font-semibold">
 									<Users size={17} />
-									Audience
+									{pageText.audiencePanel}
 								</h3>
 								<div className="flex flex-col gap-3">
 									<ReactionChannelControl
@@ -2303,14 +2377,16 @@ export function PresenterPage({
 										}
 									/>
 									<p className="text-xs text-text-dim">
-										{`${REACTION_LABELS_EN.title} are broadcast and never stored, so they count towards nothing and appear in no export. Chat messages are kept with the session and cleared when you reset it.`}
+										{fillText(pageText.channelsNote, {
+											reactions: reactionLabels.title,
+										})}
 									</p>
 								</div>
 								<div className="border-t border-border pt-4 flex flex-col gap-3">
-									<ChatHeading labels={CHAT_LABELS_EN} feed={chatFeed} />
-									<ChatMessageList feed={chatFeed} labels={CHAT_LABELS_EN} />
+									<ChatHeading labels={chatLabels} feed={chatFeed} />
+									<ChatMessageList feed={chatFeed} labels={chatLabels} />
 									<ChatComposer
-										labels={CHAT_LABELS_EN}
+										labels={chatLabels}
 										onSend={handleSendMessage}
 										busy={sendingMessage}
 										closed={chatFeed ? !chatFeed.enabled : false}
@@ -2331,11 +2407,9 @@ export function PresenterPage({
 								<div>
 									<h3 className="flex items-center gap-2 text-base font-semibold">
 										<UserRound size={17} />
-										{participantRosterHeading(roster)}
+										{participantRosterHeading(roster, text, language)}
 									</h3>
-									<p className="text-xs text-text-dim">
-										Only you — the room never sees this list.
-									</p>
+									<p className="text-xs text-text-dim">{pageText.rosterNote}</p>
 								</div>
 								<ParticipantRosterPanel
 									roster={roster}
@@ -2369,9 +2443,9 @@ export function PresenterPage({
 
 			<ConfirmModal
 				open={confirmShareEdit}
-				title="Share with edit permissions"
-				message="Anyone with this link can edit, reset, start, or end this presentation. Only share it with people you trust."
-				confirmLabel="Copy edit link"
+				title={pageText.shareEditTitle}
+				message={pageText.shareEditMessage}
+				confirmLabel={pageText.shareEditConfirm}
 				onConfirm={copyEditLink}
 				onCancel={() => setConfirmShareEdit(false)}
 			/>
@@ -2382,7 +2456,7 @@ export function PresenterPage({
 				open={answerKeyWarning !== null}
 				title={answerKeyWarning?.title ?? ""}
 				message={answerKeyWarning?.message ?? ""}
-				confirmLabel="Start anyway"
+				confirmLabel={text.quizAnswerKey.startAnyway}
 				onConfirm={goLive}
 				onCancel={() => setAnswerKeyWarning(null)}
 			/>
@@ -2393,9 +2467,9 @@ export function PresenterPage({
 			    discover afterwards that it was the way out. */}
 			<ConfirmModal
 				open={confirmReset}
-				title="Clear the results"
-				message="Every response, upvote, Q&A question and chat message from this session is deleted, and the deck returns to draft so it can be run again. This cannot be undone — export the results first if you need them."
-				confirmLabel="Clear results"
+				title={pageText.resetTitle}
+				message={pageText.resetMessage}
+				confirmLabel={pageText.resetConfirm}
 				variant="danger"
 				onConfirm={handleReset}
 				onCancel={() => setConfirmReset(false)}

@@ -132,17 +132,30 @@ that already exist — compose these, never re-hand-roll:
   `navigator.languages` that is offered, else English). Neither sets the
   other. Read organizer text only through `useInterfaceText()`, as
   `text.<section>.<key>`. Each section file holds an English `en` with every
-  key and a German `de`; a key without a German entry reads English, so a
-  surface turns German one slice at a time. A pure helper that returns
-  organizer text takes a trailing `text` parameter that defaults to
-  `ENGLISH_INTERFACE_TEXT`. Counted phrases use `pluralText()` with the deck's
-  `PluralForms` shape; numbers use `formatNumber()`. Words a deck dictionary
-  already holds for a surface shared with the room (the app menu's) are read
-  from `getDict(interfaceLanguage)` rather than restated. A portaled panel in
-  the interface language carries its own `lang`. The provider sets
-  `<html lang>` to `en`, and a screen whose slice is translated declares its
-  own with `useDocumentLanguage()`. `interface-text.test.ts` fails when a key
-  of a done slice's sections has no German entry.
+  key and a German `de`; a key without a German entry reads English. A pure
+  helper that returns organizer text takes a trailing `text` parameter that
+  defaults to `ENGLISH_INTERFACE_TEXT`; one that counts or formats also takes
+  a trailing `language` (default `"en"`), because its plural form and number
+  format need the language (`slideCountLabel`,
+  `accessibilityFindingCountLabel`). Counted phrases use `pluralText()` with
+  the deck's `PluralForms` shape; numbers use `formatNumber()`, dates
+  `formatDate()`. A sentence that draws one of its words as an element (a
+  link, a folder's name) is written with a `{placeholder}` and drawn with
+  `textWithElement()`, so each language puts the word where it belongs. Words
+  a deck dictionary already holds for a surface shared with the room (the app
+  menu's, the results' `resultLabelsFor`) are read from the dictionary rather
+  than restated. Room-facing words on an organizer screen — the presenter
+  screen's join line, QR dialog, waiting lines and result captions, the
+  editor canvas's preview of the slide — read `getDict(pres.language)` (for
+  results, `ResultsWording.room`) and carry the deck's `lang`; the
+  presenter's own controls inside them carry the interface language's `lang`.
+  A portaled panel in the interface language carries its own `lang`. A
+  dialog mounted on a screen that speaks the deck's language (the
+  participant's sign-in) is wrapped in `InterfaceLanguageScope`. The provider
+  sets `<html lang>` to `en`; every organizer screen declares the interface
+  language with `useDocumentLanguage()`, and the participant screen and the
+  preview the deck's. `interface-text.test.ts` fails when a key of any
+  section has no German entry.
 - **Legal texts** — `src/components/LegalLinks.tsx` (REQ183).
   `LEGAL_TEXT_DESCRIPTORS` names the imprint, privacy policy and terms once,
   `<LegalLink/>` is the one anchor a legal link is drawn with (new tab,
