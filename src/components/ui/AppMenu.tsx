@@ -279,15 +279,17 @@ function LanguageSection({
 	choice: AppMenuLanguageChoice;
 }) {
 	const headingId = `${id}-language`;
-	const heading =
-		choice.language === "en"
-			? choice.text.language
-			: `${choice.text.language} · ${ENGLISH_INTERFACE_TEXT.appMenu.language}`;
 	return (
 		<>
 			<p id={headingId} className={`${MENU_HEADING} flex items-center gap-1.5`}>
 				<Languages size={13} aria-hidden />
-				{heading}
+				{choice.text.language}
+				{choice.language !== "en" && (
+					<>
+						{" · "}
+						<span lang="en">{ENGLISH_INTERFACE_TEXT.appMenu.language}</span>
+					</>
+				)}
 			</p>
 			<div
 				role="radiogroup"
@@ -368,6 +370,7 @@ export function AppMenuPanel({
 	labels = APP_MENU_LABELS_EN,
 	languageChoice,
 	lang,
+	leadingLang,
 }: {
 	id: string;
 	links: LegalLinks;
@@ -388,6 +391,11 @@ export function AppMenuPanel({
 	 * host's.
 	 */
 	lang?: string;
+	/**
+	 * The language of the screen's own `leading` section, which is not the
+	 * menu's own while that screen is untranslated (REQ248).
+	 */
+	leadingLang?: string;
 }) {
 	const legalLinks = configuredLegalLinks(links);
 	const anyChecked = THEME_OPTIONS.some((option) => option.value === theme);
@@ -403,7 +411,9 @@ export function AppMenuPanel({
 		>
 			{leading && (
 				<>
-					{leading}
+					<div lang={leadingLang} className="contents">
+						{leading}
+					</div>
 					<div aria-hidden className={MENU_DIVIDER} />
 				</>
 			)}
@@ -684,6 +694,8 @@ export function AppMenu({
 		null,
 	);
 	const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
+	// The screen's language, read from the trigger, which is not portaled.
+	const [screenLang, setScreenLang] = useState<string>("en");
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const panelRef = useRef<HTMLDivElement>(null);
 	const panelId = useId();
@@ -698,6 +710,7 @@ export function AppMenu({
 
 	const openPanel = () => {
 		setPortalHost(menuPortalHost(triggerRef.current));
+		setScreenLang(screenLanguage(triggerRef.current));
 		setView("panel");
 	};
 
@@ -790,6 +803,7 @@ export function AppMenu({
 								labels={labels}
 								languageChoice={languageChoice}
 								lang={menuLanguage}
+								leadingLang={screenLang}
 							/>
 						)}
 						{view === "feedback" && feedbackOrigin && (

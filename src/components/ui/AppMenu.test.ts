@@ -184,7 +184,11 @@ describe("the Language section (REQ248)", () => {
 		return renderToStaticMarkup(
 			createElement(AppMenuPanel, {
 				id: "app-menu",
-				links: { imprintUrl: "https://example.com/imprint" },
+				links: {
+					imprintUrl: "https://example.com/imprint",
+					privacyUrl: null,
+					termsUrl: null,
+				},
 				theme: "dark",
 				onThemeChange: () => {},
 				feedbackEnabled: true,
@@ -233,9 +237,31 @@ describe("the Language section (REQ248)", () => {
 		expect(html).toMatch(/^<div[^>]*lang="de"/);
 	});
 
-	test("a German heading keeps the English word after it", () => {
-		expect(words(markup(choice("de")))).toContain("Sprache · Language");
+	test("a German heading keeps the English word after it, marked English", () => {
+		expect(markup(choice("de"))).toContain(
+			'Sprache · <span lang="en">Language</span>',
+		);
 		expect(words(markup(choice("en")))).not.toContain("·");
+	});
+
+	// Review NST17266 finding 2: in German, the presenter's phone More menu
+	// wrapped the still-English Deck rows in the panel's lang="de".
+	test("a leading section keeps the screen's language inside a German panel", () => {
+		const html = renderToStaticMarkup(
+			createElement(AppMenuPanel, {
+				id: "app-menu",
+				links: { imprintUrl: null, privacyUrl: null, termsUrl: null },
+				theme: "dark",
+				onThemeChange: () => {},
+				leading: createElement("p", null, "Deck"),
+				leadingLang: "en",
+				languageChoice: choice("de", "de"),
+				lang: "de",
+				labels: appMenuLabelsFor(getDict("de")),
+			}),
+		);
+		expect(html).toMatch(/^<div[^>]*lang="de"/);
+		expect(html).toContain('<div lang="en" class="contents"><p>Deck</p></div>');
 	});
 
 	test("an organizer's German menu is German throughout", () => {
