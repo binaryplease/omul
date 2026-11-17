@@ -187,12 +187,22 @@ export function fillText(
  */
 export type PluralText = PluralForms;
 
+/**
+ * The locale a date or time is written in. English reads the browser's own
+ * locale, as every date did before REQ248, so a `fr-FR` or `en-GB` browser on
+ * an English interface keeps day-first dates and its own clock; German reads
+ * German.
+ */
+export function dateLocale(language: InterfaceLanguage): string | undefined {
+	return language === "en" ? undefined : language;
+}
+
 /** A date, without its time, in the interface language's format. */
 export function formatDate(
 	language: InterfaceLanguage,
 	value: string | number | Date,
 ): string {
-	return new Date(value).toLocaleDateString(language);
+	return new Date(value).toLocaleDateString(dateLocale(language));
 }
 
 /** A number in the interface language's format: `1,200` in English, `1.200` in German. */

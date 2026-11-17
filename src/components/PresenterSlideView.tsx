@@ -701,7 +701,7 @@ export function PresenterSlideView({
 					)}
 				</div>
 			) : quizRunning ? (
-				<div className="text-center text-text-dim py-16">
+				<div lang={roomLanguage} className="text-center text-text-dim py-16">
 					{quizCountdown.timed || awaitingStart
 						? dict.resultsAppearWhenTimeUp
 						: dict.resultsAppearWhenClosed}

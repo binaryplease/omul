@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, getResultsToken, resultsLinkUrl } from "../api";
 import { useInterfaceText } from "../interface-language";
 import {
+	dateLocale,
 	ENGLISH_INTERFACE_TEXT,
 	fillText,
 	type InterfaceLanguage,
@@ -84,7 +85,7 @@ export function resultsLinkIssuedLabel(
 	const at = new Date(issuedAt);
 	if (Number.isNaN(at.getTime())) return text.dialogs.resultsLinkActiveUnknown;
 	return fillText(text.dialogs.resultsLinkActiveSince, {
-		time: at.toLocaleString(language),
+		time: at.toLocaleString(dateLocale(language)),
 	});
 }
 

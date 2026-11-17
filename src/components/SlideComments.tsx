@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { useInterfaceText } from "../interface-language";
 import {
+	dateLocale,
 	ENGLISH_INTERFACE_TEXT,
 	type InterfaceLanguage,
 	type InterfaceText,
@@ -63,7 +64,7 @@ export function slideCommentTimeLabel(
 	if (!createdAt) return "";
 	const written = new Date(createdAt);
 	if (Number.isNaN(written.getTime())) return "";
-	return written.toLocaleString(language, {
+	return written.toLocaleString(dateLocale(language), {
 		dateStyle: "medium",
 		timeStyle: "short",
 	});

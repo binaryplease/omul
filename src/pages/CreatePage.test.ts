@@ -359,8 +359,22 @@ describe("the deck-settings panel in the interface language (REQ248 slice 7)", (
 		expect(slideWriteRefusalMessage(refusal, interfaceTextFor("de"))).toBe(
 			`Folie 1, options.0.text: höchstens ${SLIDE_ITEM_TEXT_MAX_LENGTH} Zeichen.`,
 		);
-		expect(slideWriteRefusalMessage(refusal)).toBe(
-			`Slide 1, options.0.text: at most ${SLIDE_ITEM_TEXT_MAX_LENGTH} characters.`,
+		// English is the shared check's own sentence, as before REQ248 (review:
+		// the English interface had swapped Zod's wording for a template).
+		expect(slideWriteRefusalMessage(refusal)).toBe(refusal.message);
+		expect(refusal.message).toStartWith("Slide 1, options.0.text: ");
+	});
+
+	test("in English a refusal that is not a ceiling keeps its detail", () => {
+		const refusal = slideWriteRefusalFor([
+			{ id: "s1", type: "multiple-choice", question: 42 },
+		]);
+		expect(refusal).not.toBeNull();
+		if (!refusal) return;
+		expect(refusal.limit).toBeNull();
+		expect(slideWriteRefusalMessage(refusal)).toBe(refusal.message);
+		expect(slideWriteRefusalMessage(refusal)).not.toContain(
+			"this value cannot be saved",
 		);
 	});
 

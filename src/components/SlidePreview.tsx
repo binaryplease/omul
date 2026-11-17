@@ -90,8 +90,7 @@ function slidePreviewHeading(
 
 /**
  * The stand-in room's own words, in the deck's language where that is an
- * interface language and in English where it is not — the same reading the
- * slide image takes for its presenter line (`slideImageWording`).
+ * interface language and in English where it is not.
  */
 function sampleRoomText(roomLanguage: string): InterfaceText["slideCanvas"] {
 	return interfaceTextFor(resolveInterfaceLanguage("auto", [roomLanguage]))

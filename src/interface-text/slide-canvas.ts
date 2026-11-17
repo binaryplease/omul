@@ -2,8 +2,8 @@
 // What the slide says to the room is drawn from the deck's `Dict` (REQ084), not
 // from here. The stand-in room's own words (`sampleWords` and the rest) are the
 // one exception: they are read in the deck's language where that is an
-// interface language and in English where it is not, the way the slide image's
-// presenter line is (`slideImageWording`).
+// interface language and in English where it is not (`sampleRoomText` in
+// SlidePreview.tsx).
 
 export const en = {
 	// The canvas's caption and its two views (REQ152, REQ154).

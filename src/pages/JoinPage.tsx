@@ -45,13 +45,6 @@ export function JoinPage({ go }: { go: (r: Route) => void }) {
 			} catch (joinError: unknown) {
 				if (joinError instanceof ApiError && joinError.status === 404) {
 					setError(words.codeNotFound);
-				} else if (
-					joinError instanceof ApiError &&
-					joinError.refused === "sign-in-required"
-				) {
-					// The deck asks its room to sign in (REQ134): its own page is
-					// where the way through that door is drawn.
-					go({ page: "participate", code: cleanCode });
 				} else {
 					setError((joinError as Error).message);
 				}

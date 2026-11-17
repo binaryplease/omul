@@ -1254,7 +1254,11 @@ export function slideWriteRefusalMessage(
 	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
 ): string {
 	const words = text.editor;
-	if (refusal.slideIndex === null) return refusal.message;
+	// English is the shared check's own sentence, detail included, as the editor
+	// showed it before REQ248; another language words it from the facts beside it.
+	if (refusal.slideIndex === null || text === ENGLISH_INTERFACE_TEXT) {
+		return refusal.message;
+	}
 	const template =
 		refusal.limit === null
 			? words.writeRefusalInvalid

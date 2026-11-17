@@ -12,6 +12,8 @@ import {
 	deckAccessLevelLabel,
 	deckAccessLevelSummary,
 } from "../components/CollaboratorsDialog";
+import { resultsLinkIssuedLabel } from "../components/ResultsLinkDialog";
+import { slideCommentTimeLabel } from "../components/SlideComments";
 import { SLIDE_TYPE_SECTIONS } from "../components/SlideTypeMenu";
 import {
 	workspaceRoleLabel,
@@ -24,6 +26,7 @@ import {
 	WORKSPACE_ROLES,
 } from "../types";
 import {
+	dateLocale,
 	ENGLISH_INTERFACE_TEXT,
 	fillText,
 	formatDate,
@@ -326,10 +329,23 @@ describe("each done slice is complete in German (REQ248)", () => {
 });
 
 describe("dates take the interface language's format", () => {
-	test("a day is written the way the language writes it", () => {
-		const day = new Date(2026, 9, 27);
-		expect(formatDate("en", day)).toBe("10/27/2026");
-		expect(formatDate("de", day)).toBe("27.10.2026");
+	test("German writes a day the German way", () => {
+		expect(formatDate("de", new Date(2026, 9, 27))).toBe("27.10.2026");
+	});
+
+	test("English keeps the browser's own locale, as before REQ248", () => {
+		// Review: an English interface wrote every date in en-US, so a fr-FR
+		// browser on Automatic read 5 November as 11/5/2026.
+		const day = new Date(2026, 10, 5, 14, 30);
+		expect(dateLocale("en")).toBeUndefined();
+		expect(dateLocale("de")).toBe("de");
+		expect(formatDate("en", day)).toBe(day.toLocaleDateString());
+		expect(slideCommentTimeLabel(day.toISOString())).toBe(
+			day.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }),
+		);
+		expect(resultsLinkIssuedLabel(day.toISOString())).toBe(
+			`Active since ${day.toLocaleString()}.`,
+		);
 	});
 });
 
@@ -365,6 +381,11 @@ describe("<html lang> follows the interface where a screen is translated", () =>
 				"useDocumentLanguage(pres?.language || undefined);",
 			);
 		}
+		// The preview's chrome stays English under the deck's <html lang>, so it
+		// says so (review: a German deck tagged the English header de).
+		const preview = source("pages", "PreviewPage.tsx");
+		expect(preview).toMatch(/<header\s+lang="en"/);
+		expect(preview.match(/<h2\s+lang="en"/g)?.length).toBe(2);
 		// The editor names its interface language `interfaceLanguage`, because
 		// `language` there is the deck's.
 		expect(source("pages", "CreatePage.tsx")).toContain(

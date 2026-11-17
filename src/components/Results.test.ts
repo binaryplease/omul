@@ -427,6 +427,51 @@ describe("the shared screen's slide speaks to the room in the deck's language (R
 		expect(markup).toContain("Results are private");
 	});
 
+	test("a running quiz question's waiting line carries the deck's lang", () => {
+		// Review: the line drawn while a quiz question runs had no lang, so a
+		// German interface over an English deck announced it as German.
+		const quiz = {
+			id: "qz",
+			type: "quiz",
+			question: "Closest to the sun?",
+			options: [{ id: "venus", text: "Venus" }],
+			timeLimit: 30,
+		} as unknown as Slide;
+		const pres = {
+			id: "deck-1",
+			code: "123456",
+			title: "Workshop",
+			status: "live",
+			language: "en",
+			resultsVisibility: "instant",
+			revealedSlideIds: [],
+			closedSlideIds: [],
+			activeSlideIndex: 0,
+			slides: [quiz],
+		} as unknown as Presentation;
+		const markup = renderToStaticMarkup(
+			createElement(PresenterSlideView, {
+				slide: quiz,
+				pres,
+				results: null,
+				serverClockOffsetMs: 0,
+				controls: {
+					canControl: true,
+					onReveal: () => {},
+					onRestartTimer: null,
+					onSetParticipation: null,
+					onSetCountdown: null,
+					onDeleteAnswer: null,
+					audioCue: null,
+				},
+				joinUrl: "https://omul.test/join/123456",
+			}),
+		);
+		expect(markup).toContain(
+			`<div lang="en" class="text-center text-text-dim py-16">${getDict("en").resultsAppearWhenTimeUp}</div>`,
+		);
+	});
+
 	test("before the deck is live, the presenter is told in the interface language", () => {
 		const markup = sharedScreen({ status: "draft" });
 		// No provider here, so the interface is English.
