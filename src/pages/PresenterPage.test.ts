@@ -227,7 +227,7 @@ describe("the door is the room's standing invitation (REQ191)", () => {
 	});
 
 	test("the QR overlay is a dialog that shows the room's head-count", () => {
-		const overlay = source.slice(source.indexOf("{showQr && ("));
+		const overlay = source.slice(source.indexOf("const qrDialog = showQr && ("));
 		expect(overlay).toContain('role="dialog"');
 		expect(overlay).toContain('aria-modal="true"');
 		expect(overlay).toContain("participantCount");
@@ -282,14 +282,16 @@ describe("below 1280px the bar is laid out for whoever holds the screen (REQ199)
 	test("below `sm` the Deck trigger gives way to one More menu leading with the same rows", () => {
 		const command_ = topBar.slice(command);
 		expect(command_).toMatch(/triggerClassName=\{`[^`]*\bmax-sm:hidden\b[^`]*`\}/);
-		expect(command_).toMatch(/<AppMenu\s+className=\{`sm:hidden \$\{BAR_CONTROL_SIZE\}`\}\s+leading=\{\{[\s\S]*?rows: deckMenuRows,/);
-		expect(source.match(/\{deckMenuRows\}|rows: deckMenuRows/g)?.length).toBe(2);
+		expect(command_).toMatch(/<AppMenu\s+className=\{`sm:hidden \$\{BAR_CONTROL_SIZE\}`\}\s+leading=\{\{[\s\S]*?rows: moreMenuRows,/);
+		// More leads with Present (REQ247), then the very same Deck rows.
+		expect(source).toMatch(/const moreMenuRows = \(close: \(\) => void\) => \([\s\S]*?label="Present"[\s\S]*?\{deckMenuRows\(close\)\}/);
+		expect(source.match(/\{deckMenuRows\}|\{deckMenuRows\(close\)\}/g)?.length).toBe(2);
 	});
 
 	test("More and Deck name the rows from one list, and More leaves its own sections to `AppMenu`", () => {
 		const command_ = topBar.slice(command);
 		expect(source).toContain("const deckMenuLabel = `Deck — ${deckMenuOffers}`;");
-		expect(command_).toContain("label: `More — ${deckMenuOffers}`,");
+		expect(command_).toContain("label: `More — present, ${deckMenuOffers}`,");
 		// The app menu's sections are named by the menu, feedback included where
 		// it is on (`appMenuTriggerLabel`), never restated here.
 		expect(source).not.toMatch(/appearance and legal|feedback and legal/);
@@ -432,8 +434,12 @@ describe("below 1280px the bar is laid out for whoever holds the screen (REQ199)
 		const handler = source.slice(source.indexOf("const handleKeyDown = useCallback("));
 		const guard = handler.indexOf("if (keyBelongsToField(e)) return;");
 		expect(guard).toBeGreaterThan(handler.indexOf("panelSheetEscape("));
-		expect(guard).toBeLessThan(handler.indexOf('if (e.key === "ArrowRight"'));
-		expect(guard).toBeLessThan(handler.indexOf('if (e.key === "ArrowLeft"'));
+		expect(guard).toBeLessThan(handler.indexOf("if (NEXT_SLIDE_KEYS.includes(e.key))"));
+		expect(guard).toBeLessThan(
+			handler.indexOf("if (PREVIOUS_SLIDE_KEYS.includes(e.key))"),
+		);
+		// The presenting view's `F` and `B` (REQ247) are typed letters in a field.
+		expect(guard).toBeLessThan(handler.indexOf("presentingShortcut({"));
 	});
 
 	test("a panel's count reads at 4.5:1: `0` and — are muted, not dim (REQ190)", () => {

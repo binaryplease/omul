@@ -12,8 +12,10 @@ import {
 	MessagesSquare,
 	Monitor,
 	MonitorOff,
+	MonitorUp,
 	PanelRight,
 	Pencil,
+	Presentation,
 	RefreshCw,
 	StickyNote,
 	UserRound,
@@ -67,6 +69,16 @@ import {
 } from "../components/PresenterSlideView";
 import { quizAnswerKeyGoLiveWarning } from "../components/QuizAnswerKeyWarning";
 import { useQuizQuestionRunning } from "../components/QuizTimer";
+import {
+	isTypingTarget,
+	NEXT_SLIDE_KEYS,
+	PRESENTING_HASH,
+	PresentingView,
+	presentingShortcut,
+	presentingWindowName,
+	PREVIOUS_SLIDE_KEYS,
+	takesSpace,
+} from "../components/PresentingView";
 import {
 	ParticipantRosterPanel,
 	participantRosterHeading,
@@ -406,6 +418,26 @@ export function PresenterPage({
 	// descriptor exists, so it reaches `hidePanels` through here.
 	const panelSheetRef = useRef<HTMLDivElement>(null);
 	const hidePanelsRef = useRef<(focus: PanelSheetFocus) => void>(() => {});
+	/**
+	 * REQ247 — whether the screen shows the room the slide alone. Opened by the
+	 * address too, so a reload stays in it; the start card says how to go full
+	 * screen, which a view opened without a gesture cannot ask for itself.
+	 */
+	const [presenting, setPresenting] = useState(
+		() => window.location.hash === PRESENTING_HASH,
+	);
+	const [startCardShown, setStartCardShown] = useState(
+		() => window.location.hash === PRESENTING_HASH,
+	);
+	const [fullscreenElement, setFullscreenElement] = useState<Element | null>(
+		() => document.fullscreenElement ?? null,
+	);
+	// Whether the full screen in force is the one this view asked for. One the
+	// presenter started themselves (F11) is left alone on the way out.
+	const requestedFullscreenRef = useRef(false);
+	// Where focus goes back to on leaving the view.
+	const presentControlRef = useRef<HTMLButtonElement>(null);
+	const wasPresentingRef = useRef(presenting);
 	const { addToast } = useToast();
 
 	// Whether the current browser holds the creator token for this presentation.
@@ -868,6 +900,97 @@ export function PresenterPage({
 		qrOpenerRef.current?.focus();
 	};
 
+	/**
+	 * The presenting view (REQ247): entered by the Present control, its More
+	 * row, `F` or the address, and left by Esc, `F`, Exit or leaving full
+	 * screen. Its state rides the address with `replaceState`, so a reload stays
+	 * in it and Back does not toggle it. The document element goes full screen,
+	 * so menus, the QR dialog and the toasts stay on screen with it.
+	 */
+	const requestFullscreen = () => {
+		if (!document.fullscreenEnabled || document.fullscreenElement) return;
+		requestedFullscreenRef.current = true;
+		document.documentElement.requestFullscreen().catch(() => {
+			requestedFullscreenRef.current = false;
+		});
+	};
+	const writePresentingHash = (on: boolean) =>
+		window.history.replaceState(
+			window.history.state,
+			"",
+			`${window.location.pathname}${window.location.search}${on ? PRESENTING_HASH : ""}`,
+		);
+	const enterPresenting = () => {
+		setPresenting(true);
+		setStartCardShown(false);
+		writePresentingHash(true);
+		requestFullscreen();
+	};
+	const leavePresenting = () => {
+		setPresenting(false);
+		setStartCardShown(false);
+		writePresentingHash(false);
+		if (requestedFullscreenRef.current) {
+			requestedFullscreenRef.current = false;
+			if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+		}
+	};
+
+	// Leaving browser full screen by any route leaves a view that asked for it,
+	// so a browser that spends Esc on the full screen still leaves in one press.
+	// The handlers read only setters and refs, so the first render's serve.
+	useEffect(() => {
+		const followFullscreen = () => {
+			setFullscreenElement(document.fullscreenElement ?? null);
+			if (document.fullscreenElement) {
+				setStartCardShown(false);
+			} else if (requestedFullscreenRef.current) {
+				requestedFullscreenRef.current = false;
+				leavePresenting();
+			}
+		};
+		document.addEventListener("fullscreenchange", followFullscreen);
+		return () => {
+			document.removeEventListener("fullscreenchange", followFullscreen);
+			if (requestedFullscreenRef.current && document.fullscreenElement) {
+				document.exitFullscreen().catch(() => {});
+			}
+		};
+	}, []);
+
+	// The address is followed after load too: `#presenting` typed into an open
+	// page opens the view as a reload would, start card and all, and taking it
+	// away leaves, so the address never claims a view the screen is not in.
+	useEffect(() => {
+		const followAddress = () => {
+			const addressed = window.location.hash === PRESENTING_HASH;
+			if (addressed && !presenting) {
+				setPresenting(true);
+				setStartCardShown(true);
+			} else if (!addressed && presenting) {
+				leavePresenting();
+			}
+		};
+		window.addEventListener("hashchange", followAddress);
+		return () => window.removeEventListener("hashchange", followAddress);
+	}, [presenting]);
+
+	// Back on the control that entered, or on More below `sm`, where Present is
+	// a row of that menu. The page's tree is drawn again on leaving, so focus is
+	// handed to its new copy rather than to what held it before.
+	useEffect(() => {
+		if (wasPresentingRef.current && !presenting) {
+			if (window.matchMedia("(width < 40rem)").matches) {
+				document
+					.querySelector<HTMLElement>('button[aria-label^="More — "]')
+					?.focus();
+			} else {
+				presentControlRef.current?.focus();
+			}
+		}
+		wasPresentingRef.current = presenting;
+	}, [presenting]);
+
 	// Keyboard shortcuts for slide navigation — only when the viewer owns
 	// the presentation (the server would 401 the underlying setSlide call
 	// otherwise).
@@ -882,12 +1005,23 @@ export function PresenterPage({
 			// never pages the deck behind it (REQ191) — whoever is viewing.
 			if (showQr) {
 				if (
-					["Escape", "ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", " "].includes(
-						e.key,
-					)
+					e.key === "Escape" ||
+					NEXT_SLIDE_KEYS.includes(e.key) ||
+					PREVIOUS_SLIDE_KEYS.includes(e.key)
 				) {
 					e.preventDefault();
 					closeQr();
+				}
+				return;
+			}
+			const dialogOpen =
+				confirmShareEdit || confirmReset || exportOpen || resultsLinkOpen;
+			// In the presenting view Escape leaves it (REQ247), unless a menu has
+			// answered it or a dialog owns it.
+			if (e.key === "Escape" && presenting) {
+				if (!e.defaultPrevented && !dialogOpen) {
+					e.preventDefault();
+					leavePresenting();
 				}
 				return;
 			}
@@ -922,14 +1056,49 @@ export function PresenterPage({
 			// Space and the arrows typed into a field — the chat, a note — type
 			// and move the caret there; they never page the deck behind it.
 			if (keyBelongsToField(e)) return;
+			// `F` enters and leaves the presenting view, and `B` blanks from it
+			// (REQ247) — not while typing, nor while a dialog or menu is open. On
+			// the start card `F` is the full screen the card asks for, where the
+			// browser offers one; elsewhere it leaves, as it does without a card.
+			const shortcut = presentingShortcut({
+				key: e.key,
+				modified: e.ctrlKey || e.metaKey || e.altKey || e.shiftKey,
+				typing: isTypingTarget(e.target instanceof HTMLElement ? e.target : null),
+				overlayOpen:
+					dialogOpen ||
+					document.querySelector('[aria-expanded="true"], [aria-modal="true"]') !==
+						null,
+			});
+			if (shortcut === "presenting") {
+				e.preventDefault();
+				if (!presenting) enterPresenting();
+				else if (startCardShown && document.fullscreenEnabled) requestFullscreen();
+				else leavePresenting();
+				return;
+			}
+			if (shortcut === "blank" && presenting) {
+				e.preventDefault();
+				if (pres && isOwner) handleSetBlanked(!audienceViewBlanked(pres));
+				return;
+			}
+			// Space on a focused button presses that button, and pages nothing.
+			if (
+				e.key === " " &&
+				takesSpace(e.target instanceof HTMLElement ? e.target : null)
+			) {
+				return;
+			}
+			const pagingKey =
+				NEXT_SLIDE_KEYS.includes(e.key) || PREVIOUS_SLIDE_KEYS.includes(e.key);
+			if (pagingKey && startCardShown) setStartCardShown(false);
 			if (!pres || pres.status !== "live" || !isOwner) return;
 			// Skipped slides are stepped over (REQ110), exactly as the buttons do.
-			if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") {
+			if (NEXT_SLIDE_KEYS.includes(e.key)) {
 				e.preventDefault();
 				const nextIndex = steppedSlideIndex(pres.slides, pres.activeSlideIndex, 1);
 				if (nextIndex !== null) handleSlide(nextIndex);
 			}
-			if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+			if (PREVIOUS_SLIDE_KEYS.includes(e.key)) {
 				e.preventDefault();
 				const previousIndex = steppedSlideIndex(
 					pres.slides,
@@ -944,8 +1113,11 @@ export function PresenterPage({
 			pres?.activeSlideIndex,
 			pres?.slides,
 			pres?.status,
+			pres?.audienceBlanked,
 			isOwner,
 			showQr,
+			presenting,
+			startCardShown,
 			confirmShareEdit,
 			confirmReset,
 			exportOpen,
@@ -1140,7 +1312,7 @@ export function PresenterPage({
 					{pres.activeSlideIndex + 1} / {pres.slides.length}
 				</span>
 				<span className="text-text-dim text-xs hidden sm:inline">
-					(arrow keys)
+					(arrow keys · F to present)
 				</span>
 			</div>
 			<button
@@ -1156,6 +1328,194 @@ export function PresenterPage({
 			</button>
 		</div>
 	);
+
+	/**
+	 * The room-sized QR code (REQ191) — sized for the back row of the room,
+	 * with the address and the code for whoever would rather type, and the
+	 * head-count so the presenter can watch the room fill. Drawn by the
+	 * presenter screen and by the presenting view (REQ247) alike.
+	 */
+	const qrDialog = showQr && (
+		// Overlay backdrop — a click anywhere outside the panel closes it.
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-void/90 backdrop-blur-sm p-4"
+			onClick={closeQr}
+		>
+			{/* Stops content clicks from reaching the backdrop's dismiss handler. */}
+			<div
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="presenter-qr-heading"
+				className="slide-in flex w-full max-w-2xl lg:max-w-5xl max-h-full flex-col lg:flex-row items-center gap-4 sm:gap-5 lg:gap-10 overflow-y-auto rounded-2xl border border-border bg-surface-raised p-6 sm:p-10 text-center lg:text-left shadow-lg"
+				onClick={(e) => e.stopPropagation()}
+			>
+				<div className="flex-none rounded-xl bg-white p-3 sm:p-4 *:size-[min(44vh,calc(100vw-6rem),28rem)] lg:*:size-[min(60vh,28rem)]">
+					<QRCodeDisplay
+						url={`${window.location.origin}/join/${pres.code}`}
+						size={448}
+					/>
+				</div>
+				<div className="flex flex-col items-center lg:items-start gap-4 sm:gap-5">
+					<h3
+						id="presenter-qr-heading"
+						className="text-2xl sm:text-4xl font-semibold"
+					>
+						Scan to join
+					</h3>
+					<p className="flex flex-wrap items-baseline justify-center lg:justify-start gap-x-2 text-sm sm:text-lg text-text-muted">
+						<span>or go to</span>
+						{/* May break before `/join` and nowhere else. */}
+						<span className="font-mono text-accent-text [overflow-wrap:anywhere]">
+							{window.location.host}
+							<wbr />
+							<span className="whitespace-nowrap">/join/{pres.code}</span>
+						</span>
+					</p>
+					<div>
+						<p className="text-xs uppercase tracking-wider text-text-muted">
+							Join code
+						</p>
+						<p className="font-mono font-bold text-4xl sm:text-6xl tracking-widest text-text">
+							{pres.code}
+						</p>
+					</div>
+					<div className="flex flex-wrap items-center justify-center gap-4">
+						<span className="inline-flex items-center gap-1.5 font-mono tabular-nums text-sm text-text-muted">
+							<Users size={16} aria-hidden />
+							{participantCount} in the room
+						</span>
+						<button
+							type="button"
+							className="btn-secondary text-sm"
+							onClick={closeQr}
+							autoFocus
+						>
+							Close
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+
+	/**
+	 * The slide on screen, with what is drawn behind and over it: its own
+	 * appearance over the deck's theme (REQ087), wrapping the background as well
+	 * as the slide so the scrim and the words on it are given one answer — it
+	 * generates no box, so it changes no layout — and the room's reactions
+	 * (REQ077). Drawn in the presenter screen's centre column, and alone in the
+	 * presenting view (REQ247), which has no in-slide paging row.
+	 */
+	const slideStage = (presentingView: boolean) => (
+		<SlideAppearanceScope deck={pres} slide={activeSlide ?? {}}>
+			{activeSlide && <SlideBackground slide={activeSlide} />}
+			{/* The room's reactions, over the slide they are aimed at (REQ077).
+			    This is the screen the room is looking at, so it is the screen a
+			    reaction is *for* — and the reason the participant surface draws
+			    them too is that a phone which showed nothing back would leave
+			    the sender wondering whether the tap did anything.
+			    Pointer-transparent, so a burst never eats a reveal click. */}
+			<ReactionStream reactions={liveReactions} />
+			{activeSlide ? (
+				<div
+					className={`w-full relative z-10 ${presenterSlideWidthClass(
+						activeSlide.type,
+					)}`}
+				>
+					<PresenterSlideView
+						slide={activeSlide}
+						pres={pres}
+						results={slideResults}
+						serverClockOffsetMs={serverClockOffsetMs}
+						joinUrl={`${window.location.origin}/join/${pres.code}`}
+						controls={{
+							canControl: isOwner,
+							onReveal: (slideId, reveal) =>
+								revealResults(pres.id, slideId, reveal),
+							onRestartTimer: handleRestartTimer,
+							onSetParticipation: handleSetParticipation,
+							onSetCountdown: handleSetCountdown,
+							onDeleteAnswer: handleDeleteAnswer,
+							audioCue,
+						}}
+					/>
+
+					{/* Below `sm` paging is in the dock instead, in
+					    reach of the thumb rather than under a slide
+					    that may run past the fold (REQ199). */}
+					{!presentingView && (
+						<div className="max-sm:hidden">{slideNavigation}</div>
+					)}
+				</div>
+			) : (
+				<div className="text-text-dim">No slides</div>
+			)}
+		</SlideAppearanceScope>
+	);
+
+	// The blanked screen's controls (REQ109): this slide's participation switch
+	// (REQ111) and its audio cue (REQ058), on the curtain and in the presenting
+	// view alike.
+	const curtainControls = (
+		<>
+			{activeSlide && (
+				<SlideParticipationControl
+					open={slideAcceptsSubmissions(pres, activeSlide.id)}
+					canControl={isOwner}
+					live={pres.status === "live"}
+					onChange={(open) => handleSetParticipation(activeSlide.id, open)}
+				/>
+			)}
+			{audioCue && <QuizAudioCueControl cue={audioCue} />}
+		</>
+	);
+
+	/**
+	 * REQ247 — the presenting view, an early return for the reason the blank
+	 * below is one: everything drawn on this path is on the wall, so the bar,
+	 * the rail, the panels and the dock are simply not on it. The page's state
+	 * stays — which panels are open comes back on leaving. Blanked, the view is
+	 * the theme's background with the curtain's controls under the layer.
+	 */
+	const presentLabel = "Present — show only the slide, full screen (F)";
+	if (presenting) {
+		return themed(
+			<div className="min-h-screen w-full bg-void bg-grid bg-noise">
+				<PresentingView
+					join={{ host: window.location.host, code: pres.code }}
+					blanked={screenBlanked}
+					stage={
+						screenBlanked ? (
+							<div className="flex flex-col items-center gap-4">
+								{curtainControls}
+							</div>
+						) : (
+							slideStage(true)
+						)
+					}
+					paging={slidePaging}
+					onPage={pageTo}
+					position={`${pres.activeSlideIndex + 1} / ${pres.slides.length}`}
+					blank={{
+						pressed: screenBlanked,
+						disabled: !isOwner,
+						label: blankButtonLabel,
+						onToggle: () => handleSetBlanked(!screenBlanked),
+					}}
+					onShowQr={openQr}
+					held={showQr}
+					fullscreenOffered={
+						document.fullscreenEnabled === true && fullscreenElement === null
+					}
+					onRequestFullscreen={requestFullscreen}
+					onLeave={leavePresenting}
+					startCardShown={startCardShown}
+					onDismissStartCard={() => setStartCardShown(false)}
+				/>
+				{qrDialog}
+			</div>,
+		);
+	}
 
 	/**
 	 * REQ109 — the blanked shared screen, and it is an **early return** rather
@@ -1196,17 +1556,7 @@ export function PresenterPage({
 							onShow={() => handleSetBlanked(false)}
 							controls={
 								<>
-									{activeSlide && (
-										<SlideParticipationControl
-											open={slideAcceptsSubmissions(pres, activeSlide.id)}
-											canControl={isOwner}
-											live={pres.status === "live"}
-											onChange={(open) =>
-												handleSetParticipation(activeSlide.id, open)
-											}
-										/>
-									)}
-									{audioCue && <QuizAudioCueControl cue={audioCue} />}
+									{curtainControls}
 									{slideNavigation}
 								</>
 							}
@@ -1335,7 +1685,7 @@ export function PresenterPage({
 	// What the Deck rows offer, named once for the two triggers that open them:
 	// the Deck menu from `sm`, and More below it, where `AppMenu` adds its own
 	// sections to the name (REQ199).
-	const deckMenuOffers = `${deckEditable ? "edit, " : ""}preview, share results, export, reset`;
+	const deckMenuOffers = `${deckEditable ? "edit, " : ""}preview, open presenting window, share results, export, reset`;
 	const deckMenuLabel = `Deck — ${deckMenuOffers}`;
 
 	/**
@@ -1374,6 +1724,21 @@ export function PresenterPage({
 					go(route);
 				}}
 				canPreview={isOwner}
+			/>
+			{/* A second window straight into the presenting view, for an extended
+			    screen (REQ247). The named target brings back the one already open;
+			    both windows follow the deck through the broadcast. */}
+			<BarMenuRow
+				icon={<MonitorUp size={16} />}
+				label="Open presenting window"
+				title="Open presenting window — the slide alone, in a window for the projector"
+				onClick={() => {
+					close();
+					window.open(
+						`/present/${pres.id}${PRESENTING_HASH}`,
+						presentingWindowName(pres.id),
+					);
+				}}
 			/>
 			<div aria-hidden className={MENU_DIVIDER} />
 			<BarMenuRow
@@ -1414,6 +1779,25 @@ export function PresenterPage({
 					setConfirmReset(true);
 				}}
 			/>
+		</>
+	);
+
+	// The phone's More menu leads with Present (REQ247), where the Screen group's
+	// Present control is from `sm`, then the Deck rows.
+	const moreMenuRows = (close: () => void) => (
+		<>
+			<BarMenuRow
+				icon={<Presentation size={16} />}
+				label="Present"
+				ariaLabel={presentLabel}
+				title={presentLabel}
+				onClick={() => {
+					close();
+					enterPresenting();
+				}}
+			/>
+			<div aria-hidden className={MENU_DIVIDER} />
+			{deckMenuRows(close)}
 		</>
 	);
 
@@ -1538,6 +1922,21 @@ export function PresenterPage({
 									className={BAR_GROUP_ITEM}
 								>
 									{screenBlanked ? <MonitorOff size={16} /> : <Monitor size={16} />}
+								</button>
+								{/* The presenting view (REQ247): the slide alone, for
+								    every viewer. Not a toggle — it is not drawn while
+								    the view is on. Below `sm` it is More's first row,
+								    and the dock keeps its shape. */}
+								<button
+									ref={presentControlRef}
+									type="button"
+									onClick={enterPresenting}
+									aria-label={presentLabel}
+									title={presentLabel}
+									className={`${BAR_GROUP_ITEM} max-sm:hidden`}
+								>
+									<Presentation size={16} aria-hidden />
+									<span>Present</span>
 								</button>
 							</div>
 
@@ -1719,81 +2118,17 @@ export function PresenterPage({
 							<AppMenu
 								className={`sm:hidden ${BAR_CONTROL_SIZE}`}
 								leading={{
-									label: `More — ${deckMenuOffers}`,
+									label: `More — present, ${deckMenuOffers}`,
 									title: "More",
 									heading: "Deck",
-									rows: deckMenuRows,
+									rows: moreMenuRows,
 								}}
 							/>
 						</div>
 					</div>
 				</header>
 
-				{/* QR Code overlay (REQ191) — sized for the back row of the room,
-				    with the address and the code for whoever would rather type,
-				    and the head-count so the presenter can watch the room fill. */}
-				{showQr && (
-					// Overlay backdrop — a click anywhere outside the panel closes it.
-					<div
-						className="fixed inset-0 z-50 flex items-center justify-center bg-void/90 backdrop-blur-sm p-4"
-						onClick={closeQr}
-					>
-						{/* Stops content clicks from reaching the backdrop's dismiss handler. */}
-						<div
-							role="dialog"
-							aria-modal="true"
-							aria-labelledby="presenter-qr-heading"
-							className="slide-in flex w-full max-w-2xl lg:max-w-5xl max-h-full flex-col lg:flex-row items-center gap-4 sm:gap-5 lg:gap-10 overflow-y-auto rounded-2xl border border-border bg-surface-raised p-6 sm:p-10 text-center lg:text-left shadow-lg"
-							onClick={(e) => e.stopPropagation()}
-						>
-							<div className="flex-none rounded-xl bg-white p-3 sm:p-4 *:size-[min(44vh,calc(100vw-6rem),28rem)] lg:*:size-[min(60vh,28rem)]">
-								<QRCodeDisplay
-									url={`${window.location.origin}/join/${pres.code}`}
-									size={448}
-								/>
-							</div>
-							<div className="flex flex-col items-center lg:items-start gap-4 sm:gap-5">
-								<h3
-									id="presenter-qr-heading"
-									className="text-2xl sm:text-4xl font-semibold"
-								>
-									Scan to join
-								</h3>
-								<p className="flex flex-wrap items-baseline justify-center lg:justify-start gap-x-2 text-sm sm:text-lg text-text-muted">
-									<span>or go to</span>
-									{/* May break before `/join` and nowhere else. */}
-									<span className="font-mono text-accent-text [overflow-wrap:anywhere]">
-										{window.location.host}
-										<wbr />
-										<span className="whitespace-nowrap">/join/{pres.code}</span>
-									</span>
-								</p>
-								<div>
-									<p className="text-xs uppercase tracking-wider text-text-muted">
-										Join code
-									</p>
-									<p className="font-mono font-bold text-4xl sm:text-6xl tracking-widest text-text">
-										{pres.code}
-									</p>
-								</div>
-								<div className="flex flex-wrap items-center justify-center gap-4">
-									<span className="inline-flex items-center gap-1.5 font-mono tabular-nums text-sm text-text-muted">
-										<Users size={16} aria-hidden />
-										{participantCount} in the room
-									</span>
-									<button
-										type="button"
-										className="btn-secondary text-sm"
-										onClick={closeQr}
-										autoFocus
-									>
-										Close
-									</button>
-								</div>
-							</div>
-						</div>
-					</div>
-				)}
+				{qrDialog}
 
 				{/* Main content area */}
 				<div className="flex-1 flex flex-col md:flex-row">
@@ -1816,52 +2151,7 @@ export function PresenterPage({
 
 					{/* Active slide + results */}
 					<main className="flex-1 flex items-center justify-center p-4 sm:p-8 relative">
-						{/* The slide's own appearance over the deck's theme (REQ087),
-						    wrapping what is drawn behind the slide as well as the slide
-						    itself so the scrim and the words on it are given one answer.
-						    Generates no box, so this changes no layout. */}
-						<SlideAppearanceScope deck={pres} slide={activeSlide ?? {}}>
-							{activeSlide && <SlideBackground slide={activeSlide} />}
-							{/* The room's reactions, over the slide they are aimed at (REQ077).
-							    This is the screen the room is looking at, so it is the screen a
-							    reaction is *for* — and the reason the participant surface draws
-							    them too is that a phone which showed nothing back would leave
-							    the sender wondering whether the tap did anything.
-							    Pointer-transparent, so a burst never eats a reveal click. */}
-							<ReactionStream reactions={liveReactions} />
-							{activeSlide ? (
-								<div
-									className={`w-full relative z-10 ${presenterSlideWidthClass(
-										activeSlide.type,
-									)}`}
-								>
-									<PresenterSlideView
-										slide={activeSlide}
-										pres={pres}
-										results={slideResults}
-										serverClockOffsetMs={serverClockOffsetMs}
-										joinUrl={`${window.location.origin}/join/${pres.code}`}
-										controls={{
-											canControl: isOwner,
-											onReveal: (slideId, reveal) =>
-												revealResults(pres.id, slideId, reveal),
-											onRestartTimer: handleRestartTimer,
-											onSetParticipation: handleSetParticipation,
-											onSetCountdown: handleSetCountdown,
-											onDeleteAnswer: handleDeleteAnswer,
-											audioCue,
-										}}
-									/>
-
-									{/* Below `sm` paging is in the dock instead, in
-									    reach of the thumb rather than under a slide
-									    that may run past the fold (REQ199). */}
-									<div className="max-sm:hidden">{slideNavigation}</div>
-								</div>
-							) : (
-								<div className="text-text-dim">No slides</div>
-							)}
-						</SlideAppearanceScope>
+						{slideStage(false)}
 					</main>
 
 					{/* The panels beside the slide. Below `sm` they are a sheet above
