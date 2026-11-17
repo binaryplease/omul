@@ -366,7 +366,7 @@ export function PreviewPage({
 		return themed(
 			<div className="min-h-screen bg-void flex items-center justify-center text-error">
 				<div className="absolute top-4 right-4 z-20">
-					<AppMenu />
+					<AppMenu speaksDeckLanguage />
 				</div>
 				{error}
 			</div>,
@@ -414,7 +414,7 @@ export function PreviewPage({
 						</div>
 
 						<div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-							<AppMenu />
+							<AppMenu speaksDeckLanguage />
 							<button
 								type="button"
 								className="btn-secondary text-sm flex items-center gap-1.5"

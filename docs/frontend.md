@@ -119,7 +119,30 @@ that already exist — compose these, never re-hand-roll:
   (`appMenuTriggerLabel()`), feedback included where it is on, in a `w-64`
   panel, with focus on its first enabled row on open. The presenter's phone bar
   folds its Deck menu into a More menu this way rather than drawing two menu
-  triggers side by side.
+  triggers side by side. Below Appearance sits the Language section (REQ248):
+  Automatic, English, Deutsch. The participant screen and the preview pass
+  `speaksDeckLanguage`, which drops the section; there the menu speaks the
+  `language` prop, the deck's (REQ225), or English where none is given.
+- **Interface language** — `src/interface-language.tsx` and
+  `src/interface-text/` (REQ248). The language rule: a participant- or
+  room-facing surface speaks the deck's language (`src/i18n.ts`, REQ084,
+  REQ225) and reads `getDict(pres.language)`; an organizer surface speaks the
+  interface language, chosen per browser in the app menu
+  (`INTERFACE_LANGUAGE_KEY` in `src/storage.ts`; default: the first of
+  `navigator.languages` that is offered, else English). Neither sets the
+  other. Read organizer text only through `useInterfaceText()`, as
+  `text.<section>.<key>`. Each section file holds an English `en` with every
+  key and a German `de`; a key without a German entry reads English, so a
+  surface turns German one slice at a time. A pure helper that returns
+  organizer text takes a trailing `text` parameter that defaults to
+  `ENGLISH_INTERFACE_TEXT`. Counted phrases use `pluralText()` with the deck's
+  `PluralForms` shape; numbers use `formatNumber()`. Words a deck dictionary
+  already holds for a surface shared with the room (the app menu's) are read
+  from `getDict(interfaceLanguage)` rather than restated. A portaled panel in
+  the interface language carries its own `lang`. The provider sets
+  `<html lang>` to `en`, and a screen whose slice is translated declares its
+  own with `useDocumentLanguage()`. `interface-text.test.ts` fails when a key
+  of a done slice's sections has no German entry.
 - **Legal texts** — `src/components/LegalLinks.tsx` (REQ183).
   `LEGAL_TEXT_DESCRIPTORS` names the imprint, privacy policy and terms once,
   `<LegalLink/>` is the one anchor a legal link is drawn with (new tab,

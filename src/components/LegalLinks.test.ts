@@ -150,10 +150,11 @@ describe("the legal texts in the app menu, on every route (REQ183)", () => {
 	});
 
 	/**
-	 * A mounted menu, with or without the language a participant's screen
-	 * hands it (REQ225).
+	 * A mounted menu, plain or marked as speaking the deck's language, with the
+	 * language a participant's screen hands it (REQ225, REQ248).
 	 */
-	const APP_MENU_MOUNT = /<AppMenu(?: language=\{[^}]*\})? \/>/;
+	const APP_MENU_MOUNT =
+		/<AppMenu(?: speaksDeckLanguage)?(?: language=\{[^}]*\})? \/>/;
 	const mountsIn = (source: string) =>
 		source.match(new RegExp(APP_MENU_MOUNT.source, "g")) ?? [];
 
@@ -235,7 +236,7 @@ describe("the legal texts in the app menu, on every route (REQ183)", () => {
 		const source = readSource("pages/PreviewPage.tsx");
 		expect(source).toContain("const runMissing = !pres || !preview;");
 		const errorBranch = source.indexOf("if (error && runMissing) {");
-		const menu = source.indexOf("<AppMenu />", errorBranch);
+		const menu = source.indexOf("<AppMenu speaksDeckLanguage />", errorBranch);
 		const nextBranch = source.indexOf("if (loading ||", errorBranch);
 		expect(errorBranch).toBeGreaterThan(-1);
 		expect(menu).toBeGreaterThan(errorBranch);

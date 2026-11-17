@@ -255,8 +255,9 @@ Prose outside the markers is preserved.
 | [REQ245.md](requirements/REQ245.md) | A slide's body text can be edited directly on the editor canvas, as its question already can | Deck & Slides | P2 | pending | internal |
 | [REQ246.md](requirements/REQ246.md) | Account deletion requires the account's password whatever the session's age | Accounts & Workspaces | P1 | done | internal |
 | [REQ247.md](requirements/REQ247.md) | The presenter screen has a presenting view that shows only the slide, entered with one control or the F key, full screen where the browser allows, with paging and the live controls a keypress or a pointer move away | Live Session | P1 | done | BR105 |
+| [REQ248.md](requirements/REQ248.md) | The organizer's interface has a language of its own, chosen per browser in the app menu, defaulting to the browser's language, offered in English and German, independent of the deck's participant language | Rendering & Theming | P1 | in-progress | internal |
 | [REQ249.md](requirements/REQ249.md) | An operator can build and run a self-hosted omul on a plain Linux host without Docker, following one documented path with persistent data and a restart-on-boot service | Platform & Operations | P2 | done | internal |
 | [REQ250.md](requirements/REQ250.md) | The server binds to an explicit host that defaults to loopback | Platform & Operations | P2 | pending | internal |
 
-_238 entries — one row per file in `requirements/`._
+_239 entries — one row per file in `requirements/`._
 <!-- index:end -->

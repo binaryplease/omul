@@ -106,7 +106,8 @@ function entryContaining(markup: string, needle: string): string {
 	return entry;
 }
 
-const MENU_TRIGGER = 'aria-label="Appearance and legal"';
+/** An organizer's screen, so the menu holds the Language section (REQ248). */
+const MENU_TRIGGER = 'aria-label="Appearance, language and legal"';
 
 describe("reading the endpoint's refusals", () => {
 	test("401 asks to sign in, 403 is not an admin, 404 is the channel off", () => {
