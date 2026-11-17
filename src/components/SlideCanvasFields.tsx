@@ -138,11 +138,14 @@ export function slideQuestionLabel(slide: Slide): string {
  * will see. Everywhere else the room shows nothing, so the placeholder says what
  * to write instead of pretending to be content.
  *
- * And it says whether it *has* to be written. `CreatePage.handleSubmit` requires
- * a question on every non-content slide and on none of the content ones, so a
- * heading or a caption reads "Optional" — the word the field carried before it
- * moved onto the slide. A placeholder implying a rule that does not exist is a
- * worse blank than no placeholder at all.
+ * And it says whether it *has* to be written. The editor's save
+ * (`slideSaveRefusalFor`) requires a question exactly where
+ * `slideRequiresQuestion` says — on the slides that collect answers, and on no
+ * content slide or leaderboard (REQ220) — so a heading or a caption reads
+ * "Optional" — the word the field carried before it moved onto the slide — and
+ * a leaderboard's reads the title the room will see in its place. A placeholder
+ * implying a rule that does not exist is a worse blank than no placeholder at
+ * all.
  */
 export function slideQuestionPlaceholder(slide: Slide): string {
 	if (slide.type === "instruction") return INSTRUCTION_FALLBACK_HEADING;

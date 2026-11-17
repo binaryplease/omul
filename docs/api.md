@@ -148,7 +148,7 @@ omul** below).
 | POST | `/api/presentations/:id/results-visibility` | ✅ owner, token or `edit` grant | Set the deck's reveal mode and apply it to every question slide, in one operation `{ resultsVisibility }` (REQ018) — see **The deck's reveal mode** below |
 | POST | `/api/presentations/:id/participation` | ✅ owner, token or `edit` grant | Open or close one slide to submissions `{ slideId, open }` (REQ111) — see **The live room** below |
 | POST | `/api/presentations/:id/blank` | ✅ owner, token or `edit` grant | Blank the shared screen, or bring it back `{ blanked }` (REQ109) — see **The live room** below |
-| POST | `/api/presentations/:id/timer` | ✅ owner, token or `edit` grant | Reopen a slide's question, restarting its countdown `{ slideId }` (REQ057) |
+| POST | `/api/presentations/:id/timer` | ✅ owner, token or `edit` grant | Open a slide's question, starting or restarting its countdown `{ slideId }` (REQ057, REQ226) — `409` `presentation-not-live` on a presenter-paced deck that is not live (REQ227) |
 | POST | `/api/presentations/:id/countdown` | ✅ owner, token or `edit` grant | Start, pause, resume or reset a countdown slide's clock `{ slideId, action }` (REQ107) — see **Running a countdown slide** below |
 | POST | `/api/presentations/:id/claim` | ✅ session + control | Claim an ownerless deck for the account (409 if owned by another account, or by a workspace) |
 | POST | `/api/presentations/:id/workspace` | ✅ deck owner + role at the other end | Move the deck into a workspace `{ workspaceId }`, or back into the caller's account `{ workspaceId: null }` (REQ128) — see **Workspaces** below |
@@ -159,7 +159,7 @@ omul** below).
 | GET | `/api/presentations/:id/comments` | ✅ account with any grant, or owner | The deck's comment threads, oldest first (REQ074) — see **Comment threads on slides** below |
 | POST | `/api/presentations/:id/comments` | ✅ account with `comment` / `edit`, or owner | Comment on one slide `{ slideId, body }` (REQ074) |
 | DELETE | `/api/presentations/:id/comments/:commentId` | ✅ the comment's own author | Take back one of your own comments (REQ074) |
-| POST | `/api/presentations/:id/vote` | — | Submit vote `{ slideId, value, participantId, statementId?, skip?, pass? }`. Live mode: requires `status === "live"`. Survey mode (REQ003/REQ082): accepts votes at any non-ended status. `pass` names which of the device's passes through an audience-paced deck the answer belongs to (REQ083) — see **Repeat passes** below. `statementId` + `skip` support multi-statement scales (REQ029/REQ031) and 2x2 grid items (REQ047/REQ050). Choice slides: see **Choice voting** below; ranking slides: see **Ranking voting** below; 100 Points slides: see **100 Points voting** below; 2x2 grid slides: see **2x2 Grid voting** below; Guess the Number slides: see **Guess the Number voting** below; Pin on Image slides: see **Pin on Image voting** below; form slides take a whole filled-in form as one value, see **Form voting** below; quiz slides add a final-answer rule and a time window, and take either an option id or a typed answer (REQ055), see **Quiz competition** below. |
+| POST | `/api/presentations/:id/vote` | — | Submit vote `{ slideId, value, participantId, statementId?, skip?, pass? }`. Live mode: requires `status === "live"`. Survey mode (REQ003/REQ082): accepts votes at any non-ended status. A deck not accepting answers, or a slide id the deck does not have, answers `400` with `refused: "presentation-not-live"` / `"slide-not-found"` (REQ236) — see **Closing a slide refuses submissions, and says so** below. `pass` names which of the device's passes through an audience-paced deck the answer belongs to (REQ083) — see **Repeat passes** below. `statementId` + `skip` support multi-statement scales (REQ029/REQ031) and 2x2 grid items (REQ047/REQ050). Choice slides: see **Choice voting** below; ranking slides: see **Ranking voting** below; 100 Points slides: see **100 Points voting** below; 2x2 grid slides: see **2x2 Grid voting** below; Guess the Number slides: see **Guess the Number voting** below; Pin on Image slides: see **Pin on Image voting** below; form slides take a whole filled-in form as one value, see **Form voting** below; quiz slides add a final-answer rule and a time window, and take either an option id or a typed answer (REQ055), see **Quiz competition** below. |
 | POST | `/api/presentations/:id/response-vote` | — | Upvote (toggle) an open-ended response `{ slideId, responseId, participantId, pass? }` — only when slide has `allowResponseVotes: true` (REQ025). Per pass (REQ083) |
 | POST | `/api/presentations/:id/passes` | — | Start another pass through an audience-paced deck `{ participantId }` → `{ pass }`, on a deck whose `allowRepeatPasses` is on (REQ083) — see **Repeat passes** below |
 | DELETE | `/api/presentations/:id/answers/:answerId` | ✅ owner, token or `edit` grant | Delete one submitted answer from a word-cloud or open-ended slide (REQ027) — see **Removing a submitted answer** below |
@@ -180,7 +180,7 @@ omul** below).
 | POST | `/api/presentations/:id/chat` | — | Post a chat message `{ text, participantId }` (REQ078) |
 | POST | `/api/presentations/:id/participant-name` | — | State what this participant is called on the deck `{ participantId, name }` (REQ076) — see **Participant names** below |
 | GET | `/api/presentations/:id/participants` | ✅ owner, token or `edit` grant | The deck's roster: who took part, by name (REQ076). The results link does **not** open it |
-| GET | `/api/presentations/:id/scorecard?participantId=&pass=` | — | One participant's quiz scores across the deck (REQ056), and their place on its leaderboard (REQ059) — for one pass through it (REQ083, default the first) |
+| GET | `/api/presentations/:id/scorecard?participantId=&pass=` | — | One participant's quiz scores across the deck (REQ056), and their place on its leaderboard (REQ059) — for one pass through it (REQ083, default the first). A question's verdict reads `null` and counts in no total until the audience may see its solution (REQ228) |
 | GET | `/api/presentations/:id/preview` | ✅ owner, token or `edit` grant | A dry run of the whole deck with generated test votes (REQ103/REQ104) — see **Preview and test votes** below. Writes nothing |
 | GET | `/api/presentations/:id/results` | — | All slide results, each behind the deck's reveal mode (REQ015–REQ017) — see **The deck's reveal mode** below. Also reads the **results token** (REQ098), which lifts that mode. Free-text answers the deck's profanity filter withholds are left out for every caller; `?filtered=include` adds them for the deck's owner, edit token or collaborators (REQ085) — see **The profanity filter on free text** below |
 | GET | `/api/presentations/:id/results/:slideId` | — | Results for one slide, behind the deck's reveal mode (REQ015–REQ017), and behind the results token the same way. On a `leaderboard` slide this is the deck's standings across its quiz questions — see **Leaderboard slide** below. Takes `?filtered=` like the whole-deck read (REQ085). |
@@ -1796,6 +1796,7 @@ screen is *showing anything*.
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `closedSlideIds` | string[] | `[]` | The slides the presenter has closed to submissions (REQ111) |
+| `slideClosedAt` | Record<string, string> | `{}` | When each closed slide was closed, ISO by slide id. A quiz question closed at or after its opening instant is **ended**; one closed before it opened (or with no recorded instant) ended nothing and keeps its key back (REQ216) |
 | `audienceBlanked` | boolean | `false` | Whether the shared screen is currently blanked (REQ109) |
 
 Both are **server-managed live state**, in the family `revealedSlideIds` and
@@ -1847,10 +1848,19 @@ and, unlike them, applies to **every slide type**.
 
 **Every stated refusal carries its machine-readable `refused` code** beside the
 prose — one of `VOTE_REFUSAL_CODES` in `server/schemas.ts`
-(`quiz-window-closed`, `quiz-already-answered`, `participation-closed`, and
+(`quiz-not-started`, `quiz-window-closed`, `quiz-already-answered`, `participation-closed`, and
 `repeat-passes-off`, which only the request to start another pass through a deck
-answers with — REQ083). The prose is for a bare API caller; the code is for a
-client that wants to say the same thing in its own words.
+answers with — REQ083) — or one of `DECK_MOVED_ON_CODES` beside it (REQ236):
+`presentation-not-live` when the deck is not accepting answers (a live deck no
+longer `live`, a survey that has ended), `slide-not-found` when no slide of the
+deck has the answered id. Those two are what an answer sent a moment before the
+presenter ended the deck or deleted the slide comes back with; the participant
+surface reads them as "this screen is behind the room", catches its deck up from
+the server and says in the deck's language that the answer was not accepted,
+instead of giving way to an error page. A deck that does not exist, and a value
+that is not a valid answer for the slide, still answer `400` with the `error`
+text alone. The prose is for a bare API caller; the code is for a client that
+wants to say the same thing in its own words.
 
 **That string is the API's, not the room's.** Like the quiz refusals beside it,
 the participant surface pre-empts the round trip and shows the same fact in the
@@ -2356,7 +2366,8 @@ by the tally and does not lock its participant out (`isStandingQuizAnswer()`).
 
 ### The window
 
-A question **opens** when the presenter reaches its slide: the server stamps
+A question **opens** when the presenter reaches its slide on a live deck (paging
+through a draft or an ended deck opens nothing, REQ227): the server stamps
 `slideStartedAt[slideId]` (an ISO instant on the presentation document, public
 because both the shared screen and every phone have to agree on when the
 question closes) and broadcasts `slide.started`. It **closes**
@@ -2371,14 +2382,56 @@ question closes) and broadcasts `slide.started`. It **closes**
 A slide is stamped **once**, on first arrival, and re-stamped only by
 `POST /presentations/:id/timer`. Re-stamping on every visit would make a
 question's window — and so every score measured against it — depend on how often
-the presenter paged back through the deck. Restarting hands the remaining
-participants a fresh window; answers already given stand (`reset` is what clears
-votes, and it clears the stamps with them).
+the presenter paged back through the deck. Restarting hands the participants
+who have not answered a fresh window and does nothing else: answers already given
+stand **with the points they earned** (REQ217) — each quiz answer is stored with
+the opening instant of the window it was accepted in (`quizWindowOpenedAt` on the
+vote) and is timed against that, and the one-answer rule keeps whoever already
+answered from answering again. `reset` is what clears votes, and it clears the
+stamps with them. A restart re-sends the room the question's tally, withheld
+again, since the question is running once more (REQ216).
 
 Two cases have **no deadline at all**, and they must not read as one already
 past: a question the presenter has not reached, and a survey (REQ003/REQ082),
 where nobody paces the room so there is no shared instant a question started. A
-survey quiz is therefore untimed by construction.
+survey quiz is therefore untimed by construction. On a live deck the first of
+them is **not open either** (REQ226): a timed question with no opening instant
+refuses answers with the stated refusal `quiz-not-started` rather than taking
+them with no deadline, because an answer given before its window opened would
+otherwise score as instant.
+
+**Going live does not open a timed quiz question** (REQ226). Every other slide
+is opened by `start` as by any arrival, but a quiz question with a time limit on
+the first slide would start its countdown at the instant the room is told the
+code. It waits instead — on screen, closed to answers (`quizAwaitingStart` in
+`server/schemas.ts`) — until the presenter opens it with
+`POST /presentations/:id/timer`, which the shared screen offers as **Start
+timer** in that state and as **Restart timer** once the question has run.
+Reaching a quiz slide later by navigation still opens it on arrival. On a
+presenter-paced deck, going live from `draft` first drops any stamps the draft
+still carries (REQ227), so no question starts the session already running.
+The `presentation.started` frame carries the stamps the deck went live with,
+whole, and every client takes them in place of the ones it held — a phone or a
+second screen that loaded the draft would otherwise go on counting down a window
+the server dropped. It carries the slide the deck went live on as well
+(`activeSlideIndex`, REQ230), which every client moves to, so a screen that
+followed the draft's navigation does not show the room a quiz question ahead of
+the presenter.
+
+**The timer is refused before a presenter-paced deck is live** (REQ227).
+`POST /presentations/:id/timer` on a `live`-mode deck whose status is `draft` or
+`ended` answers `409` with `{ error, refused: "presentation-not-live" }` and opens
+nothing: a window opened in a draft would be dropped again at go-live, and one
+opened on an ended deck would come back already running when the deck resumes,
+because resuming keeps its stamps. The `error` names which of the two it is —
+"Start the presentation first …" on a draft, "The presentation has ended …" on
+an ended deck (REQ237). The shared screen draws the control disabled
+with the same reason (`quizTimerUnavailableReason` in `server/schemas.ts`), and
+a presenter screen that missed the `ended` or `reset` frame and is refused this
+way re-reads the deck, applies the lifecycle change it missed and shows that
+reason as a notice instead of an error page. A
+survey deck is unaffected — it collects in draft (REQ003), and its timer behaves
+as it always has.
 
 Submissions are accepted for `QUIZ_SUBMISSION_GRACE_MS` (1.5 s) past the
 deadline, because a tap made at half a second left still has to reach the
@@ -2402,7 +2455,9 @@ full 1000.
 
 Points are **derived, never stored**: a function of the votes and the slide as it
 stands now, so re-marking which option is correct re-scores the room with no
-migration and no stale total left behind.
+migration and no stale total left behind. The one input an answer carries for it
+is *when its window opened* (`quizWindowOpenedAt`, REQ217) — a fact about the
+moment of answering, which a restarted timer must not rewrite.
 
 | Constant | Value | Meaning |
 |---|---|---|
@@ -2417,9 +2472,10 @@ marked nothing correct has no correct answer, so nobody scores on it. An
 fast inside, so nobody is ranked against a clock the slide never offered, and
 every question stays worth the same at its best.
 
-An answer that **predates** the window it is measured against — the presenter
-restarted the question's timer under it — earns the correctness half and no
-speed bonus. Crediting it as instant instead would invert the ranking the score
+An answer that **predates** the window it is measured against earns the
+correctness half and no speed bonus. Since REQ217 this only happens to an answer
+stored before votes recorded their window, on a question restarted after it,
+which falls back to the slide's newer opening instant. Crediting it as instant instead would invert the ranking the score
 exists to produce: whoever answered last before the restart would take the
 maximum, outscoring everyone who answers the fresh window quickly.
 
@@ -2428,21 +2484,29 @@ maximum, outscoring everyone who answers the fresh window quickly.
 A quiz slide's `options[].isCorrect` — and, on a typed question, the
 `quizAnswers` themselves — is the answer to the question the room is being
 scored on, so it does not reach a browser that cannot edit the deck until that
-question is over. Suppressing it in the UI would not be enough: what a client
-holds, a client can read out of the network tab.
+question is over and its reveal setting lets the room see it. Suppressing it in
+the UI would not be enough: what a client holds, a client can read out of the
+network tab.
 
-Two audiences, one predicate (`solutionVisibleToAudience` in
-`server/schemas.ts`):
+Two audiences, told apart by `solutionVisibleToAudience` and, for a quiz on the
+deck payload, by `quizVerdictVisibleToAudience`, which adds the reveal setting to
+it (both in `server/schemas.ts`):
 
 - **Can edit the deck** — the owner, or the holder of the edit token: the author
   in the editor and the presenter on the shared screen. Always sees the marks.
   The browser proves this by sending the stored token on `GET /presentations/:id`
   and `GET /presentations/:id/results/:slideId`, exactly as it already does on
   mutations.
-- **Everyone else** — sees a quiz slide's marks only once the question is over:
-  its window has closed, the presenter deliberately revealed that slide's results
+- **Everyone else** — sees a quiz slide's marks only once the question is over
+  (its window has closed, the presenter closed it to submissions after it opened
+  (REQ111, REQ216), the presenter deliberately revealed that slide's results
   (REQ102 — the reveal signal an *untimed* question has instead of a deadline),
-  or the presentation has ended.
+  or the presentation has ended) **and** its reveal setting allows (REQ228):
+  "Instant" as soon as it is over, "On click" once the presenter has revealed
+  that slide, "Private" never, not even after the deck ends. The key beside a
+  participant's own answer is their verdict, so it waits for exactly what the
+  verdict waits for. On the `results.updated` frame the reveal setting holds back
+  the whole tally first (REQ016/REQ017), so the marks wait the same way there.
 
 This covers all three channels a competitor could read: the deck itself
 (`GET /join/:code`, which is never treated as an editor — an organizer opening
@@ -2480,9 +2544,9 @@ answer.
 | `correctPoints` / `speedPoints` / `maxPoints` | the constants above, so a client never hardcodes them |
 | `timeLimit` / `startedAt` / `deadline` | the window; all `null` together when there is none |
 | `closed` | whether the question is past its window *now* (grace included). A question with no deadline is never closed |
-| `answeredCount` / `correctCount` | answers the tally scored, and how many were right |
-| `totalPoints` | what the room banked on this question |
-| `averagePoints` / `correctShare` | mean points (two decimals) and the correct percentage, both an explicit `null` until somebody has answered |
+| `answeredCount` / `correctCount` | answers the tally scored, and how many were right — `correctCount` is `null` while withheld (below) |
+| `totalPoints` | what the room banked on this question — `null` while withheld |
+| `averagePoints` / `correctShare` | mean points (two decimals) and the correct percentage, both an explicit `null` until somebody has answered, and while withheld |
 
 Beside `scoring`, a quiz tally carries `answerMode` (so a client picks a renderer
 from the payload it holds) and, on a typed question, `typedAnswers` — an explicit
@@ -2490,7 +2554,7 @@ from the payload it holds) and, on a typed question, `typedAnswers` — an expli
 
 | Field | Meaning |
 |---|---|
-| `typedAnswers.distinctCount` | distinct answers the room gave |
+| `typedAnswers.distinctCount` | distinct answers the room gave — or `null` while withheld |
 | `typedAnswers.entries[]` | those answers, most-given first, each `{ text, count, isCorrect }` — or `null` while withheld |
 | `typedAnswers.accepted[]` | the organizer's accepted solutions — or `null` while withheld |
 | `options[]` | empty on a typed question; it has no options to tally |
@@ -2506,6 +2570,46 @@ tab exactly what the key is being kept back for, and putting them on the
 projector would hand it to the whole room. `respondentCount` and
 `scoring.answeredCount` still read throughout, which is what a presenter is
 actually watching for.
+
+### What the room answered, withheld with the key (REQ215)
+
+The same gate covers **what the room answered**, not only the key. While a quiz
+question is running, or its solution is not yet visible to the audience on the
+terms above (window closed, closed after opening, revealed, deck ended), a caller
+who cannot edit the deck reads, on `GET …/results/:slideId`, on each entry of
+`GET …/results`, on the `results.updated` frame, on the preview's
+`audienceResults` and on every group of a segmented read:
+
+| Field | While withheld |
+|---|---|
+| `options[].count` | `null` on every option |
+| `scoring.correctCount` / `totalPoints` / `averagePoints` / `correctShare` | `null`, all four |
+| `typedAnswers.distinctCount` | `null`, with `entries` and `accepted` |
+| `totalVotes` / `respondentCount` / `scoring.answeredCount` | still the numbers: how many have answered |
+| `scoring.timeLimit` / `startedAt` / `deadline` / `closed` | still the window |
+
+Why the counts and the correctness half both go: the answer most of the room
+picked *is* the answer on a scored question, and every correctness figure moves
+when one right answer lands and stands still for a wrong one. A participant id is
+minted in the browser, so anybody can answer under a fresh one and read the next
+frame — a `correctCount` that rose by one names the key, and on a typed question
+a `distinctCount` that did not rise says somebody already gave that guess.
+
+This is a **published** tally, not the reveal mode's `withheld: true` marker:
+the answered count is the room's to watch, and a client that drops withheld
+frames would drop it too. Read it with `quizResultWithheld()` (`server/schemas.ts`),
+which tests `scoring.correctCount === null` on a quiz tally — a published quiz
+tally always carries that as a number, `0` when nobody has answered, so the null
+averages of an unanswered question are never mistaken for it. Draw it as "*n*
+answers in", never as bars at zero.
+
+**Only an editor is exempt** — the deck's owner or the holder of its edit token,
+proven on the request. The **results link (REQ098) does not lift it**: the link
+delegates the tallies under every reveal mode and authorizes no running
+question's answer key, and this is that key read off the room. A socket's `role`
+lifts nothing either: the `results.updated` frame is the room's copy, sent alike
+to every socket. When the question is over a `results.updated` frame carries the
+counts to the room (REQ216).
 
 ### One participant's own score
 
@@ -2524,16 +2628,39 @@ the endpoint hands out nobody else's.
 | `slides[].answerMode` | how that question was answered (`select` / `type`) |
 | `slides[].optionId` / `answer` | what they picked, or what they typed (REQ055). Both keys are always emitted and only one is ever filled: an option id is not a typed answer, and a client rendering "you answered X" must not have to guess which it holds |
 | `slides[].isCorrect` / `elapsedMs` | whether it was right, and how long they took — explicit `null` when they did not answer; a `false` for `isCorrect` would claim they answered and got it wrong |
-| `slides[].points` | what that answer scored (`0` when unanswered) |
-| `entryId` / `label` | the one-way handle their row is named by on the deck's leaderboard (REQ059), and what that row is called on screen. Always present, even before they have scored, so a client can match its own row the moment they do |
+| `slides[].points` | what that answer scored (`0` when unanswered) — explicit `null` while the verdict is withheld (below) |
+| `entryId` / `label` | the one-way handle their row is keyed by on the deck's leaderboard (REQ059), and what that row is called on screen — their stated name on a deck that asks for one (REQ218), the derived `Player …` otherwise. Always present, even before they have scored, so a client can match its own row the moment they do |
 | `rank` / `rankedCount` | their place on that board and how many participants are ranked — `rank` is an explicit `null` until they have answered something, because unranked is a standing too and a `0` would read as a place they hold |
+
+**A verdict is withheld until the audience may see the solution (REQ228).** A
+verdict is the answer key read one answer at a time: "Correct!" beside the
+option a participant picked names it, and since the participant id is minted in
+the browser, anybody can answer under a fresh id per option and read each card
+back. So the card withholds a question's verdict on the gate the key passes
+(`solutionVisibleToAudience`: window over with its grace, closed after opening,
+revealed, deck ended) **and** its reveal setting (`tallyVisibleToAudience`:
+`instant` always, `on-click` once the presenter reveals that slide, `private`
+never — not even once the deck has ended). Both together are
+`quizVerdictVisibleToAudience()` in `server/schemas.ts`. Until then:
+
+| Field | While withheld |
+|---|---|
+| `slides[].isCorrect` / `slides[].points` | `null`, both — answered or not |
+| `correctCount` / `totalPoints` | summed over the released questions only |
+| `rank` / `rankedCount` | their place on the board as the room may see it — a withheld question moves nobody's place, so `rank` stays `null` until a question they answered is released |
+| `slides[].answered` / `optionId` / `answer` / `elapsedMs` | still read: what they answered is theirs, and it is the lock a reloaded phone needs |
+
+A released entry always carries `points` as a number, `0` when unanswered, so
+`points: null` is the reading of a withheld entry (`scorecardVerdictWithheld()`)
+— never "scored nothing". The card is the audience's reading for every caller:
+the participant id is the credential, and no edit token lifts it.
 
 Both surfaces render the countdown from the same descriptor
 (`quizWindowFor` / `useQuizCountdown` in `src/components/QuizTimer.tsx`).
-The participant's verdict waits for the question to close — a verdict on screen
-mid-question is the answer itself, one whispered row away from the people still
-deciding — and rides the existing results-visibility gate (REQ102), so it can
-never outrun a presenter's deliberate reveal.
+The participant's screen asks for its verdict once the question is over and the
+results-visibility gate (REQ102) allows, draws nothing for a withheld entry, and
+re-reads the card when the question ends or its tally comes out, so the verdict
+lands without a reload — and can never outrun a presenter's deliberate reveal.
 
 
 ## Leaderboard slide (REQ059)
@@ -2554,14 +2681,48 @@ It rides the ordinary results endpoint — `GET /api/presentations/:id/results/:
 the presenter's poll, the participant's fetch on arrival, and the broadcast after
 an answer lands.
 
-Because scores are **derived from the deck as it stands now**, three different
-things move a board, and all three re-broadcast every leaderboard slide in the
-deck (`broadcastStandings`): an **answer** landing on a quiz question, a **PATCH**
-that changes what counts as correct, and a **restarted question window**
-(`POST /:id/timer`), which re-measures the speed half of every answer already
-given. Each is a change to a *different* slide from the board that reports it, so
-none of them would reach a participant's phone otherwise. A deck with no board
+Because scores are **derived from the deck as it stands now**, two different
+things move a board, and both re-broadcast every leaderboard slide in the deck
+(`broadcastStandings`): an **answer** landing on a quiz question, and a **PATCH**
+that changes what counts as correct. Two more re-broadcast it because they change
+what a row is *called* (REQ218): a participant **stating or correcting a name**,
+and a PATCH that flips `requireParticipantName`. Each is a change to a *different* slide from
+the board that reports it, so neither would reach a participant's phone
+otherwise. A **restarted question window** (`POST /:id/timer`) moves no score —
+every answer is timed against the window it was given in (REQ217) — so it
+re-broadcasts no board. A deck with no board
 broadcasts nothing extra.
+
+**What the room is sent counts only released verdicts (REQ228).** A board is
+verdicts summed: a row's points move when one right answer to a running question
+is scored and stand still for a wrong one, so a participant watching their own row
+— or answering under a fresh id and watching for a new one — would read the key
+off it exactly as off their own card. A caller who cannot edit the deck therefore
+reads standings summed only over the questions `quizVerdictVisibleToAudience()`
+releases: a running, not-yet-opened or unrevealed question moves nobody's
+`totalPoints`, `correctCount`, `answeredCount` or place, and somebody who has
+answered only such questions is not ranked yet. That covers the public results
+reads and the `results.updated` board frame alike; the results link does not lift
+it.
+
+**So does the board the presenter draws for the room (REQ233).** The presenting
+view and a second screen poll `GET /api/presentations/:id/results/:slideId` with
+the edit token, and the room reads the projector as well as its phones: counting
+a running question there would hand the same oracle to anyone answering under
+fresh ids and watching the wall, and under "Private" it would project what the
+organizer kept from the room. That read is the room's board for every caller, an
+editor included. An editor reads every question's points only on the organizer's
+own surfaces, which are never drawn for the room: the results page
+(`GET /api/presentations/:id/results`) and its breakdown (`…/segments`), the
+results export, and the preview's dry run. In code this is
+`ResultsCaller.wholeStandings`, honoured only beside `canEdit` and set only by
+those surfaces, so a surface that does not say which it is gets the room's board.
+
+The question counts from the
+instant it is released, so the board is also re-broadcast then: when its window
+runs out or it is closed (the quiz frame's own re-send carries the board with it),
+when the presenter reveals or un-reveals a slide, when the deck ends, and when the
+deck's reveal mode changes.
 
 A leaderboard **is** an aggregated result, so it sits behind the ordinary
 results-visibility gate (REQ102) on both screens — the shared one and every
@@ -2575,14 +2736,14 @@ board on.
 
 | Field on the payload | Meaning |
 |---|---|
-| `quizCount` / `maxPoints` | quiz questions the standings are summed over, and what they are worth at best |
+| `quizCount` / `maxPoints` | quiz questions in the deck, and what they are worth at best — the whole deck, whichever of them a reader's standings count so far |
 | `rankedCount` | **everyone** ranked, including the rows below the cut |
 | `size` | how many rows this slide asked for |
 | `totalVotes` | always `0` — a board collects nothing, and says so rather than omitting the key |
 | `entries[]` | the top `size` rows, each `{ rank, entryId, label, totalPoints, correctCount, answeredCount }` |
 
-**Nobody is named, and the size caps the view, not the ranking.** Two decisions
-carry the slice:
+**No participant id is on it, and the size caps the view, not the ranking.** Two
+decisions carry the slice:
 
 - A row is named by `entryId`, a truncated SHA-256 of `presentationId:participantId`
   — never the participant id itself. That id *is* the participant's credential
@@ -2590,9 +2751,16 @@ carry the slice:
   payload is the most-watched surface in the product; publishing the room's ids
   would hand anyone the means to answer as anyone. The digest is scoped by
   presentation, so two boards cannot be joined to follow one person between
-  decks. `label` is derived from the handle (`Player 3F9A2C`) so a room has
-  something to read out loud — no participant is asked to register or pick a
-  nickname, because no requirement asks for one.
+  decks. `label` is what the row is called. On a deck that asks for a name on
+  joining (REQ076) it is the name the row's holder stated, latest spelling
+  (REQ218); for a participant who stated none, and on every deck that does not
+  ask, it is derived from the handle (`Player 3F9A2C`) so a room has something
+  to read out loud. The name rides `label` and nothing else — no participant id,
+  no stated-at time — only on the `size` rows the payload carries, and only while
+  `requireParticipantName` is on: turning the switch off takes the names off the
+  board even though the deck still holds them for its exports. This is the one
+  place a stated name reaches the audience, and it is a ranking rather than a
+  roster: a room that plays under names is shown the standings under them.
 - Everybody who gave a standing answer is ranked, including a participant who
   scored nothing; only the *display* is cut at `size`. That is what lets a
   participant outside the top five be told "4th of 31" on their own screen —
@@ -3272,9 +3440,10 @@ wrote the thing: the room stated these names, and the deck's authors wrote those
 comments.
 
 Two things the roster is explicitly **not**: it does not re-point the leaderboard
-(REQ059 names its rows by a one-way derived handle on purpose, and that stays),
-and it does not name the author of a Q&A question or a chat message — both of
-those channels stay anonymous to the room.
+(REQ059 keys its rows by a one-way derived handle on purpose, and that stays —
+REQ218 only *labels* a projected row with its holder's stated name, see
+**Leaderboard slide**), and it does not name the author of a Q&A question or a
+chat message — both of those channels stay anonymous to the room.
 
 ## Signed-in participants (REQ134)
 
@@ -3489,7 +3658,7 @@ will ever get:
 
 | Field | Meaning |
 |---|---|
-| `presenterResults` | The tally as the shared screen reads it — quiz answer keys included (`canEdit: true`) |
+| `presenterResults` | The tally as an editor reads it — quiz answer keys included (`canEdit: true`), and a leaderboard summed over every quiz question rather than the released-only board the shared screen draws (`wholeStandings: true`, REQ233) |
 | `audienceResults` | The same tally as a phone reads it — the key withheld until that question is over (REQ056) |
 
 Both are the ordinary results shapes documented above, produced by the **same
@@ -3736,6 +3905,7 @@ holder is treated as any other stranger:
 | Every mutation — `PATCH`, `DELETE`, start/end/reset, navigate, reveal, results-visibility, timer, Q&A settings, channels | "Carries no edit authority" is the requirement. `401`/`403`, exactly as for an anonymous caller |
 | `GET …/results.xlsx` (REQ095), `GET …/deck.pdf` (REQ096) and `GET …/preview` (REQ103) | The workbook and the preview carry every stored response beside the `participantId` it was cast under; all three carry every answer key, the PDF included and in **both** its readings. The tallies are anonymous aggregates; these are the rows and the key behind them |
 | A running quiz question's answer key (REQ056) | The gate is "is the question over", and a results link is not the presenter ending it. `options[].isCorrect` reads `null` |
+| What the room answered on that question (REQ215) | The same gate, because the per-option counts and the correctness half of `scoring` are the key read off the room: `options[].count`, `scoring.correctCount`, `totalPoints`, `averagePoints`, `correctShare` and `typedAnswers.distinctCount` read `null`, and a breakdown grouped by that question is withheld as `quiz-not-over` |
 | Presenter notes (REQ090) | They reach a client on the deck payload, which the results token is not a credential on at all — the holder's `GET /presentations/:id` is the public one |
 | The answers the profanity filter withheld (REQ085) | `?filtered=include` adds them only for the deck's own readers — owner, edit token, collaborators; the link holder reads the room's tally and the count, exactly as a phone does. The link delegates the numbers, and the filter decided these words are not for the room |
 | A Form slide's `submissions` (REQ061) | Already withheld from non-editors *whatever the reveal mode says*, because a decision about numbers must not publish a participant's email address. A results link is a decision about numbers — and REQ099 will hand this link to participants |
@@ -3893,6 +4063,14 @@ grouping slide's tally under another name, so publishing a breakdown of a
 withheld slide would republish it sideways. The **results link** (REQ098) lifts
 that gate here exactly as it does on the two results endpoints.
 
+**A quiz question that is not over cannot group anything** for a caller who
+cannot edit the deck (REQ215): each group is one of its options, sized by who
+picked it, which is its per-option count under another name. The payload is
+`withheld: true`, `withheldReason: "quiz-not-over"` and no segments, until the
+question is over on the terms its answer key is; the results link does not lift
+it. Breaking such a question *down* by another slide needs no rule of its own:
+each group's `results` is the ordinary tally, withheld the same way.
+
 Three things it does not lift, each of which is a **default rather than a
 setting**, and none of which an owner or edit-token holder meets — they can
 already download every row beside the participant id it was cast under (REQ095),
@@ -3944,8 +4122,8 @@ the server module that enforces it, so the picker cannot offer a grouping the AP
 refuses. A held-back group draws no head count and says why it is held back in
 words that are true of both cases it covers — the group too small to publish, and
 the group held back beside it — and a whole withheld breakdown says which of
-`reveal-mode` and `identifiable` it met, since only one of the two is something
-the organizer could change.
+`reveal-mode`, `identifiable` and `quiz-not-over` it met, since only the first is
+something the organizer could change and the last ends with the question.
 
 ## Clearing a session's results (REQ101)
 
@@ -3994,15 +4172,16 @@ foreground or the network comes back. Each new socket joins again.
 | `room.joined` | server → the joining client | `{ presentationId, status, activeSlideIndex, activeSlideId, sessionStartedAt, sessionEndedAt, slideStartedAt, revealedSlideIds, closedSlideIds, audienceBlanked, countdownRuns }`: the deck's runtime fields as stored (`LiveRoomSnapshotSchema`), each already on the deck a participant receives, plus `activeSlideId`, the id of the slide at `activeSlideIndex` (`null` when there is none), so a client whose copy of the slides predates an edit can tell it is stale (REQ208). Not sent for a deck that does not exist |
 | `pong` | server → the pinging client | `{}`, the answer to a `ping` |
 | `slide.changed` | server → clients | `{ presentationId, slideIndex, slide }` — the slide as the audience may see it: answer key withheld while the question runs (REQ056), presenter notes and a quiz's audio cue empty (REQ090/REQ058) |
-| `results.updated` | server → clients | `{ presentationId, slideId, results }` — the tally as the **audience** may read it, so a slide whose mode withholds it broadcasts `{ type, withheld: true }` and no numbers (REQ016/REQ017), and an editor-only block on it (a word cloud's `answers`, a form's `submissions`) is `null`. An answer the deck's profanity filter withholds is in no frame at all, only counted in `filteredCount` (REQ085). Sent when an answer *lands* and when one is *taken down* (REQ027) — a tally moves both ways — and for every free-text slide when the filter is switched or its list moves. **Frames may merge, values never do** (REQ150): a slide broadcasts at most once per 100 ms, so a room answering faster than that is folded into one frame carrying the settled tally rather than one frame per answer. A client that reads each frame as the current state is right; one that counted frames to count answers never was |
-| `presentation.started` | server → clients | `{ presentationId, startedAt, slideIndex, slideId }`. `startedAt` is when the session clock began (REQ108), the deck's `sessionStartedAt`. A start on a deck already live keeps its clock, so the frame repeats the instant it already had. `slideIndex` is the slide the start landed on, always the first (REQ208), and `slideId` its id (`null` on a deck with no slides): a phone whose copy was read before the deck's first slide was deleted holds another slide at that index, and re-reads the deck instead of drawing it |
+| `results.updated` | server → clients | `{ presentationId, slideId, results }` — the tally as the **audience** may read it, so a slide whose mode withholds it broadcasts `{ type, withheld: true }` and no numbers (REQ016/REQ017), and an editor-only block on it (a word cloud's `answers`, a form's `submissions`) is `null`. A quiz question that is not over carries how many answered and **nothing of what they answered**: every `options[].count` and the correctness half of `scoring` are `null` (REQ215, `quizResultWithheld()`), to every socket alike. An answer the deck's profanity filter withholds is in no frame at all, only counted in `filteredCount` (REQ085). Sent when an answer *lands* and when one is *taken down* (REQ027) — a tally moves both ways — for every free-text slide when the filter is switched or its list moves, and on a quiz question when the room's copy changes with no answer at all (REQ216): at the instant its window runs out (deadline plus the submission grace, on the server's own timer), and when the presenter closes or reopens it to submissions. That is the frame that first carries the key and, on a typed question, the grouped answers. **Frames may merge, values never do** (REQ150): a slide broadcasts at most once per 100 ms, so a room answering faster than that is folded into one frame carrying the settled tally rather than one frame per answer. A client that reads each frame as the current state is right; one that counted frames to count answers never was |
+| `presentation.slides` | server → clients | `{ presentationId, slides }` — the deck's slides were saved (REQ229), by a deck PATCH that names `slides` or by the deck-wide reveal-mode endpoint, which clears the per-slide overrides. `slides` is the whole deck **as the audience may see it**, projected exactly as the join fetch projects it: answer key withheld while a question runs (REQ056), presenter notes and a quiz's audio cue empty (REQ090/REQ058), and nothing from the deck but its slides. A participant replaces the slides it holds with them, so a saved reveal setting, question, option, accepted answer, time limit or slide order reaches a phone that stays connected; a presenter screen re-reads `GET /api/presentations/:id` on its own credentials instead, since it is the one holding solutions and notes. Live changes of the deck's language are not carried |
+| `presentation.started` | server → clients | `{ presentationId, startedAt, slideIndex, slideId, slideStartedAt, activeSlideIndex }`. `startedAt` is when the session clock began (REQ108), the deck's `sessionStartedAt`. A start on a deck already live keeps its clock, so the frame repeats the instant it already had. `slideIndex` is the slide the start landed on, always the first (REQ208), and `slideId` its id (`null` on a deck with no slides): a phone whose copy was read before the deck's first slide was deleted holds another slide at that index, and re-reads the deck instead of drawing it. `slideStartedAt` is the deck's question-opening stamps after going live (REQ227), whole: a client replaces the ones it holds with them, so stamps a draft carried and going live dropped do not survive on a screen that loaded the draft. `activeSlideIndex` is the slide the deck went live on (REQ230), and a client moves to it: a screen that followed the draft's navigation would otherwise stay on the slide last picked there |
 | `presentation.ended` | server → clients | `{ presentationId, endedAt }` — `endedAt` is where the session clock stopped (REQ108), the deck's `sessionEndedAt`; `null` for a deck that ended without ever going live |
 | `presentation.reset` | server → clients | `{ presentationId }` |
 | `slide.revealed` | server → clients | `{ presentationId, slideId, revealed }` (REQ016/REQ102) |
 | `presentation.results-visibility` | server → clients | `{ presentationId, resultsVisibility }` — the deck's reveal mode moved (REQ015–REQ018). Sent by both its writers: the deck-wide endpoint, and a deck PATCH that names the field. Carries the deck-level setting only; clients re-read the deck for the per-slide overrides — see **The deck's reveal mode** above |
 | `slide.started` | server → clients | `{ presentationId, slideId, startedAt }` — a slide's question was opened, which is what a quiz countdown runs from (REQ057) |
 | `slide.countdown` | server → clients | `{ presentationId, slideId, run }` — a countdown slide's clock was started, paused, resumed or reset (REQ107). `run` is the deck's new `countdownRuns[slideId]`, `{ remainingMs, resumedAt }` with `resumedAt: null` while paused, or `null` after a reset. Applied through `withCountdownRun`, the function the server writes with. An action that changed nothing sends no frame |
-| `slide.participation` | server → clients | `{ presentationId, slideId, open }` — one slide was opened or closed to submissions (REQ111). Carries its value, like the settings frames below: a phone that learned about a closed question only by having an answer bounce is the failure the switch exists to prevent |
+| `slide.participation` | server → clients | `{ presentationId, slideId, open, closedAt }` — one slide was opened or closed to submissions (REQ111); `closedAt` is the stored close instant (`slideClosedAt`), `null` on an open. Carries its value, like the settings frames below: a phone that learned about a closed question only by having an answer bounce is the failure the switch exists to prevent. Closing a quiz question that has opened **ends it** (REQ216): its answer key becomes the audience's, exactly as at the end of its window, and a `results.updated` follows; reopening it inside its window withholds the key again. A close made **before** the question opened ends nothing — reaching the question later does not publish its key |
 | `presentation.blanked` | server → clients | `{ presentationId, blanked }` — the shared screen was blanked, or brought back (REQ109). Broadcast because the screen being projected may be a second browser rather than the presenter's own |
 | `presentation.participant-name` | server → clients | `{ presentationId, requireParticipantName }` — the deck started or stopped asking joiners for a name (REQ076). Sent by its one writer, the deck PATCH. Carries the **switch and nothing else**: a frame naming somebody would put a name on every phone in the room, and the roster is fetched by a credentialed caller instead |
 | `presentation.repeat-passes` | server → clients | `{ presentationId, allowRepeatPasses }` — the deck started or stopped letting a device go through it again (REQ083). Sent by its one writer, the deck PATCH. The switch as stored; a client reads it with the deck's pace through `deckAllowsRepeatPasses()`. Nothing about who has made how many passes rides it |

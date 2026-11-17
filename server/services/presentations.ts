@@ -2,6 +2,7 @@ import { resolveUserId } from "../accounts";
 import { createCoalescer } from "../coalesce";
 import { createStore } from "../db";
 import { createKeyedLock } from "../keyed-lock";
+import { createKeyedTimers } from "../keyed-timers";
 import {
 	emptyTestVoteSet,
 	generateDeckTestVotes,
@@ -124,20 +125,28 @@ import {
 	withInheritedResultsVisibility,
 	withoutUnwritableFields,
 	withCountdownRun,
+	withSlideClosedAt,
 	withSlideParticipation,
 	QUIZ_CORRECT_POINTS,
 	QUIZ_MAX_POINTS,
 	QUIZ_SPEED_POINTS,
+	QUIZ_SUBMISSION_GRACE_MS,
 	type QuizAnswerMode,
 	quizAnswerModeFor,
 	quizDeadlineFor,
+	quizResultVisibleToCaller,
 	quizTimeLimitFor,
+	quizVerdictVisibleToAudience,
+	quizVerdictVisibleToCaller,
+	quizTimerUnavailableReason,
+	quizWindowNotYetOpened,
 	scoreQuizAnswer,
 	type Slide,
 	type SlideType,
 	slideAcceptsSubmissions,
 	slideAnswersAreDeletable,
 	solutionVisibleToAudience,
+	type DeckMovedOnCode,
 	type VoteRefusalCode,
 	voteValueLimitFor,
 	withAudienceSlides,
@@ -150,6 +159,7 @@ import {
 	StoredVoteSchema,
 	slideHasCorrectAnswers,
 	PresentationSchema,
+	type StoredPresentation,
 	type StoredResponseVote,
 	type StoredVote,
 } from "../schemas";
@@ -1182,6 +1192,13 @@ export async function updatePresentation(
 	const filterBefore = movesFilter
 		? profanityFilterLanguageFor(outcome.before as ProfanityFilterState)
 		: null;
+	// REQ216 — a saved time limit moves the window of a question that is open
+	// now, so its close is re-armed on the deck as saved.
+	armQuizWindowCloses(id, updated);
+	// REQ229 — and the slides themselves reach the room. Sent before the
+	// settings frames below, so a phone re-reading the deck off one of those asks
+	// after it already holds the slides as saved.
+	if ("slides" in changes) broadcastDeckSlides(id, updated);
 	// REQ059 — quiz scores are derived from the slide *as it stands now*, so
 	// re-marking a correct option re-orders the deck's standings without a single
 	// new vote. The board is a different slide from the one that was edited, so
@@ -1227,6 +1244,9 @@ export async function updatePresentation(
 	// is the only place the frame goes out from.
 	if ("requireParticipantName" in changes) {
 		broadcastParticipantNameSetting(id, updated);
+		// The switch also decides what a leaderboard row is called (REQ218), so a
+		// board on screen has to drop or pick up the names with it.
+		await broadcastStandings(id);
 	}
 	// REQ083 — whether a phone offers another pass at the end of the deck is
 	// drawn from the deck it holds, so the switch has to reach the room for the
@@ -1387,6 +1407,16 @@ function slideStartedAtIn(
 		: {};
 }
 
+/** Read a presentation's close stamps (REQ111) with every key present. */
+function slideClosedAtIn(
+	pres: Record<string, unknown>,
+): Record<string, string> {
+	const stamps = pres.slideClosedAt;
+	return stamps && typeof stamps === "object"
+		? { ...(stamps as Record<string, string>) }
+		: {};
+}
+
 /**
  * The question-opening stamps after a slide is reached (REQ057), or `null` when
  * nothing changes because the slide was already opened.
@@ -1406,6 +1436,16 @@ function withSlideOpenedOnce(
 	return { ...stamps, [slideId]: openedAt };
 }
 
+/**
+ * Whether a slide that is on screen when the deck goes live is left for the
+ * presenter to open (REQ226) — a quiz question with a countdown. A question
+ * with no window has no time to lose to the room still joining, so it opens
+ * with the deck as every other slide does.
+ */
+function opensByHandAtGoLive(slide: Slide): boolean {
+	return slide.type === "quiz" && quizTimeLimitFor(slide) !== null;
+}
+
 export async function setActiveSlide(
 	presentationId: string,
 	slideIndex: number,
@@ -1419,9 +1459,14 @@ export async function setActiveSlide(
 	const slide = slides[slideIndex];
 	// Arriving at a slide opens its question (REQ057). Written in the same
 	// update as the navigation so a participant can never see the new slide
-	// before the instant its countdown runs from.
+	// before the instant its countdown runs from. Only on a live deck: an owner
+	// paging through a draft is rehearsing, and a window opened then would run
+	// out before the room ever saw the question (REQ227).
 	const openedAt = new Date().toISOString();
-	const stamps = withSlideOpenedOnce(slideStartedAtIn(pres), slide.id, openedAt);
+	const stamps =
+		pres.status === "live"
+			? withSlideOpenedOnce(slideStartedAtIn(pres), slide.id, openedAt)
+			: null;
 
 	const updated = await presentations.update(presentationId, {
 		activeSlideIndex: slideIndex,
@@ -1449,19 +1494,50 @@ export async function setActiveSlide(
 			slideId: slide.id,
 			startedAt: openedAt,
 		});
+		// REQ216 — and tell the room when that window runs out.
+		if (updated) armQuizWindowCloses(presentationId, updated);
 	}
 	return updated;
 }
 
 /**
+ * A timer start the deck's state turns away, and the sentence that explains it
+ * (REQ227) — shaped like {@link SegmentedRefusal}: a code the caller can branch
+ * on beside the words a person reads.
+ */
+export type TimerRefusal = { refused: "presentation-not-live"; reason: string };
+
+/** Whether a timer start answered with a stated refusal rather than a deck. */
+export function isTimerRefusal(result: unknown): result is TimerRefusal {
+	return (
+		typeof result === "object" &&
+		result !== null &&
+		(result as TimerRefusal).refused === "presentation-not-live"
+	);
+}
+
+/**
  * Reopen one slide's question, restarting its countdown (REQ057) — the
  * presenter's way back from a mis-navigation that burned a quiz question's
- * window, and from a room that was not ready when the clock started.
+ * window, and from a room that was not ready when the clock started. It is
+ * also how a timed quiz question that was on screen at go-live is opened in
+ * the first place (REQ226): going live leaves that one waiting, and the same
+ * control, labelled "Start timer" there, starts it.
  *
  * Deliberately not automatic: see {@link withSlideOpenedOnce} for why arriving
  * at a slide a second time leaves the original instant standing. Answers
- * already given stand too — a restart hands the remaining participants a fresh
- * window, it does not clear the room's answers, which is what `reset` is for.
+ * already given stand too, **score included** (REQ217): a restart hands the
+ * participants who have not answered a fresh window, and nothing else. Each
+ * answer is timed against the window it was given in (`quizWindowOpenedAt` on
+ * the vote), so moving the slide's stamp re-times nobody, and the one-answer
+ * rule keeps whoever already answered from answering again. Clearing the
+ * room's answers is what `reset` is for.
+ *
+ * Refused on a presenter-paced deck that is not live (REQ227), with the reason
+ * {@link quizTimerUnavailableReason} states: a window opened in a draft would
+ * be dropped at go-live, and every phone that was told about it would go on
+ * counting down a question the server treats as waiting. A survey deck keeps
+ * the timer it has always had (REQ003).
  */
 export async function restartSlideTimer(
 	presentationId: string,
@@ -1472,6 +1548,17 @@ export async function restartSlideTimer(
 
 	const slides = pres.slides as Slide[];
 	if (!slides.some((slide) => slide.id === slideId)) return null;
+
+	const unavailable = quizTimerUnavailableReason({
+		status: pres.status as string | undefined,
+		mode: pres.mode as string | undefined,
+	});
+	if (unavailable) {
+		return {
+			refused: "presentation-not-live",
+			reason: unavailable,
+		} satisfies TimerRefusal;
+	}
 
 	// Unconditional, unlike arriving at a slide: reopening *is* the decision, so
 	// there is no already-opened case to leave standing.
@@ -1485,10 +1572,17 @@ export async function restartSlideTimer(
 			slideId,
 			startedAt: openedAt,
 		});
-		// A fresh window re-measures every answer already given against it
-		// (REQ057's speed half), so the standings move here too — see
-		// {@link broadcastStandings} for why the board cannot hear it any other way.
-		await broadcastStandings(presentationId);
+		// The close scheduled for the old window is replaced by this one's
+		// (REQ216), so the room is not told the question is over while it runs.
+		armQuizWindowCloses(presentationId, updated);
+		// The question is running again, so the room's copy of its tally goes
+		// back to withholding the key and the typed answers it was sent when the
+		// first window closed (REQ216) — re-sent here because no row changed to
+		// carry it. The standings are not: no answer's score moved (REQ217).
+		const slide = (updated.slides as Slide[]).find(
+			(candidate) => candidate.id === slideId,
+		);
+		if (slide?.type === "quiz") await broadcastResults(presentationId, slideId);
 	}
 	return updated;
 }
@@ -1595,13 +1689,28 @@ export async function startPresentation(presentationId: string) {
 	if (!pres) return null;
 
 	// Going live lands on the first slide, which opens its question the same way
-	// navigating to any other slide does (REQ057).
+	// navigating to any other slide does (REQ057) — unless it is a timed quiz
+	// question (REQ226). Its countdown would then start at the instant the room
+	// is told the code, and run out on everybody still typing it in; so it waits,
+	// on screen but closed to answers, until the presenter starts its timer.
 	const slides = pres.slides as Slide[];
 	const first = slides[0];
 	const openedAt = new Date().toISOString();
-	const stamps = first
-		? withSlideOpenedOnce(slideStartedAtIn(pres), first.id, openedAt)
-		: null;
+	// A presenter-paced draft has opened nothing (REQ227): navigation does not
+	// stamp before the deck is live, and a draft of that kind took no answer a
+	// stamp could have timed. Any stamp it still carries was left by navigation
+	// from before that rule, and would start the deck with a question already
+	// running — or already expired — so going live from draft starts from none.
+	// A survey draft keeps its stamps: it collects answers in draft (REQ003).
+	const fromRehearsal =
+		pres.status === "draft" &&
+		((pres.mode as "live" | "survey" | undefined) ?? "live") === "live";
+	const before = fromRehearsal ? {} : slideStartedAtIn(pres);
+	const opened =
+		first && !opensByHandAtGoLive(first)
+			? withSlideOpenedOnce(before, first.id, openedAt)
+			: null;
+	const stamps = opened ?? (fromRehearsal ? before : null);
 
 	// The session clock (REQ108) runs from the moment the deck goes live. A start
 	// on a deck that is already live keeps the clock it has — a second click must
@@ -1628,20 +1737,32 @@ export async function startPresentation(presentationId: string) {
 		// on the first one. It names that slide by id as well: a phone's copy of
 		// the deck was read before any edit made while the deck was not live, so
 		// after the old first slide was deleted the index alone pointed it at a
-		// slide the deck no longer has.
+		// slide the deck no longer has. The deck's opening stamps travel with it
+		// too (REQ227), whole: going live from a draft drops any it carried, and a
+		// phone or second screen that loaded the draft would otherwise go on
+		// counting down a window the server no longer holds — showing a countdown
+		// every tap of which is refused, or "Time's up" on a question that is
+		// waiting to be started.
+		//
+		// And `activeSlideIndex`, the slide it went live on (REQ230): a draft is
+		// navigated, so a phone or second screen that followed it sits on whatever
+		// slide was last picked there. It carries the same slide as `slideIndex`.
 		broadcastToPresentation(presentationId, "presentation.started", {
 			presentationId,
 			startedAt: sessionStartedAt,
 			slideIndex: 0,
 			slideId: first?.id ?? null,
+			slideStartedAt: slideStartedAtIn(updated),
+			activeSlideIndex: updated.activeSlideIndex,
 		});
-		if (stamps && first) {
+		if (opened && first) {
 			broadcastToPresentation(presentationId, "slide.started", {
 				presentationId,
 				slideId: first.id,
 				startedAt: openedAt,
 			});
 		}
+		armQuizWindowCloses(presentationId, updated);
 	}
 	return updated;
 }
@@ -1667,6 +1788,9 @@ export async function endPresentation(presentationId: string) {
 			presentationId,
 			endedAt: sessionEndedAt,
 		});
+		// REQ228 — an ended deck has no question left to game, so every verdict
+		// its reveal setting allows now counts towards the room's standings.
+		await broadcastStandings(presentationId);
 	}
 	return updated;
 }
@@ -1695,6 +1819,7 @@ export async function resetPresentation(presentationId: string) {
 		sessionStartedAt: null,
 		sessionEndedAt: null,
 		closedSlideIds: [],
+		slideClosedAt: {},
 		audienceBlanked: false,
 		// The countdowns the last session started (REQ107) go with it, running,
 		// paused or finished: a re-run opens every clock at its full length.
@@ -1762,6 +1887,9 @@ export async function setSlideRevealed(
 			slideId,
 			revealed: reveal,
 		});
+		// REQ228 — revealing a quiz question releases its verdicts, so the
+		// standings the room holds now count it (and hiding it again stops them).
+		await broadcastStandings(presentationId);
 	}
 	return updated;
 }
@@ -1814,11 +1942,20 @@ export async function setSlideParticipation(
 			const slides = pres.slides as Slide[];
 			if (!slides.some((slide) => slide.id === slideId)) return null;
 
+			// The close instant travels with the closed set (REQ216): it is what
+			// tells a quiz question the presenter ended from one they closed before
+			// it was ever asked (`quizClosedAfterOpening`).
 			return presentations.update(presentationId, {
 				closedSlideIds: withSlideParticipation(
 					(pres.closedSlideIds as string[] | undefined) ?? [],
 					slideId,
 					open,
+				),
+				slideClosedAt: withSlideClosedAt(
+					slideClosedAtIn(pres),
+					slideId,
+					open,
+					new Date().toISOString(),
 				),
 			});
 		},
@@ -1828,7 +1965,17 @@ export async function setSlideParticipation(
 			presentationId,
 			slideId,
 			open,
+			closedAt: slideClosedAtIn(updated)[slideId] ?? null,
 		});
+		// REQ216 — closing a quiz question that has opened ends it, so its key
+		// and typed answers become the room's (`solutionVisibleToAudience`), and
+		// reopening one still inside its window withholds them again. Either way
+		// the room's copy of the tally changed without a row changing, so it is
+		// re-sent here rather than left for the next answer to carry.
+		const slide = (updated.slides as Slide[]).find(
+			(candidate) => candidate.id === slideId,
+		);
+		if (slide?.type === "quiz") await broadcastResults(presentationId, slideId);
 	}
 	return updated;
 }
@@ -1901,6 +2048,37 @@ function broadcastDeckResultsVisibility(
 }
 
 /**
+ * Tell the room the deck's slides were saved (REQ229), with the slides.
+ *
+ * A phone and a second presenter screen hold the slides they loaded, and every
+ * judgement they make about a question is read off that copy: whether its
+ * verdict may be shown (the slide's own reveal setting), what it asks, what it
+ * offers, how long it runs, and which slide is at which position. Without this
+ * an edit saved while they stay connected changes none of it, so a question
+ * switched to "On click" goes on being judged as it was loaded, and a slide
+ * moved to the front is not the one a phone shows when the presenter starts it.
+ *
+ * The slides travel **as the audience may see them**, projected exactly as the
+ * join fetch projects them ({@link withAudienceSlides}): no answer key while a
+ * question runs, no presenter notes. A room is broadcast to by presentation and
+ * the `role` a socket claims proves nothing, so every connected client reads
+ * this frame whatever it said it was. Only `slides` is read off the deck, so
+ * nothing else on it — `creatorTokenHash`, `creatorId` — can ride along. A
+ * presenter screen does not take its slides from this frame: it re-reads its own
+ * credentialed copy on it, which is where it gets the solutions and notes from.
+ */
+function broadcastDeckSlides(
+	presentationId: string,
+	pres: Record<string, unknown>,
+): void {
+	const deck = pres as StoredPresentation;
+	broadcastToPresentation(presentationId, "presentation.slides", {
+		presentationId,
+		slides: withAudienceSlides(deck.slides as Slide[], deck, Date.now()),
+	});
+}
+
+/**
  * Set the deck's reveal mode and apply it to every question slide in it, in one
  * operation (REQ018).
  *
@@ -1923,7 +2101,12 @@ export async function setDeckResultsVisibility(
 	}));
 	const updated = outcome.status === "written" ? outcome.deck : null;
 	if (updated) {
+		// REQ229 — the overrides it cleared are on the slides, which a presenter
+		// screen holds as its editor's copy and so cannot re-derive from the mode.
+		broadcastDeckSlides(presentationId, updated);
 		broadcastDeckResultsVisibility(presentationId, updated);
+		// REQ228 — the mode decides which verdicts the standings count.
+		await broadcastStandings(presentationId);
 	}
 	return updated;
 }
@@ -2199,6 +2382,108 @@ async function broadcastResults(presentationId: string, slideId: string) {
 	await tallyBroadcasts.run(tallyKey(presentationId, slideId));
 }
 
+// ── A quiz question's window running out (REQ216) ────────────
+//
+// The room's tally is re-sent whenever something changes it — and the one
+// change that matters most to a quiz question changes no row at all. While the
+// window runs, every frame the room receives withholds the key and the typed
+// answers (REQ056); at the end of the window they become the room's to see, and
+// nothing happens at that instant on its own: the last answers arrived before
+// it, the presenter has nothing to click. So a phone kept the last withheld
+// frame under "Time's up" until it was reloaded.
+//
+// The server says when the question is over, because it is the server's window
+// — the same `slideStartedAt`, limit and grace the boundary refuses a late
+// answer on. One broadcast at that instant is one frame per room, where a phone
+// re-fetching on its own clock would be the whole room hitting the results
+// endpoint in the same millisecond, each guessing the instant from an offset
+// that can be wrong in either direction.
+
+/**
+ * The first instant a quiz question's window is past, grace included — the
+ * moment the room may be shown its result — or `null` for a question with no
+ * window (untimed, or never opened).
+ */
+function quizWindowClosesAt(
+	slide: Slide,
+	stamps: Record<string, string>,
+): number | null {
+	const deadline = quizDeadlineFor(stamps[slide.id], quizTimeLimitFor(slide));
+	// One past the grace: its last instant still counts as open (`isQuizWindowOpen`).
+	return deadline === null ? null : deadline + QUIZ_SUBMISSION_GRACE_MS + 1;
+}
+
+/**
+ * Re-send one quiz question's tally because its window has run out.
+ *
+ * Decided from what is stored, not from when the timer was set: a deck that has
+ * since ended, been reset or deleted, or moved off quiz, sends nothing; a window
+ * that has moved later (a timer restarted, a time limit lengthened) is waited
+ * for again. What goes out is the ordinary room frame through the ordinary
+ * coalesced path, so it carries exactly what the audience may now see — the key
+ * and the typed answers on `instant`, the withheld marker on `on-click` or
+ * `private`, which a client ignores.
+ */
+async function sendQuizWindowClosed(key: string): Promise<void> {
+	const { presentationId, slideId } = parseTallyKey(key);
+	const pres = await presentations.findOne(presentationId);
+	if (!pres || pres.status !== "live") return;
+	const slide = (pres.slides as Slide[]).find(
+		(candidate) => candidate.id === slideId,
+	);
+	if (slide?.type !== "quiz") return;
+	const closesAt = quizWindowClosesAt(slide, slideStartedAtIn(pres));
+	if (closesAt === null) return;
+	const remainingMs = closesAt - Date.now();
+	if (remainingMs > 0) {
+		quizWindowCloses.schedule(key, remainingMs);
+		return;
+	}
+	await broadcastResults(presentationId, slideId);
+}
+
+/** One pending close per quiz question, replaced when its window moves. */
+const quizWindowCloses = createKeyedTimers({
+	work: sendQuizWindowClosed,
+	onError: (key, cause) =>
+		console.error(`[quiz] window close failed for ${key}:`, cause),
+});
+
+/** Drop every pending window close. For tests that need a clean slate. */
+export function resetQuizWindowCloses(): void {
+	quizWindowCloses.reset();
+}
+
+/**
+ * Arrange for the room to be told when each of a live deck's open quiz windows
+ * runs out. Called wherever a window starts or moves — a question opened, its
+ * timer restarted, the deck saved — and for every live deck at boot, since the
+ * timers are held in memory and a restart would otherwise leave the questions
+ * open at that moment closing in silence. A window already past is left alone:
+ * the room was told when it closed, or will read it fresh on reconnect.
+ */
+function armQuizWindowCloses(
+	presentationId: string,
+	pres: Record<string, unknown>,
+): void {
+	if (pres.status !== "live") return;
+	const stamps = slideStartedAtIn(pres);
+	const now = Date.now();
+	for (const slide of pres.slides as Slide[]) {
+		if (slide.type !== "quiz") continue;
+		const closesAt = quizWindowClosesAt(slide, stamps);
+		if (closesAt === null || closesAt <= now) continue;
+		quizWindowCloses.schedule(tallyKey(presentationId, slide.id), closesAt - now);
+	}
+}
+
+/** Re-arm every live deck's open quiz windows (REQ216) — once, at boot. */
+export async function rearmQuizWindowCloses(): Promise<void> {
+	for (const pres of await presentations.find({ status: "live" })) {
+		armQuizWindowCloses(pres.id as string, pres);
+	}
+}
+
 /**
  * Recount the deck's standings and push them to everyone watching (REQ059).
  *
@@ -2272,15 +2557,18 @@ export function resetStandingsBroadcasts(): void {
  * Without it a leaderboard on screen would sit at whatever it said when the room
  * arrived — a board reporting a race that has already moved on.
  *
- * Called from all three things that re-score a board, because scores are derived
+ * Called from both things that re-score a board, because scores are derived
  * from the deck as it stands now rather than stored: an **answer** landing on a
- * quiz question, an **edit** to what counts as correct, and a **restarted
- * window**, which re-measures the speed half of every answer given under it. The
- * presenter's poll would eventually catch all three on the projector; a
+ * quiz question, and an **edit** to what counts as correct. A restarted window
+ * is not one of them any more: each answer keeps the window it was given in
+ * (REQ217), so a restart moves no score. And from the two things that re-label
+ * a board without re-scoring it (REQ218): a participant **stating or correcting
+ * their name**, and the deck's **name question being switched** on or off. The
+ * presenter's poll would eventually catch all of them on the projector; a
  * participant's phone only ever hears about them here.
  *
- * **All three still arrive; what changed is how often the same news is sent.**
- * One of the three — an answer landing — is walked by every person in the room,
+ * **Every one still arrives; what changed is how often the same news is sent.**
+ * One of them — an answer landing — is walked by every person in the room,
  * and re-scoring the whole deck per individual answer made a 300-person question
  * cost 300 deck rescans and 300 room-wide broadcasts, 299 of which described a
  * board nobody had time to read. The recount is therefore coalesced: the first
@@ -2314,9 +2602,15 @@ async function broadcastStandings(presentationId: string) {
  * that is live, and the only thing wrong with it is a decision taken in the room
  * a moment ago. Folding that into the generic `null` would tell the participant
  * their answer was invalid, which is the one thing it was not.
+ *
+ * A deck that moved on under the answer produces one too (REQ236): it is no
+ * longer accepting answers — the presenter ended it while the answer was in
+ * flight — or the slide the answer is for has been deleted. The participant's
+ * screen is behind the room, and the code is what lets it catch up rather than
+ * replace itself with an error.
  */
 export type VoteRefusal = {
-	refused: VoteRefusalCode;
+	refused: VoteRefusalCode | DeckMovedOnCode;
 };
 
 /** Whether a `submitVote` result is a stated refusal rather than a stored vote. */
@@ -2337,11 +2631,13 @@ export async function submitVote(
 ) {
 	const pres = await presentations.findOne(presentationId);
 	if (!pres) return null;
-	if (!acceptsSubmissions(pres)) return null;
+	if (!acceptsSubmissions(pres)) {
+		return { refused: "presentation-not-live" } satisfies VoteRefusal;
+	}
 
 	const slides = pres.slides as Slide[];
 	const slide = slides.find((s) => s.id === slideId);
-	if (!slide) return null;
+	if (!slide) return { refused: "slide-not-found" } satisfies VoteRefusal;
 
 	// The slide has to be open to submissions (REQ111). Ahead of every type
 	// branch and ahead of the value bound below, because a closed question is
@@ -2595,8 +2891,21 @@ export async function submitVote(
 				);
 				if (standing.length > 0) return { refused: "quiz-already-answered" };
 
+				const windowOpenedAt = slideStartedAtIn(pres)[slideId] ?? null;
+				// A timed question the presenter has not opened yet (REQ226) has no
+				// window to be inside: read as "no deadline" it would take the
+				// answer and score it as instant.
+				if (
+					quizWindowNotYetOpened(slide, {
+						mode: pres.mode as string | undefined,
+						status: pres.status as string | undefined,
+						slideStartedAt: slideStartedAtIn(pres),
+					})
+				) {
+					return { refused: "quiz-not-started" };
+				}
 				const deadline = quizDeadlineFor(
-					slideStartedAtIn(pres)[slideId],
+					windowOpenedAt,
 					quizTimeLimitFor(slide),
 				);
 				if (!isQuizWindowOpen(deadline, Date.now())) {
@@ -2604,12 +2913,17 @@ export async function submitVote(
 				}
 
 				for (const stale of existing) await votes.remove(stale.id as string);
+				// The answer carries the window it was accepted in (REQ217): the
+				// same instant the deadline above was measured from, so the window
+				// that let it in is the one its speed is scored against — whatever
+				// a later restart does to the slide's own stamp.
 				return votes.insert({
 					presentationId,
 					slideId,
 					value: submitted,
 					participantId,
 					pass,
+					quizWindowOpenedAt: windowOpenedAt,
 					createdAt: new Date().toISOString(),
 				});
 			},
@@ -3862,7 +4176,12 @@ export async function stateParticipantName(
 	if (!participantId) return null;
 
 	const stored = await setParticipantName(presentationId, participantId, name);
-	return stored ? { name: stored.name } : null;
+	if (!stored) return null;
+	// A leaderboard row is labelled with this name (REQ218), so a correction has
+	// to reach a board already on screen. Coalesced like an answer, so a room
+	// stating its names together costs one recount per window.
+	await broadcastStandings(presentationId);
+	return { name: stored.name };
 }
 
 /**
@@ -3926,6 +4245,11 @@ export async function getParticipantRoster(
 // total left behind — and it is why both read sites below (the room's tally and
 // one participant's card) call the same function rather than each re-deriving
 // what a point is worth.
+//
+// The one input a vote carries for it is the window it was given in
+// (`quizWindowOpenedAt`, REQ217): *when* a question opened is a fact about the
+// moment of answering, not about the slide as it now stands, and a restarted
+// timer would otherwise rewrite it under every answer already given.
 
 /** One participant's answer to one quiz question, scored. */
 type ScoredQuizAnswer = {
@@ -3935,6 +4259,11 @@ type ScoredQuizAnswer = {
 	 */
 	respondentId: string;
 	/**
+	 * The device that answered, whatever the pass — the key a stated name is
+	 * held under (REQ076), which the leaderboard labels a row with (REQ218).
+	 */
+	participantId: string;
+	/**
 	 * What they submitted, as it is stored: an option id on a select-answer
 	 * question, the text they wrote on a typed one (REQ055).
 	 */
@@ -3942,7 +4271,10 @@ type ScoredQuizAnswer = {
 	/** How this question was answered, so a read site never re-derives it. */
 	answerMode: QuizAnswerMode;
 	isCorrect: boolean;
-	/** Time from the question opening to the answer landing; null if untimed. */
+	/**
+	 * Time from the opening of the window this answer was given in to the answer
+	 * landing (REQ217); null if unknown.
+	 */
 	elapsedMs: number | null;
 	points: number;
 };
@@ -4009,6 +4341,26 @@ function finalQuizAnswers(
 }
 
 /**
+ * The opening instant one quiz answer's speed is measured from (REQ057, REQ217):
+ * the window it was accepted in, as stamped on the vote — or, for an answer
+ * stored before votes carried that stamp, the slide's current one.
+ *
+ * Per answer rather than per slide because a restarted timer gives one question
+ * two windows: the answers given in the first were timed against it, and a
+ * restart that re-measured them against the second would take their speed
+ * away (or, clamped the other way, hand the slowest of them the most).
+ * Correctness is not stored with it — it is still read from the slide as it now
+ * stands, so re-marking the solution re-scores the room.
+ */
+function answerWindowOpenedAt(
+	quizVote: Record<string, unknown>,
+	slideStartedAt: string | null,
+): string | null {
+	const stamped = quizVote.quizWindowOpenedAt;
+	return typeof stamped === "string" && stamped !== "" ? stamped : slideStartedAt;
+}
+
+/**
  * Score every answer on one quiz slide, whichever way it is answered (REQ055).
  *
  * Which rows those are is {@link finalQuizAnswers}' call, made here rather than
@@ -4024,13 +4376,13 @@ function scoreQuizSlide(
 ): ScoredQuizSlide {
 	const timeLimit = quizTimeLimitFor(slide);
 	const deadline = quizDeadlineFor(startedAt, timeLimit);
-	const openedAt = startedAt ? Date.parse(startedAt) : Number.NaN;
 	const answerMode = quizAnswerModeFor(slide);
 
 	const answers: ScoredQuizAnswer[] = [];
 	for (const quizVote of finalQuizAnswers(slide, slideVotes)) {
 		const submitted = String(quizVote.value ?? "");
 		const answeredAt = Date.parse(String(quizVote.createdAt ?? ""));
+		const openedAt = Date.parse(answerWindowOpenedAt(quizVote, startedAt) ?? "");
 		const elapsedMs =
 			Number.isNaN(openedAt) || Number.isNaN(answeredAt)
 				? null
@@ -4038,6 +4390,7 @@ function scoreQuizSlide(
 		const isCorrect = isCorrectQuizAnswer(slide, submitted);
 		answers.push({
 			respondentId: respondentIdOf(quizVote),
+			participantId: String(quizVote.participantId ?? ""),
 			submitted,
 			answerMode,
 			isCorrect,
@@ -4126,9 +4479,12 @@ function tallyTypedQuizAnswers(
 		accepted: revealsCorrect ? acceptedQuizAnswers(slide) : null,
 		/**
 		 * Distinct answers the room gave, however many may be shown — not counting
-		 * the answers the profanity filter withheld, which `filteredCount` reports.
+		 * the answers the profanity filter withheld, which `filteredCount` reports
+		 * — and `null` while the rows are (REQ215). A guess typed under a fresh id
+		 * that leaves this unchanged is one somebody already gave, so the number
+		 * alone lets the room's answers be probed one guess at a time.
 		 */
-		distinctCount: entries.length,
+		distinctCount: revealsCorrect ? entries.length : null,
 		entries: revealsCorrect
 			? entries.map((entry) => ({
 					text: entry.text,
@@ -4154,11 +4510,15 @@ function tallyTypedQuizAnswers(
  * participant's own card is served separately, to whoever already holds that id
  * ({@link getParticipantScorecard}).
  */
-function summarizeQuizScores(scored: ScoredQuizSlide, now: number) {
+function summarizeQuizScores(
+	scored: ScoredQuizSlide,
+	now: number,
+	revealsResult: boolean,
+) {
 	const { answers } = scored;
 	const correctCount = answers.filter((answer) => answer.isCorrect).length;
 	const totalPoints = answers.reduce((sum, answer) => sum + answer.points, 0);
-	return {
+	const window = {
 		/** What one correct answer is worth before and with the speed bonus. */
 		correctPoints: QUIZ_CORRECT_POINTS,
 		speedPoints: QUIZ_SPEED_POINTS,
@@ -4177,6 +4537,23 @@ function summarizeQuizScores(scored: ScoredQuizSlide, now: number) {
 			!isQuizWindowOpen(Date.parse(scored.deadline), now),
 		/** Answers the tally scored — the denominator behind the averages. */
 		answeredCount: answers.length,
+	};
+	// REQ215 — the correctness half, withheld while the answer key is. Each of
+	// these moves when one right answer lands and stands still for a wrong one,
+	// so any of them read beside a vote of one's own is the key. An explicit
+	// `null` for all four, and the reader tells it from "nobody answered yet" by
+	// `correctCount`, which is never `null` otherwise (`quizResultWithheld`).
+	if (!revealsResult) {
+		return {
+			...window,
+			correctCount: null,
+			totalPoints: null,
+			averagePoints: null,
+			correctShare: null,
+		};
+	}
+	return {
+		...window,
 		correctCount,
 		totalPoints,
 		// Emit both keys either way. A question nobody has answered has
@@ -4304,8 +4681,10 @@ function leaderboardEntryIdFor(
 function rankQuizDeck(
 	presentationId: string,
 	deck: ScoredQuizDeck,
+	statedNames: Record<string, string>,
 ): LeaderboardEntry[] {
 	const totals = new Map<string, LeaderboardTotals>();
+	const namesByEntry = new Map<string, string>();
 	for (const { scored } of deck) {
 		for (const answer of scored.answers) {
 			if (!answer.respondentId) continue;
@@ -4313,6 +4692,8 @@ function rankQuizDeck(
 				presentationId,
 				answer.respondentId,
 			);
+			const statedName = statedNames[answer.participantId];
+			if (statedName) namesByEntry.set(entryId, statedName);
 			const running = totals.get(entryId) ?? {
 				entryId,
 				totalPoints: 0,
@@ -4325,7 +4706,57 @@ function rankQuizDeck(
 			totals.set(entryId, running);
 		}
 	}
-	return rankLeaderboardEntries([...totals.values()]);
+	return rankLeaderboardEntries([...totals.values()], namesByEntry);
+}
+
+/**
+ * The names a deck's leaderboard rows may wear, `participantId` → name
+ * (REQ218) — empty unless the deck asks the room for names (REQ076).
+ *
+ * Behind the switch rather than behind "is anything stored", which is the
+ * difference from the exports: a deck whose organizer turned names off still
+ * holds the ones it collected, and the export keeps them because it is the
+ * organizer's record of the session. The board is public and projected, so
+ * turning the switch off has to take the names off it, and a deck that never
+ * asked does not even read the collection.
+ */
+async function leaderboardNamesFor(
+	presentationId: string,
+	pres: Record<string, unknown>,
+): Promise<Record<string, string>> {
+	if (!deckRequiresParticipantName(pres as ParticipantNameSettings)) return {};
+	return participantNameLookup(presentationId);
+}
+
+/**
+ * The scored questions this caller's standings are summed over — only those
+ * {@link quizVerdictVisibleToAudience} releases (REQ228), unless an editor reads
+ * for one of their own surfaces that is never drawn for the room (REQ233).
+ *
+ * The standings are verdicts summed: a row's points and correct count move when
+ * one right answer to a running question is scored and stand still for a wrong
+ * one, so a participant watching their own row — or answering under a fresh id
+ * and watching for a new one — reads the key off the board exactly as off their
+ * own card. A question therefore counts towards the room's standings from the
+ * moment its verdict is the room's to see, and not before.
+ *
+ * And the room watches the projector as well as its phones. The presenting view
+ * and a second screen read with the edit token, so `canEdit` alone would put a
+ * running question's points on the wall — the same oracle, one fresh id per
+ * option, read off the shared screen instead of a phone. An editor's reading
+ * therefore counts every question only when the surface asks for it with
+ * `wholeStandings` ({@link ResultsCaller}).
+ */
+function quizDeckCountedFor(
+	deck: ScoredQuizDeck,
+	pres: Record<string, unknown>,
+	caller: ResultsCaller,
+	now: number,
+): ScoredQuizDeck {
+	const standingsReader = { canEdit: caller.canEdit && caller.wholeStandings };
+	return deck.filter(({ slide }) =>
+		quizVerdictVisibleToCaller(slide, pres, standingsReader, now),
+	);
 }
 
 /**
@@ -4333,11 +4764,21 @@ function rankQuizDeck(
  * participant, plus what the deck's quiz questions are worth. What a *slide*
  * shows is a prefix of this ({@link leaderboardSizeFor}); what a participant is
  * told about themselves is their row in it, wherever it sits.
+ *
+ * Ranked over `counted` — the questions whose verdicts the reader may see
+ * ({@link quizDeckCountedFor}) — while what the deck is worth is read off the
+ * whole of `deck`, so the board's "top 5 across 4 questions" does not shrink and
+ * grow as questions are revealed.
  */
-function leaderboardFrom(presentationId: string, deck: ScoredQuizDeck) {
-	const entries = rankQuizDeck(presentationId, deck);
+function leaderboardFrom(
+	presentationId: string,
+	deck: ScoredQuizDeck,
+	counted: ScoredQuizDeck,
+	statedNames: Record<string, string>,
+) {
+	const entries = rankQuizDeck(presentationId, counted, statedNames);
 	return {
-		/** Quiz questions the standings are summed over. */
+		/** Quiz questions in the deck — what the standings can be summed over. */
 		quizCount: deck.length,
 		/** What the whole deck's quiz questions are worth at best. */
 		maxPoints: deck.length * QUIZ_MAX_POINTS,
@@ -4365,6 +4806,15 @@ function leaderboardFrom(presentationId: string, deck: ScoredQuizDeck) {
  * exactly as an answer naming it would be. That is what lets a device going
  * through the deck again answer its quiz questions again: the card of its new
  * pass is blank, so nothing on it locks the cards a previous pass has spent.
+ *
+ * **A verdict is the answer key, so it waits for the key** (REQ228). Until
+ * {@link quizVerdictVisibleToAudience} releases a question — its window over and
+ * its reveal setting allowing — its entry carries `isCorrect` and `points` as an
+ * explicit `null`, and it counts towards none of `correctCount`, `totalPoints`
+ * and `rank`. Served to an id the browser mints, not to a proven editor, so it
+ * is always the audience's reading: anybody can answer under a fresh id per
+ * option and read each card back. What they answered still reads — it is theirs,
+ * and it is the lock that keeps a reloaded phone from answering twice.
  */
 export async function getParticipantScorecard(
 	presentationId: string,
@@ -4381,13 +4831,21 @@ export async function getParticipantScorecard(
 		pres,
 		storedResultsSource(presentationId),
 	);
-	const board = leaderboardFrom(presentationId, deck);
+	const statedNames = await leaderboardNamesFor(presentationId, pres);
+	const now = Date.now();
+	const board = leaderboardFrom(
+		presentationId,
+		deck,
+		quizDeckCountedFor(deck, pres, {}, now),
+		statedNames,
+	);
 	const entryId = leaderboardEntryIdFor(presentationId, respondentId);
 	const standing = board.entries.find((entry) => entry.entryId === entryId);
 
 	const slides = deck.map(({ slide, scored }) => {
 		const answer = answerOf(scored, respondentId);
 		const answerMode = quizAnswerModeFor(slide);
+		const verdictVisible = quizVerdictVisibleToAudience(slide, pres, now);
 		return {
 			slideId: slide.id,
 			question: slide.question,
@@ -4406,9 +4864,11 @@ export async function getParticipantScorecard(
 			// answered X" must not have to guess which of the two it holds.
 			optionId: answer && answerMode === "select" ? answer.submitted : null,
 			answer: answer && answerMode === "type" ? answer.submitted : null,
-			isCorrect: answer ? answer.isCorrect : null,
+			// REQ228 — both `null` while the verdict is withheld, answered or not:
+			// `points` is otherwise always a number (`scorecardVerdictWithheld`).
+			isCorrect: answer && verdictVisible ? answer.isCorrect : null,
 			elapsedMs: answer ? answer.elapsedMs : null,
-			points: answer ? answer.points : 0,
+			points: verdictVisible ? (answer?.points ?? 0) : null,
 		};
 	});
 
@@ -4427,16 +4887,18 @@ export async function getParticipantScorecard(
 		 * scored yet, so a client can match itself against the board the moment
 		 * they do; the place is an explicit `null` until they have answered
 		 * something, because "unranked" is a standing too and a `0` would read as
-		 * a place they hold.
+		 * a place they hold. Placed on the board as the room may see it (REQ228):
+		 * a question whose verdict is withheld moves nobody's place yet.
 		 */
 		entryId,
-		label: leaderboardEntryLabel(entryId),
+		label: leaderboardEntryLabel(entryId, statedNames[participantId] ?? null),
 		rank: standing?.rank ?? null,
 		rankedCount: board.rankedCount,
 		quizCount: slides.length,
 		answeredCount: answered.length,
 		correctCount: answered.filter((slide) => slide.isCorrect === true).length,
-		totalPoints: slides.reduce((sum, slide) => sum + slide.points, 0),
+		// A withheld entry's `null` adds nothing (REQ228).
+		totalPoints: slides.reduce((sum, slide) => sum + (slide.points ?? 0), 0),
 		/** What the whole deck's quiz questions are worth at best. */
 		maxPoints: slides.length * QUIZ_MAX_POINTS,
 		slides,
@@ -4689,11 +5151,19 @@ async function aggregateSlideResults(
 			// it is the answer to a question the room is being scored on, so the
 			// tally carries it only for an editor or once the question is over —
 			// the same gate the deck payload passes through (REQ056).
+			//
+			// What the room answered is withheld on that same gate (REQ215): the
+			// per-option counts and the correctness half of the score are the key
+			// read off the room, so they go out only when the key itself would.
+			// Not `tallyVisibleToCaller`, which also lets the results link through.
+			const revealsResult = quizResultVisibleToCaller(
+				slide,
+				pres,
+				opts,
+				Date.now(),
+			);
 			const revealsCorrect =
-				slide.type === "quiz"
-					? Boolean(opts.canEdit) ||
-						solutionVisibleToAudience(slide, pres, Date.now())
-					: slideHasCorrectAnswers(slide);
+				slide.type === "quiz" ? revealsResult : slideHasCorrectAnswers(slide);
 			return {
 				type: slide.type,
 				/**
@@ -4737,6 +5207,7 @@ async function aggregateSlideResults(
 									slideStartedAtIn(pres)[slideId] ?? null,
 								),
 								Date.now(),
+								revealsResult,
 							)
 						: null,
 				// A typed question offers no options to anyone, so its tally carries
@@ -4760,7 +5231,9 @@ async function aggregateSlideResults(
 						: (slide.options || []).map((opt) => ({
 								id: opt.id,
 								text: opt.text,
-								count: counts[opt.id] || 0,
+								// REQ215 — an explicit `null` while the room's answer is
+								// withheld, never a `0` that would read as nobody picking it.
+								count: revealsResult ? counts[opt.id] || 0 : null,
 								// Emit the key for every option. A slide with no
 								// correct answer to reveal has no notion of correctness, so
 								// the value is an explicit `null` (a key dropped via
@@ -4781,14 +5254,25 @@ async function aggregateSlideResults(
 		// after an answer lands — so the board updates by the same route
 		// everything else does.
 		//
-		// Anonymous by construction, and it has to be: this payload is public and
-		// unauthenticated. Every row is named by a one-way handle, so the board
-		// can be read from the back row without handing anybody the id that would
-		// let them answer as somebody else.
+		// No participant id reaches it, and it has to be so: this payload is
+		// public and unauthenticated. Every row is keyed by a one-way handle, so
+		// the board can be read from the back row without handing anybody the id
+		// that would let them answer as somebody else. On a deck that asks for
+		// names a row is *labelled* with the one its holder stated (REQ218) — the
+		// label and nothing more, and only on the rows the cut below keeps.
 		case "leaderboard": {
+			// REQ228 — summed only over the questions whose verdicts the room may
+			// read. The board goes to the whole room after every quiz answer
+			// (`sendStandings`, read without `canEdit`), so a running question's
+			// points on it would name the key to anybody watching their own row.
+			// REQ233 — and so does the presenter's own read of it, which is what
+			// the projector draws: only `wholeStandings` lifts this for an editor.
+			const scoredDeck = await scoreQuizDeck(presentationId, pres, source);
 			const board = leaderboardFrom(
 				presentationId,
-				await scoreQuizDeck(presentationId, pres, source),
+				scoredDeck,
+				quizDeckCountedFor(scoredDeck, pres, opts, Date.now()),
+				await leaderboardNamesFor(presentationId, pres),
 			);
 			const size = leaderboardSizeFor(slide);
 			return {
@@ -5665,8 +6149,12 @@ export type SegmentedResults = {
 	 *  - `identifiable` — this slide's tally lists one entry per respondent, which
 	 *    no group size makes anonymous (see {@link segmentedTallyIsAggregate}).
 	 *    Only an editor reads it.
+	 *  - `quiz-not-over` — the grouping slide is a quiz question the audience may
+	 *    not see the result of yet (REQ215). Each group *is* one of its options,
+	 *    counted, so the breakdown is that question's withheld tally. It lifts
+	 *    when the question is over; a results link does not lift it.
 	 */
-	withheldReason: "reveal-mode" | "identifiable" | null;
+	withheldReason: "reveal-mode" | "identifiable" | "quiz-not-over" | null;
 	/** The floor a group must clear to be published to a non-editor. */
 	minRespondents: number;
 	segments: ResultsSegment[];
@@ -5749,6 +6237,14 @@ export async function getSegmentedResults(
 		!tallyVisibleToCaller(sourceSlide, revealState, opts)
 	) {
 		return withheldBreakdown("reveal-mode");
+	}
+	// REQ215 — grouping *by* a quiz question whose result the caller may not see
+	// yet. The groups are labelled with its options and sized by who picked each,
+	// which is its per-option count under another name. Breaking a running quiz
+	// *down* needs nothing here: every group's tally goes through the same
+	// aggregation, which withholds it there.
+	if (!quizResultVisibleToCaller(sourceSlide, pres, opts, Date.now())) {
+		return withheldBreakdown("quiz-not-over");
 	}
 	// A tally that lists one entry per respondent cannot be made anonymous by
 	// grouping it, however many people a group holds: the entries are matchable
@@ -5840,7 +6336,7 @@ export async function getSegmentedResults(
 
 	/** The whole breakdown kept back, saying which of the two reasons it was. */
 	function withheldBreakdown(
-		reason: "reveal-mode" | "identifiable",
+		reason: NonNullable<SegmentedResults["withheldReason"]>,
 	): SegmentedResults {
 		return {
 			...head,
@@ -5864,7 +6360,9 @@ export async function getSegmentedResults(
  * because the export is authorized as an edit (owner or edit token): a quiz
  * answer key withheld from a running room (REQ056) is exactly what a
  * post-session analysis needs, and the caller has already proved they authored
- * it.
+ * it. For the same reason a leaderboard here is the whole standings
+ * (`wholeStandings`, REQ233), not the released-only board the shared screen
+ * drew: under "Private" that board never counted the question at all.
  *
  * Returns `null` for a presentation that does not exist, like every other read
  * here.
@@ -5882,6 +6380,7 @@ export async function getResultsExport(
 	const results = await getAllResults(presentationId, {
 		canEdit: true,
 		includeFilteredAnswers: true,
+		wholeStandings: true,
 	});
 	if (!results) return null;
 
@@ -6024,13 +6523,21 @@ export async function getPreviewResults(
 			slideId: slide.id,
 			question: slide.question,
 			type: slide.type,
-			/** The tally as the shared screen reads it — solutions included. */
+			/**
+			 * The tally as an editor reads it on their own surfaces — solutions
+			 * included, and a leaderboard summed over every question (REQ233). On
+			 * every other slide that is what the shared screen reads; a leaderboard
+			 * is the exception, since the shared screen reads the room's board,
+			 * which counts only released questions. A dry run is the organizer's own
+			 * screen and its answers are generated, so there is no room to keep a
+			 * key from and a board that waited for releases would preview nothing.
+			 */
 			presenterResults: await aggregateSlideResults(
 				presentationId,
 				deck,
 				slide.id,
 				source,
-				{ canEdit: true },
+				{ canEdit: true, wholeStandings: true },
 			),
 			/** The same tally as a participant's phone reads it (REQ056). */
 			audienceResults: await aggregateSlideResults(

@@ -62,7 +62,11 @@ import { ExportDialog, exportButtonLabel } from "../components/ExportDialog";
 import {
 	PresenterSlideView,
 	presenterSlideWidthClass,
+	quizTimerControlFor,
+	routeTimerFailure,
 } from "../components/PresenterSlideView";
+import { quizAnswerKeyGoLiveWarning } from "../components/QuizAnswerKeyWarning";
+import { useQuizQuestionRunning } from "../components/QuizTimer";
 import {
 	ParticipantRosterPanel,
 	participantRosterHeading,
@@ -113,6 +117,7 @@ import {
 	audienceViewBlanked,
 	callerCanEditDeck,
 	canReadDeckComments,
+	quizAwaitingStart,
 	slideAcceptsSubmissions,
 	slideHasResults,
 	steppedSlideIndex,
@@ -321,6 +326,7 @@ export function PresenterPage({
 	const revealResults = useStore((state) => state.revealResults);
 	const restartSlideTimer = useStore((state) => state.restartSlideTimer);
 	const controlCountdown = useStore((state) => state.controlCountdown);
+	const catchUpPresenterDeck = useStore((state) => state.catchUpPresenterDeck);
 	const setQASettings = useStore((state) => state.setQASettings);
 	const setParticipantChannels = useStore(
 		(state) => state.setParticipantChannels,
@@ -344,6 +350,15 @@ export function PresenterPage({
 	const [confirmShareEdit, setConfirmShareEdit] = useState(false);
 	/** Whether the "this clears every response" prompt is up (REQ101). */
 	const [confirmReset, setConfirmReset] = useState(false);
+	const timerRequestInFlight = useRef(false);
+	/**
+	 * The quiz questions nobody can get right, named before the deck goes live
+	 * (REQ219) — `null` when the prompt is down.
+	 */
+	const [answerKeyWarning, setAnswerKeyWarning] = useState<{
+		title: string;
+		message: string;
+	} | null>(null);
 	/** Whether the export dialog is up (REQ095/REQ096). */
 	const [exportOpen, setExportOpen] = useState(false);
 	/** Whether the results-link dialog is up (REQ098). */
@@ -481,20 +496,33 @@ export function PresenterPage({
 		isOwner && rosterOpen,
 	);
 
+	// Whether the active slide is a quiz question the room is still answering.
+	// The shared screen draws none of its results until it is over; when that
+	// moment comes, the tally in hand may be the last answer's broadcast, which
+	// withholds the typed answers and the key from everybody. Re-polling right
+	// then puts the editor's full tally on screen without waiting out the beat.
+	const activeQuizRunning = useQuizQuestionRunning(
+		pres?.slides[pres.activeSlideIndex],
+		pres,
+		serverClockOffsetMs,
+	);
+
 	// Fetch results for active slide (initial + 3s poll)
 	// The dep list is deliberately narrower than the captures: the 3s poll must
 	// restart only when the *identity* of what is being polled changes
-	// (presentation, active slide, live/not-live), not on every new `pres`
-	// object the session store hands back. Depending on the whole `pres` would
-	// let unrelated store updates tear down and re-create the interval
-	// mid-flight.
+	// (presentation, active slide, live/not-live, a quiz question ending), not on
+	// every new `pres` object the session store hands back. Depending on the
+	// whole `pres` would let unrelated store updates tear down and re-create the
+	// interval mid-flight.
 	useEffect(() => {
 		if (!pres || pres.status !== "live") return;
 		const slide = pres.slides[pres.activeSlideIndex];
 		if (!slide) return;
 		// Content slides have no aggregate to poll; a leaderboard has one without
 		// collecting a single answer of its own (REQ059), which is why the gate is
-		// "does this slide have results" rather than "does it take votes".
+		// "does this slide have results" rather than "does it take votes". This
+		// screen is the room's, so a board read here counts only the questions the
+		// room may see (REQ233) even with the edit token riding the fetch.
 		if (!slideHasResults(slide.type)) return;
 
 		const fetchResults = () =>
@@ -507,9 +535,31 @@ export function PresenterPage({
 		const interval = setInterval(fetchResults, 3000);
 
 		return () => clearInterval(interval);
-	}, [pres?.id, pres?.activeSlideIndex, pres?.status, setResultsFor]);
+	}, [
+		pres?.id,
+		pres?.activeSlideIndex,
+		pres?.status,
+		activeQuizRunning,
+		setResultsFor,
+	]);
 
-	const handleStart = async () => {
+	/**
+	 * Go live — or, when some quiz question has no correct answer, first say
+	 * which (REQ219). A question, not a refusal: a quiz with no key is a draft
+	 * the presenter may run on purpose (a show of hands, a warm-up), so "Start
+	 * anyway" is one click away and "Cancel" leaves them where they were.
+	 */
+	const handleStart = () => {
+		const warning = pres ? quizAnswerKeyGoLiveWarning(pres.slides) : null;
+		if (warning) {
+			setAnswerKeyWarning(warning);
+			return;
+		}
+		void goLive();
+	};
+
+	const goLive = async () => {
+		setAnswerKeyWarning(null);
 		try {
 			await startPresentation(id);
 			addToast("Presentation started", "success");
@@ -557,16 +607,32 @@ export function PresenterPage({
 	 * Hand the room a fresh window on the question on screen (REQ057) — the way
 	 * back from a mis-navigation that burned it, or from a room that was not
 	 * ready when the clock started. Answers already given stand; clearing those
-	 * is what Reset is for.
+	 * is what Reset is for. The same call opens a question that has been waiting
+	 * since go-live (REQ226), and the toast says which of the two it was. A
+	 * screen that missed the deck ending is told so by the refusal, catches up
+	 * and says why, rather than giving way to an error page (REQ237).
 	 */
 	const handleRestartTimer = async (slideId: string) => {
+		// A double click is one start, not a start and a restart a moment later.
+		// A ref rather than state, because the second click of a double click
+		// lands before React has re-rendered with anything.
+		if (timerRequestInFlight.current) return;
+		timerRequestInFlight.current = true;
+		const slide = pres?.slides.find((candidate) => candidate.id === slideId);
+		const { confirmation } = quizTimerControlFor(
+			!!slide && !!pres && quizAwaitingStart(slide, pres),
+		);
 		try {
 			await restartSlideTimer(id, slideId);
-			addToast("Question timer restarted", "success");
+			addToast(confirmation, "success");
 		} catch (timerError: unknown) {
-			setError(
-				timerError instanceof Error ? timerError.message : "Unknown error",
-			);
+			await routeTimerFailure(timerError, {
+				catchUp: () => catchUpPresenterDeck(id),
+				notice: (message) => addToast(message, "info"),
+				failed: setError,
+			});
+		} finally {
+			timerRequestInFlight.current = false;
 		}
 	};
 
@@ -2018,6 +2084,17 @@ export function PresenterPage({
 				confirmLabel="Copy edit link"
 				onConfirm={copyEditLink}
 				onCancel={() => setConfirmShareEdit(false)}
+			/>
+
+			{/* REQ219 — the quiz questions nobody can get right, named by slide
+			    before the room meets them. */}
+			<ConfirmModal
+				open={answerKeyWarning !== null}
+				title={answerKeyWarning?.title ?? ""}
+				message={answerKeyWarning?.message ?? ""}
+				confirmLabel="Start anyway"
+				onConfirm={goLive}
+				onCancel={() => setAnswerKeyWarning(null)}
 			/>
 
 			{/* REQ101 — what a reset actually costs, spelled out before it happens.

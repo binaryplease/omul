@@ -114,6 +114,7 @@ import {
 	quizAudioUrlForOption,
 	useQuizAudioPreview,
 } from "./QuizAudioCue";
+import { QuizAnswerKeyWarning } from "./QuizAnswerKeyWarning";
 import { isChoiceShapedSlide } from "./SlideCanvasFields";
 import { deckThemeAppearance } from "./DeckTheme";
 import { slideLayoutOptions } from "./SlideAppearance";
@@ -214,15 +215,22 @@ export const RESULTS_VISIBILITY_LABEL: Record<ResultsVisibility, string> = {
  * like whatever the deck says, and an author reading "follow the presentation
  * default" learns nothing about what the room will see. So the sentence is
  * always about the room, and the deferral is said in front of it.
+ *
+ * A quiz question is the one exception to "instant means as answers arrive":
+ * its tally is withheld from the room while the question runs (REQ214/REQ215),
+ * so instant there means once the question is over.
  */
 export function resultsRevealConsequence(
 	authored: SlideResultsVisibility | undefined,
 	deckDefault: ResultsVisibility,
+	slideType: SlideType,
 ): string {
 	const effective = effectiveResultsVisibility(authored, deckDefault);
 	const meaning =
 		effective === "instant"
-			? "results appear as answers arrive"
+			? slideType === "quiz"
+				? "results appear once the question is over (time up or submissions closed)"
+				: "results appear as answers arrive"
 			: effective === "on-click"
 				? "results wait until you reveal them"
 				: "results never reach the shared screen";
@@ -1531,15 +1539,6 @@ function QuizAnswerFields({ slide, onUpdate }: SlideSettingsProps) {
 							disabled={(slide.quizAnswers?.length ?? 0) >= QUIZ_ANSWER_LIMIT}
 							disabledLabel={`At most ${QUIZ_ANSWER_LIMIT} accepted answers`}
 						/>
-						{/* A typed question with no solution scores nobody — the same
-						    stance a choice slide takes when nothing is marked correct
-						    (REQ013). Said out loud, because unlike a blank option it
-						    leaves no visible gap on the participant's screen. */}
-						{acceptedQuizAnswers(slide).length === 0 && (
-							<p className="rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
-								No accepted answer yet — nobody can score on this question.
-							</p>
-						)}
 						{duplicates > 0 && (
 							<p className="text-xs text-text-muted">
 								{duplicates === 1
@@ -1550,6 +1549,11 @@ function QuizAnswerFields({ slide, onUpdate }: SlideSettingsProps) {
 					</div>
 				</Field>
 			)}
+			{/* A quiz with no solution scores nobody — the same stance a choice
+			    slide takes when nothing is marked correct (REQ013). Said out loud
+			    in either mode (REQ219), because unlike a blank option it leaves no
+			    visible gap on the participant's screen: they just read "wrong". */}
+			<QuizAnswerKeyWarning slide={slide} />
 		</>
 	);
 }
@@ -2396,25 +2400,7 @@ function ScoringGroup({
 				value={seconds === 0 ? "Off" : `${seconds}s`}
 				openHint="Open the countdown"
 			>
-				<Field label="Time limit (seconds)" inline>
-					<input
-						type="number"
-						className="input w-20"
-						value={seconds}
-						onChange={(event) => {
-							// An empty field is mid-typing, not "no limit" — that is what an
-							// explicit 0 says, so the two must not collapse.
-							const typed = event.target.value.trim();
-							const next = typed === "" ? 30 : Number(typed);
-							onUpdate({
-								timeLimit:
-									Number.isFinite(next) && next >= 0 ? Math.floor(next) : 30,
-							});
-						}}
-						min={0}
-						max={300}
-					/>
-				</Field>
+				<QuizTimeLimitField seconds={seconds} onUpdate={onUpdate} />
 			</DisclosureRow>
 			{/* REQ058 — what the presenter's screen plays while the question is
 			    open. It rests as a row, like the picture behind a slide: whether
@@ -2436,6 +2422,48 @@ function ScoringGroup({
 				/>
 			</DisclosureRow>
 		</SettingsGroup>
+	);
+}
+
+/** The words over the quiz countdown's number box, and its accessible name. */
+export const QUIZ_TIME_LIMIT_LABEL = "Time limit (seconds)";
+
+/**
+ * The quiz countdown's number box — {@link ScoringGroup}'s open state.
+ *
+ * {@link Field}'s caption heads its control rather than binding to it, so the
+ * box carries the caption's words as its own name, the way the editor's other
+ * named inputs do: a screen reader landing on it hears what it sets, not a bare
+ * "spin button".
+ */
+export function QuizTimeLimitField({
+	seconds,
+	onUpdate,
+}: {
+	seconds: number;
+	onUpdate: SlideSettingsProps["onUpdate"];
+}) {
+	return (
+		<Field label={QUIZ_TIME_LIMIT_LABEL} inline>
+			<input
+				type="number"
+				aria-label={QUIZ_TIME_LIMIT_LABEL}
+				className="input w-20"
+				value={seconds}
+				onChange={(event) => {
+					// An empty field is mid-typing, not "no limit" — that is what an
+					// explicit 0 says, so the two must not collapse.
+					const typed = event.target.value.trim();
+					const next = typed === "" ? 30 : Number(typed);
+					onUpdate({
+						timeLimit:
+							Number.isFinite(next) && next >= 0 ? Math.floor(next) : 30,
+					});
+				}}
+				min={0}
+				max={300}
+			/>
+		</Field>
 	);
 }
 
@@ -2604,6 +2632,7 @@ function ResultsGroup({
 			consequence={resultsRevealConsequence(
 				slide.resultsVisibility,
 				deckResultsVisibility,
+				slide.type,
 			)}
 			departed={departure.departed}
 			departureLabel={overridesDeck ? "Overrides deck" : "Changed"}

@@ -29,6 +29,7 @@ import type {
 import {
 	isWithheldTally,
 	withCountdownRun,
+	withSlideClosedAt,
 	withSlideParticipation,
 } from "../types";
 import type { AppState } from "./store";
@@ -157,6 +158,34 @@ export interface SessionSlice {
 	 * (REQ209).
 	 */
 	refreshDeckSlides: (code: string) => Promise<boolean>;
+	/**
+	 * Catch a participant's deck up with the room after the server said it moved
+	 * on under an answer (REQ236) — the deck ended, or the slide is gone. One
+	 * re-read, patching the status, the slides and the active slide, each only
+	 * where no frame moved it while the read was in flight: a frame that did is
+	 * newer news than this read.
+	 */
+	catchUpWithRoom: (code: string) => Promise<void>;
+	/**
+	 * Re-read the deck's slides on this browser's own credentials, patching only
+	 * the slides (REQ229) — what a presenter screen does when the deck is saved.
+	 *
+	 * The frame announcing a save carries the audience's copy, which has no
+	 * presenter notes and, while a question runs, no answer key; a screen that
+	 * can edit the deck reads both, so it asks for its own copy rather than
+	 * taking the room's.
+	 */
+	refreshPresentationSlides: (id: string) => Promise<void>;
+	/**
+	 * Catch a presenter screen up with the deck's lifecycle after the server
+	 * refused an action because the deck is not live (REQ237) — the screen missed
+	 * the `ended` or `reset` frame. One re-read on this browser's own credentials;
+	 * a status that moved since this screen last heard is applied as the frame it
+	 * missed would have applied it. A frame that lands while the read is in
+	 * flight is newer news and wins. Resolves to the deck the screen holds
+	 * afterwards, which is what a notice about the refusal should describe.
+	 */
+	catchUpPresenterDeck: (id: string) => Promise<Presentation | null>;
 
 	// — lifecycle mutations (REST + optimistic update; throw on failure) —
 	startPresentation: (id: string) => Promise<void>;
@@ -209,19 +238,28 @@ export interface SessionSlice {
 		slideIndex: number;
 		slide?: { id?: unknown } | null;
 	}) => void;
+	/**
+	 * The deck's slides were saved (REQ229): the frame's slides replace the ones
+	 * held, as the audience may see them.
+	 */
+	applyDeckSlides: (payload: { slides?: unknown }) => void;
 	applyResultsUpdated: (payload: {
 		slideId: string;
 		results: SlideResults;
 	}) => void;
 	applyParticipantCount: (payload: { count: number }) => void;
 	/**
-	 * The deck went live; `startedAt` is when its session clock began (REQ108)
-	 * and `slideIndex` / `slideId` the slide the start landed on.
+	 * The deck went live; `startedAt` is when its session clock began (REQ108),
+	 * `slideIndex` / `slideId` the slide the start landed on,
+	 * `slideStartedAt` the opening stamps it went live with (REQ227), and
+	 * `activeSlideIndex` the slide it went live on (REQ230).
 	 */
 	applyStarted: (payload?: {
 		startedAt?: string | null;
 		slideIndex?: number | null;
 		slideId?: string | null;
+		slideStartedAt?: unknown;
+		activeSlideIndex?: unknown;
 	}) => void;
 	/** The deck ended; `endedAt` is where its session clock stopped (REQ108). */
 	applyEnded: (payload?: { endedAt?: string | null }) => void;
@@ -274,6 +312,8 @@ export interface SessionSlice {
 	applySlideParticipation: (payload: {
 		slideId: string;
 		open: boolean;
+		/** When the server stamped the close, ISO; `null` on an open. */
+		closedAt?: string | null;
 	}) => void;
 	/** The shared screen was blanked, or brought back (REQ109). */
 	applyAudienceBlanked: (payload: { blanked: boolean }) => void;
@@ -415,6 +455,25 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		set({ presentation: { ...current, ...changes } });
 	};
 
+	/**
+	 * How many times a save has replaced the slides held here (REQ229). A re-read
+	 * asked before one landed answers with the slides as they stood before the
+	 * save, so it is discarded rather than allowed to put them back.
+	 */
+	let savedSlidesRevision = 0;
+
+	/**
+	 * What the audience's copy of the slides is projected from — the pair the
+	 * participant surface re-reads on, read here from the store so a guard on
+	 * it cannot drift from the trigger.
+	 */
+	const projectionKey = () => {
+		const deck = get().presentation;
+		return `${deck?.resultsVisibility ?? ""}|${(
+			deck?.revealedSlideIds ?? []
+		).join(",")}`;
+	};
+
 	return {
 		...initialSessionState,
 
@@ -507,20 +566,14 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		 *    change that moved on has its own re-read already running.
 		 */
 		refreshDeckSlides: async (code) => {
-			// The same pair the participant surface triggers on, read here from the
-			// store so the guard cannot drift from the trigger.
-			const projectionKey = () => {
-				const deck = get().presentation;
-				return `${deck?.resultsVisibility ?? ""}|${(
-					deck?.revealedSlideIds ?? []
-				).join(",")}`;
-			};
 			if (!get().presentation) return false;
 			const askedAgainst = projectionKey();
+			const askedAtRevision = savedSlidesRevision;
 			try {
 				const data = await api.joinByCode(code);
 				if (!Array.isArray(data?.slides)) return false;
 				if (projectionKey() !== askedAgainst) return false;
+				if (savedSlidesRevision !== askedAtRevision) return false;
 				patchPresentation({ slides: data.slides });
 				return true;
 			} catch {
@@ -528,6 +581,101 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 				// and the next change will try again.
 				return false;
 			}
+		},
+
+		/**
+		 * See {@link SessionSlice.catchUpWithRoom}. Shaped like
+		 * `refreshDeckSlides` — no `loading`, a failure leaves the deck as it
+		 * was — and wider than it on purpose: the server has just said this
+		 * browser's status or slides are stale, which is the one moment the
+		 * runtime fields are this read's to set. Each is still guarded, because
+		 * a frame that landed meanwhile (the `ended` this browser missed, a save,
+		 * a slide change) is newer than the read.
+		 */
+		catchUpWithRoom: async (code) => {
+			const deck = get().presentation;
+			if (!deck) return;
+			const askedAtStatus = deck.status;
+			const askedAtSlideIndex = deck.activeSlideIndex;
+			const askedAgainst = projectionKey();
+			const askedAtRevision = savedSlidesRevision;
+			try {
+				const data = await api.joinByCode(code);
+				const current = get().presentation;
+				if (!current || current.id !== deck.id) return;
+				const changes: Partial<Presentation> = {};
+				if (current.status === askedAtStatus && typeof data?.status === "string") {
+					changes.status = data.status;
+				}
+				const slidesCurrent =
+					projectionKey() === askedAgainst &&
+					savedSlidesRevision === askedAtRevision;
+				if (slidesCurrent && Array.isArray(data?.slides)) {
+					changes.slides = data.slides;
+					if (
+						current.activeSlideIndex === askedAtSlideIndex &&
+						typeof data.activeSlideIndex === "number"
+					) {
+						changes.activeSlideIndex = data.activeSlideIndex;
+					}
+				}
+				patchPresentation(changes);
+			} catch {
+				// The deck the participant holds is still the one to show; the room's
+				// next frame catches it up.
+			}
+		},
+
+		/**
+		 * See {@link SessionSlice.refreshPresentationSlides}. Shaped like
+		 * `refreshDeckSlides` above and for its reasons: no `loading` (the screen
+		 * is mid-session), only `slides` patched (the socket owns the runtime
+		 * fields), a failure leaves the deck as it was, and a response that a
+		 * later save has moved past is discarded — two saves in quick succession
+		 * put two re-reads in flight, and the first must not land last.
+		 */
+		refreshPresentationSlides: async (id) => {
+			if (!get().presentation) return;
+			savedSlidesRevision += 1;
+			const askedAtRevision = savedSlidesRevision;
+			try {
+				const data = await api.getPresentation(id);
+				if (!Array.isArray(data?.slides)) return;
+				if (savedSlidesRevision !== askedAtRevision) return;
+				patchPresentation({ slides: data.slides });
+			} catch {
+				// The screen keeps the slides it has; the next save tries again.
+			}
+		},
+
+		/**
+		 * See {@link SessionSlice.catchUpPresenterDeck}. No `loading`, like the
+		 * re-reads above, so the screen never blanks to a spinner. Only the two
+		 * lifecycle moves a missed frame can leave behind are replayed — through
+		 * the reducers those frames drive, so a caught-up screen is the one that
+		 * heard them: an ended deck stops its clock, a reset one clears its
+		 * stamps, switches and the run's Q&A and chat.
+		 */
+		catchUpPresenterDeck: async (id) => {
+			const deck = get().presentation;
+			if (!deck) return null;
+			const askedAtStatus = deck.status;
+			try {
+				const data = await api.getPresentation(id);
+				const current = get().presentation;
+				const unmoved =
+					current?.id === deck.id && current.status === askedAtStatus;
+				if (unmoved && data?.status !== askedAtStatus) {
+					if (data?.status === "ended") {
+						get().applyEnded({ endedAt: sessionStampsIn(data).sessionEndedAt });
+					} else if (data?.status === "draft") {
+						get().applyReset();
+					}
+				}
+			} catch {
+				// The screen keeps the deck it has; the room's next frame catches it up.
+			}
+			return get().presentation;
 		},
 
 		startPresentation: async (id) => {
@@ -623,6 +771,17 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 							slideId,
 							open,
 						),
+				// The close instant with it (REQ216): it decides whether this screen
+				// reads a closed quiz question as ended or as closed ahead of time.
+				slideClosedAt:
+					updated?.slideClosedAt && typeof updated.slideClosedAt === "object"
+						? (updated.slideClosedAt as Record<string, string>)
+						: withSlideClosedAt(
+								get().presentation?.slideClosedAt ?? {},
+								slideId,
+								open,
+								new Date().toISOString(),
+							),
 			});
 		},
 
@@ -650,6 +809,27 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		applySlideChanged: ({ slideIndex, slide }) => {
 			set({ liveSlideId: typeof slide?.id === "string" ? slide.id : null });
 			patchPresentation({ activeSlideIndex: slideIndex });
+		},
+
+		/**
+		 * The deck was saved (REQ229), and the frame carries its slides as the
+		 * audience may see them — projected on the server exactly as the join
+		 * fetch is, so taking them whole is taking what a reload would have read.
+		 *
+		 * **Replaced, never merged.** A slide's reveal setting, its question, its
+		 * options, its accepted answers, its time limit and its position are all
+		 * judged off this copy: a phone that kept the slide it loaded would go on
+		 * reading a question the presenter has switched to "On click" as one whose
+		 * verdict is out the moment it closes, and a phone that kept the old order
+		 * would show a different slide from the one the presenter starts. A merge
+		 * could also keep a mark the save has taken off. The runtime fields beside
+		 * the slides — the active index, the status, the stamps — are the other
+		 * frames' to move, and are left alone.
+		 */
+		applyDeckSlides: ({ slides }) => {
+			if (!Array.isArray(slides)) return;
+			savedSlidesRevision += 1;
+			patchPresentation({ slides: slides as Presentation["slides"] });
 		},
 
 		/**
@@ -685,6 +865,18 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		// presenter who clicked stood on slide one. And it names that slide's id,
 		// which a frame that moves the index takes along (or forgets, when the
 		// frame names none) so the id never describes an older index.
+		//
+		// And the deck's opening stamps, whole (REQ227): going live from a draft
+		// drops any the draft carried, so a screen that loaded the draft would
+		// otherwise keep counting down a window the server no longer holds. Taken
+		// rather than merged, the way the presenter takes them off the start
+		// response; a frame without them (an older server) leaves what is held.
+		//
+		// And the slide the deck went live on (REQ230), which is the server's and
+		// not this screen's: a draft is navigated, so a phone or second screen that
+		// followed it holds whatever slide was last picked there, and would go on
+		// showing it — a quiz question ahead of its time — while the presenter who
+		// clicked is on the first. A frame without one leaves the index held.
 		applyStarted: (payload) => {
 			if (typeof payload?.slideIndex === "number") {
 				set({
@@ -699,6 +891,10 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 					: {}),
 				...(typeof payload?.slideIndex === "number"
 					? { activeSlideIndex: payload.slideIndex }
+					: {}),
+				...startedStampsIn(payload),
+				...(typeof payload?.activeSlideIndex === "number"
+					? { activeSlideIndex: payload.activeSlideIndex }
 					: {}),
 			});
 		},
@@ -747,6 +943,7 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 						// closed question over an open one and a curtain over a deck the
 						// room can already see.
 						closedSlideIds: [],
+						slideClosedAt: {},
 						audienceBlanked: false,
 						// The session clock with them (REQ108): the next run is
 						// timed from its own start.
@@ -833,7 +1030,7 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 		 * phone comes to believe a question is open that the boundary is refusing,
 		 * and then draws a live control over a refusal.
 		 */
-		applySlideParticipation: ({ slideId, open }) => {
+		applySlideParticipation: ({ slideId, open, closedAt }) => {
 			const current = get().presentation;
 			if (!current) return;
 			patchPresentation({
@@ -841,6 +1038,15 @@ export function createSessionSlice(set: AppSet, get: AppGet): SessionSlice {
 					current.closedSlideIds ?? [],
 					slideId,
 					open,
+				),
+				// The server's own instant when the frame carries one; a frame from
+				// before it did reads as "closed now", which can only ever land on
+				// the side that ends a question the presenter has just closed.
+				slideClosedAt: withSlideClosedAt(
+					current.slideClosedAt ?? {},
+					slideId,
+					open,
+					closedAt ?? new Date().toISOString(),
 				),
 			});
 		},

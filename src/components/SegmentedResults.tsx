@@ -4,7 +4,7 @@ import { api } from "../api";
 import type { Slide } from "../types";
 import { segmentSourcesFor, SLIDE_TYPE_LABELS } from "../types";
 import { type ChoiceOption, ChoiceCards } from "./EditorControls";
-import { ResultsDisplay } from "./Results";
+import { RESULT_LABELS_EN, type ResultLabels, ResultsDisplay } from "./Results";
 
 // ── Segmented results (REQ020, REQ116) ────────────────────────
 //
@@ -93,8 +93,8 @@ export type SegmentRow = {
 export type SegmentedView = {
 	/** The whole breakdown is kept from this reader. */
 	withheld: boolean;
-	/** Which of the two reasons it is, or `null` when it is not withheld. */
-	withheldReason: "reveal-mode" | "identifiable" | null;
+	/** Which of the reasons it is, or `null` when it is not withheld. */
+	withheldReason: "reveal-mode" | "identifiable" | "quiz-not-over" | null;
 	/** How many people a group needs before its answers are published. */
 	minRespondents: number;
 	segments: SegmentRow[];
@@ -113,7 +113,8 @@ export function readSegments(payload: any): SegmentedView {
 		withheld: payload?.withheld === true,
 		withheldReason:
 			payload?.withheldReason === "reveal-mode" ||
-			payload?.withheldReason === "identifiable"
+			payload?.withheldReason === "identifiable" ||
+			payload?.withheldReason === "quiz-not-over"
 				? payload.withheldReason
 				: null,
 		minRespondents:
@@ -166,6 +167,12 @@ export function segmentedWithheldReason(
 		// organizer's alone whatever the deck publishes.
 		return "This slide's results list what each person answered, and no group is small enough — or large enough — to make that anonymous. Only the organizer can break these results down.";
 	}
+	if (withheldReason === "quiz-not-over") {
+		// Not the organizer's reveal setting either (REQ215): each group is one of
+		// the grouping question's options, counted, so it is that question's
+		// answer — and it waits for the question to end like the answer does.
+		return "This breakdown groups people by a quiz question that is not over yet, and how many picked each answer would give that answer away. It appears once the question is over.";
+	}
 	return "This breakdown is not published — the organizer has kept one of the two slides' results back.";
 }
 
@@ -182,12 +189,19 @@ export function SegmentedResults({
 	slide,
 	slides,
 	pollTick = 0,
+	labels = RESULT_LABELS_EN,
 }: {
 	presentationId: string;
 	slide: Slide;
 	/** The whole deck, in order — what "an earlier slide" is resolved against. */
 	slides: Slide[];
 	pollTick?: number;
+	/**
+	 * The words each group's chart is drawn in — the deck's language (REQ225),
+	 * the same labels the chart above the breakdown wears, so one page does not
+	 * read "richtig" over "correct".
+	 */
+	labels?: ResultLabels;
 }) {
 	const [segmentBy, setSegmentBy] = useState<string>(NO_SEGMENT);
 	const [view, setView] = useState<SegmentedView | null>(null);
@@ -271,7 +285,11 @@ export function SegmentedResults({
 									{segmentSuppressedReason(view.minRespondents)}
 								</p>
 							) : (
-								<ResultsDisplay slide={slide} results={segment.results} />
+								<ResultsDisplay
+									slide={slide}
+									results={segment.results}
+									labels={labels}
+								/>
 							)}
 						</section>
 					))}

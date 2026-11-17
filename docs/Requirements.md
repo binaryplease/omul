@@ -221,8 +221,39 @@ Prose outside the markers is preserved.
 | [REQ211.md](requirements/REQ211.md) | Every dialog and popover keeps one keyboard contract — Escape closes it, focus goes in and comes back, Tab stays inside, and it fits the viewport | Rendering & Theming | P2 | pending | internal |
 | [REQ212.md](requirements/REQ212.md) | The app renders when served over plain HTTP on a LAN address, where the browser offers no `crypto.randomUUID` | Platform & Operations | P2 | pending | internal |
 | [REQ213.md](requirements/REQ213.md) | The PDF export's markdown reduction must be linear in the text, the export must be rate-limited, and rendering must neither hold the server's thread nor pile up | Platform & Operations | P1 | done | internal |
+| [REQ214.md](requirements/REQ214.md) | While a quiz question's window is open, the shared screen must show its question, countdown and response count only — never the solution or what the room answered | Quiz & Scoring | P0 | done | internal |
+| [REQ215.md](requirements/REQ215.md) | A quiz question's per-option counts and the correctness half of its score must not reach a client that cannot edit the deck before the question is over, on the results endpoints, the results broadcast or segmentation | Quiz & Scoring | P2 | done | internal |
+| [REQ216.md](requirements/REQ216.md) | When a quiz question's window ends, every connected participant's phone must switch to the revealed results without a reload | Quiz & Scoring | P1 | done | internal |
+| [REQ217.md](requirements/REQ217.md) | Restarting a quiz question's timer must leave every answer already given with the points it earned in its own window | Quiz & Scoring | P1 | done | internal |
+| [REQ218.md](requirements/REQ218.md) | A leaderboard row must be called by its holder's stated name on a deck that asks for names | Quiz & Scoring | P1 | done | internal |
+| [REQ219.md](requirements/REQ219.md) | The editor must warn about a quiz question with no correct answer, and going live must name it | Quiz & Scoring | P1 | done | internal |
+| [REQ220.md](requirements/REQ220.md) | A slide that poses no question must save without one, and a refused save must name and select its slide | Deck & Slides | P2 | done | internal |
+| [REQ221.md](requirements/REQ221.md) | A participant's quiz question must announce its state to a screen reader and keep focus after an answer | Quiz & Scoring | P1 | done | internal |
+| [REQ222.md](requirements/REQ222.md) | Status colours and quiz result text must meet AA contrast in both colour schemes | Quiz & Scoring | P1 | done | internal |
+| [REQ223.md](requirements/REQ223.md) | An option card that cannot be picked must not take the hover style | Quiz & Scoring | P3 | done | internal |
+| [REQ224.md](requirements/REQ224.md) | An answer in flight must show as chosen and sending at once | Quiz & Scoring | P3 | done | internal |
+| [REQ225.md](requirements/REQ225.md) | Quiz and leaderboard text the audience reads must be in the deck's language | Rendering & Theming | P3 | done | internal |
+| [REQ226.md](requirements/REQ226.md) | A timed quiz question on screen at go-live must wait for the presenter to start its timer | Quiz & Scoring | P3 | done | internal |
+| [REQ227.md](requirements/REQ227.md) | A deck that is not live must not open a quiz question's window, and going live must leave no client holding one | Quiz & Scoring | P3 | done | internal |
+| [REQ228.md](requirements/REQ228.md) | A participant's quiz verdict, points, total and place must not reach a client that cannot edit the deck before the audience may see that question's solution, on the scorecard or the leaderboard standings | Quiz & Scoring | P2 | done | internal |
+| [REQ229.md](requirements/REQ229.md) | When the presenter saves the deck, every connected participant and presenter screen must apply the saved slides without a reload — reveal setting, question, options, accepted answers, time limit and order — projected as on joining | Live Session | P1 | done | internal |
+| [REQ230.md](requirements/REQ230.md) | When a deck goes live, every connected participant and presenter screen must move to the slide the server went live on, not keep the slide last selected in the draft | Live Session | P1 | done | internal |
+| [REQ231.md](requirements/REQ231.md) | The quiz slide editor's time-limit number box must be programmatically named by its visible caption "Time limit (seconds)" | Quiz & Scoring | P2 | done | internal |
+| [REQ232.md](requirements/REQ232.md) | A quiz answer the server refuses must keep the participant on the slide, with the reason inline in the deck's language | Quiz & Scoring | P1 | done | internal |
+| [REQ233.md](requirements/REQ233.md) | A leaderboard drawn for the room — the presenting view, a projector or second screen — must count only the quiz questions whose verdict the audience may see, even when the screen reads with the edit token | Quiz & Scoring | P2 | done | internal |
+| [REQ234.md](requirements/REQ234.md) | A quiz answer refused because the presenter closed the question must show and announce that reason under the answer control, like the other three refusals | Quiz & Scoring | P2 | done | internal |
+| [REQ235.md](requirements/REQ235.md) | A quiz question that starts must not read as over for an instant — the countdown reads a new deadline afresh instead of the last reading taken against the old one | Quiz & Scoring | P3 | done | internal |
+| [REQ236.md](requirements/REQ236.md) | An answer that arrives after the deck ended or its slide was deleted must leave the participant in the deck, with a notice in the deck's language | Quiz & Scoring | P2 | done | internal |
+| [REQ237.md](requirements/REQ237.md) | A timer start refused because the deck is no longer live must leave the presenter view on screen, catch it up, and name the deck's real state | Quiz & Scoring | P3 | done | internal |
+| [REQ238.md](requirements/REQ238.md) | The slide editor's reveal line must say that an instant quiz question's results appear once the question is over, not as answers arrive | Quiz & Scoring | P3 | done | internal |
+| [REQ239.md](requirements/REQ239.md) | The presentation settings' audience-language select must be programmatically named by its visible caption "Audience language" | Rendering & Theming | P3 | done | internal |
+| [REQ240.md](requirements/REQ240.md) | A presentation created while signed out must not ask the account claim, which can only answer 401 and lands in the browser console | Accounts & Workspaces | P3 | done | internal |
+| [REQ241.md](requirements/REQ241.md) | The shared dialog shell behind "Share the results" must be a modal dialog that takes focus, closes on Escape from anywhere and gives focus back | Access & Sharing | P3 | done | internal |
+| [REQ242.md](requirements/REQ242.md) | A participant can join a live deck in every browser omul supports, and a cross-browser test pass proves it | Live Session | P1 | pending | internal |
+| [REQ243.md](requirements/REQ243.md) | Selecting an element on the editor canvas brings up that element's own style controls, so restyling a slide needs no scrolling through the settings column | Deck & Slides | P1 | pending | BR151 |
+| [REQ244.md](requirements/REQ244.md) | The editor offers a built-in set of slide backgrounds that a slide or a whole deck takes in one click, bundled with omul and legible under any text | Rendering & Theming | P2 | pending | BR152 |
 | [REQ245.md](requirements/REQ245.md) | A slide's body text can be edited directly on the editor canvas, as its question already can | Deck & Slides | P2 | pending | internal |
 | [REQ246.md](requirements/REQ246.md) | Account deletion requires the account's password whatever the session's age | Accounts & Workspaces | P1 | done | internal |
 
-_205 entries — one row per file in `requirements/`._
+_236 entries — one row per file in `requirements/`._
 <!-- index:end -->

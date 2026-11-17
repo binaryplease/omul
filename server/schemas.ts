@@ -130,6 +130,21 @@ export function isContentSlideType(type: SlideType): boolean {
 }
 
 /**
+ * Whether a slide cannot be saved without a question written on it — the rule
+ * the editor's save applies, and the one its placeholder has to be honest about.
+ *
+ * Exactly the slides that collect answers: a participant cannot answer nothing.
+ * Not "every slide that is not content", which is what the editor used to ask,
+ * and a leaderboard is again the proof (REQ220): it asks the room nothing, its
+ * heading is optional, and an empty one is drawn as the board's own title on
+ * every surface — so refusing to save one demanded a question from a slide that
+ * poses none.
+ */
+export function slideRequiresQuestion(type: SlideType): boolean {
+	return isInteractiveSlideType(type);
+}
+
+/**
  * What each slide type is **called**, in the words a person reads.
  *
  * One descriptor, because the name of a type is now written on both sides of
@@ -271,8 +286,18 @@ export function tallyVisibleToAudience(
  *    an editor reads. The link is a delegation of the numbers, not of the
  *    credential that authored them, and REQ099 will hand it to participants.
  *
- * Both default to the withholding value where they are read, so a surface that
- * forgets to say who is asking publishes nothing.
+ * And one thing a caller says about the surface it reads for, not about itself:
+ *
+ *  - `wholeStandings` — the reading is for one of the organizer's own surfaces
+ *    that is never drawn for the room (the results page, its breakdown, the
+ *    export, the preview's dry run), so a leaderboard may be summed over every
+ *    quiz question rather than only the released ones (REQ233). Honoured only
+ *    beside `canEdit`. Without it an editor reads the board the room reads,
+ *    because the presenting view and a second screen are editors drawing for
+ *    the room, and a credential cannot tell a projector from a laptop.
+ *
+ * All three default to the withholding value where they are read, so a surface
+ * that forgets to say who is asking publishes nothing.
  */
 export type ResultsCaller = {
 	canEdit?: boolean | undefined;
@@ -284,6 +309,7 @@ export type ResultsCaller = {
 	 * projector — so the default, like the two above, publishes nothing.
 	 */
 	includeFilteredAnswers?: boolean | undefined;
+	wholeStandings?: boolean | undefined;
 };
 
 /**
@@ -471,6 +497,7 @@ export function withSlideParticipation(
  * still worked.
  */
 export const VOTE_REFUSAL_CODES = [
+	"quiz-not-started",
 	"quiz-window-closed",
 	"quiz-already-answered",
 	"participation-closed",
@@ -483,6 +510,29 @@ export type VoteRefusalCode = (typeof VOTE_REFUSAL_CODES)[number];
 /** Whether an error body's `refused` field names a refusal this vocabulary knows. */
 export function isVoteRefusalCode(value: unknown): value is VoteRefusalCode {
 	return VOTE_REFUSAL_CODES.includes(value as VoteRefusalCode);
+}
+
+/**
+ * The reasons an answer is turned away because the deck **moved on** while it
+ * was in flight (REQ236): the presenter ended it (or it is otherwise not
+ * accepting answers), or the slide it answered was deleted. Ridden in the same
+ * `refused` field as {@link VOTE_REFUSAL_CODES}, and kept apart from them
+ * because the news is of another kind: nothing is wrong with the answer or with
+ * the slide's rules, the participant's screen is behind the room. So a client
+ * does not show the reason beside a control — it catches its deck up to the
+ * server's and says, in the deck's language, that the answer was not taken.
+ */
+export const DECK_MOVED_ON_CODES = [
+	"presentation-not-live",
+	"slide-not-found",
+] as const;
+
+/** One entry of {@link DECK_MOVED_ON_CODES}. */
+export type DeckMovedOnCode = (typeof DECK_MOVED_ON_CODES)[number];
+
+/** Whether an error body's `refused` field says the deck moved on under it. */
+export function isDeckMovedOnCode(value: unknown): value is DeckMovedOnCode {
+	return DECK_MOVED_ON_CODES.includes(value as DeckMovedOnCode);
 }
 
 /**
@@ -3367,7 +3417,11 @@ export function slideEmbedFor(slide: EmbedSettings): SlideEmbed | null {
 //    re-answer would let someone bank a fast time and then correct it.
 //  - **Points are derived, never stored.** A score is a function of the votes
 //    and the slide, so re-authoring which option is correct re-scores the room
-//    with no migration and no stale total left behind.
+//    with no migration and no stale total left behind. The one thing an answer
+//    keeps for it is the opening instant of the window it was given in
+//    (`quizWindowOpenedAt` on the vote, REQ217): a restarted timer gives the
+//    question a second window for whoever has not answered yet, and an answer
+//    already given is still timed against the first.
 
 /**
  * What a correct answer is worth on its own, however late in the window it
@@ -3632,6 +3686,39 @@ export function matchesQuizAnswer(slide: QuizSettings, text: string): boolean {
 }
 
 /**
+ * Whether a quiz slide has an answer key at all (REQ219): an option marked
+ * correct on a select-answer question, an accepted answer on a typed one —
+ * read through the same two functions the grader reads, so "has a solution"
+ * cannot mean one thing where it is warned about and another where it is
+ * scored.
+ *
+ * A quiz without one is a legal draft and saves as one, but every answer to it
+ * scores nothing (see {@link isCorrectQuizAnswer}), so the editor flags it on the
+ * slide and in the slide list, and going live names it before the room meets
+ * it. Any other slide type reads `true`: only a quiz is scored, so only a quiz
+ * can be missing a key.
+ */
+export function quizHasAnswerKey(slide: QuizSettings): boolean {
+	if (slide.type !== "quiz") return true;
+	return quizAnswerModeFor(slide) === "type"
+		? acceptedQuizAnswers(slide).length > 0
+		: correctQuizOptionIds(slide).length > 0;
+}
+
+/**
+ * The positions (from 0) of the quiz slides in `slides` that have no answer key
+ * (REQ219) — what going live names. In deck order, so the list reads the way
+ * the presenter will reach them.
+ */
+export function quizSlidesWithoutAnswerKey(
+	slides: readonly QuizSettings[],
+): number[] {
+	return slides.flatMap((slide, slideIndex) =>
+		quizHasAnswerKey(slide) ? [] : [slideIndex],
+	);
+}
+
+/**
  * Whether a stored answer is still an answer to the question **as it now
  * stands** — the predicate that decides both whether a participant has already
  * used up their one answer and whether the tally may score a row.
@@ -3700,15 +3787,16 @@ export function isCorrectQuizAnswer(
  * {@link QUIZ_MAX_POINTS} at its best.
  *
  * An answer that *predates* the window it is measured against is a different
- * case entirely, and it earns the correctness half and **no** speed bonus. This
- * happens when the presenter restarts a question's timer
- * ({@link quizDeadlineFor}'s opening instant moves forward, under answers
- * already given), and the obvious reading — clamp the elapsed time to zero —
+ * case entirely, and it earns the correctness half and **no** speed bonus. An
+ * answer is timed against the window it was given in (REQ217), so this only
+ * happens to an answer stored before votes recorded that window, on a question
+ * whose timer was restarted after it — measured against the slide's newer
+ * opening instant. The obvious reading — clamp the elapsed time to zero —
  * inverts the ranking it exists to produce: the participant who answered a
  * second before the buzzer would be handed {@link QUIZ_MAX_POINTS} for being
  * the slowest in the room, outscoring everyone who answers the fresh window
- * quickly. There is no honest speed to report for an answer given against a
- * window that no longer exists, so none is claimed.
+ * quickly. There is no honest speed to report for an answer measured against a
+ * window it was not given in, so none is claimed.
  */
 export function scoreQuizAnswer(answer: {
 	isCorrect: boolean;
@@ -3752,7 +3840,9 @@ export function scoreQuizAnswer(answer: {
 //    a digest of the id (see the service's `leaderboardEntryIdFor`), and this
 //    module turns that digest into something a room can read out loud. Nobody
 //    is asked to register or pick a nickname to compete: the system ranks the
-//    identity it already has.
+//    identity it already has. On a deck that asks for names (REQ076) the row
+//    wears the name its holder stated instead (REQ218) — a label on the same
+//    handle, so the handle, the order and the "You" match do not move.
 //  - **Everyone is ranked; only the top is shown.** The slide's size caps the
 //    projected board, not the standings behind it, so a participant outside the
 //    top five still learns they are 14th of 31 on their own phone. Cutting the
@@ -3772,27 +3862,48 @@ export type LeaderboardTotals = {
 export type LeaderboardEntry = LeaderboardTotals & {
 	/** 1-based, with ties sharing a place — see {@link rankLeaderboardEntries}. */
 	rank: number;
-	/** What the row is called on screen, derived from {@link entryId}. */
+	/**
+	 * What the row is called on screen: the stated name on a deck that asks for
+	 * one, the name derived from {@link entryId} otherwise — see
+	 * {@link leaderboardEntryLabel}.
+	 */
 	label: string;
 };
 
 /**
- * What a leaderboard row is called (REQ059).
+ * What a leaderboard row is called (REQ059, REQ218).
  *
- * Derived from the row's own handle so it is stable for as long as the handle
- * is — the same participant keeps the same name across every refresh of the
- * board, and across the leaderboard slides of one deck — while naming nothing
- * about the person behind it. No catalog entry asks participants to register or
- * type a nickname, so inventing one here would be inventing a product; a
- * derived name is what an anonymous competition can honestly show.
+ * The name its holder stated, when the deck asked for one (REQ076) and they
+ * gave it — the name the room already called them by in the organizer's
+ * roster, and the one somebody reading the board looks for. The caller decides
+ * whether there is a name to pass: only a deck whose switch is on hands one in,
+ * so a name stored before the switch was turned off stays off the board.
  *
- * Six hex characters, upper-cased: enough that two rows on a projected board
- * are not called the same thing, short enough to be read out ("Player 3F9A2C
- * takes it").
+ * Otherwise the label is derived from the row's own handle so it is stable for
+ * as long as the handle is — the same participant keeps the same name across
+ * every refresh of the board, and across the leaderboard slides of one deck —
+ * while naming nothing about the person behind it. Six hex characters,
+ * upper-cased: enough that two rows on a projected board are not called the
+ * same thing, short enough to be read out ("Player 3F9A2C takes it").
  */
-export function leaderboardEntryLabel(entryId: string): string {
-	const handle = entryId.slice(0, 6).toUpperCase();
+export function leaderboardEntryLabel(
+	entryId: string,
+	statedName: string | null = null,
+): string {
+	if (statedName) return statedName;
+	const handle = leaderboardEntryHandle(entryId);
 	return handle ? `Player ${handle}` : "Player";
+}
+
+/**
+ * The six characters a nameless row is called by (REQ059) — what a client
+ * words in the deck's language in place of the English "Player …" the wire
+ * carries (REQ225). A row whose label is not
+ * `leaderboardEntryLabel(entryId)` carries a stated name, which is never
+ * reworded.
+ */
+export function leaderboardEntryHandle(entryId: string): string {
+	return entryId.slice(0, 6).toUpperCase();
 }
 
 /**
@@ -3810,9 +3921,14 @@ export function leaderboardEntryLabel(entryId: string): string {
  * row takes the place its position implies (1, 2, 2, 4). Two people who scored
  * the same thing are equal — a board that broke that tie by arrival order would
  * be reporting a race that did not happen.
+ *
+ * `statedNames` maps a row's handle to the name its holder stated (REQ218) and
+ * changes the label and nothing else: the order stays the handle's, so a name
+ * corrected mid-session does not reshuffle two level rows on the projector.
  */
 export function rankLeaderboardEntries(
 	totals: LeaderboardTotals[],
+	statedNames: ReadonlyMap<string, string> = new Map(),
 ): LeaderboardEntry[] {
 	const ordered = [...totals].sort(
 		(left, right) =>
@@ -3829,7 +3945,10 @@ export function rankLeaderboardEntries(
 		return {
 			...standing,
 			rank: placedRank,
-			label: leaderboardEntryLabel(standing.entryId),
+			label: leaderboardEntryLabel(
+				standing.entryId,
+				statedNames.get(standing.entryId) ?? null,
+			),
 		};
 	});
 }
@@ -4096,6 +4215,27 @@ type SolutionRevealState = {
 	 * deck still type-checks; absent reads as the schema's own default.
 	 */
 	resultsVisibility?: ResultsVisibility | undefined;
+	/**
+	 * The slides closed to submissions (REQ111). A quiz question the presenter
+	 * has closed after opening it is over, exactly as one whose window ran out is
+	 * (REQ216). Optional for the same reason as above; absent reads as "nothing
+	 * closed", which withholds.
+	 */
+	closedSlideIds?: string[] | undefined;
+	/**
+	 * When each closed slide was closed, ISO by slide id (REQ111). What tells a
+	 * close *after* a question opened — which ends it — from one made ahead of
+	 * time, which reveals nothing; see {@link quizClosedAfterOpening}. Optional
+	 * for the same reason as above; absent reads as "not known to have closed
+	 * after opening", which withholds.
+	 */
+	slideClosedAt?: Record<string, string> | undefined;
+	/**
+	 * Who paces the deck (REQ003). Read only by {@link quizQuestionIsRunning}: an
+	 * audience-paced deck collects before it is started and stamps no opening
+	 * instant, so "not asked yet" means something different there.
+	 */
+	mode?: string | undefined;
 };
 
 /**
@@ -4108,6 +4248,11 @@ type SolutionRevealState = {
  * its answer key back until the question is over, which is any of:
  *
  *  - its window has closed (grace included) — the ordinary live case;
+ *  - the presenter closed it to submissions after it opened (REQ111, REQ216):
+ *    once nobody can answer, there is nothing left to give away, and the room
+ *    is shown the result on the shared screen at that moment (REQ214) — so a
+ *    phone has to be sent the same. A question closed before it was ever
+ *    opened stays withheld: closing a slide ahead of time is no reveal;
  *  - the presenter deliberately revealed that slide's results (REQ102) — which
  *    is the reveal signal an untimed question has instead of a deadline;
  *  - the presentation has ended, after which there is no question left to game.
@@ -4155,6 +4300,7 @@ export function solutionVisibleToAudience(
 	if (slide.type !== "quiz") return true;
 	if (deck.status === "ended") return true;
 	if ((deck.revealedSlideIds ?? []).includes(slide.id)) return true;
+	if (quizClosedAfterOpening(deck, slide.id)) return true;
 	const deadline = quizDeadlineFor(
 		deck.slideStartedAt?.[slide.id],
 		quizTimeLimitFor(slide),
@@ -4163,10 +4309,363 @@ export function solutionVisibleToAudience(
 }
 
 /**
+ * Whether a slide is closed to submissions **and** was closed at or after the
+ * instant its question opened (REQ111, REQ216) — the one reading of "the
+ * presenter ended this question", as opposed to "the presenter closed it ahead
+ * of time".
+ *
+ * The two look identical in `closedSlideIds` and mean opposite things. A close
+ * after opening ends a question that ran: nobody can answer any more, so its
+ * key is the room's. A close made before the question opened — the switch is
+ * on the slide from the editor onwards, so a draft deck can carry one — ended
+ * nothing: the room has not been asked yet, and if that close counted, going
+ * live (or navigating there) would publish the answer at the instant the
+ * window opened, and reopening would let everyone answer with it in front of
+ * them. So the close instant is compared with the opening one, and a close
+ * whose instant is unknown (a deck closed before the stamp existed) reads as
+ * *not* after — the side that withholds.
+ *
+ * A restart moves the opening instant past an earlier close, which puts a
+ * still-closed question back on the withholding side: the presenter has asked
+ * it again.
+ */
+export function quizClosedAfterOpening(
+	deck: SolutionRevealState,
+	slideId: string,
+): boolean {
+	if (slideAcceptsSubmissions(deck, slideId)) return false;
+	const openedAt = Date.parse(deck.slideStartedAt?.[slideId] ?? "");
+	const closedAt = Date.parse(deck.slideClosedAt?.[slideId] ?? "");
+	if (Number.isNaN(openedAt) || Number.isNaN(closedAt)) return false;
+	return closedAt >= openedAt;
+}
+
+/**
+ * The close stamps after one slide is opened or closed (REQ111) — the instant
+ * half of {@link withSlideParticipation}, composed by the route that writes the
+ * pair and by the session store that applies its broadcast.
+ *
+ * Opening drops the slide's stamp. Closing keeps an existing stamp rather than
+ * moving it, so a double-tap or a broadcast that arrives twice cannot push a
+ * close that already ended a question past the instant it opened again.
+ */
+export function withSlideClosedAt(
+	stamps: Readonly<Record<string, string>>,
+	slideId: string,
+	open: boolean,
+	closedAt: string,
+): Record<string, string> {
+	const next = { ...stamps };
+	if (open) {
+		delete next[slideId];
+		return next;
+	}
+	next[slideId] = stamps[slideId] ?? closedAt;
+	return next;
+}
+
+/**
+ * Which slide a deck is on — read by {@link quizAwaitingStart}. Structural and
+ * optional for the same reason {@link SolutionRevealState} is; absent reads as
+ * "on no slide", which awaits nothing.
+ */
+type ActiveSlideState = {
+	activeSlideIndex?: number | undefined;
+	slides?: readonly { id: string }[] | undefined;
+};
+
+/**
+ * Whether a timed quiz question on a live, presenter-paced deck has not been
+ * opened yet (REQ057, REQ226) — no opening instant, so no window and nothing a
+ * speed could be measured from.
+ *
+ * Such a question takes no answers: the boundary refuses them as
+ * `quiz-not-started`. Without that, "no opening instant" would read the way it
+ * does on a survey deck — no deadline, always open — and an answer given
+ * before the question opened would score as instant, which is the most a
+ * question can award and the one thing a participant must not be able to buy
+ * by being early.
+ *
+ * Not a survey deck (REQ003): nobody opens anything there, so a missing
+ * instant means "open for as long as the deck runs". Not an untimed question
+ * either: with no window there is no speed to protect and nothing to wait for.
+ */
+export function quizWindowNotYetOpened(
+	slide: {
+		id: string;
+		type?: SlideType | undefined;
+		timeLimit?: number | undefined;
+	},
+	deck: Pick<SolutionRevealState, "slideStartedAt" | "status" | "mode">,
+): boolean {
+	if (slide.type !== "quiz") return false;
+	if (quizTimeLimitFor(slide) === null) return false;
+	if (deck.mode === "survey") return false;
+	if (deck.status !== "live") return false;
+	return !deck.slideStartedAt?.[slide.id];
+}
+
+/**
+ * Whether the question on screen is a quiz the presenter has yet to start
+ * (REQ226): the deck went live with it as the active slide, and going live
+ * does not open a quiz question's window — the presenter does, with the timer
+ * control on the shared screen, once the room has had time to join.
+ *
+ * Only the active slide waits. A question further on has not been shown to
+ * anybody, and is opened on arrival as every slide is (REQ057); this is the
+ * one question the room can already read but not yet answer, so it is the one
+ * the phone says "waiting for the presenter" under and the projector offers
+ * "Start timer" on.
+ */
+export function quizAwaitingStart(
+	slide: {
+		id: string;
+		type?: SlideType | undefined;
+		timeLimit?: number | undefined;
+	},
+	deck: Pick<SolutionRevealState, "slideStartedAt" | "status" | "mode"> &
+		ActiveSlideState,
+): boolean {
+	if (!quizWindowNotYetOpened(slide, deck)) return false;
+	return deck.slides?.[deck.activeSlideIndex ?? -1]?.id === slide.id;
+}
+
+/**
+ * Why a slide's question timer cannot be started or restarted right now — the
+ * English `error` the timer endpoint refuses with, and the explanation the
+ * shared screen's disabled timer control carries (REQ227).
+ */
+export const QUIZ_TIMER_NOT_LIVE_REASON =
+	"Start the presentation first — question timers run only while the deck is live";
+
+/**
+ * The same refusal on an ended deck (REQ237). "Start the presentation first"
+ * names a draft: said of a deck that has run and stopped, it sends the
+ * presenter looking for a start that is not what is missing.
+ */
+export const QUIZ_TIMER_DECK_ENDED_REASON =
+	"The presentation has ended — question timers run only while the deck is live";
+
+/**
+ * Whether a slide's question timer may be started or restarted (REQ057,
+ * REQ226) — `null` when it may, the reason it may not otherwise. One answer
+ * read by the endpoint that refuses and by the control that is drawn disabled,
+ * so the button never offers a start the server turns away.
+ *
+ * A presenter-paced deck opens questions only while it is live (REQ227): a
+ * window opened in a draft would be dropped again at go-live, and every client
+ * that had been told about it would go on counting down a question the server
+ * treats as waiting. An ended deck takes no answers either, and resuming it
+ * keeps its stamps, so a window opened there would be already running when the
+ * room came back. A survey deck is unaffected (REQ003): it collects in draft,
+ * and its timer behaves as it always has.
+ */
+export function quizTimerUnavailableReason(
+	deck: Pick<SolutionRevealState, "status" | "mode">,
+): string | null {
+	if (deck.mode === "survey") return null;
+	if (deck.status === "live") return null;
+	return deck.status === "ended"
+		? QUIZ_TIMER_DECK_ENDED_REASON
+		: QUIZ_TIMER_NOT_LIVE_REASON;
+}
+
+/**
+ * Whether a quiz question is still being answered — the state in which a
+ * room-facing surface draws its question, its countdown and how many have
+ * answered, and **nothing of what they answered**.
+ *
+ * The shared screen is held by an editor, so the payload gate above lets it
+ * read the answer key and the tally at any moment; what keeps them off the
+ * projector while the room is still deciding is this. Both halves of the result
+ * are held back, not just the key: the per-option bars and the typed answers
+ * are the majority's answer, which on a question being scored is the answer.
+ *
+ * The question is over — and the slide's reveal setting takes over again — when
+ * {@link solutionVisibleToAudience} says the audience may have its key (window
+ * closed with its grace, closed to submissions after opening, results
+ * revealed, deck ended), **or**, on an audience-paced deck, when the slide is
+ * closed to submissions at all (REQ111) — nothing is ever opened there, so a
+ * close hands the room no key but still leaves nothing to copy. On a
+ * live-paced deck a close made *before* the question opened is not an ending
+ * (see {@link quizClosedAfterOpening}): the question still runs, with nobody
+ * able to answer until the presenter reopens it, and its result stays off the
+ * projector meanwhile. An untimed question has no window to close, so it runs
+ * until one of those happens.
+ *
+ * It only runs while somebody can be answering it (REQ216). A live-paced deck
+ * that is not live yet — a draft, or one reset back to draft — is collecting
+ * nothing, and a question on a live deck that the presenter has not reached
+ * has no opening instant and no answers: neither is "being answered", and a
+ * screen that said so would describe a room that has not been asked anything.
+ * An audience-paced deck (REQ003) collects from before it is started and
+ * stamps no opening instant, so there a question runs from the start until it
+ * is closed or the deck ends.
+ *
+ * One unopened question does count as running: the one on screen waiting for
+ * the presenter to start it ({@link quizAwaitingStart}, REQ226). The room has
+ * been shown it and is about to answer it, so its result is no more the
+ * room's than a running question's — and a projector that treated "not opened
+ * yet" as "over" would publish the key before anybody had been asked.
+ *
+ * Never true for any other slide type: a plain choice slide with a marked
+ * option keeps scoring nobody and reveals as it always has (REQ013).
+ */
+export function quizQuestionIsRunning(
+	slide: {
+		id: string;
+		type?: SlideType | undefined;
+		timeLimit?: number | undefined;
+	},
+	deck: SolutionRevealState & LiveRoomState & ActiveSlideState,
+	now: number,
+): boolean {
+	if (slide.type !== "quiz") return false;
+	if (deck.mode === "survey") {
+		if (deck.status === "ended") return false;
+		if (solutionVisibleToAudience(slide, deck, now)) return false;
+		return slideAcceptsSubmissions(deck, slide.id);
+	}
+	if (deck.status !== "live") return false;
+	if (!deck.slideStartedAt?.[slide.id] && !quizAwaitingStart(slide, deck)) {
+		return false;
+	}
+	// A close after opening already counts as over above; one made ahead of
+	// time ended nothing (see `quizClosedAfterOpening`), so the question runs —
+	// and its result stays off the projector — until its window, a reveal or the
+	// end of the deck says otherwise.
+	return !solutionVisibleToAudience(slide, deck, now);
+}
+
+/**
+ * Whether **this caller** may be sent what a quiz question's room answered —
+ * its per-option counts and the correctness half of its scoring — rather than
+ * only how many answered (REQ215).
+ *
+ * The same gate the answer key passes (REQ056), on purpose and for the same
+ * reason: while a question is being scored, the answer most of the room picked
+ * *is* the answer, and a correct-answer count that moves when one more vote
+ * lands says whether that vote was right. A participant who answers under a
+ * fresh id and reads the next frame would otherwise have the key. So the result
+ * is withheld exactly while the key is — whenever {@link
+ * solutionVisibleToAudience} says no, which covers the running question
+ * ({@link quizQuestionIsRunning} implies it) and the one not opened yet alike.
+ *
+ * Only `canEdit` lifts it. The results link (REQ098) is a delegation of the
+ * tallies under every reveal mode, and authorizes no running question's answer
+ * key; this is that key by another route, so the link does not lift it either.
+ * Every other slide type is unaffected: nothing is scored on it.
+ */
+export function quizResultVisibleToCaller(
+	slide: {
+		id: string;
+		type?: SlideType | undefined;
+		timeLimit?: number | undefined;
+		resultsVisibility?: SlideResultsVisibility | undefined;
+	},
+	deck: SolutionRevealState,
+	caller: ResultsCaller,
+	now: number,
+): boolean {
+	if (slide.type !== "quiz") return true;
+	if (caller.canEdit) return true;
+	return solutionVisibleToAudience(slide, deck, now);
+}
+
+/**
+ * Whether a results payload is a quiz tally whose result is withheld from its
+ * reader (REQ215): it still says how many answered, and every option's `count`
+ * and the correctness half of `scoring` are an explicit `null`.
+ *
+ * Read off `scoring.correctCount`, which a quiz tally that is not withheld always
+ * carries as a number. Its own predicate rather than the whole-tally `withheld`
+ * marker ({@link isWithheldTally}): this tally *is* published — its answered
+ * count is the room's to watch — and every client that drops a withheld frame
+ * would otherwise drop the count with it.
+ */
+export function quizResultWithheld(results: unknown): boolean {
+	if (typeof results !== "object" || results === null) return false;
+	const tally = results as { type?: unknown; scoring?: unknown };
+	if (tally.type !== "quiz") return false;
+	if (typeof tally.scoring !== "object" || tally.scoring === null) return false;
+	return (tally.scoring as { correctCount?: unknown }).correctCount === null;
+}
+
+/**
+ * Whether a participant may be told how they did on a quiz question — their
+ * verdict, the points it earned, and any total or place that counts it
+ * (REQ228).
+ *
+ * Two gates, and a verdict needs both. The answer key's
+ * ({@link solutionVisibleToAudience}): "you were right" beside the option you
+ * picked *is* the key, so while a question runs — or before it has been opened —
+ * a verdict is the key handed to whoever reads it, and a participant id is
+ * minted by the browser, so anybody can answer under a fresh one per option and
+ * read each verdict back. And the slide's reveal setting's
+ * ({@link tallyVisibleToAudience}): under "On click" the organizer decides when
+ * the room learns the solution, and under "Private" the room never does, so a
+ * phone that said "Correct!" there would publish what the shared screen keeps
+ * hidden.
+ *
+ * Every other slide type is unaffected: nothing is scored on it.
+ */
+export function quizVerdictVisibleToAudience(
+	slide: {
+		id: string;
+		type?: SlideType | undefined;
+		timeLimit?: number | undefined;
+		resultsVisibility?: SlideResultsVisibility | undefined;
+	},
+	deck: SolutionRevealState & TallyRevealState,
+	now: number,
+): boolean {
+	if (slide.type !== "quiz") return true;
+	return (
+		solutionVisibleToAudience(slide, deck, now) &&
+		tallyVisibleToAudience(slide, deck)
+	);
+}
+
+/**
+ * {@link quizVerdictVisibleToAudience} for one caller: an editor reads every
+ * verdict, whatever the window and the reveal setting say. The results link
+ * (REQ098) does not lift it — it delegates the tallies, not a running
+ * question's key, which is what a verdict read early is.
+ */
+export function quizVerdictVisibleToCaller(
+	slide: {
+		id: string;
+		type?: SlideType | undefined;
+		timeLimit?: number | undefined;
+		resultsVisibility?: SlideResultsVisibility | undefined;
+	},
+	deck: SolutionRevealState & TallyRevealState,
+	caller: ResultsCaller,
+	now: number,
+): boolean {
+	if (caller.canEdit) return true;
+	return quizVerdictVisibleToAudience(slide, deck, now);
+}
+
+/**
+ * Whether one entry of a participant's scorecard has its verdict withheld
+ * ({@link quizVerdictVisibleToAudience}): `isCorrect` and `points` are both an
+ * explicit `null`. Read off `points`, which a published entry always carries as
+ * a number — `0` for a question left unanswered — so `null` there means "not
+ * yet yours to see", never "scored nothing".
+ */
+export function scorecardVerdictWithheld(entry: unknown): boolean {
+	if (typeof entry !== "object" || entry === null) return false;
+	return (entry as { points?: unknown }).points === null;
+}
+
+/**
  * The deck's slides as an audience may see them: every quiz question that is
- * not yet over loses the `isCorrect` marks on its options and, on a typed
- * question (REQ055), the accepted answers themselves — which are the answer
- * key in the plainest possible form.
+ * not yet over, or whose reveal setting still keeps its results from the room
+ * ("On click" until the reveal, "Private" always — {@link
+ * quizVerdictVisibleToAudience}), loses the `isCorrect` marks on its options
+ * and, on a typed question (REQ055), the accepted answers themselves — which
+ * are the answer key in the plainest possible form.
  *
  * The marks are **dropped**, not emitted as an explicit `null` (the shape a
  * nullish value would otherwise wear), because here the absence is the point.
@@ -4198,7 +4697,15 @@ export function withAudienceSolutions<
 	},
 >(slides: SlideShape[], deck: SolutionRevealState, now: number): SlideShape[] {
 	return slides.map((slide) => {
-		if (solutionVisibleToAudience(slide, deck, now)) return slide;
+		// A quiz's key is also held to its reveal setting (REQ228): a phone holding
+		// it beside its own answer has its verdict, so it reaches the room on the
+		// verdict's terms — under "On click" with the reveal, under "Private"
+		// never — not merely once the question is over.
+		const keyVisible =
+			slide.type === "quiz"
+				? quizVerdictVisibleToAudience(slide, deck, now)
+				: solutionVisibleToAudience(slide, deck, now);
+		if (keyVisible) return slide;
 		// A typed question offers no options to anyone, so the audience is sent
 		// none. Left in, they would be a second copy of the answer key in plain
 		// text: a question switched from select to type keeps the options it was
@@ -4677,6 +5184,11 @@ export function recentChatMessages<EntryShape extends ChatMessageEntry>(
 //    tally, and a list of names is not one. The deck's **results link** (REQ098)
 //    does not lift that — it is a delegation of the *numbers*, and handing over
 //    a roster of who was in the room is a decision nobody made by minting it.
+//    **One exception, and it is a ranking rather than a roster** (REQ218): a
+//    leaderboard slide's projected rows wear their holders' stated names, so a
+//    competition the room plays under names is shown under them. Only the rows
+//    the slide puts on the board, only the name (never the participant id or
+//    when it was stated), and only while the deck's switch is on.
 
 /**
  * The longest a stated name may be, in characters.
@@ -6020,6 +6532,13 @@ export const PresentationSchema = z.object({
 	closedSlideIds: z.array(z.string()).default([]),
 	audienceBlanked: z.boolean().default(false),
 	/**
+	 * When each slide in `closedSlideIds` was closed, ISO by slide id (REQ111).
+	 * Public with the set it stamps: a phone and the projector both decide from
+	 * it whether a closed quiz question was *ended* or only closed ahead of time
+	 * — see {@link quizClosedAfterOpening}.
+	 */
+	slideClosedAt: z.record(z.string(), z.string()).default({}),
+	/**
 	 * When each slide's question was opened, as an ISO instant keyed by slide id
 	 * (REQ057). Written by the server when the presenter navigates to a slide,
 	 * and the one thing a quiz's countdown and its deadline are derived from —
@@ -7285,6 +7804,13 @@ export const StoredPresentationSchema = z.object({
 	 */
 	closedSlideIds: z.array(z.string()).default([]),
 	audienceBlanked: z.boolean().default(false),
+	/**
+	 * When each closed slide was closed, ISO by slide id (REQ111, REQ216).
+	 * Defaulted `{}`: a deck closed before the stamp existed reads as "not known
+	 * to have closed after its question opened", which withholds a quiz key
+	 * rather than publishing it — see {@link quizClosedAfterOpening}.
+	 */
+	slideClosedAt: z.record(z.string(), z.string()).default({}),
 	/** When each slide's question was opened, ISO by slide id (REQ057). */
 	slideStartedAt: z.record(z.string(), z.string()).default({}),
 	/**
@@ -7736,6 +8262,17 @@ export const StoredVoteSchema = z.object({
 	 * a pass after they are read back, where the default has filled it in.
 	 */
 	pass: z.number().int().min(FIRST_PASS).default(FIRST_PASS),
+	/**
+	 * On a quiz answer: the opening instant of the window it was given in, ISO
+	 * (REQ057) — the slide's `slideStartedAt` at the moment it was accepted. Its
+	 * speed is measured against this and nothing later, so a presenter restarting
+	 * the timer hands the rest of the room a fresh window without re-timing an
+	 * answer already given (REQ217). `null` on every other slide type, on a quiz
+	 * answered with no opening instant (an audience-paced deck), and on an answer
+	 * stored before this field existed — which is measured against the slide's
+	 * current instant, as it always was.
+	 */
+	quizWindowOpenedAt: z.string().nullable().default(null),
 	createdAt: z.string().default(""),
 });
 
@@ -7829,10 +8366,12 @@ export type StoredChatMessage = z.infer<typeof StoredChatMessageSchema>;
  * nobody, or to nobody's session. One row per pair — stating a name again
  * corrects it in place.
  *
- * The name never leaves the server except to a caller who can edit the deck:
- * neither {@link PresentationSchema} nor any tally declares it, so there is no
- * projection for a future read site to forget, exactly as with the comment
- * threads next door.
+ * The name never leaves the server except to a caller who can edit the deck,
+ * and as the label of a projected leaderboard row while the deck asks for names
+ * (REQ218, see {@link leaderboardEntryLabel}): {@link PresentationSchema}
+ * does not declare it, and no tally carries it as a field of its own, so there
+ * is no projection for a future read site to forget, exactly as with the
+ * comment threads next door.
  */
 export const StoredParticipantNameSchema = z.object({
 	id: z.string(),

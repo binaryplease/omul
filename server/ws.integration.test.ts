@@ -179,7 +179,9 @@ async function authed(
 }
 
 /** One scored question and the board that reports on it (REQ059). */
-async function createLeaderboardDeck(): Promise<{
+async function createLeaderboardDeck(
+	settings: Record<string, unknown> = {},
+): Promise<{
 	id: string;
 	creatorToken: string;
 }> {
@@ -187,6 +189,7 @@ async function createLeaderboardDeck(): Promise<{
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
+			...settings,
 			title: "WS Leaderboard",
 			slides: [
 				{
@@ -218,6 +221,55 @@ async function answerQuiz(
 		body: JSON.stringify({ slideId: "qz", value: optionId, participantId }),
 	});
 	expect(res.status).toBe(200);
+}
+
+/**
+ * Open the quiz question on screen, as the presenter's "Start timer" does:
+ * going live leaves a timed first question waiting (REQ226). The frames the
+ * start sends the room are let through and dropped, so a test reads only what
+ * its own actions cause.
+ */
+async function startQuizTimer(
+	pres: { id: string; creatorToken: string },
+	viewer: ReturnType<typeof openWs>,
+	slideId = "qz",
+): Promise<void> {
+	const started = await authed(
+		`/api/presentations/${pres.id}/timer`,
+		pres.creatorToken,
+		{ method: "POST", body: JSON.stringify({ slideId }) },
+	);
+	expect(started.status).toBe(200);
+	await viewer.waitFor("slide.started");
+	// Past the tally's coalescing window, so the next frame is a leading run.
+	await new Promise((resolve) => setTimeout(resolve, 150));
+	viewer.received.length = 0;
+}
+
+/**
+ * Reveal a quiz question's results (REQ102), and let the standings frame the
+ * reveal sends go by. The board the room is sent counts a question only once
+ * its verdicts are the room's (REQ228); the tests that call this are about
+ * *when the board is re-sent*, not about that gate
+ * (`quiz-verdict-withheld.integration.test.ts` pins it), so they reveal first
+ * and every answer they cast counts at once. Revealing closes nothing: the
+ * question keeps taking answers inside its window.
+ */
+async function revealQuiz(
+	pres: { id: string; creatorToken: string },
+	viewer: ReturnType<typeof openWs>,
+	slideId = "qz",
+): Promise<void> {
+	const revealed = await authed(
+		`/api/presentations/${pres.id}/reveal`,
+		pres.creatorToken,
+		{ method: "POST", body: JSON.stringify({ slideId }) },
+	);
+	expect(revealed.status).toBe(200);
+	await viewer.waitFor("slide.revealed");
+	// Past the standings' coalescing window, so the next board is a leading run.
+	await new Promise((resolve) => setTimeout(resolve, 600));
+	viewer.received.length = 0;
 }
 
 /** One answer on a slide of the default deck (REQ150's tally tests). */
@@ -330,13 +382,18 @@ describe("WebSocket integration", () => {
 		// last board this suite moved. Dropped rather than left to fire into a
 		// stopped server, where it would log a failure that is this teardown's
 		// doing rather than the code's.
-		const { resetStandingsBroadcasts, resetTallyBroadcasts } = await import(
-			"./services/presentations"
-		);
+		const {
+			resetQuizWindowCloses,
+			resetStandingsBroadcasts,
+			resetTallyBroadcasts,
+		} = await import("./services/presentations");
 		resetStandingsBroadcasts();
 		// And the same for a slide's own tally (REQ150), which is folded the same
 		// way and can be holding a window of its own behind the last answer.
 		resetTallyBroadcasts();
+		// And every quiz window still waiting to close (REQ216): the leaderboard
+		// deck's 30-second question is still open when this suite finishes.
+		resetQuizWindowCloses();
 	});
 
 	// ── Tests ──────────────────────────────────────────────
@@ -451,6 +508,10 @@ describe("WebSocket integration", () => {
 			startedAt: started.sessionStartedAt,
 			slideIndex: 0,
 			slideId: "s1",
+			// And the opening stamps the deck went live with (REQ227).
+			slideStartedAt: started.slideStartedAt,
+			// And the slide it went live on (REQ230).
+			activeSlideIndex: started.activeSlideIndex,
 		});
 		expect(typeof env.data.startedAt).toBe("string");
 
@@ -578,6 +639,80 @@ describe("WebSocket integration", () => {
 		}
 	});
 
+	test("presentation.started puts a screen that followed the draft on the server's slide (REQ230)", async () => {
+		// The presenter pages to the second slide in the draft and every screen
+		// in the room follows; going live puts the deck back on the first, and the
+		// frame has to say so, or those screens stay on the second.
+		const pres = await createPresentation();
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+
+		await authed(`/api/presentations/${pres.id}/slide`, pres.creatorToken, {
+			method: "POST",
+			body: JSON.stringify({ index: 1 }),
+		});
+		const changed = await viewer.waitFor("slide.changed");
+		expect(changed.data.slideIndex).toBe(1);
+
+		const res = await authed(
+			`/api/presentations/${pres.id}/start`,
+			pres.creatorToken,
+			{ method: "POST" },
+		);
+		const started = await res.json();
+		expect(started.activeSlideIndex).toBe(0);
+		const env = await viewer.waitFor("presentation.started");
+		expect(env.data.activeSlideIndex).toBe(0);
+
+		await viewer.close();
+	});
+
+	test("presentation.started tells the room a draft's leftover stamps were dropped (REQ227)", async () => {
+		// A deck stored with stamps from a draft — navigation before REQ227, or a
+		// timer started in a draft — and a phone that loaded it: the frame must
+		// carry the server's stamps whole, or the phone keeps counting down a
+		// window the server dropped at go-live.
+		const created = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "WS stale stamps",
+				slides: [
+					{
+						id: "qz",
+						type: "quiz",
+						question: "Closest to the sun?",
+						timeLimit: 30,
+						options: [
+							{ id: "mercury", text: "Mercury", isCorrect: true },
+							{ id: "mars", text: "Mars" },
+						],
+					},
+				],
+			}),
+		});
+		expect(created.status).toBe(201);
+		const pres = (await created.json()) as { id: string; creatorToken: string };
+		const { createStore } = await import("./db");
+		const { StoredPresentationSchema } = await import("./schemas");
+		const store = createStore("presentations", StoredPresentationSchema);
+		await store.update(pres.id, {
+			slideStartedAt: { qz: new Date(Date.now() - 10_000).toISOString() },
+		});
+
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		const env = await viewer.waitFor("presentation.started");
+		expect(env.data.slideStartedAt).toEqual({});
+
+		await viewer.close();
+	});
+
 	test("slide.changed carries the new slide payload", async () => {
 		const pres = await createPresentation();
 		const client = openWs();
@@ -656,6 +791,8 @@ describe("WebSocket integration", () => {
 			method: "POST",
 		});
 		await viewer.waitFor("presentation.started");
+		await startQuizTimer(pres, viewer);
+		await revealQuiz(pres, viewer);
 
 		await answerQuiz(pres.id, "participant-1", "mercury");
 
@@ -689,6 +826,8 @@ describe("WebSocket integration", () => {
 			method: "POST",
 		});
 		await viewer.waitFor("presentation.started");
+		await startQuizTimer(pres, viewer);
+		await revealQuiz(pres, viewer);
 
 		await answerQuiz(pres.id, "participant-1", "venus");
 		// The wrong answer's board first, so the re-marked one is a fresh frame.
@@ -730,41 +869,6 @@ describe("WebSocket integration", () => {
 			entries: { totalPoints: number }[];
 		};
 		expect(board.entries[0].totalPoints).toBeGreaterThan(0);
-
-		await viewer.close();
-	});
-
-	test("restarting a question's timer re-broadcasts the leaderboard (REQ057/REQ059)", async () => {
-		// A fresh window re-measures the speed half of every answer already given
-		// against it, so the standings move on this path too.
-		const pres = await createLeaderboardDeck();
-		const viewer = openWs();
-		await viewer.ready;
-		await join(viewer, pres.id, "participant");
-		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
-			method: "POST",
-		});
-		await viewer.waitFor("presentation.started");
-
-		await answerQuiz(pres.id, "participant-1", "mercury");
-		await viewer.waitForCount(
-			"results.updated",
-			(candidate) => (candidate.data as { slideId: string }).slideId === "board",
-		);
-		viewer.received.length = 0;
-
-		const restarted = await authed(
-			`/api/presentations/${pres.id}/timer`,
-			pres.creatorToken,
-			{ method: "POST", body: JSON.stringify({ slideId: "qz" }) },
-		);
-		expect(restarted.status).toBe(200);
-
-		const env = await viewer.waitForCount(
-			"results.updated",
-			(candidate) => (candidate.data as { slideId: string }).slideId === "board",
-		);
-		expect((env.data.results as { type: string }).type).toBe("leaderboard");
 
 		await viewer.close();
 	});
@@ -862,6 +966,50 @@ describe("WebSocket integration", () => {
 		await viewer.close();
 	});
 
+	test("a corrected name re-broadcasts the leaderboard (REQ218)", async () => {
+		// A row on a deck that asks for names is labelled with the stated one, so
+		// a participant fixing a typo after answering has to reach a board already
+		// on screen — nothing about the quiz moved, so nothing else would send it.
+		const pres = await createLeaderboardDeck({ requireParticipantName: true });
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		await viewer.waitFor("presentation.started");
+		await startQuizTimer(pres, viewer);
+		await revealQuiz(pres, viewer);
+
+		const stateName = (name: string) =>
+			fetch(`${baseUrl}/api/presentations/${pres.id}/participant-name`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ participantId: "participant-1", name }),
+			});
+		expect((await stateName("Jurgen")).status).toBe(200);
+		await answerQuiz(pres.id, "participant-1", "mercury");
+		const before = await viewer.waitForCount(
+			"results.updated",
+			(candidate) =>
+				(candidate.data as { slideId: string }).slideId === "board" &&
+				(candidate.data.results as { entries: { label: string }[] }).entries[0]
+					?.label === "Jurgen",
+		);
+		expect(before).toBeTruthy();
+		viewer.received.length = 0;
+
+		expect((await stateName("Jürgen")).status).toBe(200);
+		const env = await viewer.waitForCount(
+			"results.updated",
+			(candidate) => (candidate.data as { slideId: string }).slideId === "board",
+		);
+		const board = env.data.results as { entries: { label: string }[] };
+		expect(board.entries[0].label).toBe("Jürgen");
+
+		await viewer.close();
+	});
+
 	test("a refused countdown start broadcasts nothing (REQ107)", async () => {
 		const pres = await createPresentation();
 		const viewer = openWs();
@@ -887,6 +1035,58 @@ describe("WebSocket integration", () => {
 		await viewer.close();
 	});
 
+	test("switching the name question off re-broadcasts the leaderboard (REQ218)", async () => {
+		// The switch decides what a row is called, and a board already on screen
+		// hears that only from this frame — re-fetching it would show the change,
+		// but a phone does not re-fetch on its own.
+		const pres = await createLeaderboardDeck({ requireParticipantName: true });
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		await viewer.waitFor("presentation.started");
+		await startQuizTimer(pres, viewer);
+		await revealQuiz(pres, viewer);
+
+		const named = await fetch(
+			`${baseUrl}/api/presentations/${pres.id}/participant-name`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ participantId: "participant-1", name: "Jurgen" }),
+			},
+		);
+		expect(named.status).toBe(200);
+		await answerQuiz(pres.id, "participant-1", "mercury");
+		await viewer.waitForCount(
+			"results.updated",
+			(candidate) =>
+				(candidate.data as { slideId: string }).slideId === "board" &&
+				(candidate.data.results as { entries: { label: string }[] }).entries[0]
+					?.label === "Jurgen",
+		);
+		// Let the coalescing window pass, so the frame below can only be the one
+		// the switch sends rather than a trailing recount of the answer.
+		await new Promise((resolve) => setTimeout(resolve, 700));
+		viewer.received.length = 0;
+
+		const patch = await authed(`/api/presentations/${pres.id}`, pres.creatorToken, {
+			method: "PATCH",
+			body: JSON.stringify({ requireParticipantName: false }),
+		});
+		expect(patch.status).toBe(200);
+		const env = await viewer.waitForCount(
+			"results.updated",
+			(candidate) => (candidate.data as { slideId: string }).slideId === "board",
+		);
+		const board = env.data.results as { entries: { label: string }[] };
+		expect(board.entries[0].label).toStartWith("Player ");
+
+		await viewer.close();
+	});
+
 	test("a room answering together costs one board recount per window, not one per answer (REQ059)", async () => {
 		// The board is a whole-deck aggregate with only a latest value, so N answers
 		// inside one window have one answer between them. Re-scoring the deck and
@@ -900,6 +1100,8 @@ describe("WebSocket integration", () => {
 			method: "POST",
 		});
 		await viewer.waitFor("presentation.started");
+		await startQuizTimer(pres, viewer);
+		await revealQuiz(pres, viewer);
 		viewer.received.length = 0;
 
 		// A room answering the question at once. Concurrent rather than sequential,
@@ -1088,6 +1290,261 @@ describe("WebSocket integration", () => {
 			expect(results.withheld).toBe(true);
 			expect(results.totalVotes).toBeUndefined();
 			expect(results.options).toBeUndefined();
+		}
+
+		await viewer.close();
+	});
+
+	// ── A quiz question's window running out (REQ216) ──────────
+	//
+	// While a question runs, every frame the room is sent withholds its key and
+	// its typed answers (REQ056). The end of the window changes what the room may
+	// see without changing a single row, so nothing but the server's own timer
+	// can say so: these tests cast no answer after the window and expect the
+	// revealed tally to arrive anyway.
+
+	/** A live deck whose first slide is `slide`, with a participant socket joined. */
+	async function liveQuizRoom(slide: Record<string, unknown>) {
+		const created = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ title: "WS Quiz close", slides: [slide] }),
+		});
+		expect(created.status).toBe(201);
+		const pres = (await created.json()) as { id: string; creatorToken: string };
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		await viewer.waitFor("presentation.started");
+		await startQuizTimer(pres, viewer);
+		return { pres, viewer };
+	}
+
+	/** A select question whose window (with its grace) is over in under two seconds. */
+	const SHORT_SELECT_QUIZ = {
+		id: "qz",
+		type: "quiz",
+		question: "Closest to the sun?",
+		timeLimit: 0.2,
+		options: [
+			{ id: "venus", text: "Venus" },
+			{ id: "mercury", text: "Mercury", isCorrect: true },
+		],
+	};
+
+	type ChoiceFrame = { options?: { id: string; isCorrect: boolean | null }[] };
+	const markedCorrect = (frame: Envelope, optionId: string) =>
+		(frame.data.results as ChoiceFrame).options?.find(
+			(option) => option.id === optionId,
+		)?.isCorrect;
+
+	test("a select question's window running out re-sends the room its tally with the key (REQ216)", async () => {
+		const { pres, viewer } = await liveQuizRoom(SHORT_SELECT_QUIZ);
+		await answerQuiz(pres.id, "late-thinker", "venus");
+		// The answer's own frame is the running question's: no key.
+		const answered = await viewer.waitFor("results.updated");
+		expect(markedCorrect(answered, "mercury")).toBeNull();
+
+		const closed = await viewer.waitForCount(
+			"results.updated",
+			(frame) => markedCorrect(frame, "mercury") === true,
+			4000,
+		);
+		expect(closed.data.slideId).toBe("qz");
+		expect(markedCorrect(closed, "venus")).toBe(false);
+
+		await viewer.close();
+	});
+
+	test("a typed question's window running out re-sends the grouped answers and the accepted ones (REQ216)", async () => {
+		const { pres, viewer } = await liveQuizRoom({
+			id: "qz",
+			type: "quiz",
+			question: "Largest ocean?",
+			timeLimit: 0.2,
+			quizAnswerMode: "type",
+			quizAnswers: [{ id: "pacific", text: "Pacific" }],
+		});
+		await answerQuiz(pres.id, "typist", "pacific");
+
+		const closed = await viewer.waitForCount(
+			"results.updated",
+			(frame) =>
+				(frame.data.results as { typedAnswers?: { entries: unknown } })
+					.typedAnswers?.entries != null,
+			4000,
+		);
+		const typed = (
+			closed.data.results as {
+				typedAnswers: {
+					accepted: string[];
+					entries: { text: string; isCorrect: boolean }[];
+				};
+			}
+		).typedAnswers;
+		expect(typed.accepted).toEqual(["Pacific"]);
+		expect(typed.entries).toEqual([
+			expect.objectContaining({ text: "pacific", isCorrect: true }),
+		]);
+
+		await viewer.close();
+	});
+
+	test("closing a question to answers with time left re-sends the key, and reopening withholds it (REQ216)", async () => {
+		const { pres, viewer } = await liveQuizRoom({
+			...SHORT_SELECT_QUIZ,
+			timeLimit: 30,
+		});
+		await answerQuiz(pres.id, "early-bird", "venus");
+		await viewer.waitFor("results.updated");
+		viewer.received.length = 0;
+
+		const close = await authed(
+			`/api/presentations/${pres.id}/participation`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz", open: false }) },
+		);
+		expect(close.status).toBe(200);
+		await viewer.waitForCount(
+			"results.updated",
+			(frame) => markedCorrect(frame, "mercury") === true,
+		);
+
+		viewer.received.length = 0;
+		// Past the coalescing window, so the reopen's frame is a leading run.
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		const reopen = await authed(
+			`/api/presentations/${pres.id}/participation`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz", open: true }) },
+		);
+		expect(reopen.status).toBe(200);
+		const reopened = await viewer.waitFor("results.updated");
+		expect(markedCorrect(reopened, "mercury")).toBeNull();
+
+		await viewer.close();
+	});
+
+	test("restarting a closed question's timer re-sends the room its tally withheld again (REQ216, REQ217)", async () => {
+		// The first window's close sent the key; the restart asks the question
+		// again, so the room's copy has to go back to the running question's shape
+		// rather than sit on the phones through the fresh window.
+		const { pres, viewer } = await liveQuizRoom(SHORT_SELECT_QUIZ);
+		await answerQuiz(pres.id, "first-window", "mercury");
+		await viewer.waitForCount(
+			"results.updated",
+			(frame) => markedCorrect(frame, "mercury") === true,
+			4000,
+		);
+		viewer.received.length = 0;
+		// Past the coalescing window, so the restart's frame is a leading run.
+		await new Promise((resolve) => setTimeout(resolve, 150));
+
+		const restarted = await authed(
+			`/api/presentations/${pres.id}/timer`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz" }) },
+		);
+		expect(restarted.status).toBe(200);
+		const frame = await viewer.waitFor("results.updated");
+		expect(frame.data.slideId).toBe("qz");
+		expect(markedCorrect(frame, "mercury")).toBeNull();
+
+		await viewer.close();
+	});
+
+	test("a question closed before it opened arrives unanswered when the presenter reaches it (REQ216)", async () => {
+		// The step-2 review's scenario: closing a quiz ahead of time is no reveal,
+		// so arriving at it must not send its key — the presenter reopens it and
+		// the room would answer with the solution in front of them.
+		const created = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "WS Quiz closed ahead",
+				slides: [
+					{
+						id: "intro",
+						type: "multiple-choice",
+						question: "Warm-up",
+						options: [{ id: "yes", text: "Yes" }],
+					},
+					{ ...SHORT_SELECT_QUIZ, timeLimit: 30 },
+				],
+			}),
+		});
+		expect(created.status).toBe(201);
+		const pres = (await created.json()) as { id: string; creatorToken: string };
+		const viewer = openWs();
+		await viewer.ready;
+		await join(viewer, pres.id, "participant");
+
+		const close = await authed(
+			`/api/presentations/${pres.id}/participation`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz", open: false }) },
+		);
+		expect(close.status).toBe(200);
+		const closedFrame = await viewer.waitFor("slide.participation");
+		expect(typeof closedFrame.data.closedAt).toBe("string");
+
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		await viewer.waitFor("presentation.started");
+		await authed(`/api/presentations/${pres.id}/slide`, pres.creatorToken, {
+			method: "POST",
+			body: JSON.stringify({ index: 1 }),
+		});
+		const changed = await viewer.waitFor("slide.changed");
+		const options = (
+			changed.data.slide as { options: { id: string; isCorrect?: boolean }[] }
+		).options;
+		expect(options.some((option) => option.isCorrect === true)).toBe(false);
+
+		// And the room's tally stays withheld on reopening, with time to answer.
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		await authed(
+			`/api/presentations/${pres.id}/participation`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz", open: true }) },
+		);
+		const reopened = await viewer.waitForCount(
+			"results.updated",
+			(frame) => frame.data.slideId === "qz",
+		);
+		expect(markedCorrect(reopened, "mercury")).toBeNull();
+		const neverKeyed = viewer.received.filter(
+			(frame) =>
+				frame.event === "results.updated" &&
+				frame.data.slideId === "qz" &&
+				markedCorrect(frame, "mercury") === true,
+		);
+		expect(neverKeyed).toEqual([]);
+
+		await viewer.close();
+	});
+
+	test("on an on-click question the window running out sends the withheld marker, never the key (REQ216)", async () => {
+		const { pres, viewer } = await liveQuizRoom({
+			...SHORT_SELECT_QUIZ,
+			resultsVisibility: "on-click",
+		});
+		await answerQuiz(pres.id, "patient", "mercury");
+		// Well past the window and its grace.
+		await new Promise((resolve) => setTimeout(resolve, 2200));
+
+		const frames = viewer.received.filter(
+			(candidate) =>
+				candidate.event === "results.updated" &&
+				candidate.data.slideId === "qz",
+		);
+		expect(frames.length).toBeGreaterThan(1);
+		for (const frame of frames) {
+			expect((frame.data.results as { withheld?: boolean }).withheld).toBe(true);
 		}
 
 		await viewer.close();
@@ -1531,5 +1988,180 @@ describe("WebSocket integration", () => {
 		const env = await client.waitFor("pong");
 		expect(env.data).toEqual({});
 		await client.close();
+	});
+
+	// ── A deck save reaches the room (REQ229) ─────────────────
+
+	/** A quiz question with notes, a key and a 30-second window: the one edited below. */
+	const EDITED_QUIZ = {
+		id: "qz",
+		type: "quiz",
+		question: "Closest to the sun?",
+		timeLimit: 30,
+		notes: "Say: Mercury, every time",
+		options: [
+			{ id: "venus", text: "Venus" },
+			{ id: "mercury", text: "Mercury", isCorrect: true },
+		],
+	};
+
+	async function saveSlides(
+		pres: { id: string; creatorToken: string },
+		slides: Record<string, unknown>[],
+	): Promise<void> {
+		const patch = await authed(`/api/presentations/${pres.id}`, pres.creatorToken, {
+			method: "PATCH",
+			body: JSON.stringify({ slides }),
+		});
+		expect(patch.status).toBe(200);
+	}
+
+	test("saving slides sends the room the slides as saved, as the audience may see them (REQ229)", async () => {
+		// The failure this guards: phones loaded the question under the deck's
+		// `instant`, the presenter switched it to "On click" and saved, and the
+		// phones went on judging it as it was loaded.
+		const { pres, viewer } = await liveQuizRoom(EDITED_QUIZ);
+		const created = (await (
+			await authed(`/api/presentations/${pres.id}`, pres.creatorToken)
+		).json()) as { code: string };
+
+		await saveSlides(pres, [
+			{
+				...EDITED_QUIZ,
+				question: "Which planet is closest to the sun?",
+				timeLimit: 45,
+				resultsVisibility: "on-click",
+				options: [
+					...EDITED_QUIZ.options,
+					{ id: "mars", text: "Mars" },
+				],
+			},
+		]);
+
+		const frame = await viewer.waitFor("presentation.slides");
+		expect(frame.data.presentationId).toBe(pres.id);
+		const [slide] = frame.data.slides as Record<string, unknown>[];
+		expect(slide.resultsVisibility).toBe("on-click");
+		expect(slide.question).toBe("Which planet is closest to the sun?");
+		expect(slide.timeLimit).toBe(45);
+		// The question is running, so the key stays off the wire, and the
+		// presenter's script never travels at all.
+		expect(slide.options).toEqual([
+			{ id: "venus", text: "Venus" },
+			{ id: "mercury", text: "Mercury" },
+			{ id: "mars", text: "Mars" },
+		]);
+		expect(slide.quizAnswers).toEqual([]);
+		expect(slide.notes).toBe("");
+		// Exactly what a phone joining now would be handed.
+		const joined = (await (
+			await fetch(`${baseUrl}/api/join/${created.code}`)
+		).json()) as { slides: unknown };
+		expect(frame.data.slides).toEqual(joined.slides);
+		// Nothing from the deck but its slides.
+		expect(Object.keys(frame.data).sort()).toEqual(["presentationId", "slides"]);
+		const wire = JSON.stringify(frame.data);
+		expect(wire).not.toContain("isCorrect");
+		expect(wire).not.toContain("creatorTokenHash");
+		expect(wire).not.toContain("creatorId");
+		expect(wire).not.toContain("Say: Mercury");
+
+		await viewer.close();
+	});
+
+	test("a typed question's accepted answers stay off the frame while it runs (REQ229)", async () => {
+		const { pres, viewer } = await liveQuizRoom(EDITED_QUIZ);
+
+		await saveSlides(pres, [
+			{
+				...EDITED_QUIZ,
+				quizAnswerMode: "type",
+				quizAnswers: [
+					{ id: "a1", text: "Mercury" },
+					{ id: "a2", text: "Merkur" },
+				],
+			},
+		]);
+
+		const frame = await viewer.waitFor("presentation.slides");
+		const [slide] = frame.data.slides as Record<string, unknown>[];
+		expect(slide.quizAnswerMode).toBe("type");
+		expect(slide.quizAnswers).toEqual([]);
+		expect(slide.options).toEqual([]);
+		expect(JSON.stringify(frame.data)).not.toContain("Merkur");
+
+		await viewer.close();
+	});
+
+	test("a reordered deck reaches the room in its new order (REQ229)", async () => {
+		// Moved before going live, while a phone waited: the slide at position 0
+		// is the one the presenter starts, so it is the one the phone must hold
+		// there.
+		const pres = await createPresentation();
+		const client = openWs();
+		await client.ready;
+		await join(client, pres.id);
+
+		await saveSlides(pres, [
+			{ id: "s2", type: "open-text", question: "Anything?" },
+			{
+				id: "s1",
+				type: "multiple-choice",
+				question: "Pick one",
+				options: [
+					{ id: "a", text: "A" },
+					{ id: "b", text: "B" },
+				],
+			},
+		]);
+
+		const frame = await client.waitFor("presentation.slides");
+		expect(
+			(frame.data.slides as { id: string }[]).map((slide) => slide.id),
+		).toEqual(["s2", "s1"]);
+
+		await client.close();
+	});
+
+	test("a PATCH that names no slides sends no slides (REQ229)", async () => {
+		const pres = await createPresentation();
+		const client = openWs();
+		await client.ready;
+		await join(client, pres.id);
+
+		const patch = await authed(`/api/presentations/${pres.id}`, pres.creatorToken, {
+			method: "PATCH",
+			body: JSON.stringify({ title: "Renamed" }),
+		});
+		expect(patch.status).toBe(200);
+
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(
+			client.received.some((env) => env.event === "presentation.slides"),
+		).toBe(false);
+
+		await client.close();
+	});
+
+	test("the deck-wide reveal mode sends the slides with their overrides cleared (REQ018, REQ229)", async () => {
+		const { pres, viewer } = await liveQuizRoom({
+			...EDITED_QUIZ,
+			resultsVisibility: "instant",
+		});
+
+		const set = await authed(
+			`/api/presentations/${pres.id}/results-visibility`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ resultsVisibility: "on-click" }) },
+		);
+		expect(set.status).toBe(200);
+
+		const frame = await viewer.waitFor("presentation.slides");
+		const [slide] = frame.data.slides as Record<string, unknown>[];
+		expect(slide.resultsVisibility).toBe("inherit");
+		expect(JSON.stringify(frame.data)).not.toContain("isCorrect");
+		expect(slide.notes).toBe("");
+
+		await viewer.close();
 	});
 });

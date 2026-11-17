@@ -396,13 +396,23 @@ describe("participant names (REQ076)", () => {
 			`/api/presentations/${pres.id}/results/s1`,
 			`/api/presentations/${pres.id}/qa?participantId=p1`,
 			`/api/presentations/${pres.id}/chat?participantId=p1`,
-			`/api/presentations/${pres.id}/scorecard?participantId=p1`,
+			// Somebody else's card. Their own card is the one exception, below.
+			`/api/presentations/${pres.id}/scorecard?participantId=p2`,
 		];
 		for (const path of paths) {
 			const res = await fetch(`${baseUrl}${path}`);
 			expect(res.status).toBe(200);
 			expect(await res.text()).not.toContain("Adalovelace");
 		}
+
+		// REQ218 — a participant's own card labels them the way their leaderboard
+		// row is labelled, so it carries the name they stated, back to the holder
+		// of the id that stated it and to nobody else.
+		const ownCard = await fetch(
+			`${baseUrl}/api/presentations/${pres.id}/scorecard?participantId=p1`,
+		);
+		expect(ownCard.status).toBe(200);
+		expect((await ownCard.json()).label).toBe("Adalovelace");
 	});
 
 	// ── The results surface ───────────────────────────────────

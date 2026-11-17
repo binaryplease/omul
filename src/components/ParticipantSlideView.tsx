@@ -2,13 +2,14 @@ import {
 	Check,
 	ChevronDown,
 	ChevronUp,
+	LoaderCircle,
 	Minus,
 	Plus,
 	Square,
 	SquareCheck,
 	X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { api, ApiError } from "../api";
 import { ContentSlideView } from "./ContentSlideView";
 import { countdownRunFor } from "./CountdownFace";
@@ -22,23 +23,30 @@ import {
 import {
 	LeaderboardHeading,
 	LeaderboardStandingView,
-	leaderboardLabelsFor,
+	leaderboardHeadingText,
 } from "./Leaderboard";
 import { ParticipationGate, participationLabelsFor } from "./LiveRoom";
-import { QuizTimer, quizWindowFor, useQuizCountdown } from "./QuizTimer";
-import { ResultsDisplay } from "./Results";
+import {
+	QuizTimer,
+	quizWindowFor,
+	useQuizCountdown,
+	useQuizQuestionRunning,
+} from "./QuizTimer";
+import { ResultsDisplay, resultLabelsFor } from "./Results";
 import { SLIDE_PLACEMENT_CLASSES } from "./SlideAppearance";
 import { SlideText } from "./SlideText";
 import { useToast } from "./ui/Toast";
 import { POLL_COLORS } from "../constants";
-import { getDict } from "../i18n";
+import { type Dict, getDict } from "../i18n";
 import type {
+	DeckMovedOnCode,
 	FormField,
 	GridAxis,
 	GuessRange,
 	Presentation,
 	Slide,
 	SlideType,
+	VoteRefusalCode,
 } from "../types";
 import {
 	effectiveResultsVisibility,
@@ -64,12 +72,16 @@ import {
 	pinImageFor,
 	POINTS_BUDGET,
 	quizAnswerModeFor,
+	quizAwaitingStart,
+	quizResultWithheld,
+	scorecardVerdictWithheld,
 	slideAcceptsSubmissions,
 	slideAppearanceFor,
 	slideMediaIsInteractionArea,
 	slideTextSizeFor,
 	snapGuessToGrid,
 	tallyVisibleToAudience,
+	isVoteRefusalCode,
 	VOTE_VALUE_MAX_LENGTH,
 } from "../types";
 
@@ -135,13 +147,193 @@ function QuizVerdict({
 			</p>
 			{/* The running total only reads as a total once there is more than one
 			    question to have totalled. */}
+			{/* Information rather than a caption, so the muted tier that clears
+			    4.5:1, not the dim one built for 3:1 (REQ222). */}
 			{(scorecard?.quizCount ?? 0) > 1 && (
-				<p className="mt-2 text-xs text-text-dim">
+				<p className="mt-2 text-xs text-text-muted">
 					{`${dict.quizTotalScore}: ${scorecard?.totalPoints} / ${scorecard?.maxPoints}`}
 				</p>
 			)}
 		</div>
 	);
+}
+
+/** One question's entry on a participant's scorecard, as {@link QuizVerdict} reads it. */
+type ScorecardEntry = {
+	slideId: string;
+	answered: boolean;
+	isCorrect: boolean | null;
+	points: number | null;
+};
+
+/**
+ * This participant's own verdict on one quiz question, read off their scorecard
+ * — or `null` while there is none to show (REQ228).
+ *
+ * The server sends a question's verdict only once its window is over and its
+ * reveal setting allows, and until then its entry reads `isCorrect` and
+ * `points` as an explicit `null` ({@link scorecardVerdictWithheld}). Read as an
+ * ordinary entry, that `null` would draw "Not quite, +null points" over an
+ * answer that may well be right, so a withheld entry is no verdict at all and
+ * the phone keeps saying the answer is in.
+ */
+export function ownQuizResultFor(
+	scorecard: { slides?: ScorecardEntry[] } | null,
+	slideId: string,
+): (ScorecardEntry & { points: number }) | null {
+	const entry =
+		(scorecard?.slides ?? []).find((candidate) => candidate.slideId === slideId) ??
+		null;
+	if (!entry || scorecardVerdictWithheld(entry)) return null;
+	return entry as ScorecardEntry & { points: number };
+}
+
+/**
+ * How one option card on a choice slide is drawn and whether it answers a tap
+ * (REQ221, REQ223, REQ224) — read once here so the class, the ARIA state and
+ * the click guard cannot disagree about it.
+ *
+ * - **`pending`**: the card just tapped on a single-choice slide, while its
+ *   answer is on its way. It is drawn as the choice at once: a slow network is
+ *   not a reason to leave somebody wondering whether the tap registered.
+ * - **`selected`**: what the server holds, or — while one is pending — the
+ *   pending choice alone.
+ * - **`unavailable`**: the tap would do nothing — an answer in flight, the
+ *   selection cap, or a locked quiz question. Stated with `aria-disabled`
+ *   rather than `disabled` by the caller, so the card the participant just
+ *   pressed keeps keyboard focus instead of dropping it to the page.
+ * - **`dimmed`**: unavailable and not the one chosen, so the chosen card is the
+ *   one that stands out.
+ */
+export function choiceCardState({
+	optionId,
+	selectedIds,
+	pendingOptionId,
+	submitting,
+	blockedByCap,
+	locked,
+}: {
+	optionId: string;
+	selectedIds: readonly string[];
+	pendingOptionId: string | null;
+	submitting: boolean;
+	blockedByCap: boolean;
+	locked: boolean;
+}): { selected: boolean; pending: boolean; unavailable: boolean; dimmed: boolean } {
+	const pending = pendingOptionId === optionId;
+	// Only single choices go pending, and a single choice is one card: while a
+	// changed vote is on its way the card it replaces is no longer the choice,
+	// so two cards never look chosen at once.
+	const selected =
+		pendingOptionId !== null ? pending : selectedIds.includes(optionId);
+	const unavailable = submitting || blockedByCap || locked;
+	return {
+		selected,
+		pending,
+		unavailable,
+		dimmed: (blockedByCap || locked || pendingOptionId !== null) && !selected,
+	};
+}
+
+/**
+ * The polite live region under an answer control (REQ221): why it is locked,
+ * that an answer is being sent, and — once the question is over — the verdict
+ * passed in as children. Always mounted, empty or not, because a screen reader
+ * only announces changes to a region it already knew about; one that appeared
+ * together with its message would usually say nothing.
+ *
+ * `aria-atomic="false"` so a change reads as itself: the verdict arriving is
+ * "Correct! +836 points", not the lock line again in front of it.
+ */
+function AnswerStatus({
+	message,
+	spokenOnly = false,
+	children = null,
+}: {
+	message: string | null;
+	/** Whether the message is already drawn elsewhere and only needs saying. */
+	spokenOnly?: boolean;
+	children?: React.ReactNode;
+}) {
+	return (
+		<div role="status" aria-atomic="false">
+			<p
+				className={
+					spokenOnly
+						? "sr-only"
+						: `text-center text-sm text-text-muted ${message ? "pt-1" : ""}`
+				}
+			>
+				{message ?? ""}
+			</p>
+			{children}
+		</div>
+	);
+}
+
+/**
+ * What each stated vote refusal (REQ054/REQ057/REQ111/REQ226) reads as on a
+ * participant's screen, in the deck's own language (REQ084/REQ225). Keyed on
+ * the wire's `refused` code rather than on local state: a tap that races a
+ * broadcast is refused for a reason this phone does not know yet. A `Record`
+ * over the code, so a code added to the vocabulary without wording here does
+ * not compile.
+ */
+const VOTE_REFUSAL_WORDING: Record<VoteRefusalCode, (dict: Dict) => string> = {
+	"participation-closed": (dict) => participationLabelsFor(dict).closed,
+	"quiz-not-started": (dict) => dict.quizWaitingToStart,
+	"quiz-window-closed": (dict) => dict.quizWindowClosed,
+	"quiz-already-answered": (dict) => dict.quizAnswerLocked,
+	"repeat-passes-off": (dict) => dict.passOff,
+};
+
+/**
+ * What an answer the deck moved on under reads as (REQ236), in the deck's own
+ * language — a `Record` over the code for the same reason as the one above.
+ */
+const DECK_MOVED_ON_WORDING: Record<DeckMovedOnCode, (dict: Dict) => string> = {
+	"presentation-not-live": (dict) => dict.answerNotAcceptedDeckEnded,
+	"slide-not-found": (dict) => dict.answerNotAcceptedSlideGone,
+};
+
+/**
+ * Where a submission that did not land is reported (REQ232, REQ236).
+ *
+ * - **`refused`**: the server turned *this answer* away for one of its stated
+ *   reasons — the question not started, its time over, an answer already
+ *   final, the slide closed. The session is fine and the slide is still the
+ *   right one to show, so the reason belongs beside the answer control, and
+ *   once the question is over the participant reads its result like anybody
+ *   who did not answer in time.
+ * - **`movedOn`**: the deck moved on while the answer was in flight — the
+ *   presenter ended it, or deleted the slide. Nothing is wrong but that this
+ *   screen is behind the room, so the surface catches up with the room and
+ *   says the answer was not taken; an error page would strand the participant
+ *   outside a deck every other phone is still showing.
+ * - **`failed`**: anything without a code — a value the boundary rejected, a
+ *   deck that no longer exists. That keeps the surface's own error path, which
+ *   on the live page replaces the screen.
+ */
+export function routeSubmissionFailure(
+	thrown: unknown,
+	dict: Dict,
+	report: {
+		refused: (message: string) => void;
+		movedOn: (message: string) => void;
+		failed: (message: string) => void;
+	},
+): void {
+	const refused = thrown instanceof ApiError ? thrown.refused : null;
+	if (isVoteRefusalCode(refused)) {
+		report.refused(VOTE_REFUSAL_WORDING[refused](dict));
+		return;
+	}
+	const movedOn = thrown instanceof ApiError ? thrown.movedOn : null;
+	if (movedOn) {
+		report.movedOn(DECK_MOVED_ON_WORDING[movedOn](dict));
+		return;
+	}
+	report.failed(thrown instanceof Error ? thrown.message : String(thrown));
 }
 
 /**
@@ -483,6 +675,7 @@ export function ParticipantSlideView({
 	isSurvey,
 	transport,
 	onError,
+	onDeckMovedOn,
 }: {
 	pres: Presentation;
 	slide: Slide;
@@ -491,8 +684,18 @@ export function ParticipantSlideView({
 	/** Survey decks gate results until the whole deck is answered (REQ003/REQ082). */
 	isSurvey: boolean;
 	transport: ParticipantVoteTransport;
-	/** Where a refused submission is reported — the page owns its own banner. */
+	/**
+	 * Where a submission that failed for a reason other than a stated refusal is
+	 * reported — the page owns its own banner. A stated refusal is this
+	 * component's to show, beside the control it refused (REQ232).
+	 */
 	onError: (message: string) => void;
+	/**
+	 * Where an answer the deck moved on under is reported (REQ236) — the page
+	 * catches its deck up with the room's. The notice saying the answer was not
+	 * taken is this component's, in the deck's language.
+	 */
+	onDeckMovedOn: () => void;
 }) {
 	const [voted, setVoted] = useState<Record<string, string>>({});
 	/**
@@ -588,12 +791,28 @@ export function ParticipantSlideView({
 	const textInputRef = useRef<HTMLInputElement | null>(null);
 	const [scaleValue, setScaleValue] = useState(3);
 	const [submitting, setSubmitting] = useState(false);
+	/**
+	 * The option a single-choice answer is on its way for (REQ224) — drawn as
+	 * the choice the moment it is tapped, not when the server replies.
+	 */
+	const [pendingOptionId, setPendingOptionId] = useState<string | null>(null);
+	/**
+	 * Why the server turned the last answer on a slide away (REQ232), in the
+	 * deck's language — kept with the slide it was about, so paging on leaves it
+	 * behind, and cleared by the next answer sent.
+	 */
+	const [refusal, setRefusal] = useState<{ slideId: string; message: string } | null>(
+		null,
+	);
+	/** What names the answer controls: the question above them (REQ221). */
+	const questionHeadingId = useId();
 	const { addToast } = useToast();
 
 	const t = getDict(pres.language);
-	// The board's wording in the deck's language (REQ059/REQ084), mapped in the
-	// one place that mapping lives.
-	const leaderboardLabels = leaderboardLabelsFor(t);
+	// The results' and the board's wording in the deck's language
+	// (REQ059/REQ084/REQ225), mapped in the one place that mapping lives.
+	const resultLabels = resultLabelsFor(t);
+	const leaderboardLabels = resultLabels.leaderboard;
 	// Which of the three things this screen is, read through the one descriptor
 	// the preview reads too — so "does every slide type render?" is a question
 	// about one function rather than about a ternary chain in two components.
@@ -636,6 +855,18 @@ export function ParticipantSlideView({
 	// the control that takes the answer differs.
 	const isTypedQuizSlide = isQuizSlide && quizAnswerModeFor(slide) === "type";
 	const answeredQuiz = Boolean(isQuizSlide && slide.id in voted);
+	/**
+	 * Whether this quiz question is over (REQ216): its window has run out with
+	 * its grace, or the presenter closed it to answers, or its results were
+	 * revealed, or the deck ended — the same reading the shared screen holds its
+	 * results back on (REQ214), so the phone and the projector change over
+	 * together. Not the countdown's own `expired`: that is the deadline, and an
+	 * answer in flight is still accepted for the grace after it, so the room's
+	 * result is not out yet there. At that instant the server sends the room its
+	 * tally with the key in it; this re-reads at the same instant by itself.
+	 */
+	const quizRunning = useQuizQuestionRunning(slide, pres, serverClockOffsetMs);
+	const quizOver = isQuizSlide && !quizRunning;
 
 	// ── Participation (REQ111) ──────────────────────────────────
 	//
@@ -663,28 +894,52 @@ export function ParticipantSlideView({
 	 */
 	const refusedWhileClosed = (): boolean => {
 		if (participationOpen) return false;
-		onError(participationLabels.closed);
-		addToast(participationLabels.closed, "error");
+		reportRefusal(participationLabels.closed);
 		return true;
 	};
 
 	/**
-	 * What a thrown submission error should read as on this screen. A stated
-	 * refusal carries its machine-readable `refused` code over the wire
-	 * (REQ054/REQ057/REQ111) exactly so this surface can name the reason in the
-	 * deck's own language (REQ084) instead of guessing it back out of local
-	 * state — a tap that races the `slide.participation` broadcast is refused
-	 * for a reason this phone does not know yet. An error with no code (the
-	 * deck not live, a value the boundary rejected) keeps the message it came
-	 * with.
+	 * Whether this slide draws the answer status line (REQ221) a refusal is
+	 * shown and announced in: the choice cards and the typed quiz answer. The
+	 * other answer controls have none, so a refusal there is a toast.
 	 */
-	const submissionErrorMessage = (thrown: unknown): string => {
-		const refused = thrown instanceof ApiError ? thrown.refused : null;
-		if (refused === "participation-closed") return participationLabels.closed;
-		if (refused === "quiz-window-closed") return t.quizWindowClosed;
-		if (refused === "quiz-already-answered") return t.quizAnswerLocked;
-		return (thrown as Error).message;
+	const answerStatusShown =
+		slide.type === "quiz" || slide.type === "multiple-choice";
+
+	/**
+	 * A stated refusal (REQ232): the participant stays on the slide and reads
+	 * why beside the control, not on a screen that has replaced it. Not also a
+	 * toast where the line is drawn — that is a live region of its own, and the
+	 * reason would be read out twice.
+	 */
+	const reportRefusal = (message: string) => {
+		setRefusal({ slideId: slide.id, message });
+		if (!answerStatusShown) addToast(message, "error");
 	};
+
+	/**
+	 * The deck moved on under the answer (REQ236): the page catches up — to the
+	 * ended screen, or to the deck without the deleted slide — and a toast
+	 * says the answer was not taken. A toast rather than the status line,
+	 * because the slide that line belongs to may be gone by the time it reads.
+	 */
+	const reportMovedOn = (message: string) => {
+		onDeckMovedOn();
+		addToast(message, "info");
+	};
+
+	/** Anything else goes to the surface's own error path, as before. */
+	const reportFailure = (message: string) => {
+		onError(message);
+		addToast(message, "error");
+	};
+
+	const reportSubmissionFailure = (thrown: unknown) =>
+		routeSubmissionFailure(thrown, t, {
+			refused: reportRefusal,
+			movedOn: reportMovedOn,
+			failed: reportFailure,
+		});
 
 	/**
 	 * Whether this slide's tally may be shown to the participant at all
@@ -708,15 +963,19 @@ export function ParticipantSlideView({
 	 * itself, one whispered row away from the people still deciding.
 	 *
 	 * A question with no window — untimed, or a survey nobody paces — has no
-	 * "over" to wait for, so its verdict lands as soon as this participant has
-	 * answered. Not before: with no deadline there is nothing to have missed, and
-	 * a "no answer in time" under a question that is still open would be a
-	 * verdict on somebody who is still reading it.
+	 * deadline to wait for, so its verdict is asked for as soon as this
+	 * participant has answered. Not before: with no deadline there is nothing to
+	 * have missed, and a "no answer in time" under a question that is still open
+	 * would be a verdict on somebody who is still reading it. What comes back is
+	 * the server's decision (REQ228): an untimed question's verdict is the key
+	 * as much as a timed one's, so it stays withheld until the question is
+	 * revealed, closed or the deck ends — and `ownQuizResultFor` draws nothing
+	 * meanwhile.
 	 */
 	const quizResultReady =
 		isQuizSlide &&
 		resultsVisibleHere &&
-		(quizCountdown.expired || (!quizCountdown.timed && answeredQuiz));
+		(quizOver || (!quizCountdown.timed && answeredQuiz));
 
 	/**
 	 * Whether the room's aggregated tally may be shown here. On every other slide
@@ -726,6 +985,16 @@ export function ParticipantSlideView({
 	 * while the row beside them is still deciding.
 	 */
 	const resultsReadyHere = isQuizSlide ? quizResultReady : resultsVisibleHere;
+
+	/**
+	 * Whether the room's tally of this quiz question is out (REQ215) — the frame
+	 * the server sends the room at the instant the question is over. It is what
+	 * re-reads the scorecard below at that same instant (REQ228): a card fetched
+	 * on this phone's own clock can reach the server a moment before its window
+	 * closes and come back withheld, and nothing else would ask again.
+	 */
+	const quizTallyPublished =
+		isQuizSlide && results != null && !quizResultWithheld(results);
 
 	// The scorecard is fetched as soon as a quiz question is on screen, not only
 	// once its verdict may be shown. It is the record of what this participant
@@ -740,6 +1009,13 @@ export function ParticipantSlideView({
 	// standings move (`standingsRevision` below), because the board beside this
 	// number is redrawn live by `results.updated` and a place fetched on arrival
 	// would sit still under a race that has not.
+	// The verdict on it is withheld by the server until the question is over and
+	// its reveal setting allows (REQ228), so the card is also re-read when that
+	// happens — the question ending (`quizOver`), or its tally coming out
+	// (`quizTallyPublished`) — and a verdict lands without a reload.
+	// A refused answer re-reads it too (REQ232): the server knew something this
+	// phone did not, and "already answered" means an answer is on record — from
+	// another tab, say — that the cards should show as the locked choice.
 	useEffect(() => {
 		if (slide.type !== "quiz" && slide.type !== "leaderboard") return;
 		const slideId = slide.id;
@@ -766,7 +1042,16 @@ export function ParticipantSlideView({
 		// leaderboard slide: a quiz slide's tally changes on every answer in the
 		// room, and depending on it there would re-fetch this card once per vote
 		// cast by anybody.
-	}, [slide, transport, answeredQuiz, quizResultReady, standingsRevision]);
+	}, [
+		slide,
+		transport,
+		answeredQuiz,
+		quizResultReady,
+		quizOver,
+		quizTallyPublished,
+		standingsRevision,
+		refusal,
+	]);
 
 	const handleVote = async (
 		value: string,
@@ -774,6 +1059,7 @@ export function ParticipantSlideView({
 	) => {
 		if (submitting) return;
 		if (refusedWhileClosed()) return;
+		setRefusal(null);
 		setSubmitting(true);
 		try {
 			await transport.vote({ slideId: slide.id, value, ...opts });
@@ -792,9 +1078,7 @@ export function ParticipantSlideView({
 			}
 			addToast(t.voteSubmitted, "success");
 		} catch (voteError: unknown) {
-			const message = submissionErrorMessage(voteError);
-			onError(message);
-			addToast(message, "error");
+			reportSubmissionFailure(voteError);
 		} finally {
 			setSubmitting(false);
 		}
@@ -817,7 +1101,12 @@ export function ParticipantSlideView({
 		// inherited (REQ111).
 		if (refusedWhileClosed()) return;
 		if (maxSelectionsFor(slide) === 1) {
-			await handleVote(optionId);
+			setPendingOptionId(optionId);
+			try {
+				await handleVote(optionId);
+			} finally {
+				setPendingOptionId(null);
+			}
 			return;
 		}
 		const current = choiceSelections[slide.id] ?? [];
@@ -825,6 +1114,7 @@ export function ParticipantSlideView({
 			? current.filter((id) => id !== optionId)
 			: [...current, optionId];
 
+		setRefusal(null);
 		setSubmitting(true);
 		try {
 			await transport.vote({ slideId: slide.id, value: optionId });
@@ -841,9 +1131,7 @@ export function ParticipantSlideView({
 				addToast(t.voteSubmitted, "success");
 			}
 		} catch (voteError: unknown) {
-			const message = submissionErrorMessage(voteError);
-			onError(message);
-			addToast(message, "error");
+			reportSubmissionFailure(voteError);
 		} finally {
 			setSubmitting(false);
 		}
@@ -952,7 +1240,14 @@ export function ParticipantSlideView({
 				return next;
 			});
 		} catch (upvoteError) {
-			addToast(submissionErrorMessage(upvoteError), "error");
+			// A toast either way: an upvote is not the slide's answer, so neither
+			// its status line nor the page's error screen is the place for it.
+			const toastError = (message: string) => addToast(message, "error");
+			routeSubmissionFailure(upvoteError, t, {
+				refused: toastError,
+				movedOn: toastError,
+				failed: toastError,
+			});
 		}
 	};
 
@@ -964,23 +1259,57 @@ export function ParticipantSlideView({
 	// independently; this only keeps a doomed request from going out. Resolved
 	// here rather than inside either branch below because the two answer modes
 	// (REQ055) are locked by exactly the same two rules.
+	//
+	// A third reason comes first (REQ226): the question is on screen but has not
+	// been started — it was the slide on screen when the deck went live, and its
+	// window opens when the presenter starts its timer. Its cards are shown and
+	// locked, so the room can read the question while it waits. Unless the
+	// presenter has also closed the slide: starting the timer does not reopen
+	// it, so "waiting" would promise something that will not come, and the
+	// closed gate above the question already says what does hold it.
+	//
+	// A closed slide is a lock reason of its own, said under the controls as
+	// well as above the question (REQ234). Closing a quiz ends it (REQ216), and
+	// an ended question drops a refusal from this line — so without it, an
+	// answer refused as `participation-closed` read as an empty line, where the
+	// other three refusals each land on the lock reason they share wording with.
+	// Before the countdown, which goes on running after a close.
 	const quizLockReason = !isQuizSlide
 		? null
-		: answeredQuiz
-			? t.quizAnswerLocked
-			: quizCountdown.expired
-				? t.quizWindowClosed
-				: null;
+		: quizAwaitingStart(slide, pres) && participationOpen
+			? t.quizWaitingToStart
+			: answeredQuiz
+				? t.quizAnswerLocked
+				: !participationOpen
+					? participationLabels.closed
+					: quizCountdown.expired
+						? t.quizWindowClosed
+						: null;
+	/** Whether the typed answer field takes no more input right now. */
+	const typedAnswerLocked = submitting || quizLockReason !== null;
+
+	/**
+	 * What the answer status line says (REQ221, REQ232): "Sending…" while an
+	 * answer is on its way, else why the control is locked, else why the server
+	 * turned the last answer away. The lock comes first because it is the state
+	 * the phone is in now; the refusal is news about one tap. Once the question
+	 * is over the refusal is dropped, so a participant whose late answer was
+	 * refused reads what everybody who did not answer in time reads.
+	 */
+	const refusalShown =
+		refusal?.slideId === slide.id && !quizOver ? refusal.message : null;
+	const answerStatusMessage = submitting
+		? t.answerSending
+		: (quizLockReason ?? refusalShown);
 
 	/**
 	 * This participant's own verdict on this question, once the question is over
-	 * and the deck's results visibility allows it (REQ056). Absent on a plain
+	 * and the deck's results visibility allows it (REQ056) — and once the server
+	 * has released it (REQ228), which it does on the same terms. Absent on a plain
 	 * choice slide, which reveals a solution but keeps no score.
 	 */
 	const ownQuizResult = quizResultReady
-		? ((scorecard?.slides ?? []).find(
-				(entry: { slideId: string }) => entry.slideId === slide.id,
-			) ?? null)
+		? ownQuizResultFor(scorecard, slide.id)
 		: null;
 
 	/**
@@ -1037,7 +1366,9 @@ export function ParticipantSlideView({
 				<LeaderboardHeading
 					title={
 						<SlideText
-							text={slide.question || t.leaderboardTitle}
+							text={leaderboardHeadingText(slide.question, {
+								title: t.leaderboardTitle,
+							})}
 							size={slideTextSizeFor(slide)}
 							variant="inline"
 						/>
@@ -1072,7 +1403,7 @@ export function ParticipantSlideView({
 							<ResultsDisplay
 								slide={slide}
 								results={results}
-								leaderboardLabels={leaderboardLabels}
+								labels={resultLabels}
 								highlightEntryId={scorecard?.entryId ?? null}
 							/>
 						) : (
@@ -1107,12 +1438,17 @@ export function ParticipantSlideView({
 			   The results below stay drawn and stay readable — closing a question
 			   stops the room adding to a tally, not looking at it — and every answer
 			   already given is still on screen and still counted. */
-			<ParticipationGate open={participationOpen} labels={participationLabels}>
+			<ParticipationGate
+				open={participationOpen}
+				labels={participationLabels}
+				labelledBy={questionHeadingId}
+			>
 				{/* The question exactly as the shared screen draws it — same authored
 				    string, same markup, same step (REQ088/REQ089/REQ091). A link that
 				    is clickable on a projector nobody can reach and dead on the phones
 				    in the room's hands would be the wrong way round. */}
 				<h2
+					id={questionHeadingId}
 					className={`w-full text-2xl font-bold mb-4 slide-in ${placement.text} ${
 						appearance.backgroundImage !== "" ? "slide-title-overlay" : ""
 					}`}
@@ -1148,6 +1484,7 @@ export function ParticipantSlideView({
 						<QuizTimer
 							countdown={quizCountdown}
 							label={t.quizSecondsLeft}
+							spokenLabel={t.quizSecondsLeftSpoken}
 							expiredLabel={t.quizTimesUp}
 							className="mb-5"
 						/>
@@ -1169,40 +1506,49 @@ export function ParticipantSlideView({
 								onChange={(event) => setInputValue(event.target.value)}
 								onKeyDown={(event) =>
 									event.key === "Enter" &&
-									!quizLockReason &&
+									!typedAnswerLocked &&
 									inputValue.trim() &&
 									handleVote(inputValue.trim())
 								}
-								disabled={submitting || quizLockReason !== null}
+								// Read-only rather than disabled while the answer is
+								// sent and once it is final: a disabled field gives up
+								// focus, and Enter would leave the participant on the
+								// page itself (REQ221).
+								readOnly={typedAnswerLocked}
+								aria-disabled={typedAnswerLocked || undefined}
 								title={quizLockReason ?? undefined}
 								aria-label={t.quizTypeAnswer}
 							/>
 							<button
 								type="button"
 								className="btn-primary px-6"
-								onClick={() => handleVote(inputValue.trim())}
-								disabled={
-									submitting ||
-									!inputValue.trim() ||
-									quizLockReason !== null
+								onClick={() => {
+									if (typedAnswerLocked || !inputValue.trim()) return;
+									handleVote(inputValue.trim());
+								}}
+								aria-disabled={
+									typedAnswerLocked || !inputValue.trim() || undefined
 								}
+								aria-busy={submitting || undefined}
 								title={quizLockReason ?? undefined}
 							>
-								{t.quizSubmitAnswer}
+								{submitting ? t.answerSending : t.quizSubmitAnswer}
 							</button>
 						</div>
-						{/* The disabled control's reason, spelled out rather than left
-						    to a tooltip a touch device never shows. */}
-						{quizLockReason && (
-							<p className="pt-1 text-center text-sm text-text-muted">
-								{quizLockReason}
-							</p>
-						)}
-						<QuizVerdict
-							result={ownQuizResult}
-							scorecard={scorecard}
-							dict={t}
-						/>
+						{/* The locked control's reason, spelled out rather than left
+						    to a tooltip a touch device never shows, and announced with
+						    the verdict once it is in. */}
+						<AnswerStatus
+							message={answerStatusMessage}
+							// The button already reads "Sending…" while it is.
+							spokenOnly={submitting}
+						>
+							<QuizVerdict
+								result={ownQuizResult}
+								scorecard={scorecard}
+								dict={t}
+							/>
+						</AnswerStatus>
 					</div>
 				) : slide.type === "multiple-choice" ||
 					slide.type === "quiz" ? (
@@ -1225,6 +1571,7 @@ export function ParticipantSlideView({
 										<QuizTimer
 											countdown={quizCountdown}
 											label={t.quizSecondsLeft}
+											spokenLabel={t.quizSecondsLeftSpoken}
 											expiredLabel={t.quizTimesUp}
 											className="mb-5"
 										/>
@@ -1239,29 +1586,41 @@ export function ParticipantSlideView({
 										</p>
 									)}
 									{slide.options?.map((opt, i) => {
-										const isSelected = selected.includes(opt.id);
 										// A card that would exceed the cap stays
-										// visible and disabled, and says why.
-										const blockedByCap = capReached && !isSelected;
+										// visible and unavailable, and says why.
+										const blockedByCap =
+											capReached && !selected.includes(opt.id);
+										const card = choiceCardState({
+											optionId: opt.id,
+											selectedIds: selected,
+											pendingOptionId,
+											submitting,
+											blockedByCap,
+											locked: quizLockReason !== null,
+										});
 										return (
 											<button
 												key={opt.id}
 												type="button"
-												aria-pressed={isSelected}
-												className={`option-card ${isSelected ? "selected" : ""} ${
-													blockedByCap || (quizLockReason && !isSelected)
-														? "opacity-50 cursor-not-allowed"
-														: ""
+												aria-pressed={card.selected}
+												// Unavailable is said, not enforced by `disabled`: a
+												// disabled button gives up focus, and the card just
+												// pressed would drop the participant onto the page
+												// (REQ221). The click is guarded instead.
+												aria-disabled={card.unavailable || undefined}
+												aria-busy={card.pending || undefined}
+												className={`option-card ${card.selected ? "selected" : ""} ${
+													card.dimmed ? "opacity-50" : ""
 												}`}
 												style={{
-													borderColor: isSelected
+													borderColor: card.selected
 														? POLL_COLORS[i % POLL_COLORS.length]
 														: undefined,
 												}}
-												onClick={() => handleChoiceSelect(opt.id)}
-												disabled={
-													submitting || blockedByCap || quizLockReason !== null
-												}
+												onClick={() => {
+													if (card.unavailable) return;
+													handleChoiceSelect(opt.id);
+												}}
 												title={
 													blockedByCap
 														? `You can select at most ${limit} options — deselect one first`
@@ -1279,8 +1638,19 @@ export function ParticipantSlideView({
 													<span className="flex-1 text-left">
 														{opt.text}
 													</span>
+													{/* The answer on its way (REQ224) — on the card it
+													    belongs to, and spoken by the status below. */}
+													{card.pending && (
+														<span
+															aria-hidden="true"
+															className="flex flex-shrink-0 items-center gap-1.5 text-sm text-text-muted"
+														>
+															<LoaderCircle size={16} className="animate-spin" />
+															{t.answerSending}
+														</span>
+													)}
 													{isMulti &&
-														(isSelected ? (
+														(card.selected ? (
 															<SquareCheck
 																size={18}
 																className="flex-shrink-0 text-accent"
@@ -1295,18 +1665,20 @@ export function ParticipantSlideView({
 											</button>
 										);
 									})}
-									{/* The disabled cards' reason, spelled out rather than
-									    left to a tooltip a touch device never shows. */}
-									{quizLockReason && (
-										<p className="pt-1 text-center text-sm text-text-muted">
-											{quizLockReason}
-										</p>
-									)}
-									<QuizVerdict
-										result={ownQuizResult}
-										scorecard={scorecard}
-										dict={t}
-									/>
+									{/* The unavailable cards' reason, spelled out rather
+									    than left to a tooltip a touch device never shows,
+									    and announced with the verdict once it is in. */}
+									<AnswerStatus
+										message={answerStatusMessage}
+										// A single choice draws its sending state on the card.
+										spokenOnly={pendingOptionId !== null}
+									>
+										<QuizVerdict
+											result={ownQuizResult}
+											scorecard={scorecard}
+											dict={t}
+										/>
+									</AnswerStatus>
 								</div>
 							);
 						})()
@@ -2476,11 +2848,11 @@ export function ParticipantSlideView({
 		    interactive slides have been answered or skipped, so
 		    participants cannot peek at results mid-survey. */}
 				{(hasVoted ||
-					// Quiz: once the question closes the tally is shown to
+					// Quiz: once the question is over the tally is shown to
 					// everyone in the room, including whoever did not answer in
 					// time — being late is not a reason to be kept from the
 					// solution the rest of the room is now looking at.
-					(isQuizSlide && quizCountdown.expired) ||
+					quizOver ||
 					(slide.type === "scale" &&
 						(slide.scaleStatements ?? []).length > 0 &&
 						(slide.scaleStatements ?? []).every(
@@ -2534,6 +2906,7 @@ export function ParticipantSlideView({
 									onUpvote={handleUpvote}
 									upvotedIds={upvoted}
 									answerFilterLabel={t.answersFiltered}
+									labels={resultLabels}
 								/>
 							</div>
 						);

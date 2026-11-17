@@ -53,6 +53,33 @@ async function authed(
 	});
 }
 
+/** Each deck's creator token, by presentation id — see {@link revealEveryQuestion}. */
+const creatorTokens = new Map<string, string>();
+
+/**
+ * Reveal every quiz question the deck holds now, as the presenter's reveal does
+ * (REQ102). A participant's verdict — on their own card and on the board the
+ * room is sent — is withheld until the question is over and its reveal setting
+ * allows (REQ228); the tests here are about how answers score and rank, not
+ * about when that is released (`quiz-verdict-withheld.integration.test.ts`
+ * pins that), so they read once it has been. Revealing closes nothing: the
+ * question keeps taking answers inside its window.
+ */
+async function revealEveryQuestion(presentationId: string): Promise<void> {
+	const token = creatorTokens.get(presentationId);
+	if (!token) throw new Error(`no creator token recorded for ${presentationId}`);
+	const deck = await authed(`/api/presentations/${presentationId}`, token);
+	expect(deck.status).toBe(200);
+	for (const slide of (await deck.json()).slides as AnyJson[]) {
+		if (slide.type !== "quiz") continue;
+		const revealed = await authed(`/api/presentations/${presentationId}/reveal`, token, {
+			method: "POST",
+			body: JSON.stringify({ slideId: slide.id }),
+		});
+		expect(revealed.status).toBe(200);
+	}
+}
+
 /** A typed-answer quiz question accepting two spellings of one answer. */
 function typedQuizSlide(overrides: Record<string, unknown> = {}) {
 	return {
@@ -77,7 +104,9 @@ async function create(slides: AnyJson[]): Promise<AnyJson> {
 		body: JSON.stringify({ title: "Typed Quiz Test", slides }),
 	});
 	expect(res.status).toBe(201);
-	return await res.json();
+	const pres = await res.json();
+	creatorTokens.set(pres.id, pres.creatorToken);
+	return pres;
 }
 
 async function createAndStart(
@@ -90,6 +119,18 @@ async function createAndStart(
 		{ method: "POST" },
 	);
 	expect(startRes.status).toBe(200);
+	// Going live leaves a timed first question waiting for the presenter
+	// (REQ226); these tests are about a question the room is answering, so
+	// every question is opened as the presenter's timer control opens it.
+	for (const slide of slides) {
+		if (slide.type !== "quiz") continue;
+		const opened = await authed(
+			`/api/presentations/${pres.id}/timer`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: slide.id }) },
+		);
+		expect(opened.status).toBe(200);
+	}
 	return pres;
 }
 
@@ -125,10 +166,12 @@ async function results(
 	return await res.json();
 }
 
+/** One participant's card, read once their verdicts are out (REQ228). */
 async function scorecard(
 	presentationId: string,
 	participantId: string,
 ): Promise<AnyJson> {
+	await revealEveryQuestion(presentationId);
 	const res = await fetch(
 		`${baseUrl}/api/presentations/${presentationId}/scorecard?participantId=${participantId}`,
 	);
@@ -239,7 +282,7 @@ describe("typed quiz answers integration (REQ055)", () => {
 		expect((await answer(pres.id, "p3", "  ZURICH.  ")).status).toBe(200);
 		expect((await answer(pres.id, "p4", "Zurich, Switzerland")).status).toBe(200);
 
-		const payload = await results(pres.id);
+		const payload = await results(pres.id, "tq", pres.creatorToken);
 		expect(payload.scoring.answeredCount).toBe(4);
 		expect(payload.scoring.correctCount).toBe(4);
 	});
@@ -251,7 +294,7 @@ describe("typed quiz answers integration (REQ055)", () => {
 		// that awarded this would award the wrong year on the next question too.
 		expect((await answer(pres.id, "p2", "Zuric")).status).toBe(200);
 
-		const payload = await results(pres.id);
+		const payload = await results(pres.id, "tq", pres.creatorToken);
 		expect(payload.scoring.answeredCount).toBe(2);
 		expect(payload.scoring.correctCount).toBe(0);
 		expect((await scorecard(pres.id, "p1")).totalPoints).toBe(0);
@@ -265,7 +308,7 @@ describe("typed quiz answers integration (REQ055)", () => {
 			typedQuizSlide({ id: "tq", quizAnswers: [] }),
 		]);
 		expect((await answer(pres.id, "p1", "anything")).status).toBe(200);
-		const payload = await results(pres.id);
+		const payload = await results(pres.id, "tq", pres.creatorToken);
 		expect(payload.scoring.answeredCount).toBe(1);
 		expect(payload.scoring.correctCount).toBe(0);
 	});
@@ -515,11 +558,20 @@ describe("typed quiz answers integration (REQ055)", () => {
 		const audience = await results(pres.id);
 		expect(audience.typedAnswers.entries).toBe(null);
 		expect(audience.typedAnswers.accepted).toBe(null);
-		// The head count still reads, which is what a presenter watches for.
-		expect(audience.typedAnswers.distinctCount).toBe(1);
+		// The head count still reads, which is what a presenter watches for…
 		expect(audience.scoring.answeredCount).toBe(1);
+		// …and nothing that moves with what was typed (REQ215): a guess under a
+		// fresh id that leaves the distinct count alone is one somebody gave, and
+		// a correct count that rises says the guess was right.
+		expect(audience.typedAnswers.distinctCount).toBe(null);
+		expect(audience.scoring.correctCount).toBe(null);
+		expect(audience.scoring.totalPoints).toBe(null);
+		expect(audience.scoring.averagePoints).toBe(null);
+		expect(audience.scoring.correctShare).toBe(null);
 
 		const presenter = await results(pres.id, "tq", pres.creatorToken);
+		expect(presenter.typedAnswers.distinctCount).toBe(1);
+		expect(presenter.scoring.correctCount).toBe(1);
 		expect(presenter.typedAnswers.entries).toEqual([
 			{ text: "Zürich", count: 1, isCorrect: true },
 		]);

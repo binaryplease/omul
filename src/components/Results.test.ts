@@ -263,3 +263,121 @@ describe("the filter's line under a tally (REQ085)", () => {
 		expect(markup).not.toContain("second-withheld-word");
 	});
 });
+
+// ── A quiz result the reader may not see yet (REQ215) ────────────
+
+/** A select quiz question, as the client holds it. */
+const SELECT_QUIZ = {
+	id: "qz",
+	type: "quiz",
+	question: "Closest to the sun?",
+	options: [
+		{ id: "venus", text: "Venus" },
+		{ id: "mercury", text: "Mercury" },
+	],
+	timeLimit: 30,
+	mcDisplayStyle: "bars",
+	mcValueDisplay: "both",
+} as unknown as Slide;
+
+/** The same question answered by typing (REQ055). */
+const TYPED_QUIZ = {
+	...SELECT_QUIZ,
+	quizAnswerMode: "type",
+	options: [],
+} as unknown as Slide;
+
+/** The window and the answered count — the half of the score that stays. */
+function windowScoring(answeredCount: number) {
+	return {
+		correctPoints: 500,
+		speedPoints: 500,
+		maxPoints: 1000,
+		timeLimit: 30,
+		startedAt: "2026-01-01T12:00:00.000Z",
+		deadline: "2026-01-01T12:00:30.000Z",
+		closed: false,
+		answeredCount,
+	};
+}
+
+/** What the room is sent for a select quiz question that is not over. */
+const WITHHELD_SELECT = {
+	type: "quiz",
+	answerMode: "select",
+	totalVotes: 3,
+	respondentCount: 3,
+	maxSelections: 1,
+	typedAnswers: null,
+	scoring: {
+		...windowScoring(3),
+		correctCount: null,
+		totalPoints: null,
+		averagePoints: null,
+		correctShare: null,
+	},
+	options: [
+		{ id: "venus", text: "Venus", count: null, isCorrect: null },
+		{ id: "mercury", text: "Mercury", count: null, isCorrect: null },
+	],
+};
+
+function render(slide: Slide, results: unknown): string {
+	return renderToStaticMarkup(createElement(ResultsDisplay, { slide, results }));
+}
+
+describe("a quiz result withheld from its reader (REQ215)", () => {
+	test("a select question says how many answered and draws no chart", () => {
+		const markup = render(SELECT_QUIZ, WITHHELD_SELECT);
+		expect(markup).toContain("3 answers in");
+		// No bar per option, so no option label and no count beside it: zeros
+		// would report a room that answered nothing.
+		expect(markup).not.toContain("Venus");
+		expect(markup).not.toContain("Mercury");
+		expect(markup).not.toContain("0%");
+		expect(markup).not.toContain("null");
+	});
+
+	test("nobody having answered yet still reads as that", () => {
+		const markup = render(SELECT_QUIZ, {
+			...WITHHELD_SELECT,
+			totalVotes: 0,
+			respondentCount: 0,
+			scoring: { ...WITHHELD_SELECT.scoring, answeredCount: 0 },
+		});
+		expect(markup).toContain("No answers yet");
+	});
+
+	test("a typed question draws no score line from the missing numbers", () => {
+		const markup = render(TYPED_QUIZ, {
+			...WITHHELD_SELECT,
+			answerMode: "type",
+			options: [],
+			typedAnswers: { accepted: null, entries: null, distinctCount: null },
+		});
+		expect(markup).toContain("3 answers in");
+		expect(markup).not.toContain("null");
+		expect(markup).not.toContain("correct");
+	});
+
+	test("once published, the counts and the score are drawn", () => {
+		const markup = render(SELECT_QUIZ, {
+			...WITHHELD_SELECT,
+			scoring: {
+				...windowScoring(3),
+				correctCount: 2,
+				totalPoints: 1800,
+				averagePoints: 600,
+				correctShare: 66.67,
+			},
+			options: [
+				{ id: "venus", text: "Venus", count: 1, isCorrect: false },
+				{ id: "mercury", text: "Mercury", count: 2, isCorrect: true },
+			],
+		});
+		expect(markup).toContain("Venus");
+		expect(markup).toContain("Mercury");
+		expect(markup).toContain("2 of 3");
+		expect(markup).not.toContain("answers in");
+	});
+});

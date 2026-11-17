@@ -361,6 +361,14 @@ describe("Segmented results integration (REQ020, REQ116)", () => {
 			},
 			{ id: "board", type: "leaderboard", question: "Standings" },
 		]);
+		// Going live leaves a timed first question waiting for the presenter
+		// (REQ226); open it as the shared screen's "Start timer" does.
+		const opened = await authed(
+			`/api/presentations/${pres.id}/timer`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "quiz" }) },
+		);
+		expect(opened.status).toBe(200);
 		for (const participantId of ["p1", "p2", "p3", "p4", "p5"]) {
 			await vote(pres.id, "quiz", "right", participantId);
 		}

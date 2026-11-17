@@ -443,6 +443,57 @@ describe("session slice — WebSocket reducers", () => {
 		});
 	});
 
+	test("applyStarted takes the deck's stamps whole, clearing a draft's leftovers (REQ227)", () => {
+		// A phone that loaded a draft carrying a stamp: going live dropped it on
+		// the server, and the frame saying so must drop it here too, or the phone
+		// counts down a window every tap of which the server refuses.
+		const store = seededStore({
+			status: "draft",
+			slideStartedAt: { "slide-a": FIRST_OPENED, "slide-b": FIRST_OPENED },
+		});
+		store
+			.getState()
+			.applyStarted({ startedAt: SECOND_OPENED, slideStartedAt: {} });
+		expect(store.getState().presentation?.status).toBe("live");
+		expect(store.getState().presentation?.slideStartedAt).toEqual({});
+
+		store.getState().applyStarted({
+			startedAt: SECOND_OPENED,
+			slideStartedAt: { "slide-b": SECOND_OPENED },
+		});
+		expect(store.getState().presentation?.slideStartedAt).toEqual({
+			"slide-b": SECOND_OPENED,
+		});
+	});
+
+	test("applyStarted moves a screen that followed the draft to the server's slide (REQ230)", () => {
+		// A phone or second screen that followed the draft's navigation to the
+		// second slide: going live put the server and the presenter on the first,
+		// and the frame saying so must put this screen there too.
+		const store = seededStore({ status: "draft", activeSlideIndex: 1 });
+		store.getState().applyStarted({
+			startedAt: SECOND_OPENED,
+			slideStartedAt: {},
+			activeSlideIndex: 0,
+		});
+		expect(store.getState().presentation?.status).toBe("live");
+		expect(store.getState().presentation?.activeSlideIndex).toBe(0);
+	});
+
+	test("a start frame without a slide index leaves the one held (an older server)", () => {
+		const store = seededStore({ status: "draft", activeSlideIndex: 1 });
+		store.getState().applyStarted({ startedAt: SECOND_OPENED });
+		expect(store.getState().presentation?.activeSlideIndex).toBe(1);
+	});
+
+	test("a start frame without stamps leaves the ones held (an older server)", () => {
+		const store = seededStore({ slideStartedAt: { "slide-a": FIRST_OPENED } });
+		store.getState().applyStarted({ startedAt: SECOND_OPENED });
+		expect(store.getState().presentation?.slideStartedAt).toEqual({
+			"slide-a": FIRST_OPENED,
+		});
+	});
+
 	test("applyReset clears the windows along with the votes they timed", () => {
 		const store = seededStore({ slideStartedAt: { "slide-a": FIRST_OPENED } });
 		store.getState().setResultsFor("slide-a", { totalVotes: 3 });
@@ -694,6 +745,229 @@ describe("session slice — refreshDeckSlides (REQ053)", () => {
 		await store.getState().refreshDeckSlides("123456");
 		expect(join.calls()).toBe(0);
 		expect(store.getState().presentation).toBeNull();
+	});
+});
+
+// ── A deck save reaching a connected screen (REQ229) ──────────
+//
+// The regression this suite exists for: the presenter edited a question to
+// "On click" (or moved a slide) and saved while phones stayed connected, and the
+// phones went on judging the question off the slide they had loaded.
+
+/** The deck a phone loaded: one inherit question on an `instant` deck. */
+function loadedQuizDeck(overrides: Partial<Presentation> = {}) {
+	return seededStore({
+		resultsVisibility: "instant",
+		slides: [
+			{ id: "intro", type: "instruction", question: "Join the quiz" },
+			{
+				id: "qz",
+				type: "quiz",
+				question: "Closest to the sun?",
+				timeLimit: 30,
+				resultsVisibility: "inherit",
+				options: [
+					{ id: "venus", text: "Venus" },
+					{ id: "mercury", text: "Mercury" },
+				],
+			},
+		],
+		...overrides,
+	});
+}
+
+describe("session slice — applyDeckSlides (REQ229)", () => {
+	const originalFetch = globalThis.fetch;
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	test("a saved slide replaces the one held, its reveal setting included", () => {
+		const store = loadedQuizDeck();
+		const loaded = store.getState().presentation?.slides ?? [];
+		store.getState().applyDeckSlides({
+			slides: [
+				loaded[0],
+				{
+					...loaded[1],
+					question: "Which planet is closest to the sun?",
+					timeLimit: 45,
+					resultsVisibility: "on-click",
+					options: [
+						{ id: "venus", text: "Venus" },
+						{ id: "mercury", text: "Mercury" },
+						{ id: "mars", text: "Mars" },
+					],
+				},
+			],
+		});
+		const saved = store.getState().presentation?.slides[1];
+		expect(saved?.resultsVisibility).toBe("on-click");
+		expect(saved?.question).toBe("Which planet is closest to the sun?");
+		expect(saved?.timeLimit).toBe(45);
+		expect(saved?.options?.map((option) => option.id)).toEqual([
+			"venus",
+			"mercury",
+			"mars",
+		]);
+	});
+
+	test("a reordered save moves the slide at the active position", () => {
+		const store = loadedQuizDeck({ activeSlideIndex: 0 });
+		const [intro, quiz] = store.getState().presentation?.slides ?? [];
+		store.getState().applyDeckSlides({ slides: [quiz, intro] });
+		const deck = store.getState().presentation;
+		expect(deck?.slides[deck.activeSlideIndex].id).toBe("qz");
+	});
+
+	test("the slides are replaced, not merged: a mark the save took off is gone", () => {
+		const store = loadedQuizDeck({
+			slides: [
+				{
+					id: "qz",
+					type: "quiz",
+					question: "Closest to the sun?",
+					options: [
+						{ id: "venus", text: "Venus" },
+						{ id: "mercury", text: "Mercury", isCorrect: true },
+					],
+				},
+			],
+		});
+		store.getState().applyDeckSlides({
+			slides: [
+				{
+					id: "qz",
+					type: "quiz",
+					question: "Closest to the sun?",
+					options: [
+						{ id: "venus", text: "Venus" },
+						{ id: "mercury", text: "Mercury" },
+					],
+				},
+			],
+		});
+		expect(
+			store.getState().presentation?.slides[0].options?.[1].isCorrect,
+		).toBeUndefined();
+	});
+
+	test("only the slides move — the runtime state the socket owns is untouched", () => {
+		const store = loadedQuizDeck({
+			status: "live",
+			activeSlideIndex: 1,
+			revealedSlideIds: ["qz"],
+			slideStartedAt: { qz: FIRST_OPENED },
+		});
+		const slides = store.getState().presentation?.slides ?? [];
+		store.getState().applyDeckSlides({ slides });
+		const deck = store.getState().presentation;
+		expect(deck?.status).toBe("live");
+		expect(deck?.activeSlideIndex).toBe(1);
+		expect(deck?.revealedSlideIds).toEqual(["qz"]);
+		expect(deck?.slideStartedAt).toEqual({ qz: FIRST_OPENED });
+		expect(deck?.resultsVisibility).toBe("instant");
+	});
+
+	test("a frame without slides leaves the deck as it is", () => {
+		const store = loadedQuizDeck();
+		const before = store.getState().presentation?.slides;
+		store.getState().applyDeckSlides({});
+		store.getState().applyDeckSlides({ slides: "nope" });
+		expect(store.getState().presentation?.slides).toBe(before);
+	});
+
+	test("a deck re-read asked before a save is discarded, not landed over it", async () => {
+		// The reveal re-read and the save frame race: the re-read answers with the
+		// slides as they stood when it was asked, before the save.
+		const store = loadedQuizDeck();
+		let release: () => void = () => {};
+		globalThis.fetch = (async () => {
+			await new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			return new Response(
+				JSON.stringify({
+					slides: [{ id: "qz", type: "quiz", resultsVisibility: "inherit" }],
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			);
+		}) as unknown as typeof fetch;
+
+		const inFlight = store.getState().refreshDeckSlides("123456");
+		store.getState().applyDeckSlides({
+			slides: [{ id: "qz", type: "quiz", resultsVisibility: "on-click" }],
+		});
+		release();
+		await inFlight;
+
+		expect(store.getState().presentation?.slides[0].resultsVisibility).toBe(
+			"on-click",
+		);
+	});
+});
+
+describe("session slice — refreshPresentationSlides (REQ229)", () => {
+	const originalFetch = globalThis.fetch;
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	test("a presenter screen takes its slides from its own credentialed read", async () => {
+		const store = loadedQuizDeck({ activeSlideIndex: 1 });
+		const deck = stubJoinFetch({
+			activeSlideIndex: 0,
+			slides: [
+				{
+					id: "qz",
+					type: "quiz",
+					question: "Closest to the sun?",
+					notes: "Say: Mercury",
+					options: [{ id: "mercury", text: "Mercury", isCorrect: true }],
+				},
+			],
+		});
+		await store.getState().refreshPresentationSlides("pres-1");
+		expect(deck.calls()).toBe(1);
+		const held = store.getState().presentation;
+		expect(held?.slides[0].notes).toBe("Say: Mercury");
+		expect(held?.slides[0].options?.[0].isCorrect).toBe(true);
+		// Only the slides: the active position is the socket's to move.
+		expect(held?.activeSlideIndex).toBe(1);
+	});
+
+	test("the first of two re-reads in flight does not land last", async () => {
+		const store = loadedQuizDeck();
+		const releases: Array<() => void> = [];
+		const answers = ["first", "second"];
+		globalThis.fetch = (async () => {
+			const question = answers.shift();
+			await new Promise<void>((resolve) => {
+				releases.push(resolve);
+			});
+			return new Response(
+				JSON.stringify({ slides: [{ id: "qz", type: "quiz", question }] }),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			);
+		}) as unknown as typeof fetch;
+
+		const first = store.getState().refreshPresentationSlides("pres-1");
+		const second = store.getState().refreshPresentationSlides("pres-1");
+		releases[1]?.();
+		await second;
+		releases[0]?.();
+		await first;
+
+		expect(store.getState().presentation?.slides[0].question).toBe("second");
+	});
+
+	test("a failed re-read leaves the deck as it was", async () => {
+		const store = loadedQuizDeck();
+		const before = store.getState().presentation?.slides;
+		globalThis.fetch = (async () =>
+			new Response("{}", { status: 500 })) as unknown as typeof fetch;
+		await store.getState().refreshPresentationSlides("pres-1");
+		expect(store.getState().presentation?.slides).toBe(before);
 	});
 });
 
@@ -1005,5 +1279,84 @@ describe("session slice — the live room (REQ111/REQ109)", () => {
 		store.getState().applySlideParticipation({ slideId: "x", open: false });
 		store.getState().applyAudienceBlanked({ blanked: true });
 		expect(store.getState().presentation).toBeNull();
+	});
+});
+
+// ── Catching up after an answer the deck moved on under (REQ236) ─
+//
+// The vote route says the deck ended or the slide is gone; the participant page
+// asks the server for the deck as it stands rather than giving way to an error
+// screen. A frame that lands while that read is in flight is newer than it.
+
+/** Stand in for the join endpoint, and hold its answer until released. */
+function heldJoinFetch(body: unknown): { release: () => void } {
+	let release = () => {};
+	const released = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	globalThis.fetch = (async () => {
+		await released;
+		return new Response(JSON.stringify(body), {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}) as unknown as typeof fetch;
+	return { release };
+}
+
+describe("session slice — catchUpWithRoom (REQ236)", () => {
+	const originalFetch = globalThis.fetch;
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	test("the status, the slides and the active slide come from the server's read", async () => {
+		const store = seededStore({ activeSlideIndex: 1 });
+		stubJoinFetch(
+			makePresentation({
+				status: "ended",
+				activeSlideIndex: 0,
+				slides: [{ id: "slide-b", type: "multiple-choice", question: "B" }],
+			}),
+		);
+		await store.getState().catchUpWithRoom("123456");
+		const pres = store.getState().presentation;
+		expect(pres?.status).toBe("ended");
+		expect(pres?.slides.map((slide) => slide.id)).toEqual(["slide-b"]);
+		expect(pres?.activeSlideIndex).toBe(0);
+		expect(store.getState().loading).toBe(false);
+		expect(store.getState().error).toBe("");
+	});
+
+	test("a frame that moved the deck while the read was in flight wins", async () => {
+		const store = seededStore({ activeSlideIndex: 0 });
+		const join = heldJoinFetch(
+			makePresentation({
+				status: "ended",
+				activeSlideIndex: 0,
+				slides: [{ id: "slide-a", type: "multiple-choice", question: "A" }],
+			}),
+		);
+		const catchingUp = store.getState().catchUpWithRoom("123456");
+		// Meanwhile: the presenter reset the deck, and a save moved its slides.
+		store.getState().applyReset();
+		store.getState().applyDeckSlides({
+			slides: [{ id: "slide-c", type: "multiple-choice", question: "C" }],
+		});
+		join.release();
+		await catchingUp;
+		const pres = store.getState().presentation;
+		expect(pres?.status).toBe("draft");
+		expect(pres?.slides.map((slide) => slide.id)).toEqual(["slide-c"]);
+	});
+
+	test("a failed read leaves the deck as it was", async () => {
+		const store = seededStore();
+		globalThis.fetch = (async () =>
+			new Response("{}", { status: 500 })) as unknown as typeof fetch;
+		await store.getState().catchUpWithRoom("123456");
+		expect(store.getState().presentation?.status).toBe("live");
+		expect(store.getState().presentation?.slides).toHaveLength(2);
+		expect(store.getState().error).toBe("");
 	});
 });

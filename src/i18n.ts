@@ -9,7 +9,18 @@ import { participantLanguageFor } from "./types";
 
 export type Lang = "en" | "de" | "fr" | "es" | "it" | "pt" | "nl";
 
+/**
+ * A counted phrase in its two forms (REQ225). `{count}` is the number. Every
+ * supported language words a count as "one" or "other" — French and
+ * Portuguese read 0 as "one", and the "many" some of them use for round
+ * millions is worded as "other" — so the forms are chosen by the language's
+ * own plural rules ({@link countPhrase}), never by `count === 1`.
+ */
+export type PluralForms = { one: string; other: string };
+
 export type Dict = {
+	/** The dictionary's own language: what {@link countPhrase} reads plurals by. */
+	locale: Lang;
 	live: string;
 	waitingPresenter: string;
 	willStartSoon: string;
@@ -150,6 +161,18 @@ export type Dict = {
 	quizSecondsLeft: string;
 	quizTimesUp: string;
 	/**
+	 * What a screen reader hears when the countdown crosses a threshold
+	 * (REQ221) — spelled out in full, because the visible "12s left" is read as
+	 * a letter. `{seconds}` is the number.
+	 */
+	quizSecondsLeftSpoken: string;
+	/**
+	 * The short state an answer is in between the tap and the server's reply
+	 * (REQ224): drawn on the chosen card and announced, so a slow network is
+	 * not a screen that has simply stopped responding.
+	 */
+	answerSending: string;
+	/**
 	 * Why the options can no longer be picked (the cards stay visible
 	 * and disabled, and say why). The two reasons are kept apart because they
 	 * call for different things from the participant: one has answered and is
@@ -157,6 +180,28 @@ export type Dict = {
 	 */
 	quizAnswerLocked: string;
 	quizWindowClosed: string;
+	/**
+	 * Why an answer sent a moment before the room moved on was not taken
+	 * (REQ236): the presentation stopped taking answers — the presenter ended
+	 * it — or the slide it answered was removed. Said as a notice over the
+	 * screen the participant is caught up to, never as an error page.
+	 */
+	answerNotAcceptedDeckEnded: string;
+	answerNotAcceptedSlideGone: string;
+	/**
+	 * The participant error screen that is left for a failure nothing else
+	 * explains (REQ236), and its button, which reloads the deck in place.
+	 */
+	participantErrorMessage: string;
+	participantErrorRetry: string;
+	/**
+	 * Why the options cannot be picked *yet* (REQ226): the question is on
+	 * screen but its window has not opened, because it was the slide on screen
+	 * when the deck went live and the presenter starts its timer by hand. Said
+	 * on the phone under the question and on the shared screen where the
+	 * results will appear, so the room knows the wait is the presenter's call.
+	 */
+	quizWaitingToStart: string;
 	/**
 	 * Why the answer control is dead on a slide the presenter has closed to
 	 * submissions (REQ111). Distinct from the two quiz reasons above and from
@@ -193,6 +238,77 @@ export type Dict = {
 	leaderboardCorrect: string;
 	leaderboardMoreRanked: string;
 	leaderboardNotRanked: string;
+	/**
+	 * What a row is called when its holder stated no name (REQ059, REQ218):
+	 * the derived handle, worded in the deck's language. `{handle}` is the six
+	 * characters the server derived.
+	 */
+	leaderboardPlayer: string;
+	/**
+	 * The caption under the board's heading on the shared screen. Counted by the
+	 * quiz questions; `{shown}` is how many rows the board draws.
+	 */
+	leaderboardTopAcross: PluralForms;
+	/**
+	 * A slide's results as the room reads them, on the phone and on the shared
+	 * screen alike (REQ225) — the response count over the tally, the solution
+	 * mark, and the quiz's score note. `resultsFromParticipants` follows the
+	 * count on an "all that apply" slide (REQ014).
+	 */
+	resultsResponseCount: PluralForms;
+	resultsFromParticipants: PluralForms;
+	resultsCorrectMark: string;
+	resultsCorrectAnswer: string;
+	/** The accessible names of the drawn charts: a dot cluster's option, a disc. */
+	resultsVoteCount: PluralForms;
+	resultsPieChart: string;
+	resultsDonutChart: string;
+	/**
+	 * What the shared screen shows in place of a quiz question's tally while the
+	 * room is still answering it (REQ214) — timed, or open until closed by hand —
+	 * and in place of a leaderboard nobody has scored on yet.
+	 */
+	resultsAppearWhenTimeUp: string;
+	resultsAppearWhenClosed: string;
+	waitingForScores: string;
+	/**
+	 * A typed quiz question's results (REQ055): nothing yet, how many answers
+	 * are in while they are withheld, and the key once it may be shown —
+	 * `{answers}` is the accepted spellings, already joined.
+	 */
+	quizNoAnswersYet: string;
+	quizAnswersPending: PluralForms;
+	quizAccepted: string;
+	/**
+	 * The room's score under a quiz question (REQ056): "{correct} of {answered}"
+	 * is drawn highlighted, and the words after it agree with `{correct}` —
+	 * counted by the right answers, so a language whose verb takes the number
+	 * says so.
+	 */
+	quizScoreCorrect: string;
+	quizScoreAnsweredCorrectly: PluralForms;
+	quizScoreAverage: string;
+	/**
+	 * The app menu where the room meets it (REQ183, REQ185): the trigger's name
+	 * with and without the feedback item, the backdrop that closes it, and what
+	 * the panel holds. The legal texts' names are the operator's documents,
+	 * worded as each language calls them.
+	 */
+	menuName: string;
+	menuNameWithFeedback: string;
+	menuClose: string;
+	menuCloseWithFeedback: string;
+	menuAppearance: string;
+	themeLight: string;
+	themeDark: string;
+	themeAuto: string;
+	menuSendFeedback: string;
+	menuLegal: string;
+	legalImprint: string;
+	legalPrivacy: string;
+	legalTerms: string;
+	opensInNewTab: string;
+	feedbackDialogClose: string;
 	/**
 	 * The Q&A layer (REQ036, REQ037, REQ060) — questions asked from any slide.
 	 * `qaModeratedNote` is what a participant is told when the organizer keeps
@@ -322,6 +438,7 @@ export type Dict = {
 };
 
 const en: Dict = {
+	locale: "en",
 	live: "LIVE",
 	waitingPresenter: "Waiting for presenter...",
 	willStartSoon: "The presentation will start soon",
@@ -389,8 +506,15 @@ const en: Dict = {
 	formPrivacyNote: "Only the organizer can read what you write here.",
 	quizSecondsLeft: "s left",
 	quizTimesUp: "Time's up",
+	quizSecondsLeftSpoken: "{seconds} seconds left",
+	answerSending: "Sending…",
 	quizAnswerLocked: "Your answer is locked in",
 	quizWindowClosed: "The time for this question is over",
+	answerNotAcceptedDeckEnded: "Your answer was not accepted: the presentation is no longer taking answers",
+	answerNotAcceptedSlideGone: "Your answer was not accepted: this question was removed from the presentation",
+	participantErrorMessage: "Something went wrong.",
+	participantErrorRetry: "Try again",
+	quizWaitingToStart: "Waiting for the presenter to start this question",
 	participationClosed: "The presenter has closed this question",
 	quizTypeAnswer: "Type your answer...",
 	quizSubmitAnswer: "Submit answer",
@@ -408,6 +532,57 @@ const en: Dict = {
 	leaderboardCorrect: "correct",
 	leaderboardMoreRanked: "more ranked",
 	leaderboardNotRanked: "Answer a quiz question to join the leaderboard",
+	leaderboardPlayer: "Player {handle}",
+	leaderboardTopAcross: {
+		one: "Top {shown} across {count} quiz question",
+		other: "Top {shown} across {count} quiz questions",
+	},
+	resultsResponseCount: {
+		one: "{count} response",
+		other: "{count} responses",
+	},
+	resultsFromParticipants: {
+		one: "from {count} participant",
+		other: "from {count} participants",
+	},
+	resultsCorrectMark: "correct",
+	resultsCorrectAnswer: "Correct answer",
+	resultsVoteCount: {
+		one: "{count} vote",
+		other: "{count} votes",
+	},
+	resultsPieChart: "Pie chart of results",
+	resultsDonutChart: "Donut chart of results",
+	resultsAppearWhenTimeUp: "Results appear when the time is up.",
+	resultsAppearWhenClosed: "Results appear once the question is closed to answers.",
+	waitingForScores: "Waiting for scores...",
+	quizNoAnswersYet: "No answers yet",
+	quizAnswersPending: {
+		one: "{count} answer in — it appears once the question is over.",
+		other: "{count} answers in — they appear once the question is over.",
+	},
+	quizAccepted: "Accepted: {answers}",
+	quizScoreCorrect: "{correct} of {answered}",
+	quizScoreAnsweredCorrectly: {
+		one: "answered correctly",
+		other: "answered correctly",
+	},
+	quizScoreAverage: "{average} of {max} points on average",
+	menuName: "Appearance and legal",
+	menuNameWithFeedback: "Appearance, feedback and legal",
+	menuClose: "Close appearance and legal menu",
+	menuCloseWithFeedback: "Close appearance, feedback and legal menu",
+	menuAppearance: "Appearance",
+	themeLight: "Light",
+	themeDark: "Dark",
+	themeAuto: "Auto",
+	menuSendFeedback: "Send feedback",
+	menuLegal: "Legal",
+	legalImprint: "Imprint",
+	legalPrivacy: "Privacy Policy",
+	legalTerms: "Terms of Service",
+	opensInNewTab: "(opens in a new tab)",
+	feedbackDialogClose: "Close feedback",
 	qaTitle: "Questions",
 	qaAsk: "Ask a question",
 	qaPlaceholder: "Type your question...",
@@ -476,6 +651,7 @@ const en: Dict = {
 };
 
 const de: Dict = {
+	locale: "de",
 	live: "LIVE",
 	waitingPresenter: "Warte auf Moderator...",
 	willStartSoon: "Die Präsentation beginnt gleich",
@@ -544,8 +720,15 @@ const de: Dict = {
 	formPrivacyNote: "Nur der Moderator kann lesen, was du hier schreibst.",
 	quizSecondsLeft: "s übrig",
 	quizTimesUp: "Zeit abgelaufen",
+	quizSecondsLeftSpoken: "Noch {seconds} Sekunden",
+	answerSending: "Wird gesendet …",
 	quizAnswerLocked: "Deine Antwort steht fest",
 	quizWindowClosed: "Die Zeit für diese Frage ist vorbei",
+	answerNotAcceptedDeckEnded: "Deine Antwort wurde nicht angenommen: Die Präsentation nimmt keine Antworten mehr an",
+	answerNotAcceptedSlideGone: "Deine Antwort wurde nicht angenommen: Diese Frage wurde aus der Präsentation entfernt",
+	participantErrorMessage: "Etwas ist schiefgelaufen.",
+	participantErrorRetry: "Erneut versuchen",
+	quizWaitingToStart: "Warten, bis diese Frage gestartet wird",
 	participationClosed: "Der Präsentator hat diese Frage geschlossen",
 	quizTypeAnswer: "Antwort eingeben...",
 	quizSubmitAnswer: "Antwort absenden",
@@ -564,6 +747,57 @@ const de: Dict = {
 	leaderboardMoreRanked: "weitere in der Wertung",
 	leaderboardNotRanked:
 		"Beantworte eine Quizfrage, um in die Wertung zu kommen",
+	leaderboardPlayer: "Spieler {handle}",
+	leaderboardTopAcross: {
+		one: "Top {shown} aus {count} Quizfrage",
+		other: "Top {shown} aus {count} Quizfragen",
+	},
+	resultsResponseCount: {
+		one: "{count} Antwort",
+		other: "{count} Antworten",
+	},
+	resultsFromParticipants: {
+		one: "von {count} Person",
+		other: "von {count} Personen",
+	},
+	resultsCorrectMark: "richtig",
+	resultsCorrectAnswer: "Richtige Antwort",
+	resultsVoteCount: {
+		one: "{count} Stimme",
+		other: "{count} Stimmen",
+	},
+	resultsPieChart: "Kreisdiagramm der Ergebnisse",
+	resultsDonutChart: "Ringdiagramm der Ergebnisse",
+	resultsAppearWhenTimeUp: "Die Ergebnisse erscheinen, wenn die Zeit abgelaufen ist.",
+	resultsAppearWhenClosed: "Die Ergebnisse erscheinen, sobald die Frage für Antworten geschlossen ist.",
+	waitingForScores: "Warte auf Punkte...",
+	quizNoAnswersYet: "Noch keine Antworten",
+	quizAnswersPending: {
+		one: "{count} Antwort eingegangen — sie erscheint, sobald die Frage vorbei ist.",
+		other: "{count} Antworten eingegangen — sie erscheinen, sobald die Frage vorbei ist.",
+	},
+	quizAccepted: "Akzeptiert: {answers}",
+	quizScoreCorrect: "{correct} von {answered}",
+	quizScoreAnsweredCorrectly: {
+		one: "richtig beantwortet",
+		other: "richtig beantwortet",
+	},
+	quizScoreAverage: "im Schnitt {average} von {max} Punkten",
+	menuName: "Darstellung und Rechtliches",
+	menuNameWithFeedback: "Darstellung, Feedback und Rechtliches",
+	menuClose: "Menü „Darstellung und Rechtliches“ schließen",
+	menuCloseWithFeedback: "Menü „Darstellung, Feedback und Rechtliches“ schließen",
+	menuAppearance: "Darstellung",
+	themeLight: "Hell",
+	themeDark: "Dunkel",
+	themeAuto: "Auto",
+	menuSendFeedback: "Feedback senden",
+	menuLegal: "Rechtliches",
+	legalImprint: "Impressum",
+	legalPrivacy: "Datenschutzerklärung",
+	legalTerms: "Nutzungsbedingungen",
+	opensInNewTab: "(öffnet in einem neuen Tab)",
+	feedbackDialogClose: "Feedback schließen",
 	qaTitle: "Fragen",
 	qaAsk: "Frage stellen",
 	qaPlaceholder: "Frage eingeben...",
@@ -632,6 +866,7 @@ const de: Dict = {
 };
 
 const fr: Dict = {
+	locale: "fr",
 	live: "EN DIRECT",
 	waitingPresenter: "En attente du présentateur...",
 	willStartSoon: "La présentation va commencer",
@@ -701,8 +936,15 @@ const fr: Dict = {
 	formPrivacyNote: "Seul l'organisateur peut lire ce que vous \u00e9crivez ici.",
 	quizSecondsLeft: "s restantes",
 	quizTimesUp: "Temps écoulé",
+	quizSecondsLeftSpoken: "Plus que {seconds} secondes",
+	answerSending: "Envoi…",
 	quizAnswerLocked: "Votre réponse est définitive",
 	quizWindowClosed: "Le temps pour cette question est écoulé",
+	answerNotAcceptedDeckEnded: "Votre réponse n'a pas été acceptée : la présentation n'accepte plus de réponses",
+	answerNotAcceptedSlideGone: "Votre réponse n'a pas été acceptée : cette question a été retirée de la présentation",
+	participantErrorMessage: "Une erreur s'est produite.",
+	participantErrorRetry: "Réessayer",
+	quizWaitingToStart: "En attente du lancement de cette question",
 	participationClosed: "Le présentateur a fermé cette question",
 	quizTypeAnswer: "Tapez votre réponse...",
 	quizSubmitAnswer: "Envoyer la réponse",
@@ -721,6 +963,57 @@ const fr: Dict = {
 	leaderboardMoreRanked: "autres classés",
 	leaderboardNotRanked:
 		"Répondez à une question du quiz pour entrer au classement",
+	leaderboardPlayer: "Joueur {handle}",
+	leaderboardTopAcross: {
+		one: "Top {shown} sur {count} question de quiz",
+		other: "Top {shown} sur {count} questions de quiz",
+	},
+	resultsResponseCount: {
+		one: "{count} réponse",
+		other: "{count} réponses",
+	},
+	resultsFromParticipants: {
+		one: "de {count} participant",
+		other: "de {count} participants",
+	},
+	resultsCorrectMark: "correct",
+	resultsCorrectAnswer: "Bonne réponse",
+	resultsVoteCount: {
+		one: "{count} vote",
+		other: "{count} votes",
+	},
+	resultsPieChart: "Graphique en secteurs des résultats",
+	resultsDonutChart: "Graphique en anneau des résultats",
+	resultsAppearWhenTimeUp: "Les résultats s'affichent quand le temps est écoulé.",
+	resultsAppearWhenClosed: "Les résultats s'affichent une fois la question fermée aux réponses.",
+	waitingForScores: "En attente des scores...",
+	quizNoAnswersYet: "Pas encore de réponse",
+	quizAnswersPending: {
+		one: "{count} réponse reçue — elle s'affichera à la fin de la question.",
+		other: "{count} réponses reçues — elles s'afficheront à la fin de la question.",
+	},
+	quizAccepted: "Réponses acceptées : {answers}",
+	quizScoreCorrect: "{correct} sur {answered}",
+	quizScoreAnsweredCorrectly: {
+		one: "a bien répondu",
+		other: "ont bien répondu",
+	},
+	quizScoreAverage: "{average} points sur {max} en moyenne",
+	menuName: "Apparence et informations légales",
+	menuNameWithFeedback: "Apparence, avis et informations légales",
+	menuClose: "Fermer le menu Apparence et informations légales",
+	menuCloseWithFeedback: "Fermer le menu Apparence, avis et informations légales",
+	menuAppearance: "Apparence",
+	themeLight: "Clair",
+	themeDark: "Sombre",
+	themeAuto: "Auto",
+	menuSendFeedback: "Envoyer un avis",
+	menuLegal: "Informations légales",
+	legalImprint: "Mentions légales",
+	legalPrivacy: "Politique de confidentialité",
+	legalTerms: "Conditions d'utilisation",
+	opensInNewTab: "(s'ouvre dans un nouvel onglet)",
+	feedbackDialogClose: "Fermer l'avis",
 	qaTitle: "Questions",
 	qaAsk: "Poser une question",
 	qaPlaceholder: "Saisissez votre question...",
@@ -789,6 +1082,7 @@ const fr: Dict = {
 };
 
 const es: Dict = {
+	locale: "es",
 	live: "EN VIVO",
 	waitingPresenter: "Esperando al presentador...",
 	willStartSoon: "La presentación comenzará pronto",
@@ -858,8 +1152,15 @@ const es: Dict = {
 	formPrivacyNote: "Solo el organizador puede leer lo que escribes aqu\u00ed.",
 	quizSecondsLeft: "s restantes",
 	quizTimesUp: "Tiempo agotado",
+	quizSecondsLeftSpoken: "Quedan {seconds} segundos",
+	answerSending: "Enviando…",
 	quizAnswerLocked: "Tu respuesta es definitiva",
 	quizWindowClosed: "El tiempo para esta pregunta ha terminado",
+	answerNotAcceptedDeckEnded: "Tu respuesta no fue aceptada: la presentación ya no acepta respuestas",
+	answerNotAcceptedSlideGone: "Tu respuesta no fue aceptada: esta pregunta se eliminó de la presentación",
+	participantErrorMessage: "Algo salió mal.",
+	participantErrorRetry: "Reintentar",
+	quizWaitingToStart: "Esperando a que empiece esta pregunta",
 	participationClosed: "El presentador ha cerrado esta pregunta",
 	quizTypeAnswer: "Escribe tu respuesta...",
 	quizSubmitAnswer: "Enviar respuesta",
@@ -878,6 +1179,57 @@ const es: Dict = {
 	leaderboardMoreRanked: "más clasificados",
 	leaderboardNotRanked:
 		"Responde una pregunta del quiz para entrar en la clasificación",
+	leaderboardPlayer: "Jugador {handle}",
+	leaderboardTopAcross: {
+		one: "Top {shown} de {count} pregunta de quiz",
+		other: "Top {shown} de {count} preguntas de quiz",
+	},
+	resultsResponseCount: {
+		one: "{count} respuesta",
+		other: "{count} respuestas",
+	},
+	resultsFromParticipants: {
+		one: "de {count} participante",
+		other: "de {count} participantes",
+	},
+	resultsCorrectMark: "correcta",
+	resultsCorrectAnswer: "Respuesta correcta",
+	resultsVoteCount: {
+		one: "{count} voto",
+		other: "{count} votos",
+	},
+	resultsPieChart: "Gráfico circular de los resultados",
+	resultsDonutChart: "Gráfico de anillo de los resultados",
+	resultsAppearWhenTimeUp: "Los resultados aparecen cuando se acaba el tiempo.",
+	resultsAppearWhenClosed: "Los resultados aparecen cuando la pregunta se cierra a las respuestas.",
+	waitingForScores: "Esperando puntuaciones...",
+	quizNoAnswersYet: "Aún no hay respuestas",
+	quizAnswersPending: {
+		one: "{count} respuesta recibida — aparecerá cuando termine la pregunta.",
+		other: "{count} respuestas recibidas — aparecerán cuando termine la pregunta.",
+	},
+	quizAccepted: "Respuestas aceptadas: {answers}",
+	quizScoreCorrect: "{correct} de {answered}",
+	quizScoreAnsweredCorrectly: {
+		one: "respondió correctamente",
+		other: "respondieron correctamente",
+	},
+	quizScoreAverage: "{average} de {max} puntos de media",
+	menuName: "Apariencia e información legal",
+	menuNameWithFeedback: "Apariencia, opinión e información legal",
+	menuClose: "Cerrar el menú Apariencia e información legal",
+	menuCloseWithFeedback: "Cerrar el menú Apariencia, opinión e información legal",
+	menuAppearance: "Apariencia",
+	themeLight: "Claro",
+	themeDark: "Oscuro",
+	themeAuto: "Auto",
+	menuSendFeedback: "Enviar opinión",
+	menuLegal: "Información legal",
+	legalImprint: "Aviso legal",
+	legalPrivacy: "Política de privacidad",
+	legalTerms: "Condiciones de uso",
+	opensInNewTab: "(se abre en una pestaña nueva)",
+	feedbackDialogClose: "Cerrar la opinión",
 	qaTitle: "Preguntas",
 	qaAsk: "Hacer una pregunta",
 	qaPlaceholder: "Escribe tu pregunta...",
@@ -946,6 +1298,7 @@ const es: Dict = {
 };
 
 const it: Dict = {
+	locale: "it",
 	live: "LIVE",
 	waitingPresenter: "In attesa del presentatore...",
 	willStartSoon: "La presentazione inizierà a breve",
@@ -1014,8 +1367,15 @@ const it: Dict = {
 	formPrivacyNote: "Solo l'organizzatore pu\u00f2 leggere ci\u00f2 che scrivi qui.",
 	quizSecondsLeft: "s rimasti",
 	quizTimesUp: "Tempo scaduto",
+	quizSecondsLeftSpoken: "Mancano {seconds} secondi",
+	answerSending: "Invio in corso…",
 	quizAnswerLocked: "La tua risposta è definitiva",
 	quizWindowClosed: "Il tempo per questa domanda è finito",
+	answerNotAcceptedDeckEnded: "La tua risposta non è stata accettata: la presentazione non accetta più risposte",
+	answerNotAcceptedSlideGone: "La tua risposta non è stata accettata: questa domanda è stata rimossa dalla presentazione",
+	participantErrorMessage: "Qualcosa è andato storto.",
+	participantErrorRetry: "Riprova",
+	quizWaitingToStart: "In attesa che questa domanda inizi",
 	participationClosed: "Il relatore ha chiuso questa domanda",
 	quizTypeAnswer: "Scrivi la tua risposta...",
 	quizSubmitAnswer: "Invia risposta",
@@ -1034,6 +1394,57 @@ const it: Dict = {
 	leaderboardMoreRanked: "altri in classifica",
 	leaderboardNotRanked:
 		"Rispondi a una domanda del quiz per entrare in classifica",
+	leaderboardPlayer: "Giocatore {handle}",
+	leaderboardTopAcross: {
+		one: "Top {shown} su {count} domanda del quiz",
+		other: "Top {shown} su {count} domande del quiz",
+	},
+	resultsResponseCount: {
+		one: "{count} risposta",
+		other: "{count} risposte",
+	},
+	resultsFromParticipants: {
+		one: "da {count} partecipante",
+		other: "da {count} partecipanti",
+	},
+	resultsCorrectMark: "corretta",
+	resultsCorrectAnswer: "Risposta corretta",
+	resultsVoteCount: {
+		one: "{count} voto",
+		other: "{count} voti",
+	},
+	resultsPieChart: "Grafico a torta dei risultati",
+	resultsDonutChart: "Grafico ad anello dei risultati",
+	resultsAppearWhenTimeUp: "I risultati compaiono allo scadere del tempo.",
+	resultsAppearWhenClosed: "I risultati compaiono quando la domanda viene chiusa alle risposte.",
+	waitingForScores: "In attesa dei punteggi...",
+	quizNoAnswersYet: "Ancora nessuna risposta",
+	quizAnswersPending: {
+		one: "{count} risposta arrivata — comparirà al termine della domanda.",
+		other: "{count} risposte arrivate — compariranno al termine della domanda.",
+	},
+	quizAccepted: "Risposte accettate: {answers}",
+	quizScoreCorrect: "{correct} su {answered}",
+	quizScoreAnsweredCorrectly: {
+		one: "ha risposto correttamente",
+		other: "hanno risposto correttamente",
+	},
+	quizScoreAverage: "{average} punti su {max} in media",
+	menuName: "Aspetto e note legali",
+	menuNameWithFeedback: "Aspetto, feedback e note legali",
+	menuClose: "Chiudi il menu Aspetto e note legali",
+	menuCloseWithFeedback: "Chiudi il menu Aspetto, feedback e note legali",
+	menuAppearance: "Aspetto",
+	themeLight: "Chiaro",
+	themeDark: "Scuro",
+	themeAuto: "Auto",
+	menuSendFeedback: "Invia feedback",
+	menuLegal: "Note legali",
+	legalImprint: "Colophon",
+	legalPrivacy: "Informativa sulla privacy",
+	legalTerms: "Termini di servizio",
+	opensInNewTab: "(si apre in una nuova scheda)",
+	feedbackDialogClose: "Chiudi il feedback",
 	qaTitle: "Domande",
 	qaAsk: "Fai una domanda",
 	qaPlaceholder: "Scrivi la tua domanda...",
@@ -1102,6 +1513,7 @@ const it: Dict = {
 };
 
 const pt: Dict = {
+	locale: "pt",
 	live: "AO VIVO",
 	waitingPresenter: "Aguardando o apresentador...",
 	willStartSoon: "A apresentação começará em breve",
@@ -1170,8 +1582,15 @@ const pt: Dict = {
 	formPrivacyNote: "S\u00f3 o organizador pode ler o que escreve aqui.",
 	quizSecondsLeft: "s restantes",
 	quizTimesUp: "Tempo esgotado",
+	quizSecondsLeftSpoken: "Faltam {seconds} segundos",
+	answerSending: "A enviar…",
 	quizAnswerLocked: "A tua resposta é definitiva",
 	quizWindowClosed: "O tempo para esta pergunta acabou",
+	answerNotAcceptedDeckEnded: "A tua resposta não foi aceite: a apresentação já não aceita respostas",
+	answerNotAcceptedSlideGone: "A tua resposta não foi aceite: esta pergunta foi removida da apresentação",
+	participantErrorMessage: "Algo correu mal.",
+	participantErrorRetry: "Tentar novamente",
+	quizWaitingToStart: "Aguardando o início desta pergunta",
 	participationClosed: "O apresentador fechou esta pergunta",
 	quizTypeAnswer: "Escreve a tua resposta...",
 	quizSubmitAnswer: "Enviar resposta",
@@ -1190,6 +1609,57 @@ const pt: Dict = {
 	leaderboardMoreRanked: "outros classificados",
 	leaderboardNotRanked:
 		"Responde a uma pergunta do quiz para entrar na classificação",
+	leaderboardPlayer: "Jogador {handle}",
+	leaderboardTopAcross: {
+		one: "Top {shown} em {count} pergunta do quiz",
+		other: "Top {shown} em {count} perguntas do quiz",
+	},
+	resultsResponseCount: {
+		one: "{count} resposta",
+		other: "{count} respostas",
+	},
+	resultsFromParticipants: {
+		one: "de {count} participante",
+		other: "de {count} participantes",
+	},
+	resultsCorrectMark: "correta",
+	resultsCorrectAnswer: "Resposta correta",
+	resultsVoteCount: {
+		one: "{count} voto",
+		other: "{count} votos",
+	},
+	resultsPieChart: "Gráfico de pizza dos resultados",
+	resultsDonutChart: "Gráfico de rosca dos resultados",
+	resultsAppearWhenTimeUp: "Os resultados aparecem quando o tempo acabar.",
+	resultsAppearWhenClosed: "Os resultados aparecem quando a pergunta for fechada a respostas.",
+	waitingForScores: "Aguardando pontuações...",
+	quizNoAnswersYet: "Ainda não há respostas",
+	quizAnswersPending: {
+		one: "{count} resposta recebida — ela aparece quando a pergunta terminar.",
+		other: "{count} respostas recebidas — elas aparecem quando a pergunta terminar.",
+	},
+	quizAccepted: "Respostas aceitas: {answers}",
+	quizScoreCorrect: "{correct} de {answered}",
+	quizScoreAnsweredCorrectly: {
+		one: "acertou",
+		other: "acertaram",
+	},
+	quizScoreAverage: "{average} de {max} pontos em média",
+	menuName: "Aparência e informações legais",
+	menuNameWithFeedback: "Aparência, opinião e informações legais",
+	menuClose: "Fechar o menu Aparência e informações legais",
+	menuCloseWithFeedback: "Fechar o menu Aparência, opinião e informações legais",
+	menuAppearance: "Aparência",
+	themeLight: "Claro",
+	themeDark: "Escuro",
+	themeAuto: "Auto",
+	menuSendFeedback: "Enviar opinião",
+	menuLegal: "Informações legais",
+	legalImprint: "Aviso legal",
+	legalPrivacy: "Política de privacidade",
+	legalTerms: "Termos de uso",
+	opensInNewTab: "(abre em uma nova aba)",
+	feedbackDialogClose: "Fechar a opinião",
 	qaTitle: "Perguntas",
 	qaAsk: "Fazer uma pergunta",
 	qaPlaceholder: "Escreve a tua pergunta...",
@@ -1258,6 +1728,7 @@ const pt: Dict = {
 };
 
 const nl: Dict = {
+	locale: "nl",
 	live: "LIVE",
 	waitingPresenter: "Wachten op presentator...",
 	willStartSoon: "De presentatie begint zo",
@@ -1326,8 +1797,15 @@ const nl: Dict = {
 	formPrivacyNote: "Alleen de organisator kan lezen wat je hier schrijft.",
 	quizSecondsLeft: "s over",
 	quizTimesUp: "Tijd voorbij",
+	quizSecondsLeftSpoken: "Nog {seconds} seconden",
+	answerSending: "Wordt verzonden…",
 	quizAnswerLocked: "Je antwoord staat vast",
 	quizWindowClosed: "De tijd voor deze vraag is voorbij",
+	answerNotAcceptedDeckEnded: "Je antwoord is niet aangenomen: de presentatie neemt geen antwoorden meer aan",
+	answerNotAcceptedSlideGone: "Je antwoord is niet aangenomen: deze vraag is uit de presentatie verwijderd",
+	participantErrorMessage: "Er is iets misgegaan.",
+	participantErrorRetry: "Opnieuw proberen",
+	quizWaitingToStart: "Wachten tot deze vraag begint",
 	participationClosed: "De presentator heeft deze vraag gesloten",
 	quizTypeAnswer: "Typ je antwoord...",
 	quizSubmitAnswer: "Antwoord verzenden",
@@ -1345,6 +1823,57 @@ const nl: Dict = {
 	leaderboardCorrect: "goed",
 	leaderboardMoreRanked: "anderen op de ranglijst",
 	leaderboardNotRanked: "Beantwoord een quizvraag om op de ranglijst te komen",
+	leaderboardPlayer: "Speler {handle}",
+	leaderboardTopAcross: {
+		one: "Top {shown} uit {count} quizvraag",
+		other: "Top {shown} uit {count} quizvragen",
+	},
+	resultsResponseCount: {
+		one: "{count} antwoord",
+		other: "{count} antwoorden",
+	},
+	resultsFromParticipants: {
+		one: "van {count} deelnemer",
+		other: "van {count} deelnemers",
+	},
+	resultsCorrectMark: "goed",
+	resultsCorrectAnswer: "Goed antwoord",
+	resultsVoteCount: {
+		one: "{count} stem",
+		other: "{count} stemmen",
+	},
+	resultsPieChart: "Taartdiagram van de resultaten",
+	resultsDonutChart: "Ringdiagram van de resultaten",
+	resultsAppearWhenTimeUp: "De resultaten verschijnen als de tijd om is.",
+	resultsAppearWhenClosed: "De resultaten verschijnen zodra de vraag gesloten is voor antwoorden.",
+	waitingForScores: "Wachten op scores...",
+	quizNoAnswersYet: "Nog geen antwoorden",
+	quizAnswersPending: {
+		one: "{count} antwoord binnen — het verschijnt zodra de vraag voorbij is.",
+		other: "{count} antwoorden binnen — ze verschijnen zodra de vraag voorbij is.",
+	},
+	quizAccepted: "Goedgekeurd: {answers}",
+	quizScoreCorrect: "{correct} van {answered}",
+	quizScoreAnsweredCorrectly: {
+		one: "had het goed",
+		other: "hadden het goed",
+	},
+	quizScoreAverage: "gemiddeld {average} van {max} punten",
+	menuName: "Weergave en juridisch",
+	menuNameWithFeedback: "Weergave, feedback en juridisch",
+	menuClose: "Menu Weergave en juridisch sluiten",
+	menuCloseWithFeedback: "Menu Weergave, feedback en juridisch sluiten",
+	menuAppearance: "Weergave",
+	themeLight: "Licht",
+	themeDark: "Donker",
+	themeAuto: "Auto",
+	menuSendFeedback: "Feedback versturen",
+	menuLegal: "Juridisch",
+	legalImprint: "Colofon",
+	legalPrivacy: "Privacyverklaring",
+	legalTerms: "Gebruiksvoorwaarden",
+	opensInNewTab: "(opent in een nieuw tabblad)",
+	feedbackDialogClose: "Feedback sluiten",
 	qaTitle: "Vragen",
 	qaAsk: "Stel een vraag",
 	qaPlaceholder: "Typ je vraag...",
@@ -1440,4 +1969,34 @@ export function browserLanguage(): string | undefined {
 /** Resolve a translation dictionary for a BCP-47-ish language tag. */
 export function getDict(lang?: string): Dict {
 	return dicts[resolveLang(lang)];
+}
+
+/**
+ * Fill a template's `{name}` slots. A slot with no value is left as written,
+ * so a missing one shows up on screen rather than vanishing.
+ */
+export function fillTemplate(
+	template: string,
+	values: Record<string, string | number>,
+): string {
+	return template.replace(/\{(\w+)\}/g, (slot, name: string) =>
+		Object.hasOwn(values, name) ? String(values[name]) : slot,
+	);
+}
+
+/**
+ * A counted phrase in the dictionary's language (REQ225): the form its plural
+ * rules choose for `count`, with `{count}` and any other slot filled.
+ */
+export function countPhrase(
+	dict: Pick<Dict, "locale">,
+	forms: PluralForms,
+	count: number,
+	values: Record<string, string | number> = {},
+): string {
+	const category = new Intl.PluralRules(dict.locale).select(count);
+	return fillTemplate(category === "one" ? forms.one : forms.other, {
+		...values,
+		count,
+	});
 }

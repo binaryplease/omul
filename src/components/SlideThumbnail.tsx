@@ -7,7 +7,7 @@ import {
 	QrCode,
 	Timer,
 } from "lucide-react";
-import type { DragEvent, MouseEvent } from "react";
+import { type DragEvent, type MouseEvent, useEffect, useRef } from "react";
 import { POLL_COLORS } from "../constants";
 import type { Slide } from "../types";
 import {
@@ -15,10 +15,12 @@ import {
 	EMBED_PROVIDERS,
 	formatCountdown,
 	quizAnswerModeFor,
+	quizHasAnswerKey,
 	slideAppearanceFor,
 	slideEmbedFor,
 } from "../types";
 import { accessibilityFindingCountLabel } from "./AccessibilityFindings";
+import { QUIZ_NO_ANSWER_KEY_WARNING } from "./QuizAnswerKeyWarning";
 import { SLIDE_PLACEMENT_CLASSES } from "./SlideAppearance";
 import { SLIDE_TYPE_LABELS } from "./SlideEditor";
 import { SkippedSlideMarker, slideRailItemSurface } from "./SlideRail";
@@ -338,6 +340,22 @@ export function SlideThumbnail({
 	const title =
 		slideTextToPlain(slide.question ?? "") || SLIDE_TYPE_LABELS[slide.type];
 
+	// REQ219 — a quiz nobody can get right is flagged in the list, so a deck
+	// with several is scannable without opening each slide. The badge is drawn
+	// for the eye; the same words ride inside the button, so they are part of
+	// its accessible name for anyone tabbing through the rail, and the tooltip
+	// carries them for a pointer.
+	const answerKeyMissing = !quizHasAnswerKey(slide);
+
+	// The selected slide is kept in view: a refused Save selects the slide it
+	// names (REQ220), and on a long deck that slide can be scrolled out of the
+	// rail. "nearest" moves nothing when it is already visible.
+	const buttonRef = useRef<HTMLButtonElement>(null);
+	useEffect(() => {
+		if (!active) return;
+		buttonRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+	}, [active]);
+
 	// Drag interaction states are local to this editor-only rail (no second
 	// surface drags slides), so they live here rather than in a shared token:
 	// the lifted slide fades; the pending drop slot wears an accent ring.
@@ -353,6 +371,7 @@ export function SlideThumbnail({
 
 	return (
 		<button
+			ref={buttonRef}
 			type="button"
 			onClick={onClick}
 			draggable
@@ -364,13 +383,25 @@ export function SlideThumbnail({
 			className={`group relative w-36 md:w-full flex-shrink-0 cursor-grab rounded-lg border p-1.5 text-left transition-all active:cursor-grabbing ${dragState} ${slideRailItemSurface(
 				active,
 			)}`}
-			title={title}
+			title={
+				answerKeyMissing ? `${title} — ${QUIZ_NO_ANSWER_KEY_WARNING}` : title
+			}
 		>
-			{/* Meta row: ordinal + type icon + accessibility findings + drag handle */}
+			{/* Meta row: ordinal + type icon + answer-key warning + accessibility findings + drag handle */}
 			<div className="flex items-center gap-1.5 px-0.5 pb-1">
 				<span className="font-mono text-[11px] text-text-muted">{index + 1}</span>
 				<SlideTypeIcon type={slide.type} />
 				{slide.skipped && <SkippedSlideMarker />}
+				{answerKeyMissing && (
+					<>
+						<AlertTriangle
+							size={13}
+							className="text-warning"
+							aria-hidden
+						/>
+						<span className="sr-only">{QUIZ_NO_ANSWER_KEY_WARNING}</span>
+					</>
+				)}
 				{accessibilityFindingCount > 0 && (
 					<span
 						className="ml-auto inline-flex items-center gap-0.5 font-mono text-[11px] text-warning"

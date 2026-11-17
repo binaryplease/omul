@@ -36,6 +36,7 @@ import { describe, expect, test } from "bun:test";
 import { SlideTypeEnum } from "../../server/schemas";
 import { newSlide } from "../store/editorDocument";
 import type { Slide } from "../types";
+import { slideRequiresQuestion } from "../types";
 import { LEADERBOARD_LABELS_EN } from "./Leaderboard";
 import { parseSlideInline } from "./SlideText";
 import {
@@ -107,6 +108,17 @@ describe("an untitled slide is visibly untitled (REQ153)", () => {
 		);
 	});
 
+	test("only a slide that must have a question is told to type one (REQ220)", () => {
+		// The placeholder and the save rule are one claim: a field that says
+		// "Type your question…" on a slide the save would accept blank invents a
+		// rule, and one that does not on a slide it refuses hides one.
+		for (const type of SlideTypeEnum.options) {
+			expect(
+				slideQuestionPlaceholder(newSlide(type)) === "Type your question…",
+			).toBe(slideRequiresQuestion(type));
+		}
+	});
+
 	test("a question slide is told what to write, not shown a fake heading", () => {
 		expect(slideQuestionPlaceholder(newSlide("multiple-choice"))).toBe(
 			"Type your question…",
@@ -114,9 +126,10 @@ describe("an untitled slide is visibly untitled (REQ153)", () => {
 	});
 
 	test("a heading or caption the deck can ship without says it is optional", () => {
-		// `CreatePage.handleSubmit` refuses a blank question on every *non*-content
-		// slide and on no content one, so these four are the types whose ghost text
-		// must not read as a requirement.
+		// The editor's save refuses a blank question only where
+		// `slideRequiresQuestion` says (REQ220) — never on a content slide — so
+		// these four are the types whose ghost text must not read as a
+		// requirement.
 		for (const type of ["text", "image", "video", "embed"] as const) {
 			expect(slideQuestionPlaceholder(newSlide(type)).toLowerCase()).toContain(
 				"optional",

@@ -91,7 +91,12 @@
 	--color-accent-text: #7c9cff;
 	--color-accent-text-hover: #a5bcff;
 
-	/* Semantic */
+	/* Semantic — the status colours, drawn as words ("Correct!", "Time's up",
+	   a "correct" label) as often as a dot or a bar, so each is held to the
+	   4.5:1 text floor against every ground it sits on in its scheme rather
+	   than to the 3:1 graphics one (REQ222). These are the dark values, at
+	   7.8:1 or more against Hover; the light scheme carries its own below,
+	   because the dark ones measure 1.6–2.8:1 on paper. */
 	--color-success: #34d399;
 	--color-success-dim: rgba(52, 211, 153, 0.15);
 	--color-warning: #fbbf24;
@@ -176,6 +181,17 @@
 	--color-accent-glow-soft: transparent;
 	--color-success-dim: rgba(52, 211, 153, 0.1);
 
+	/* The status colours, deepened until they read as words on paper (REQ222):
+	   against Ground / Card / Raised / Hover, success 7.36 / 7.68 / 6.99 /
+	   6.40:1, warning 7.03 / 7.34 / 6.68 / 6.12:1, error 7.26 / 7.57 / 6.89 /
+	   6.31:1. Deeper than the chrome alone needs because no deck theme writes
+	   these three, so they also sit on every built-in theme's tinted light
+	   grounds, where the worst measures 4.95:1. Still the same three hues, so a
+	   dot or a bar drawn in them keeps its meaning. */
+	--color-success: #065f46;
+	--color-warning: #8a4200;
+	--color-error: #a51b1b;
+
 	/* Heavy emphasis is the ink here, not the accent (REQ166): paper on ink
 	   measures 19.06:1. */
 	--color-primary: var(--color-ink);
@@ -211,6 +227,10 @@
 		--color-accent-glow: rgba(46, 92, 255, 0.3);
 		--color-accent-glow-soft: rgba(46, 92, 255, 0.1);
 		--color-success-dim: rgba(52, 211, 153, 0.15);
+
+		--color-success: #34d399;
+		--color-warning: #fbbf24;
+		--color-error: #f87171;
 
 		--color-primary: var(--color-accent);
 		--color-primary-hover: var(--color-accent-hover);
@@ -678,14 +698,17 @@ body {
 	box-shadow: var(--shadow-panel);
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled, [aria-disabled="true"]) {
 	background: var(--color-primary-hover);
 	box-shadow:
 		0 0 20px var(--color-accent-glow),
 		var(--shadow-panel);
 }
 
-.btn-primary:disabled {
+/* `aria-disabled` is the same state for a control that must keep focus while
+   it is unavailable (REQ221) — one look for both, owned here. */
+.btn-primary:disabled,
+.btn-primary[aria-disabled="true"] {
 	opacity: 0.4;
 	cursor: not-allowed;
 	box-shadow: none;
@@ -758,7 +781,8 @@ body {
 /* A field that cannot be edited right now stays on screen, dimmed, with its
    reason stated beside it — never removed. Owned here so every
    surface wears the same disabled input. */
-.input:disabled {
+.input:disabled,
+.input[aria-disabled="true"] {
 	opacity: 0.4;
 	cursor: not-allowed;
 }
@@ -853,9 +877,21 @@ body {
 	box-shadow: var(--shadow-panel);
 }
 
-.option-card:hover {
+/* Only a card that can still be picked answers the pointer (REQ223). A locked
+   card under a pointer the layout moved there otherwise wore the accent border
+   — which reads as "selected" — on an option nobody chose. `aria-disabled`
+   counts the same as `disabled`: a card that keeps focus after its answer is
+   sent (REQ221) is exactly as unavailable as one that does not. The guard sits
+   in `:where()` so it adds no specificity: a selected card under the pointer
+   (a phone keeps hover after the tap) still wears `.selected` below. */
+.option-card:hover:where(:not(:disabled, [aria-disabled="true"])) {
 	border-color: var(--color-accent);
 	background: var(--color-surface-hover);
+}
+
+.option-card:disabled,
+.option-card[aria-disabled="true"] {
+	cursor: not-allowed;
 }
 
 .option-card.selected {

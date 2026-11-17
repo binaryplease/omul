@@ -46,6 +46,7 @@ import {
 	optionalBoolean,
 	requiredString,
 } from "./payload";
+import { quizResultWithheld } from "./protocol";
 import { display, EMPTY_MARKER, labelled, plural, table } from "./render";
 import { readSecret } from "./secret-input";
 
@@ -532,8 +533,13 @@ async function commandResults(parsed: ParsedArguments): Promise<CommandOutput> {
  * is for. A slide whose tally the deck's reveal mode has not published comes
  * back as a marker with no numbers in it at all, and says so here rather than
  * reading as an empty room.
+ *
+ * A quiz question that is not over is the half-way case (REQ215): its answered
+ * count is published, and what the room answered is not — the per-option
+ * counts and the correctness half of the score are `null` in `--json` — so the
+ * line says that too, rather than leaving a reader to take the nulls for zeros.
  */
-function summarizeTally(slideResults: Record<string, unknown>): string {
+export function summarizeTally(slideResults: Record<string, unknown>): string {
 	const type = display(optionalString(slideResults, "type"));
 	if (optionalBoolean(slideResults, "withheld")) {
 		return `${type} · results withheld — this deck has not published this tally to the room`;
@@ -543,6 +549,9 @@ function summarizeTally(slideResults: Record<string, unknown>): string {
 	if (totalVotes !== null) parts.push(plural(totalVotes, "vote"));
 	const respondents = optionalNumber(slideResults, "respondentCount");
 	if (respondents !== null) parts.push(plural(respondents, "respondent"));
+	if (quizResultWithheld(slideResults)) {
+		parts.push("answers withheld until the question is over");
+	}
 	parts.push("--json for the full tally");
 	return parts.join(" · ");
 }

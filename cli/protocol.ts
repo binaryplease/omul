@@ -23,3 +23,20 @@
  * no account meaning to `Authorization` at all.
  */
 export const EDIT_TOKEN_HEADER = "x-omul-edit-token";
+
+/**
+ * Whether a slide's tally is a quiz question's result withheld from this
+ * reader (REQ215) — the server's `quizResultWithheld` (`server/schemas.ts`),
+ * restated for the reason above. While a quiz question is not over, a reader
+ * who cannot edit the deck is sent how many answered and an explicit `null`
+ * for every option's `count` and for the correctness half of `scoring`; a quiz
+ * tally that is not withheld always carries `scoring.correctCount` as a
+ * number, so that one field is the whole reading.
+ */
+export function quizResultWithheld(results: unknown): boolean {
+	if (typeof results !== "object" || results === null) return false;
+	const tally = results as { type?: unknown; scoring?: unknown };
+	if (tally.type !== "quiz") return false;
+	if (typeof tally.scoring !== "object" || tally.scoring === null) return false;
+	return (tally.scoring as { correctCount?: unknown }).correctCount === null;
+}

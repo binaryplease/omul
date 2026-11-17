@@ -149,13 +149,21 @@ describe("the legal texts in the app menu, on every route (REQ183)", () => {
 		expect(routedPages().length).toBeGreaterThanOrEqual(11);
 	});
 
+	/**
+	 * A mounted menu, with or without the language a participant's screen
+	 * hands it (REQ225).
+	 */
+	const APP_MENU_MOUNT = /<AppMenu(?: language=\{[^}]*\})? \/>/;
+	const mountsIn = (source: string) =>
+		source.match(new RegExp(APP_MENU_MOUNT.source, "g")) ?? [];
+
 	test("every routed page mounts the menu, and none the old theme toggle", () => {
 		for (const page of routedPages()) {
 			const source = readSource(`pages/${page}.tsx`);
 			expect(source).toContain(
 				'import { AppMenu } from "../components/ui/AppMenu";',
 			);
-			expect(source).toContain("<AppMenu />");
+			expect(source).toMatch(APP_MENU_MOUNT);
 			expect(source).not.toContain("ThemeToggle");
 		}
 	});
@@ -242,6 +250,13 @@ describe("the legal texts in the app menu, on every route (REQ183)", () => {
 		expect(blank).toBeGreaterThan(-1);
 		expect(menu).toBeGreaterThan(blank);
 		expect(menu).toBeLessThan(curtain);
+	});
+
+	test("the participant's screens mount the menu in the deck's language (REQ225)", () => {
+		const source = readSource("pages/ParticipantPage.tsx");
+		const mounts = mountsIn(source);
+		expect(mounts).toHaveLength(SCREENS_PER_PAGE.ParticipantPage.length);
+		for (const mount of mounts) expect(mount).toContain("language=");
 	});
 
 	test("App no longer mounts a legal footer", () => {

@@ -19,9 +19,14 @@ import {
 	screenLanguage,
 	useFeedbackConfig,
 } from "../../feedback";
+import { type Dict, getDict } from "../../i18n";
 import { routeForLocation } from "../../router";
 import type { FeedbackSurface, LegalLinks } from "../../types";
-import { FeedbackForm } from "../FeedbackForm";
+import {
+	FeedbackForm,
+	type FeedbackFormLabels,
+	feedbackFormLabelsFor,
+} from "../FeedbackForm";
 import { configuredLegalLinks, LegalLink, useLegalLinks } from "../LegalLinks";
 import { ICON_BUTTON_HOVER } from "../ShareCluster";
 import {
@@ -73,6 +78,59 @@ export { appMenuPlacement } from "./BarMenu";
 // trigger, and no key it receives reaches the page — except that Tab cycles
 // inside it rather than closing it, because tabbing past the send button must
 // not throw away what was typed.
+//
+// The menu speaks the language of the screen it sits on (REQ225). The app's
+// own screens are English; the participant's are in the deck's language
+// (REQ084), so there the trigger's name, the panel and the feedback dialog are
+// too. The words arrive as one descriptor, `appMenuLabelsFor`.
+
+/** Everything the menu says, in one language. */
+export type AppMenuLabels = {
+	/** The trigger's name, without and with the feedback item. */
+	name: string;
+	nameWithFeedback: string;
+	/** The click-away backdrop's name, without and with the feedback item. */
+	close: string;
+	closeWithFeedback: string;
+	appearance: string;
+	themes: Record<ThemePreference, string>;
+	sendFeedback: string;
+	legal: string;
+	legalTexts: Record<keyof LegalLinks, string>;
+	/** Told to a screen reader after each legal text's name. */
+	opensInNewTab: string;
+	closeFeedback: string;
+	feedbackForm: FeedbackFormLabels;
+};
+
+/** The menu's words out of a language's dictionary, mapped in one place. */
+export function appMenuLabelsFor(dict: Dict): AppMenuLabels {
+	return {
+		name: dict.menuName,
+		nameWithFeedback: dict.menuNameWithFeedback,
+		close: dict.menuClose,
+		closeWithFeedback: dict.menuCloseWithFeedback,
+		appearance: dict.menuAppearance,
+		themes: {
+			light: dict.themeLight,
+			dark: dict.themeDark,
+			auto: dict.themeAuto,
+		},
+		sendFeedback: dict.menuSendFeedback,
+		legal: dict.menuLegal,
+		legalTexts: {
+			imprintUrl: dict.legalImprint,
+			privacyUrl: dict.legalPrivacy,
+			termsUrl: dict.legalTerms,
+		},
+		opensInNewTab: dict.opensInNewTab,
+		closeFeedback: dict.feedbackDialogClose,
+		feedbackForm: feedbackFormLabelsFor(dict),
+	};
+}
+
+/** The menu on the app's own screens: in English, like the rest of the chrome. */
+export const APP_MENU_LABELS_EN: AppMenuLabels = appMenuLabelsFor(getDict("en"));
 
 /** Marks the panel's rows that are tab stops, for the panel's own Tab rule. */
 const MENU_ITEM_ATTRIBUTE = "data-app-menu-item";
@@ -81,10 +139,11 @@ const MENU_ITEM_ATTRIBUTE = "data-app-menu-item";
  * What the trigger is called, naming what the panel holds. With the feedback
  * channel off the menu is exactly what it was before REQ185, name included.
  */
-function appMenuName(feedbackEnabled: boolean): string {
-	return feedbackEnabled
-		? "Appearance, feedback and legal"
-		: "Appearance and legal";
+export function appMenuName(
+	feedbackEnabled: boolean,
+	labels: AppMenuLabels = APP_MENU_LABELS_EN,
+): string {
+	return feedbackEnabled ? labels.nameWithFeedback : labels.name;
 }
 
 /**
@@ -96,8 +155,9 @@ function appMenuName(feedbackEnabled: boolean): string {
 export function appMenuTriggerLabel(
 	feedbackEnabled: boolean,
 	leadingLabel?: string,
+	labels: AppMenuLabels = APP_MENU_LABELS_EN,
 ): string {
-	const menuName = appMenuName(feedbackEnabled);
+	const menuName = appMenuName(feedbackEnabled, labels);
 	return leadingLabel ? `${leadingLabel}, ${menuName.toLowerCase()}` : menuName;
 }
 
@@ -118,6 +178,7 @@ export function AppMenuPanel({
 	onKeyDown,
 	leading,
 	ref,
+	labels = APP_MENU_LABELS_EN,
 }: {
 	id: string;
 	links: LegalLinks;
@@ -129,6 +190,7 @@ export function AppMenuPanel({
 	/** A screen's own section, drawn above Appearance (REQ199). */
 	leading?: ReactNode;
 	ref?: Ref<HTMLDivElement>;
+	labels?: AppMenuLabels;
 }) {
 	const legalLinks = configuredLegalLinks(links);
 	const anyChecked = THEME_OPTIONS.some((option) => option.value === theme);
@@ -169,7 +231,7 @@ export function AppMenuPanel({
 				</>
 			)}
 			<p id={`${id}-appearance`} className={MENU_HEADING}>
-				Appearance
+				{labels.appearance}
 			</p>
 			<div
 				role="radiogroup"
@@ -177,7 +239,7 @@ export function AppMenuPanel({
 				onKeyDown={moveChoice}
 				className="mx-1 mb-1.5 grid grid-cols-3 gap-0.5 rounded-lg border border-border bg-surface-raised p-0.5"
 			>
-				{THEME_OPTIONS.map(({ value, label, Icon }, index) => {
+				{THEME_OPTIONS.map(({ value, Icon }, index) => {
 					const checked = theme === value;
 					return (
 						<button
@@ -195,7 +257,7 @@ export function AppMenuPanel({
 							}`}
 						>
 							<Icon size={16} aria-hidden />
-							{label}
+							{labels.themes[value]}
 						</button>
 					);
 				})}
@@ -209,7 +271,7 @@ export function AppMenuPanel({
 						onClick={onSendFeedback}
 						className={MENU_ROW}
 					>
-						<span>Send feedback</span>
+						<span>{labels.sendFeedback}</span>
 						<MessageSquareText
 							size={14}
 							aria-hidden
@@ -223,17 +285,17 @@ export function AppMenuPanel({
 					<div aria-hidden className={MENU_DIVIDER} />
 					<nav aria-labelledby={`${id}-legal`}>
 						<p id={`${id}-legal`} className={MENU_HEADING}>
-							Legal
+							{labels.legal}
 						</p>
 						{legalLinks.map((link) => (
 							<LegalLink
-								key={link.label}
+								key={link.field}
 								href={link.href}
 								className={MENU_ROW}
 							>
 								<span>
-									{link.label}
-									<span className="sr-only"> (opens in a new tab)</span>
+									{labels.legalTexts[link.field]}
+									<span className="sr-only"> {labels.opensInNewTab}</span>
 								</span>
 								<ExternalLink
 									size={14}
@@ -272,10 +334,12 @@ function AppMenuFeedbackDialog({
 	id,
 	origin,
 	onClose,
+	labels,
 }: {
 	id: string;
 	origin: FeedbackOrigin;
 	onClose: () => void;
+	labels: AppMenuLabels;
 }) {
 	const { data: session } = useSession();
 	const contactEmail = session?.user.email ?? null;
@@ -330,6 +394,7 @@ function AppMenuFeedbackDialog({
 				<div className="min-w-0 flex-1">
 					<FeedbackForm
 						headingId={headingId}
+						labels={labels.feedbackForm}
 						contactEmail={contactEmail}
 						onSend={sendFeedback}
 						onDone={onClose}
@@ -338,8 +403,8 @@ function AppMenuFeedbackDialog({
 				<button
 					type="button"
 					onClick={onClose}
-					aria-label="Close feedback"
-					title="Close feedback"
+					aria-label={labels.closeFeedback}
+					title={labels.closeFeedback}
 					className={`-mr-1 -mt-1 flex size-8 flex-shrink-0 items-center justify-center rounded-lg border-none bg-transparent cursor-pointer ${ICON_BUTTON_HOVER}`}
 				>
 					<X size={16} aria-hidden />
@@ -375,14 +440,17 @@ const LEADING_INITIAL_FOCUS = `[${BAR_MENU_ROW_ATTRIBUTE}]:not(:disabled), [role
  * The theme switch, feedback and the legal texts, behind one icon button.
  * Without `className` and `leading` it is the same menu on every surface;
  * `className` is appended to the trigger's own, and `leading` puts a screen's
- * section above Appearance.
+ * section above Appearance. `language` is the screen's when it is not the
+ * app's English — the deck's, on a participant's screen (REQ225).
  */
 export function AppMenu({
 	className = "",
 	leading,
+	language,
 }: {
 	className?: string;
 	leading?: AppMenuLeading;
+	language?: string;
 } = {}) {
 	const { theme, setTheme } = useTheme();
 	// Read on mount, not on open, so the links and the feedback item are there
@@ -398,7 +466,10 @@ export function AppMenu({
 	const panelRef = useRef<HTMLDivElement>(null);
 	const panelId = useId();
 	const open = view === "panel";
-	const menuName = appMenuName(feedbackEnabled);
+	const labels = language
+		? appMenuLabelsFor(getDict(language))
+		: APP_MENU_LABELS_EN;
+	const menuName = appMenuName(feedbackEnabled, labels);
 
 	const close = useCallback((returnFocus: boolean) => {
 		setView("closed");
@@ -451,7 +522,7 @@ export function AppMenu({
 				ref={triggerRef}
 				expanded={view !== "closed"}
 				controls={panelId}
-				label={appMenuTriggerLabel(feedbackEnabled, leading?.label)}
+				label={appMenuTriggerLabel(feedbackEnabled, leading?.label, labels)}
 				title={leading?.title ?? menuName}
 				onClick={() => (view === "closed" ? openPanel() : close(false))}
 				className={`flex size-8.5 flex-shrink-0 items-center justify-center rounded-lg border bg-surface-raised hover:border-accent/50 ${
@@ -468,8 +539,10 @@ export function AppMenu({
 						<MenuBackdrop
 							label={
 								view === "feedback"
-									? "Close feedback"
-									: `Close ${menuName.toLowerCase()} menu`
+									? labels.closeFeedback
+									: feedbackEnabled
+										? labels.closeWithFeedback
+										: labels.close
 							}
 							dimmed={view === "feedback"}
 							onClose={closeAndReturn}
@@ -492,6 +565,7 @@ export function AppMenu({
 										</>
 									)
 								}
+								labels={labels}
 							/>
 						)}
 						{view === "feedback" && feedbackOrigin && (
@@ -499,6 +573,7 @@ export function AppMenu({
 								id={panelId}
 								origin={feedbackOrigin}
 								onClose={() => close(true)}
+								labels={labels}
 							/>
 						)}
 					</>,

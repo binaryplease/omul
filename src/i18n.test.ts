@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { getDict, resolveLang } from "./i18n";
+import { countPhrase, fillTemplate, getDict, resolveLang } from "./i18n";
 import { participantLanguageFor } from "./types";
 
 describe("getDict", () => {
@@ -94,5 +94,79 @@ describe("the deck's language, read on both ends (REQ085)", () => {
 				false,
 			]);
 		}
+	});
+});
+
+describe("counted phrases (REQ225)", () => {
+	const LANGUAGES = ["en", "de", "fr", "es", "it", "pt", "nl"] as const;
+
+	test("every dictionary names its own language, the one its plurals are read by", () => {
+		for (const language of LANGUAGES) {
+			expect(getDict(language).locale).toBe(language);
+		}
+	});
+
+	test("every counted phrase has both forms in every language, each carrying the count", () => {
+		for (const language of LANGUAGES) {
+			for (const [key, value] of Object.entries(getDict(language))) {
+				if (typeof value !== "object") continue;
+				expect(Object.keys(value).sort(), `${language}.${key}`).toEqual([
+					"one",
+					"other",
+				]);
+				expect(value.one, `${language}.${key}.one`).toBeTruthy();
+				expect(value.other, `${language}.${key}.other`).toBeTruthy();
+			}
+		}
+	});
+
+	test("one and many take their own form", () => {
+		const de = getDict("de");
+		expect(countPhrase(de, de.resultsResponseCount, 1)).toBe("1 Antwort");
+		expect(countPhrase(de, de.resultsResponseCount, 2)).toBe("2 Antworten");
+		expect(countPhrase(de, de.resultsResponseCount, 0)).toBe("0 Antworten");
+	});
+
+	test("the language's own rules pick the form, not count === 1", () => {
+		// French reads zero as singular: "0 réponse", not "0 réponses".
+		const fr = getDict("fr");
+		expect(countPhrase(fr, fr.resultsResponseCount, 0)).toBe("0 réponse");
+		expect(countPhrase(fr, fr.resultsResponseCount, 2)).toBe("2 réponses");
+		// And the "many" French uses for round millions is worded as "other".
+		expect(countPhrase(fr, fr.resultsResponseCount, 1_000_000)).toBe(
+			"1000000 réponses",
+		);
+	});
+
+	test("a verb that agrees with the count agrees", () => {
+		const it = getDict("it");
+		expect(countPhrase(it, it.quizScoreAnsweredCorrectly, 1)).toBe(
+			"ha risposto correttamente",
+		);
+		expect(countPhrase(it, it.quizScoreAnsweredCorrectly, 3)).toBe(
+			"hanno risposto correttamente",
+		);
+	});
+
+	test("other slots are filled alongside the count", () => {
+		const en = getDict("en");
+		expect(countPhrase(en, en.leaderboardTopAcross, 1, { shown: 1 })).toBe(
+			"Top 1 across 1 quiz question",
+		);
+		expect(countPhrase(en, en.leaderboardTopAcross, 3, { shown: 5 })).toBe(
+			"Top 5 across 3 quiz questions",
+		);
+	});
+});
+
+describe("fillTemplate", () => {
+	test("fills every named slot, however often it appears", () => {
+		expect(fillTemplate("{a} and {b} and {a}", { a: 1, b: "two" })).toBe(
+			"1 and two and 1",
+		);
+	});
+
+	test("leaves a slot with no value as written, so it shows rather than vanishes", () => {
+		expect(fillTemplate("Hello {name}", {})).toBe("Hello {name}");
 	});
 });

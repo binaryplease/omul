@@ -1,7 +1,11 @@
 import { Trophy } from "lucide-react";
 import type { ReactNode } from "react";
-import type { getDict } from "../i18n";
-import { LEADERBOARD_DEFAULT_SIZE, leaderboardEntryLabel } from "../types";
+import { countPhrase, type Dict, fillTemplate, getDict } from "../i18n";
+import {
+	LEADERBOARD_DEFAULT_SIZE,
+	leaderboardEntryHandle,
+	leaderboardEntryLabel,
+} from "../types";
 
 // ── Leaderboard (REQ059) ──────────────────────────────────────────────
 //
@@ -15,12 +19,17 @@ import { LEADERBOARD_DEFAULT_SIZE, leaderboardEntryLabel } from "../types";
 // on nothing that file owns: only on the board payload and the label helper
 // from the schema.
 //
-// **Nobody is named.** Every row carries a one-way handle the server derived
-// from a participant id, never the id itself — no catalog entry asks
-// participants to register or pick a nickname, so the board ranks the identity
-// the system already has and calls it something a room can read out loud. The
-// one person who learns which row is theirs is the person holding that id, and
-// they learn it from their own scorecard.
+// **No participant id is on it.** Every row carries a one-way handle the server
+// derived from a participant id, never the id itself, and the reader's own row
+// is matched by that handle, which they learn from their own scorecard. What a
+// row is *called* is the server's too: on a deck that asks for a name on joining
+// (REQ076) it is the name its holder stated, latest spelling (REQ218); a
+// participant who stated none, and every row of a deck that never asks, keeps the
+// derived "Player 3F9A2C" a room can still read out loud — worded here in the
+// deck's language from the handle (REQ225), since the wire carries it in
+// English. A stated name is up to
+// 80 characters of anything, emoji included, so the label is drawn to truncate
+// on a phone and on the projector alike rather than push the score off the row.
 
 /** One row of the standings, as the results endpoint reports it. */
 export type LeaderboardRow = {
@@ -28,6 +37,7 @@ export type LeaderboardRow = {
 	rank: number;
 	/** The row's anonymous handle: what a client matches its own row against. */
 	entryId: string;
+	/** What the row is called — a stated name, or the handle's derived one. */
 	label: string;
 	totalPoints: number;
 	correctCount: number;
@@ -49,10 +59,10 @@ export type LeaderboardBoard = {
 };
 
 /**
- * The words the board wears. Both surfaces draw the same leaderboard, and only
- * one of them is translated (the participant's, REQ084), so the strings arrive
- * as a parameter rather than being reached for inside — the same shape
- * `QuizTimer` takes its countdown labels in.
+ * The words the board wears. Every surface the room reads draws it in the
+ * deck's language (REQ084, REQ225) and the editor's own previews in English,
+ * so the strings arrive as a parameter rather than being reached for inside —
+ * the same shape `QuizTimer` takes its countdown labels in.
  */
 export type LeaderboardLabels = {
 	title: string;
@@ -72,19 +82,10 @@ export type LeaderboardLabels = {
 	moreRanked: string;
 	/** What a participant with no answers yet is told instead of a place. */
 	notRanked: string;
-};
-
-/** The shared screen's wording — the presenter's surface is not translated. */
-export const LEADERBOARD_LABELS_EN: LeaderboardLabels = {
-	title: "Leaderboard",
-	empty: "No scores yet — the standings fill in as quiz questions are answered.",
-	points: "points",
-	you: "You",
-	yourPosition: "Your position",
-	outOf: "of",
-	correct: "correct",
-	moreRanked: "more ranked",
-	notRanked: "Answer a quiz question to join the leaderboard",
+	/** What a row whose holder stated no name is called, from its handle. */
+	player: (handle: string) => string;
+	/** The caption under the heading: "Top 5 across 3 quiz questions". */
+	topAcross: (shown: number, quizCount: number) => string;
 };
 
 /**
@@ -93,9 +94,7 @@ export const LEADERBOARD_LABELS_EN: LeaderboardLabels = {
  * phone and the shared screen wear the same wording in two languages rather
  * than two wordings.
  */
-export function leaderboardLabelsFor(
-	dict: ReturnType<typeof getDict>,
-): LeaderboardLabels {
+export function leaderboardLabelsFor(dict: Dict): LeaderboardLabels {
 	return {
 		title: dict.leaderboardTitle,
 		empty: dict.leaderboardEmpty,
@@ -108,7 +107,59 @@ export function leaderboardLabelsFor(
 		correct: dict.leaderboardCorrect,
 		moreRanked: dict.leaderboardMoreRanked,
 		notRanked: dict.leaderboardNotRanked,
+		player: (handle) => fillTemplate(dict.leaderboardPlayer, { handle }).trim(),
+		topAcross: (shown, quizCount) =>
+			countPhrase(dict, dict.leaderboardTopAcross, quizCount, { shown }),
 	};
+}
+
+/**
+ * The board in English — what the editor's own previews of a leaderboard
+ * slide draw, and the default for a caller that passes no language.
+ */
+export const LEADERBOARD_LABELS_EN: LeaderboardLabels = leaderboardLabelsFor(
+	getDict("en"),
+);
+
+/**
+ * What a row is called on screen: the name its holder stated, as it arrived,
+ * or — for a row the server named after its handle — that handle in the
+ * board's language (REQ225). The wire's label is compared against the very
+ * function that derived it, so a stated name is never reworded.
+ */
+export function leaderboardRowLabel(
+	row: Pick<LeaderboardRow, "entryId" | "label">,
+	labels: Pick<LeaderboardLabels, "player">,
+): string {
+	if (row.label !== leaderboardEntryLabel(row.entryId)) return row.label;
+	return labels.player(leaderboardEntryHandle(row.entryId));
+}
+
+/**
+ * The caption under a board's heading on the shared screen: how many rows it
+ * shows, out of how many quiz questions they were summed over.
+ */
+export function leaderboardCaption(
+	board: Pick<LeaderboardBoard, "size" | "entries" | "quizCount">,
+	labels: Pick<LeaderboardLabels, "topAcross">,
+): string {
+	return labels.topAcross(
+		Math.min(board.size, board.entries.length),
+		board.quizCount,
+	);
+}
+
+/**
+ * The heading a leaderboard slide is read under: its authored heading, or the
+ * board's own title when it has none (REQ220 lets one save empty). One reading,
+ * so the shared screen, the phone and the shared results page cannot title the
+ * same board two ways — the last of them once drew an empty `<h2>` instead.
+ */
+export function leaderboardHeadingText(
+	question: string | null | undefined,
+	labels: Pick<LeaderboardLabels, "title">,
+): string {
+	return question || labels.title;
 }
 
 /**
@@ -192,6 +243,7 @@ function LeaderboardRowView({
 	isYou: boolean;
 	compact: boolean;
 }) {
+	const name = leaderboardRowLabel(row, labels);
 	return (
 		<li
 			className={`relative overflow-hidden rounded-xl border px-3 py-2.5 transition-colors ${
@@ -221,7 +273,12 @@ function LeaderboardRowView({
 							compact ? "text-sm" : "text-lg"
 						}`}
 					>
-						<span className="truncate">{row.label}</span>
+						{/* `min-w-0` because a flex item will not shrink below its content
+						    otherwise, and an 80-character name would then never truncate.
+						    The full name rides `title` for the one reader who can hover. */}
+						<span className="min-w-0 truncate" title={name}>
+							{name}
+						</span>
 						{isYou && (
 							<span className="flex-shrink-0 rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-void">
 								{labels.you}
@@ -339,8 +396,9 @@ export type LeaderboardStanding = {
 /**
  * Where the reader stands, on their own screen.
  *
- * The board is anonymous, so this is the only place a participant is told which
- * race they are in — and it is told to them wherever they sit in it, not only
+ * The board names rows by a label the reader may not recognise as theirs (a
+ * derived handle, or a name somebody else also typed), so this is the only place
+ * a participant is told which race they are in — and it is told to them wherever they sit in it, not only
  * when they make the projected top five. "14th of 31" is the whole point of
  * showing somebody a leaderboard they are not winning.
  *

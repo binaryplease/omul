@@ -73,14 +73,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
 /**
  * The three appearances a visitor can choose, in the order they are offered.
- * The one list of them: `AppMenu` renders it, and nothing restates it.
+ * The one list of them: `AppMenu` renders it, and nothing restates it. Their
+ * names are words, so they live in the dictionary (`themeLight`, …) and are
+ * read in the language of the screen the menu sits on (REQ225).
  */
 export const THEME_OPTIONS = [
-	{ value: "light", label: "Light", Icon: Sun },
-	{ value: "dark", label: "Dark", Icon: Moon },
-	{ value: "auto", label: "Auto", Icon: Monitor },
+	{ value: "light", Icon: Sun },
+	{ value: "dark", Icon: Moon },
+	{ value: "auto", Icon: Monitor },
 ] as const satisfies readonly {
 	value: ThemePreference;
-	label: string;
 	Icon: LucideIcon;
 }[];

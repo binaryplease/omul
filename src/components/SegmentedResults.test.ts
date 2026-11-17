@@ -135,7 +135,7 @@ describe("readSegments — reading a payload this page polls for (REQ116)", () =
 	});
 
 	test("a withheld breakdown reads as withheld and empty, never as a room nobody is in", () => {
-		for (const reason of ["reveal-mode", "identifiable"] as const) {
+		for (const reason of ["reveal-mode", "identifiable", "quiz-not-over"] as const) {
 			const view = readSegments({
 				withheld: true,
 				withheldReason: reason,
@@ -187,5 +187,17 @@ describe("the sentences a group is drawn with (REQ116)", () => {
 		expect(identifiable).toContain("Only the organizer");
 		// An unknown or absent reason still reads as something rather than blank.
 		expect(segmentedWithheldReason(null).length).toBeGreaterThan(0);
+	});
+});
+
+describe("a breakdown grouped by a quiz question that is not over (REQ215)", () => {
+	test("says the question is not over, not that the organizer kept it back", () => {
+		// Neither the reveal setting nor the results link decides this one, so a
+		// sentence that blamed the organizer would send the reader to the wrong
+		// switch.
+		const quizNotOver = segmentedWithheldReason("quiz-not-over");
+		expect(quizNotOver).toContain("not over");
+		expect(quizNotOver).not.toBe(segmentedWithheldReason("reveal-mode"));
+		expect(quizNotOver).not.toBe(segmentedWithheldReason("identifiable"));
 	});
 });

@@ -15,6 +15,15 @@
  *    the participant reaches the last (never hidden, ADR-0025);
  *  - **ready** at the last slide, which is what having finished a deck you may
  *    navigate freely, and leave questions in, means.
+ *
+ * The participant error screen that is left for a failure nothing else explains
+ * (REQ236).
+ *
+ * Re-Test D (D1) ended on that screen with the vote route's English text and an
+ * English "Try again" that led to an empty join form, on a German deck. The
+ * moved-on answers no longer reach it (`ParticipantSlideView.test.ts`); what
+ * does reach it speaks the deck's language wherever the deck is known, and
+ * reloads that deck rather than dropping the code the participant came in on.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -29,6 +38,7 @@ import {
 	liveSlideMissing,
 	missingSlideRetryDelayMs,
 	newPassControlFor,
+	participantErrorScreen,
 	type RetryScheduler,
 	rereadUntilAnswered,
 } from "./ParticipantPage";
@@ -378,5 +388,55 @@ describe("rereadUntilAnswered (REQ209)", () => {
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
+	});
+});
+
+function deckIn(language: string): Presentation {
+	return {
+		id: "deck",
+		code: "123456",
+		title: "Quiz",
+		status: "live",
+		slides: [],
+		createdAt: new Date(0).toISOString(),
+		language,
+	} as unknown as Presentation;
+}
+
+/** What the vote route answers a value it does not take — never shown here. */
+const ROUTE_ERROR =
+	"Cannot vote – presentation not found or answer not valid for this slide";
+
+describe("participantErrorScreen (REQ236)", () => {
+	test("a German deck: the text and the button in German, and a reload in place", () => {
+		expect(participantErrorScreen(deckIn("de"), ROUTE_ERROR)).toEqual({
+			message: "Etwas ist schiefgelaufen.",
+			button: "Erneut versuchen",
+			retry: "reload",
+		});
+	});
+
+	test("the route's English never reaches a deck's screen, whatever its language", () => {
+		for (const language of ["en", "de", "fr", "es", "it", "pt", "nl"]) {
+			const screen = participantErrorScreen(deckIn(language), ROUTE_ERROR);
+			expect(screen.message).not.toBe(ROUTE_ERROR);
+			expect(screen.retry).toBe("reload");
+		}
+	});
+
+	test("no deck yet — the join lookup failed — keeps its message and the way back to the join form", () => {
+		expect(participantErrorScreen(null, "Presentation not found")).toEqual({
+			message: "Presentation not found",
+			button: "Try again",
+			retry: "join",
+		});
+	});
+
+	test("the page draws its error screen from it", () => {
+		const page = readFileSync(join(import.meta.dir, "ParticipantPage.tsx"), "utf8");
+		expect(page).toContain("const screen = participantErrorScreen(pres, error);");
+		expect(page).toContain("{screen.message}");
+		expect(page).toContain("{screen.button}");
+		expect(page).not.toMatch(/>\s*Try again\s*</);
 	});
 });

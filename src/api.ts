@@ -12,6 +12,7 @@ import {
 	type DeckCollaborator,
 	type DeckCollaboratorEntry,
 	type DeckGenerationAvailability,
+	type DeckMovedOnCode,
 	type DeckTemplate,
 	type DeckTemplateCategory,
 	type DeckThemeId,
@@ -19,6 +20,7 @@ import {
 	type FeedbackConfig,
 	FIRST_PASS,
 	type Folder,
+	isDeckMovedOnCode,
 	isVoteRefusalCode,
 	isWithheldTally,
 	type LegalLinks,
@@ -67,6 +69,14 @@ export class ApiError extends Error {
 	 */
 	readonly refused: VoteRefusalCode | ParticipantSignInRefusalCode | null;
 	/**
+	 * The same `refused` field when it says the deck moved on under the request
+	 * rather than that a rule refused it (REQ236) — the deck ended, or the slide
+	 * is gone. Kept apart from {@link refused} because the participant screen
+	 * answers it apart: it catches up with the room instead of naming a reason
+	 * beside the control.
+	 */
+	readonly movedOn: DeckMovedOnCode | null;
+	/**
 	 * The HTTP status the refusal came with, for a surface whose answer depends
 	 * on *which* refusal it was rather than on its prose — the administrators'
 	 * feedback page tells signed-out, not-an-admin and channel-off apart by it
@@ -85,12 +95,14 @@ export class ApiError extends Error {
 		refused: VoteRefusalCode | ParticipantSignInRefusalCode | null,
 		status = 0,
 		body: unknown = null,
+		movedOn: DeckMovedOnCode | null = null,
 	) {
 		super(message);
 		this.name = "ApiError";
 		this.refused = refused;
 		this.status = status;
 		this.body = body;
+		this.movedOn = movedOn;
 	}
 }
 
@@ -115,6 +127,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 				: null,
 			res.status,
 			err,
+			isDeckMovedOnCode(err.refused) ? err.refused : null,
 		);
 	}
 	return res.json();
@@ -1690,15 +1703,42 @@ async function claimForAccount(
  * deck is reached through the account, exactly like one adopted after the fact
  * (`claimLocalPresentations()` above), so this browser keeps no copy: a token
  * here would list the deck on a signed-out home page as "saved only in this
- * browser" once the session is gone. An anonymous create is answered 401 and
- * keeps its token, which is then the deck's only credential.
+ * browser" once the session is gone. An anonymous create keeps its token, which
+ * is then the deck's only credential — and asks no claim at all, because the
+ * server would only answer it 401, a refusal that lands in the browser console
+ * once per new deck.
  */
 async function holdCreatorTokenUnlessOwned(
 	presentationId: string,
 	token: string,
 ): Promise<void> {
-	if (await claimForAccount(presentationId, token)) return;
+	if (
+		(await mayBeSignedIn()) &&
+		(await claimForAccount(presentationId, token))
+	) {
+		return;
+	}
 	setCreatorToken(presentationId, token);
+}
+
+/**
+ * Whether a session may be signed in here, asked of Better Auth's own
+ * `GET /api/auth/get-session`, which answers 200 either way — `null` when nobody
+ * is. Only that `null` answers `false`; a failed or unreadable answer proves
+ * nothing and answers `true`, so the caller asks the claim exactly as it did
+ * before. A plain request rather than `auth-client`, which needs a browser
+ * origin to resolve its base URL and so cannot be reached from this module's
+ * tests.
+ */
+async function mayBeSignedIn(): Promise<boolean> {
+	try {
+		const response = await fetch(`${BASE}/api/auth/get-session`);
+		if (!response.ok) return true;
+		const session = await response.json();
+		return session !== null;
+	} catch {
+		return true;
+	}
 }
 
 /**

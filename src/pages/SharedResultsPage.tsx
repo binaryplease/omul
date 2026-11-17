@@ -2,7 +2,8 @@ import { Eye, Link2Off } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api, clearResultsToken, getResultsToken } from "../api";
 import { DeckMark, DeckThemeScope } from "../components/DeckTheme";
-import { ResultsDisplay } from "../components/Results";
+import { leaderboardHeadingText } from "../components/Leaderboard";
+import { ResultsDisplay, resultLabelsFor } from "../components/Results";
 import { SegmentedResults } from "../components/SegmentedResults";
 import { SlideAppearanceScope } from "../components/SlideAppearance";
 import { SlideText } from "../components/SlideText";
@@ -10,9 +11,15 @@ import { SlideTypeIcon } from "../components/SlideTypeIcon";
 import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
+import { getDict } from "../i18n";
 import { usePageTitle } from "../router";
+import { clockOffsetFrom } from "../store/session";
 import type { Presentation, Slide } from "../types";
-import { slideHasResults, slideTextSizeFor } from "../types";
+import {
+	quizQuestionIsRunning,
+	slideHasResults,
+	slideTextSizeFor,
+} from "../types";
 
 // ── The shared results page (REQ098) ──────────────────────────
 //
@@ -52,7 +59,18 @@ export type SharedResultsState =
 	| { kind: "revoked" }
 	| { kind: "missing" }
 	| { kind: "failed"; message: string }
-	| { kind: "ready"; deck: Presentation; rows: ResultsRow[] };
+	| {
+			kind: "ready";
+			deck: Presentation;
+			rows: ResultsRow[];
+			/**
+			 * How far the server's clock is ahead of this browser's, read off the
+			 * deck response (REQ057) — what a quiz question's window is measured on
+			 * here, as on every other surface, rather than on a visitor's clock
+			 * that may run ahead of it.
+			 */
+			serverClockOffsetMs: number;
+	  };
 
 /**
  * Read a failed results fetch into the state the page draws.
@@ -103,7 +121,12 @@ export function SharedResultsPage({ id }: { id: string }) {
 				api.getPresentation(id),
 				api.getSharedResults(id),
 			]);
-			setState({ kind: "ready", deck, rows });
+			setState({
+				kind: "ready",
+				deck,
+				rows,
+				serverClockOffsetMs: clockOffsetFrom(deck.serverNow, Date.now(), 0),
+			});
 			setPollTick((tick) => tick + 1);
 		} catch (loadError: unknown) {
 			const failure = readSharedResultsFailure(loadError);
@@ -172,6 +195,10 @@ export function SharedResultsPage({ id }: { id: string }) {
 
 	const slides = sharedResultsSlides(state.deck);
 	const tallies = new Map(state.rows.map((row) => [row.slideId, row.results]));
+	// The slides' results read as the room read them, in the deck's language
+	// (REQ225) — a German deck's board is not a "Leaderboard" here and a
+	// "Bestenliste" on every phone. The page around them is the app's chrome.
+	const resultLabels = resultLabelsFor(getDict(state.deck.language));
 
 	return themed(
 		<div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12 flex flex-col gap-8">
@@ -220,15 +247,41 @@ export function SharedResultsPage({ id }: { id: string }) {
 									</span>
 									<h2 className="text-lg sm:text-xl font-semibold flex-1">
 										<SlideText
-											text={slide.question ?? ""}
+											text={
+												slide.type === "leaderboard"
+													? leaderboardHeadingText(
+															slide.question,
+															resultLabels.leaderboard,
+														)
+													: (slide.question ?? "")
+											}
 											size={slideTextSizeFor(slide as any)}
 											variant="inline"
 										/>
 									</h2>
 								</div>
-								{results ? (
+								{quizQuestionIsRunning(
+									slide,
+									state.deck,
+									Date.now() + state.serverClockOffsetMs,
+								) ? (
+									/* A quiz question the room is still answering. A link
+									   holder's tally (and an owner's, reading their own
+									   page) carries the per-option counts even now, and this
+									   page is one tab away from a participant's phone — so
+									   it waits for the question to be over, as the shared
+									   screen does. The poll re-renders it when it is. */
+									<p className="text-text-dim text-sm">
+										This quiz question is still being answered — its results
+										appear here once it is over.
+									</p>
+								) : results ? (
 									<>
-										<ResultsDisplay slide={slide} results={results} />
+										<ResultsDisplay
+											slide={slide}
+											results={results}
+											labels={resultLabels}
+										/>
 										{/* REQ020/REQ116 — the same tally, split by what these
 										    people answered earlier in the deck. Under the chart
 										    it re-draws, because that is what it changes,
@@ -240,6 +293,7 @@ export function SharedResultsPage({ id }: { id: string }) {
 											slide={slide}
 											slides={state.deck.slides as Slide[]}
 											pollTick={pollTick}
+											labels={resultLabels}
 										/>
 									</>
 								) : (

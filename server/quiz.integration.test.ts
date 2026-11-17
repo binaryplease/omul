@@ -23,6 +23,8 @@ import {
 	QUIZ_CORRECT_POINTS,
 	QUIZ_MAX_POINTS,
 	QUIZ_SUBMISSION_GRACE_MS,
+	QUIZ_TIMER_DECK_ENDED_REASON,
+	QUIZ_TIMER_NOT_LIVE_REASON,
 } from "./schemas";
 
 let connectDb: () => Promise<void>;
@@ -52,6 +54,33 @@ async function authed(
 	});
 }
 
+/** Each deck's creator token, by presentation id — see {@link revealEveryQuestion}. */
+const creatorTokens = new Map<string, string>();
+
+/**
+ * Reveal every quiz question the deck holds now, as the presenter's reveal does
+ * (REQ102). A participant's verdict — on their own card and on the board the
+ * room is sent — is withheld until the question is over and its reveal setting
+ * allows (REQ228); the tests here are about how answers score and rank, not
+ * about when that is released (`quiz-verdict-withheld.integration.test.ts`
+ * pins that), so they read once it has been. Revealing closes nothing: the
+ * question keeps taking answers inside its window.
+ */
+async function revealEveryQuestion(presentationId: string): Promise<void> {
+	const token = creatorTokens.get(presentationId);
+	if (!token) throw new Error(`no creator token recorded for ${presentationId}`);
+	const deck = await authed(`/api/presentations/${presentationId}`, token);
+	expect(deck.status).toBe(200);
+	for (const slide of (await deck.json()).slides as AnyJson[]) {
+		if (slide.type !== "quiz") continue;
+		const revealed = await authed(`/api/presentations/${presentationId}/reveal`, token, {
+			method: "POST",
+			body: JSON.stringify({ slideId: slide.id }),
+		});
+		expect(revealed.status).toBe(200);
+	}
+}
+
 /** A two-option quiz slide whose second option is the marked solution. */
 function quizSlide(overrides: Record<string, unknown> = {}) {
 	return {
@@ -75,10 +104,13 @@ async function create(slides: AnyJson[]): Promise<AnyJson> {
 		body: JSON.stringify({ title: "Quiz Test", slides }),
 	});
 	expect(res.status).toBe(201);
-	return await res.json();
+	const pres = await res.json();
+	creatorTokens.set(pres.id, pres.creatorToken);
+	return pres;
 }
 
-async function createAndStart(slides: AnyJson[] = [quizSlide()]): Promise<AnyJson> {
+/** Take a deck live without opening anything the presenter opens by hand. */
+async function createAndGoLive(slides: AnyJson[]): Promise<AnyJson> {
 	const pres = await create(slides);
 	const startRes = await authed(
 		`/api/presentations/${pres.id}/start`,
@@ -86,6 +118,23 @@ async function createAndStart(slides: AnyJson[] = [quizSlide()]): Promise<AnyJso
 		{ method: "POST" },
 	);
 	expect(startRes.status).toBe(200);
+	return pres;
+}
+
+/**
+ * Take a deck live and open the question on screen — going live leaves a
+ * timed quiz on the first slide waiting for the presenter's "Start timer"
+ * (REQ226), and almost every test here is about a question the room is
+ * already answering.
+ */
+async function createAndStart(slides: AnyJson[] = [quizSlide()]): Promise<AnyJson> {
+	const pres = await createAndGoLive(slides);
+	const startTimer = await authed(
+		`/api/presentations/${pres.id}/timer`,
+		pres.creatorToken,
+		{ method: "POST", body: JSON.stringify({ slideId: slides[0].id }) },
+	);
+	expect(startTimer.status).toBe(200);
 	return pres;
 }
 
@@ -121,10 +170,12 @@ async function results(
 	return await res.json();
 }
 
+/** One participant's card, read once their verdicts are out (REQ228). */
 async function scorecard(
 	presentationId: string,
 	participantId: string,
 ): Promise<AnyJson> {
+	await revealEveryQuestion(presentationId);
 	const res = await fetch(
 		`${baseUrl}/api/presentations/${presentationId}/scorecard?participantId=${participantId}`,
 	);
@@ -318,7 +369,9 @@ describe("quiz competition integration", () => {
 
 	test("an empty results payload is well-formed before any answer lands", async () => {
 		const pres = await createAndStart();
-		const payload = await results(pres.id);
+		// The editor's read: the room's own withholds the score while the question
+		// runs (REQ215), which is pinned on its own below.
+		const payload = await results(pres.id, "qz", pres.creatorToken);
 		expect(payload.type).toBe("quiz");
 		expect(payload.totalVotes).toBe(0);
 		expect(payload.scoring.answeredCount).toBe(0);
@@ -339,10 +392,24 @@ describe("quiz competition integration", () => {
 		expect((await answer(pres.id, "p1", "mercury")).status).toBe(200);
 		expect((await answer(pres.id, "p2", "venus")).status).toBe(200);
 
-		const payload = await results(pres.id);
+		// The editor reads the score while the question runs…
+		const payload = await results(pres.id, "qz", pres.creatorToken);
 		expect(payload.scoring.answeredCount).toBe(2);
 		expect(payload.scoring.correctCount).toBe(1);
 		expect(payload.scoring.correctShare).toBe(50);
+		// …and the room reads how many answered and nothing of how they did
+		// (REQ215): a correct count read beside a vote of one's own is the key.
+		const audience = await results(pres.id);
+		expect(audience.scoring.answeredCount).toBe(2);
+		expect(audience.scoring.correctCount).toBe(null);
+		expect(audience.scoring.totalPoints).toBe(null);
+		expect(audience.scoring.averagePoints).toBe(null);
+		expect(audience.scoring.correctShare).toBe(null);
+		expect(audience.options.map((option: AnyJson) => option.count)).toEqual([
+			null,
+			null,
+			null,
+		]);
 
 		expect((await scorecard(pres.id, "p1")).totalPoints).toBeGreaterThanOrEqual(
 			QUIZ_CORRECT_POINTS,
@@ -387,7 +454,7 @@ describe("quiz competition integration", () => {
 		]);
 		await answer(pres.id, "p1", "mercury");
 
-		const payload = await results(pres.id);
+		const payload = await results(pres.id, "qz", pres.creatorToken);
 		expect(payload.scoring.answeredCount).toBe(1);
 		expect(payload.scoring.correctCount).toBe(0);
 		expect(payload.scoring.totalPoints).toBe(0);
@@ -423,7 +490,9 @@ describe("quiz competition integration", () => {
 		expect(
 			(await scorecard(pres.id, "p1")).totalPoints,
 		).toBeGreaterThanOrEqual(QUIZ_CORRECT_POINTS);
-		expect((await results(pres.id)).scoring.correctCount).toBe(1);
+		expect(
+			(await results(pres.id, "qz", pres.creatorToken)).scoring.correctCount,
+		).toBe(1);
 	});
 
 	test("an answer to an option the slide does not have is refused", async () => {
@@ -441,7 +510,7 @@ describe("quiz competition integration", () => {
 		expect((await answer(pres.id, "p1", "venus")).status).toBe(200);
 		expect((await answer(pres.id, "p1", "mercury")).status).toBe(400);
 
-		const payload = await results(pres.id);
+		const payload = await results(pres.id, "qz", pres.creatorToken);
 		expect(payload.totalVotes).toBe(1);
 		expect(payload.scoring.correctCount).toBe(0);
 		expect(
@@ -605,7 +674,7 @@ describe("quiz competition integration", () => {
 		expect(patch.status).toBe(200);
 
 		expect((await answer(pres.id, "p1", "mercury")).status).toBe(200);
-		const payload = await results(pres.id);
+		const payload = await results(pres.id, "qz", pres.creatorToken);
 		// The stale row is gone rather than sitting alongside the new one.
 		expect(payload.totalVotes).toBe(1);
 		expect(payload.scoring.answeredCount).toBe(1);
@@ -623,6 +692,11 @@ describe("quiz competition integration", () => {
 			{ id: "mc", type: "multiple-choice", question: "Not a quiz", options: [] },
 		]);
 		await answer(pres.id, "p1", "mercury", "qz");
+		// A question is answered once the presenter has brought it up (REQ226).
+		await authed(`/api/presentations/${pres.id}/slide`, pres.creatorToken, {
+			method: "POST",
+			body: JSON.stringify({ index: 1 }),
+		});
 		await answer(pres.id, "p1", "venus", "qz2");
 
 		const card = await scorecard(pres.id, "p1");
@@ -661,7 +735,243 @@ describe("quiz competition integration", () => {
 
 	// ── REQ057 — the question's window ─────────────────────────
 
-	test("going live opens the first question and publishes its deadline", async () => {
+	test("going live leaves a timed first question waiting for the presenter (REQ226)", async () => {
+		// The protocol's m3: a deck whose first slide was a quiz started its
+		// countdown with "Start Presentation", and the room lost a third of the
+		// window to typing in the code.
+		const pres = await createAndGoLive([quizSlide()]);
+		const fetched = await fetchPresentation(pres.id);
+		expect(fetched.status).toBe("live");
+		expect(fetched.slideStartedAt.qz).toBeUndefined();
+
+		const payload = await results(pres.id);
+		expect(payload.scoring.startedAt).toBeNull();
+		expect(payload.scoring.deadline).toBeNull();
+	});
+
+	test("an answer to a question that has not started is refused, not scored as instant (REQ226)", async () => {
+		// With no opening instant the window reads as having no deadline, and an
+		// answer measured against no instant scores the most a question awards.
+		const pres = await createAndGoLive([quizSlide()]);
+		const early = await answer(pres.id, "early", "mercury");
+		expect(early.status).toBe(400);
+		const body = await early.json();
+		expect(body.refused).toBe("quiz-not-started");
+		expect(body.error).toContain("not started");
+		expect((await results(pres.id)).totalVotes).toBe(0);
+	});
+
+	test("starting the timer opens the waiting question, and it then scores by speed (REQ226)", async () => {
+		const pres = await createAndGoLive([quizSlide({ timeLimit: 30 })]);
+		await wait(50);
+		const start = await authed(
+			`/api/presentations/${pres.id}/timer`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz" }) },
+		);
+		expect(start.status).toBe(200);
+		const startedAt = (await fetchPresentation(pres.id)).slideStartedAt.qz;
+		expect(typeof startedAt).toBe("string");
+
+		expect((await answer(pres.id, "p1", "mercury")).status).toBe(200);
+		const card = await scorecard(pres.id, "p1");
+		expect(card.totalPoints).toBeGreaterThan(QUIZ_CORRECT_POINTS);
+		expect(card.totalPoints).toBeLessThanOrEqual(QUIZ_MAX_POINTS);
+	});
+
+	test("an untimed first question and a non-quiz first slide still open with the deck (REQ226)", async () => {
+		// Only a countdown is worth waiting for: an untimed question has no time
+		// to lose to the room still joining.
+		const untimed = await createAndGoLive([quizSlide({ timeLimit: 0 })]);
+		expect(
+			typeof (await fetchPresentation(untimed.id)).slideStartedAt.qz,
+		).toBe("string");
+		expect((await answer(untimed.id, "p1", "mercury")).status).toBe(200);
+
+		const poll = await createAndGoLive([
+			{
+				id: "poll",
+				type: "multiple-choice",
+				question: "Ready?",
+				options: [{ id: "yes", text: "Yes" }],
+			},
+			quizSlide(),
+		]);
+		expect(
+			typeof (await fetchPresentation(poll.id)).slideStartedAt.poll,
+		).toBe("string");
+	});
+
+	test("navigating to a quiz question still opens it on arrival (REQ226)", async () => {
+		// Only the slide on screen at go-live waits; a question reached later is
+		// the presenter actively bringing it up, which is what opens it.
+		const pres = await createAndGoLive([
+			{
+				id: "intro",
+				type: "multiple-choice",
+				question: "Ready?",
+				options: [{ id: "yes", text: "Yes" }],
+			},
+			quizSlide(),
+		]);
+		const goTo = await authed(
+			`/api/presentations/${pres.id}/slide`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ index: 1 }) },
+		);
+		expect(goTo.status).toBe(200);
+		expect(
+			typeof (await fetchPresentation(pres.id)).slideStartedAt.qz,
+		).toBe("string");
+		expect((await answer(pres.id, "p1", "mercury")).status).toBe(200);
+	});
+
+	test("paging through a draft opens nothing, so the first question still waits at go-live (REQ227)", async () => {
+		// The step-8 review: the presenter's slide list navigates a draft too,
+		// and the stamp a draft click left behind survived going live, so the
+		// question came up already running — or already over.
+		const pres = await create([
+			quizSlide(),
+			quizSlide({ id: "qz2" }),
+		]);
+		for (const index of [1, 0]) {
+			const goTo = await authed(
+				`/api/presentations/${pres.id}/slide`,
+				pres.creatorToken,
+				{ method: "POST", body: JSON.stringify({ index }) },
+			);
+			expect(goTo.status).toBe(200);
+		}
+		expect((await fetchPresentation(pres.id)).slideStartedAt).toEqual({});
+
+		const start = await authed(
+			`/api/presentations/${pres.id}/start`,
+			pres.creatorToken,
+			{ method: "POST" },
+		);
+		expect(start.status).toBe(200);
+		expect((await fetchPresentation(pres.id)).slideStartedAt.qz).toBeUndefined();
+		const early = await answer(pres.id, "early", "mercury");
+		expect(early.status).toBe(400);
+		expect((await early.json()).refused).toBe("quiz-not-started");
+	});
+
+	test("a question visited in a draft opens fresh when the live deck reaches it (REQ227)", async () => {
+		const pres = await create([
+			{
+				id: "intro",
+				type: "multiple-choice",
+				question: "Ready?",
+				options: [{ id: "yes", text: "Yes" }],
+			},
+			quizSlide({ timeLimit: 1 }),
+		]);
+		await authed(`/api/presentations/${pres.id}/slide`, pres.creatorToken, {
+			method: "POST",
+			body: JSON.stringify({ index: 1 }),
+		});
+		// Longer than the whole window: a draft stamp would have expired by now.
+		await wait(1_100 + QUIZ_SUBMISSION_GRACE_MS);
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		await authed(`/api/presentations/${pres.id}/slide`, pres.creatorToken, {
+			method: "POST",
+			body: JSON.stringify({ index: 1 }),
+		});
+		expect((await answer(pres.id, "p1", "mercury")).status).toBe(200);
+	}, 10_000);
+
+	test("going live from a draft drops a stamp left by earlier draft navigation (REQ227)", async () => {
+		// A deck stored before navigation stopped stamping drafts still carries
+		// the stamps; going live must not inherit a window nobody saw open.
+		const pres = await create([
+			quizSlide(),
+			quizSlide({ id: "qz2" }),
+		]);
+		const { createStore } = await import("./db");
+		const { StoredPresentationSchema } = await import("./schemas");
+		const store = createStore("presentations", StoredPresentationSchema);
+		const stale = new Date(Date.now() - 60_000).toISOString();
+		await store.update(pres.id, { slideStartedAt: { qz: stale, qz2: stale } });
+
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		expect((await fetchPresentation(pres.id)).slideStartedAt).toEqual({});
+		expect((await answer(pres.id, "early", "mercury")).status).toBe(400);
+	});
+
+	test("the timer is refused on a draft, and opens nothing (REQ227)", async () => {
+		// The second-round review: "Restart timer" was offered in a draft and the
+		// server stamped the question anyway, broadcasting a window every phone
+		// went on counting down after go-live dropped it.
+		const pres = await create([quizSlide()]);
+		const res = await authed(
+			`/api/presentations/${pres.id}/timer`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz" }) },
+		);
+		expect(res.status).toBe(409);
+		const body = await res.json();
+		expect(body.refused).toBe("presentation-not-live");
+		expect(body.error).toBe(QUIZ_TIMER_NOT_LIVE_REASON);
+		expect((await fetchPresentation(pres.id)).slideStartedAt).toEqual({});
+
+		// Going live still leaves the question waiting for its start (REQ226).
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		const early = await answer(pres.id, "early", "mercury");
+		expect(early.status).toBe(400);
+		expect((await early.json()).refused).toBe("quiz-not-started");
+	});
+
+	test("the timer is refused on an ended deck (REQ227)", async () => {
+		// Resuming an ended deck keeps its stamps, so a window opened while it was
+		// over would come back already running.
+		const pres = await createAndStart();
+		const opened = (await fetchPresentation(pres.id)).slideStartedAt.qz;
+		await authed(`/api/presentations/${pres.id}/end`, pres.creatorToken, {
+			method: "POST",
+		});
+		const res = await authed(
+			`/api/presentations/${pres.id}/timer`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz" }) },
+		);
+		expect(res.status).toBe(409);
+		const body = await res.json();
+		expect(body.refused).toBe("presentation-not-live");
+		// Named for the state the deck is in, not as a draft (REQ237).
+		expect(body.error).toBe(QUIZ_TIMER_DECK_ENDED_REASON);
+		expect((await fetchPresentation(pres.id)).slideStartedAt.qz).toBe(opened);
+	});
+
+	test("a survey draft's timer is unchanged (REQ227)", async () => {
+		// A survey deck collects in draft (REQ003); the refusal is for decks the
+		// presenter paces.
+		const res = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Survey timer",
+				mode: "survey",
+				slides: [quizSlide()],
+			}),
+		});
+		expect(res.status).toBe(201);
+		const pres = await res.json();
+		const timer = await authed(
+			`/api/presentations/${pres.id}/timer`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz" }) },
+		);
+		expect(timer.status).toBe(200);
+		expect(typeof (await timer.json()).slideStartedAt.qz).toBe("string");
+	});
+
+	test("starting the timer publishes the question's deadline", async () => {
 		const pres = await createAndStart();
 		const fetched = await fetchPresentation(pres.id);
 		const startedAt = fetched.slideStartedAt.qz;
@@ -733,33 +1043,146 @@ describe("quiz competition integration", () => {
 		expect((await answer(pres.id, "late", "mercury")).status).toBe(200);
 	}, 10_000);
 
-	test("a restart never lets an earlier answer outscore a fast answer in the new window", async () => {
-		// The restart moves the question's opening instant forward, under answers
-		// already given. Crediting those as instant would rank the room by who
-		// answered *last* before the restart.
+	/** Restart a quiz question's timer as the presenter (REQ057). */
+	async function restartTimer(pres: AnyJson, slideId = "qz"): Promise<void> {
+		const restart = await authed(
+			`/api/presentations/${pres.id}/timer`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId }) },
+		);
+		expect(restart.status).toBe(200);
+	}
+
+	test("a restart keeps the points every answer already given earned (REQ217)", async () => {
+		// The protocol's M1: a participant who answered fast in the first window
+		// fell from +836 to +500 when the presenter restarted the timer, because
+		// their answer was re-measured against a window opened after it.
 		const pres = await createAndStart([quizSlide({ timeLimit: 30 })]);
 		await answer(pres.id, "early", "mercury");
-		const beforeRestart = (await scorecard(pres.id, "early")).totalPoints;
-		expect(beforeRestart).toBeGreaterThan(QUIZ_CORRECT_POINTS);
+		await answer(pres.id, "wrong", "venus");
+		const before = (await scorecard(pres.id, "early")).totalPoints;
+		expect(before).toBeGreaterThan(QUIZ_CORRECT_POINTS);
+		const tallyBefore = (await results(pres.id, "qz", pres.creatorToken)).scoring;
 
 		// Opening instants are recorded to the millisecond, and a presenter
 		// restarts a question seconds after an answer, not inside the same tick.
 		await wait(20);
-		const restart = await authed(
-			`/api/presentations/${pres.id}/timer`,
-			pres.creatorToken,
-			{ method: "POST", body: JSON.stringify({ slideId: "qz" }) },
-		);
-		expect(restart.status).toBe(200);
-		expect((await answer(pres.id, "fresh", "mercury")).status).toBe(200);
+		await restartTimer(pres);
 
-		const early = (await scorecard(pres.id, "early")).totalPoints;
-		const fresh = (await scorecard(pres.id, "fresh")).totalPoints;
-		// The pre-restart answer keeps the correctness half and claims no speed —
-		// there is no honest speed to report against a window it never ran in.
-		expect(early).toBe(QUIZ_CORRECT_POINTS);
-		expect(early).toBeLessThan(fresh);
-		expect(early).toBeLessThan(QUIZ_MAX_POINTS);
+		expect((await scorecard(pres.id, "early")).totalPoints).toBe(before);
+		expect((await scorecard(pres.id, "wrong")).totalPoints).toBe(0);
+		const tallyAfter = (await results(pres.id, "qz", pres.creatorToken)).scoring;
+		expect(tallyAfter.totalPoints).toBe(tallyBefore.totalPoints);
+		// The window itself did move: the question is open again from now.
+		expect(Date.parse(tallyAfter.startedAt)).toBeGreaterThan(
+			Date.parse(tallyBefore.startedAt),
+		);
+	});
+
+	test("a restart reopens the question only for whoever has not answered (REQ217)", async () => {
+		const pres = await createAndStart([quizSlide({ timeLimit: 30 })]);
+		await answer(pres.id, "early", "venus");
+		await wait(20);
+		await restartTimer(pres);
+
+		// The one-answer rule outlives the restart: a second chance at a question
+		// already answered would let a wrong answer be corrected for points.
+		const again = await answer(pres.id, "early", "mercury");
+		expect(again.status).toBe(400);
+		expect((await again.json()).refused).toBe("quiz-already-answered");
+		expect((await scorecard(pres.id, "early")).totalPoints).toBe(0);
+
+		// Somebody who had not answered is timed against the fresh window.
+		expect((await answer(pres.id, "fresh", "mercury")).status).toBe(200);
+		expect((await scorecard(pres.id, "fresh")).totalPoints).toBeGreaterThan(
+			QUIZ_CORRECT_POINTS,
+		);
+	});
+
+	test("re-marking the solution after a restart still re-scores the room (REQ056, REQ217)", async () => {
+		// Only *when* the window opened is kept with an answer; whether it was
+		// right is still read from the slide as it now stands.
+		const pres = await createAndStart([quizSlide({ timeLimit: 30 })]);
+		await answer(pres.id, "early", "venus");
+		await wait(20);
+		await restartTimer(pres);
+		expect((await scorecard(pres.id, "early")).totalPoints).toBe(0);
+
+		const patch = await authed(
+			`/api/presentations/${pres.id}`,
+			pres.creatorToken,
+			{
+				method: "PATCH",
+				body: JSON.stringify({
+					slides: [
+						quizSlide({
+							timeLimit: 30,
+							options: [
+								{ id: "venus", text: "Venus", isCorrect: true },
+								{ id: "mercury", text: "Mercury" },
+								{ id: "mars", text: "Mars" },
+							],
+						}),
+					],
+				}),
+			},
+		);
+		expect(patch.status).toBe(200);
+		// Timed against the window it was given in — so fast, not the bare
+		// correctness half a re-measure against the restarted window would give.
+		expect((await scorecard(pres.id, "early")).totalPoints).toBeGreaterThan(
+			QUIZ_CORRECT_POINTS,
+		);
+	});
+
+	test("paging away from a question and back changes no score (REQ057, REQ217)", async () => {
+		const pres = await createAndStart([
+			quizSlide({ timeLimit: 30 }),
+			quizSlide({ id: "qz2", question: "Second" }),
+		]);
+		await answer(pres.id, "p1", "mercury");
+		const before = (await scorecard(pres.id, "p1")).totalPoints;
+
+		const goTo = (index: number) =>
+			authed(`/api/presentations/${pres.id}/slide`, pres.creatorToken, {
+				method: "POST",
+				body: JSON.stringify({ index }),
+			});
+		await wait(20);
+		expect((await goTo(1)).status).toBe(200);
+		await wait(20);
+		expect((await goTo(0)).status).toBe(200);
+
+		expect((await scorecard(pres.id, "p1")).totalPoints).toBe(before);
+	});
+
+	test("an answer stored before votes carried their window is timed as it always was", async () => {
+		// A deck live across the upgrade holds answers with no recorded window.
+		// They fall back to the slide's own instant — the reading they were scored
+		// by when they were given — and claim no speed against a later restart.
+		const pres = await createAndStart([quizSlide({ timeLimit: 30 })]);
+		// Written straight into the collection, as the case above does, because
+		// `submitVote` now always records the window.
+		const { createStore } = await import("./db");
+		const { StoredVoteSchema } = await import("./schemas");
+		const voteStore = createStore("votes", StoredVoteSchema);
+		await voteStore.insert({
+			presentationId: pres.id,
+			slideId: "qz",
+			value: "mercury",
+			participantId: "legacy",
+			statementId: null,
+			skip: false,
+			createdAt: new Date().toISOString(),
+		});
+		expect((await scorecard(pres.id, "legacy")).totalPoints).toBeGreaterThan(
+			QUIZ_CORRECT_POINTS,
+		);
+		await wait(20);
+		await restartTimer(pres);
+		expect((await scorecard(pres.id, "legacy")).totalPoints).toBe(
+			QUIZ_CORRECT_POINTS,
+		);
 	});
 
 	test("restarting the timer of a slide the deck does not have is a 404", async () => {
@@ -796,12 +1219,41 @@ describe("quiz competition integration", () => {
 		});
 		expect(res.status).toBe(201);
 		const pres = await res.json();
+		creatorTokens.set(pres.id, pres.creatorToken);
 		await wait(1_100 + QUIZ_SUBMISSION_GRACE_MS);
 
 		const payload = await results(pres.id);
 		expect(payload.scoring.startedAt).toBe(null);
 		expect(payload.scoring.deadline).toBe(null);
 		expect(payload.scoring.closed).toBe(false);
+		expect((await answer(pres.id, "p1", "mercury")).status).toBe(200);
+		expect((await scorecard(pres.id, "p1")).totalPoints).toBe(QUIZ_MAX_POINTS);
+	}, 10_000);
+
+	test("a timed quiz on the first slide of a survey stays untimed after go-live (REQ226)", async () => {
+		// Going live used to stamp the first slide of a survey too, which gave
+		// that one question a deadline no other survey question has.
+		const res = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Survey quiz",
+				mode: "survey",
+				slides: [quizSlide({ timeLimit: 1 })],
+			}),
+		});
+		expect(res.status).toBe(201);
+		const pres = await res.json();
+		creatorTokens.set(pres.id, pres.creatorToken);
+		const start = await authed(
+			`/api/presentations/${pres.id}/start`,
+			pres.creatorToken,
+			{ method: "POST" },
+		);
+		expect(start.status).toBe(200);
+		await wait(1_100 + QUIZ_SUBMISSION_GRACE_MS);
+
+		expect((await results(pres.id)).scoring.deadline).toBe(null);
 		expect((await answer(pres.id, "p1", "mercury")).status).toBe(200);
 		expect((await scorecard(pres.id, "p1")).totalPoints).toBe(QUIZ_MAX_POINTS);
 	}, 10_000);
