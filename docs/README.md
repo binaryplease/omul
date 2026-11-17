@@ -92,6 +92,12 @@ Those four are the **only** permitted sections, and the keys above the **only**
 permitted frontmatter fields — any other `## ` heading or key is a hard parse
 error, so nothing can be silently dropped when a file is rewritten.
 
+A section heading without a body is refused as well: `bun scripts/triage.ts
+validate` fails on it and names the file and the heading. The writer omits an
+empty section, so a bare `## Updates` (or any of the other three) would vanish
+the next time `triage set` or `triage log` rewrites the file. Delete the heading
+or write its content.
+
 **Catalog fields** describe what has to be built: `summary`, `category`,
 `priority`, `source`, and the `## Description` and `## Notes` sections. Optional
 ones are omitted rather than written as `null`.

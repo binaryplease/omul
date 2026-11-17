@@ -130,6 +130,53 @@ describe("requirement file format", () => {
 		).toThrow(/unknown section "## Open questions"/);
 	});
 
+	describe("rejects a section heading with no body", () => {
+		const frontmatter = "---\nid: REQ250\ncategory: X\npriority: P0\n---\n\n";
+		const file = "docs/requirements/REQ250.md";
+
+		test("an empty ## Updates at the end of the file", () => {
+			expect(() =>
+				parseRequirement(
+					`${frontmatter}## Description\n\nx\n\n## Updates\n`,
+					file,
+				),
+			).toThrow(
+				'docs/requirements/REQ250.md: section "## Updates" has no body',
+			);
+		});
+
+		test("an empty ## Updates followed by another heading", () => {
+			expect(() =>
+				parseRequirement(
+					`${frontmatter}## Description\n\nx\n\n## Updates\n\n## Notes\n\ny\n`,
+					file,
+				),
+			).toThrow(
+				'docs/requirements/REQ250.md: section "## Updates" has no body',
+			);
+		});
+
+		for (const heading of ["Description", "Notes", "Triage note"]) {
+			test(`an empty ## ${heading}, at the end and before another heading`, () => {
+				const sections =
+					heading === "Description" ? "" : "## Description\n\nx\n\n";
+				const message = `docs/requirements/REQ250.md: section "## ${heading}" has no body`;
+				expect(() =>
+					parseRequirement(
+						`${frontmatter}${sections}## ${heading}\n\n  \n`,
+						file,
+					),
+				).toThrow(message);
+				expect(() =>
+					parseRequirement(
+						`${frontmatter}${sections}## ${heading}\n\n## Updates\n\n- entry\n`,
+						file,
+					),
+				).toThrow(message);
+			});
+		}
+	});
+
 	test("rejects an unknown frontmatter field instead of dropping it", () => {
 		expect(() =>
 			parseRequirement(

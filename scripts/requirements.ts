@@ -257,7 +257,8 @@ const FRONTMATTER_KEYS = [
 /**
  * Split the body on `## ` headings. Unknown headings are a hard error: the
  * writer only emits the sections above, so silently accepting one would mean
- * losing it on the next write.
+ * losing it on the next write. A known heading with no body is a hard error
+ * for the same reason.
  */
 function parseBodySections(body: string, file: string): Record<string, string> {
 	const sections: Record<string, string> = {};
@@ -274,7 +275,15 @@ function parseBodySections(body: string, file: string): Record<string, string> {
 				).join(", ")}`,
 			);
 		}
-		sections[field] = buffer.join("\n").trim();
+		const content = buffer.join("\n").trim();
+		// The writer omits an empty section, so a bare heading would parse as ""
+		// and come back as no heading at all on the next `triage set`/`log`.
+		if (content === "") {
+			throw new Error(
+				`${file}: section "## ${heading}" has no body — write its content or delete the heading`,
+			);
+		}
+		sections[field] = content;
 		buffer = [];
 	};
 
