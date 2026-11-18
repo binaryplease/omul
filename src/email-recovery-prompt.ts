@@ -38,6 +38,11 @@
  * out before a page with a header saw that session, is offered "Create
  * account" — a signed-out client is never told who owns a deck, by design, and
  * the dialog's Sign in tab is one click away.
+ *
+ * While the operator has closed sign-up (REQ251, `signUpOpen` from
+ * `GET /api/instance-access`), every browser is asked to sign in: "Create
+ * account" would be refused by the server, and the dialog draws that tab
+ * disabled with its reason.
  */
 
 import { useEffect, useState } from "react";
@@ -54,6 +59,7 @@ export function emailRecoveryOfferFor(state: {
 	listLoading: boolean;
 	signedIn: boolean;
 	accountSeen: boolean;
+	signUpOpen: boolean;
 	localDeckCount: number;
 	dismissed: boolean;
 }): EmailRecoveryOffer | null {
@@ -64,7 +70,7 @@ export function emailRecoveryOfferFor(state: {
 		state.localDeckCount > 0 &&
 		!state.dismissed;
 	if (!offered) return null;
-	return state.accountSeen ? "signin" : "signup";
+	return state.accountSeen || !state.signUpOpen ? "signin" : "signup";
 }
 
 /**

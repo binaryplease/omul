@@ -50,6 +50,7 @@ import {
 	emailRecoveryPromptDismissed,
 	useAccountSeenInThisBrowser,
 } from "../email-recovery-prompt";
+import { useInstanceAccess } from "../instance-access";
 import { getDict } from "../i18n";
 import { useDocumentLanguage, useInterfaceText } from "../interface-language";
 import { fillText, formatDate, pluralText } from "../interface-text";
@@ -121,6 +122,8 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 		emailRecoveryPromptDismissed,
 	);
 	const accountSeen = useAccountSeenInThisBrowser(userId);
+	// While the operator has closed sign-up (REQ251) the offer asks to sign in.
+	const { signUpOpen } = useInstanceAccess();
 	const [recoveryDialogTab, setRecoveryDialogTab] =
 		useState<EmailRecoveryOffer | null>(null);
 	// Signed out, every listed deck is one this browser holds a token for, so
@@ -130,6 +133,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 		listLoading: loading,
 		signedIn: userId !== null,
 		accountSeen,
+		signUpOpen,
 		localDeckCount: presentations.length,
 		dismissed: recoveryPromptDismissed,
 	});

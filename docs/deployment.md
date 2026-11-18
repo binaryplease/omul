@@ -56,6 +56,7 @@ What a deployment has to set, and why each one matters:
 |---|---|
 | `BETTER_AUTH_SECRET` | **The container refuses to start** (REQ171). It signs every session cookie, and the container never sets `OMUL_ALLOW_INSECURE_DEV_AUTH_SECRET`, so the server fails closed rather than sign with the development literal that ships in the source — where it would hand every reader of the repository the ability to mint an administrator session. The crash names the variable and the command that produces a value. Supply it the way your deployment supplies secrets — an encrypted `env_file`, a secret manager, an orchestrator secret — not from this repository |
 | `OMUL_ADMIN_EMAILS` | **Nobody is an administrator** (REQ164). `/api/admin/*` answers `403` to every account, the operator's own included. Nothing else changes: no presenter or participant path goes through the admin surface, so an instance with no administrators is a complete one. The allowlist ships empty deliberately — an image carrying one deployment's administrators would name them in every other deployment built from the same source |
+| `OMUL_SIGNUP_DISABLED` | **Anyone who reaches the instance can open an account** (REQ251), as every instance before this switch could. Correct for an instance that wants self-service accounts; one that is reachable from the internet only so participants can join sets it to `"true"` — see **Closing account sign-up** below |
 | `OMUL_BASE_HOST` | Better Auth's trusted origins are only `localhost:5173` / `localhost:3000`, so every state-changing auth request from the public host fails the Origin check and **nobody can sign in at all**; it is also what puts a reachable link in verification and password-reset mail, and what the `/api` discovery index advertises (REQ151) |
 | `OMUL_TRUST_PROXY` | Behind a reverse proxy, every visitor shares the proxy's one rate-limit bucket, and the `/api` discovery index falls back to the origin it observes — see **Behind a reverse proxy** below. Correct as it stands for a directly-exposed container |
 | `OMUL_IMPRINT_URL` / `OMUL_PRIVACY_URL` / `OMUL_TERMS_URL` | The app links no imprint, privacy policy or terms anywhere — the app menu holds only the theme switch, and nothing is named where a visitor signs up, creates a deck or joins one (REQ183). Correct for a private instance; a deployment that has to make those texts reachable sets the three — see **Environment variables** below |
@@ -83,6 +84,38 @@ boot, so a restart confirms it landed:
 [admin] No administrators: OMUL_ADMIN_EMAILS is unset, so /api/admin/* answers 403 to every account.
 [admin] Set it to a comma-separated list of account emails to name some. Correct as it stands for a deployment that wants no admin surface.
 ```
+
+### Closing account sign-up (REQ251)
+
+An instance that is reachable from the internet so that participants can join
+lets any visitor open an account, unless the operator closes sign-up:
+
+```
+OMUL_SIGNUP_DISABLED=true
+```
+
+- **What it closes.** `POST /api/auth/sign-up/email` answers `400` with code
+  `EMAIL_PASSWORD_SIGN_UP_DISABLED`, and the sign-in dialog keeps its "Create
+  account" tab visible and disabled, with the reason: sign-ups are closed on
+  this instance; ask its operator for an account. The home page's offer to keep
+  this browser's decks with an account (REQ194) offers signing in only.
+- **What stays open.** Existing accounts sign in, reset their password, verify
+  and change their email, delete themselves and use API keys as before. Joining
+  a presentation by code needs no account and is unaffected. Creating a
+  presentation without an account is a separate switch (REQ252).
+- **Create your own account first.** The switch closes sign-up for the
+  operator too. Sign up before you set it, or start with
+  `OMUL_SIGNUP_DISABLED=false`, sign up, and restart with `"true"`. The value is
+  read once at boot, so a change takes a restart.
+- **Decks that require participants to sign in (REQ134).** While sign-up is
+  closed, such a deck can be joined only by people who already have an account
+  on this instance.
+- **Accepted values.** Unset, empty or `"false"` keeps sign-up open, which is
+  how the instance behaved before the switch existed. `"true"` closes it. **Any
+  other value stops the server at boot** with an error naming the variable:
+  for a switch that closes something, the repository's usual "exactly `"true"`
+  is on" rule would leave the instance open on a typo such as `"1"`. Which
+  posture is in force is printed on every boot (`[accounts] Sign-up is …`).
 
 ### Running without Docker
 
@@ -179,6 +212,7 @@ Set via `.mise.toml` for dev, override as needed:
 - `BETTER_AUTH_SECRET` — auth signing secret. **Required everywhere except local development, and enforced: the server refuses to start without it** (REQ171). There is no fallback — a placeholder that ships in the source would let anyone who has read the source forge any session cookie, administrators' included, so an absent secret is a fatal startup error naming the variable rather than a server that looks healthy. The same crash refuses the development literal if it is copied into the variable, and refuses anything shorter than 32 characters (Better Auth's own bar). Generate one with `openssl rand -base64 32`. The value is used **trimmed** of surrounding whitespace. Supplied by the deployment's own secret delivery, not by this repository
 - `OMUL_ALLOW_INSECURE_DEV_AUTH_SECRET` — set to exactly `"true"` to permit the built-in development signing secret instead of the variable above. **Off unless set, and nothing but local development sets it**: the dev tasks in `.mise.toml` and `server/test-preload.ts` do, and no build, container or deployment does. Do not set it on a host that serves anyone but you — it re-opens exactly the hole REQ171 closed. It is a purpose-named runtime switch rather than a `NODE_ENV` check because `bun build` folds `process.env.NODE_ENV` into the bundle at build time: gated on that, a bundle built with `NODE_ENV` unset froze **open** and signed every cookie with the placeholder no matter what the running server's environment said
 - `OMUL_ADMIN_EMAILS` — comma-separated sign-in addresses of the accounts that may use the admin surface (`/api/admin/*`), matched case-insensitively after trimming and read once at startup (REQ164, `server/admins.ts`). **Unset is the default and means nobody is an administrator**: every admin route answers `403`, including to the operator, and the instance is otherwise complete — nothing a presenter or participant does goes through that surface. The empty default is deliberate rather than an omission. The list used to be compiled in, which named one deployment's administrators in every image built from this source and left a self-hoster no way to name their own short of forking and rebuilding; a shipped fallback list would restore exactly that. Blank, whitespace and stray commas all read as "nobody", so a typo cannot promote anyone. There is still no role column and no self-service grant — who is an administrator is an operator's decision, now taken in configuration instead of in source. Which posture is in force is printed on every boot (`[admin] …`). Supply it the way the signing secret is supplied, by the deployment's own secret/environment delivery, not from this repository
+- `OMUL_SIGNUP_DISABLED` — `"true"` closes account sign-up (REQ251, `server/instance-access.ts`); unset, empty or `"false"` (the `.mise.toml` default) keeps it open, and any other value is a **fatal startup error** naming the variable. Existing accounts keep signing in, and joining by code is unaffected. Read once at boot, reported to the client as `signUpOpen` by `GET /api/instance-access`, and printed on every boot (`[accounts] …`) — see **Closing account sign-up** above
 - `BETTER_AUTH_URL` / `OMUL_BASE_HOST` — canonical public origin for auth callbacks (production, behind a reverse proxy); inferred per-request in dev. `OMUL_BASE_HOST` also adds the public host to Better Auth's trusted origins, so behind a proxy it is **required for sign-in to work at all**, not just for correct mail links. It is a **bare host** (`omul.example.com`, a `:port` allowed) read as `https://`, never a URL — a value carrying a scheme, path or trailing slash is a fatal startup error rather than a silently ignored one. It is also what the `/api` discovery index advertises (REQ151)
 - `OMUL_TRUSTED_ORIGINS` — extra comma-separated origins allowed to drive auth
 - `SEND_EMAILS` — set to exactly `"true"` to actually send mail (else the emailer logs)

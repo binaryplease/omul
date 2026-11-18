@@ -73,6 +73,7 @@ const OFFERED = {
 	listLoading: false,
 	signedIn: false,
 	accountSeen: false,
+	signUpOpen: true,
 	localDeckCount: 1,
 	dismissed: false,
 };
@@ -96,6 +97,32 @@ describe("emailRecoveryOfferFor", () => {
 				localDeckCount: 1,
 			}),
 		).toBe("signin");
+	});
+
+	test("asks every browser to sign in while the operator has closed sign-up (REQ251)", () => {
+		// "Create account" would be refused by the server, and the dialog draws it
+		// disabled with its reason, so the offer never opens on it.
+		expect(emailRecoveryOfferFor({ ...OFFERED, signUpOpen: false })).toBe(
+			"signin",
+		);
+		expect(
+			emailRecoveryOfferFor({ ...OFFERED, signUpOpen: false, accountSeen: true }),
+		).toBe("signin");
+		// Closed sign-up changes which offer is made, never whether one is.
+		expect(
+			emailRecoveryOfferFor({ ...OFFERED, signUpOpen: false, signedIn: true }),
+		).toBeNull();
+	});
+
+	test("the home page passes the instance's sign-up answer to the offer", () => {
+		const home = readFileSync(
+			join(import.meta.dir, "pages", "HomePage.tsx"),
+			"utf8",
+		);
+		expect(home).toContain("const { signUpOpen } = useInstanceAccess();");
+		expect(home.split("emailRecoveryOfferFor({")[1]?.split("});")[0]).toContain(
+			"signUpOpen,",
+		);
 	});
 
 	test("offers nothing while signed in, whatever this browser had", () => {

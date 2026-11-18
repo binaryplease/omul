@@ -33,7 +33,9 @@ import { BRAND_NAME } from "./components/BrandMark";
 import { LegalNotice } from "./components/LegalLinks";
 import { Modal } from "./components/ui/Modal";
 import { NoticeFrame } from "./components/ui/NoticeFrame";
+import { ReasonButton } from "./components/ui/ReasonTip";
 import { useAccountSeenInThisBrowser } from "./email-recovery-prompt";
+import { useInstanceAccess } from "./instance-access";
 import { textWithElements, useInterfaceText } from "./interface-language";
 import { fillText, type InterfaceText } from "./interface-text";
 import {
@@ -274,7 +276,10 @@ type AuthFormMode = "signin" | "signup" | "forgot";
 // The one sign-in dialog. The header's Sign in button opens it on the sign-in
 // tab; the home page's offer to keep this browser's decks (REQ194) opens it on
 // "Create account", since that is what the offer is asking for. Either tab is
-// one click from the other.
+// one click from the other — except while the operator has closed sign-up
+// (REQ251, `GET /api/instance-access`): then "Create account" stays visible,
+// disabled with its reason, and the dialog opens on "Sign in" whatever it was
+// asked to open on.
 //
 // `returnTo` is the app path the one step that leaves the page — the password
 // reset email — brings the user back to, instead of the home page: a
@@ -328,6 +333,13 @@ function AuthForm({
 	const [resetSent, setResetSent] = useState(false);
 	const words = useAccountText();
 	const { legalNotice } = useInterfaceText().text;
+	// While the operator has closed sign-up (REQ251) the server refuses a new
+	// account, so the form never sits on the sign-up tab: the tab says why
+	// instead. The answer may arrive after the dialog opened on "Create account".
+	const { signUpOpen } = useInstanceAccess();
+	useEffect(() => {
+		if (!signUpOpen && mode === "signup") setMode("signin");
+	}, [signUpOpen, mode]);
 
 	const submit = async () => {
 		setBusy(true);
@@ -414,15 +426,19 @@ function AuthForm({
 				>
 					{words.signIn}
 				</button>
-				<button
-					type="button"
+				{/* Disabled with its reason, never hidden, while sign-up is closed
+				    (REQ251, ADR-0025): the reason reaches keyboard, touch and
+				    screen-reader users through ReasonButton (REQ127). */}
+				<ReasonButton
+					label={words.createAccount}
+					reason={signUpOpen ? null : words.signUpClosed}
 					onClick={() => setMode("signup")}
 					className={`flex-1 rounded-md px-3 py-1.5 transition-colors ${
 						mode === "signup" ? "bg-surface-raised text-text" : "text-text-dim"
 					}`}
 				>
 					{words.createAccount}
-				</button>
+				</ReasonButton>
 			</div>
 
 			{mode === "forgot" && (

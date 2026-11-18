@@ -10,6 +10,10 @@ import {
 	feedbackStartupReport,
 	feedbackStore,
 } from "./feedback-store";
+import {
+	instanceAccessStartupReport,
+	resolveInstanceAccess,
+} from "./instance-access";
 import { keptQueryParamsStartupReport } from "./kept-query-params";
 import { legalLinksStartupReport } from "./legal-links";
 import { adminFeedbackRoutes, adminRoutes } from "./routes/admin";
@@ -18,6 +22,7 @@ import { deckGenerationRoutes } from "./routes/deck-generation";
 import { discoveryRoutes, publicOriginStartupReport } from "./routes/discovery";
 import { feedbackRoutes } from "./routes/feedback";
 import { folderRoutes } from "./routes/folders";
+import { createInstanceAccessRoutes } from "./routes/instance-access";
 import { legalRoutes } from "./routes/legal";
 import { rateLimitStartupReport } from "./rate-limit";
 import { presentationRoutes } from "./routes/presentations";
@@ -42,6 +47,11 @@ const legalLinksReport = legalLinksStartupReport();
 const keptQueryParamsReport = keptQueryParamsStartupReport();
 // The website's home (REQ200), for the same reason.
 const websiteLinksReport = websiteLinksStartupReport();
+// What this instance lets a visitor do (REQ251): whether sign-up is open. Read
+// once here for the route that reports it; `server/accounts.ts` read the same
+// switch when it was imported above, so a malformed value has already stopped
+// the boot by now.
+const instanceAccess = resolveInstanceAccess();
 
 // Open the document store before starting the server.
 await connectDb();
@@ -170,6 +180,11 @@ const app = new Elysia()
 	// Unset means the app's own home page.
 	.use(websiteRoutes)
 
+	// ── What this instance lets a visitor do (REQ251) ─────────
+	// Whether a visitor may open an account, read by the sign-in dialog to draw
+	// "Create account" disabled with its reason while sign-up is closed.
+	.use(createInstanceAccessRoutes(instanceAccess))
+
 	// ── Feedback about omul (REQ185, REQ186) ──────────────────
 	// Sent from the app menu, or in answer to the prompt after a session, to the
 	// operator's own feedback database. Each channel is off unless its switch is
@@ -294,6 +309,10 @@ for (const line of publicOriginStartupReport()) console.log(line);
 // reason again: an unconfigured provider makes the feature absent rather than
 // broken, and that difference is only visible from in here.
 for (const line of deckGenerationStartupReport()) console.log(line);
+
+// Whether a visitor may open an account here (REQ251). A closed sign-up looks,
+// from outside, like a sign-up form that fails.
+for (const line of instanceAccessStartupReport(instanceAccess)) console.log(line);
 
 // Who, if anyone, this deployment made an administrator (REQ164). Same reason a
 // third time: an empty allowlist is the safe default and is indistinguishable

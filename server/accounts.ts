@@ -28,6 +28,7 @@ import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
 import { resolveAuthSecret } from "./auth-secret";
+import { signUpDisabled } from "./instance-access";
 import { siblingDbPath } from "./sibling-db-path";
 import {
 	buildChangeEmailConfirmationEmail,
@@ -146,6 +147,16 @@ export function createAuth() {
 			// The requested method: self-serve email + password sign-up and sign-in.
 			// autoSignIn (Better Auth default) issues a session right after sign-up.
 			enabled: true,
+			// The operator's switch that closes sign-up (REQ251,
+			// `OMUL_SIGNUP_DISABLED`, `server/instance-access.ts`), read once here
+			// at boot; a malformed value throws, so the process never listens. With
+			// it set, Better Auth (1.6.23) answers `POST /sign-up/email` with `400
+			// EMAIL_PASSWORD_SIGN_UP_DISABLED` and its sign-in route does not read
+			// the option, so existing accounts keep signing in, resetting their
+			// password and changing their email. This is the only way an account
+			// is created here: no social provider, no magic link, and the `apiKey`
+			// plugin creates no users.
+			disableSignUp: signUpDisabled(),
 			// Password reset over email (Brevo). Better Auth mints a one-time token,
 			// builds the callback `url` (which lands the user back on the app with
 			// `?token=…`), and hands both here; we email the link. The send is awaited

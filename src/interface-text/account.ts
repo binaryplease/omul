@@ -15,6 +15,9 @@ export const en = {
 	// The sign-in dialog.
 	signInTitle: "Sign in to {brand}",
 	createAccount: "Create account",
+	// Why "Create account" is disabled while the operator has closed sign-up (REQ251).
+	signUpClosed:
+		"Sign-ups are closed on this instance. Ask its operator for an account.",
 	forgotIntro:
 		"Enter your account email and we'll send a link to choose a new password.",
 	namePlaceholder: "Name (optional)",
@@ -133,6 +136,8 @@ export const de: Partial<typeof en> = {
 
 	signInTitle: "Bei {brand} anmelden",
 	createAccount: "Konto anlegen",
+	signUpClosed:
+		"Auf dieser Instanz können keine Konten angelegt werden. Frag ihren Betreiber nach einem Konto.",
 	forgotIntro:
 		"Gib die E-Mail-Adresse deines Kontos ein, und wir schicken dir einen Link, mit dem du ein neues Passwort wählen kannst.",
 	namePlaceholder: "Name (optional)",

@@ -44,6 +44,19 @@ keys** (`x-api-key`). The browser client is
 landings, verify banner, account settings, API-key manager) is `src/auth.tsx`,
 mounted in `HomePage`.
 
+**Closing sign-up (REQ251).** Email-and-password sign-up is the only way an
+account is created: no social provider, no magic link, and the API-key plugin
+creates no users. With `OMUL_SIGNUP_DISABLED=true` the server sets Better Auth's
+`emailAndPassword.disableSignUp`, and `POST /api/auth/sign-up/email` answers
+`400` with code `EMAIL_PASSWORD_SIGN_UP_DISABLED`. Every other auth route keeps
+working for an account that exists: sign-in, password reset, email
+verification, change-email, account deletion and API keys. Joining a deck by
+code never needed an account and is unaffected. `GET /api/instance-access`
+reports the switch as `signUpOpen`, and the sign-in dialog draws its "Create
+account" tab disabled with the reason. The variable, its accepted values and
+the boot failure on any other value are in
+[deployment.md](deployment.md#closing-account-sign-up-req251).
+
 - `resolveUserId(headers)` resolves the account behind a request from a cookie
   session **or** an `x-api-key` (with a defensive Bearer→x-api-key fallback);
   `isApiKeyRequest(headers)` reports the credential shape.
@@ -124,6 +137,7 @@ omul** below).
 | GET | `/api` | — | Discovery index: absolute links to the OpenAPI spec, docs UI, health probe and WebSocket — see **The discovery index** below |
 | GET | `/api/health` | — | Health check |
 | GET | `/api/legal` | — | Where this deployment's imprint, privacy policy and terms live: `{ imprintUrl, privacyUrl, termsUrl }`, each an `http(s)://` URL, a path on this host, or an explicit `null` when the operator configured none (REQ183). The client lists a link in the app menu on every route and draws a sentence at each contract-conclusion point only for what is set — see `OMUL_IMPRINT_URL` in [deployment.md](deployment.md#environment-variables) |
+| GET | `/api/instance-access` | — | What this instance lets a visitor do: `{ signUpOpen, guestCreationOpen }`, both always present (REQ251, REQ252). `signUpOpen` is `false` while the operator set `OMUL_SIGNUP_DISABLED=true`; then `POST /api/auth/sign-up/email` answers `400 EMAIL_PASSWORD_SIGN_UP_DISABLED` and the sign-in dialog draws "Create account" disabled with its reason. `guestCreationOpen` is always `true` until REQ252's switch exists. Read once at boot — see [deployment.md](deployment.md#closing-account-sign-up-req251) |
 | GET | `/api/website` | — | Where this deployment's product website has its home: `{ homeUrlEn, homeUrlDe }`, each an `http(s)://` URL, a path on this host, or an explicit `null` when the operator configured none (REQ200). A participant's ended screen links a German deck to `homeUrlDe` and any other to `homeUrlEn`, falls back to whichever is set, and opens the app's own home while neither is — see `OMUL_WEBSITE_HOME_URL_EN` in [deployment.md](deployment.md#environment-variables) |
 | GET | `/api/feedback/config` | — | Which feedback about omul this deployment collects: `{ enabled, promptPercent, promptCooldownDays }` — `enabled` true only when the operator set `OMUL_FEEDBACK_ENABLED=true` (REQ185), `promptPercent` `null` while `OMUL_FEEDBACK_PROMPT_PERCENT` is unset (REQ186) — see **Feedback about omul** below |
 | POST | `/api/feedback` | optional session | Send feedback about omul to this instance's operator: JSON `{ rating?, comment?, surface, language, contactMe? }` (REQ185). `404` for any request while the channel is off, `415` for any content type but `application/json` |

@@ -317,6 +317,14 @@ export type {
 export type { LegalLinks } from "../server/legal-links";
 
 /**
+ * What this instance lets a visitor do (REQ251, REQ252), as
+ * `GET /api/instance-access` reports it — whether a visitor may open an
+ * account. The schema is composed rather than restated, so the client parses
+ * the answer with the same shape the route is validated against.
+ */
+export { type InstanceAccess, InstanceAccessSchema } from "../server/schemas";
+
+/**
  * Where this instance's product website has its home (REQ200), as
  * `GET /api/website` reports it. Type-only for the same reason.
  */

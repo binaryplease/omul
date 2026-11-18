@@ -25,6 +25,11 @@ OMUL_GENERATION_MODEL = "gemini-flash-latest"
 # reach: an account is required unless this is exactly "true". Dev leaves it at
 # the restrictive default, same as a deployment would.
 OMUL_GENERATION_ALLOW_ANONYMOUS = "false"
+# Whether a visitor may open an account (REQ251, server/instance-access.ts).
+# "true" closes sign-up and existing accounts keep signing in; "false" — this
+# default — or unset keeps it open. Any other value stops the server at boot,
+# because a typo in a switch that closes something must not leave it open.
+OMUL_SIGNUP_DISABLED = "false"
 # How many reverse-proxy hops may be believed when reading X-Forwarded-For to
 # identify a rate-limit client ("true" = 1). Dev talks to the server directly,
 # so "0"; a deployment behind a reverse proxy MUST set its hop count or every
