@@ -10,6 +10,10 @@ import {
 	feedbackStartupReport,
 	feedbackStore,
 } from "./feedback-store";
+import {
+	instanceAccessStartupReport,
+	resolveInstanceAccess,
+} from "./instance-access";
 import { keptQueryParamsStartupReport } from "./kept-query-params";
 import { legalLinksStartupReport } from "./legal-links";
 import { adminFeedbackRoutes, adminRoutes } from "./routes/admin";
@@ -18,6 +22,7 @@ import { deckGenerationRoutes } from "./routes/deck-generation";
 import { discoveryRoutes, publicOriginStartupReport } from "./routes/discovery";
 import { feedbackRoutes } from "./routes/feedback";
 import { folderRoutes } from "./routes/folders";
+import { createInstanceAccessRoutes } from "./routes/instance-access";
 import { legalRoutes } from "./routes/legal";
 import { rateLimitStartupReport } from "./rate-limit";
 import { presentationRoutes } from "./routes/presentations";
@@ -42,6 +47,13 @@ const legalLinksReport = legalLinksStartupReport();
 const keptQueryParamsReport = keptQueryParamsStartupReport();
 // The website's home (REQ200), for the same reason.
 const websiteLinksReport = websiteLinksStartupReport();
+// What this instance lets a visitor do (REQ251, REQ252): whether sign-up is
+// open, and whether a visitor without an account may create a presentation.
+// Read once here for the route that reports it. `server/accounts.ts` read the
+// sign-up switch when it was imported above; the guest-creation switch is read
+// here first, so a malformed value of either stops the boot on this line at
+// the latest. The create routes re-read the guest-creation switch per request.
+const instanceAccess = resolveInstanceAccess();
 
 // Open the document store before starting the server.
 await connectDb();
@@ -170,6 +182,12 @@ const app = new Elysia()
 	// Unset means the app's own home page.
 	.use(websiteRoutes)
 
+	// ── What this instance lets a visitor do (REQ251, REQ252) ─
+	// Whether a visitor may open an account, and whether a visitor without one
+	// may create a presentation — read by the client to draw "Create account"
+	// and the create controls disabled with their reason while either is closed.
+	.use(createInstanceAccessRoutes(instanceAccess))
+
 	// ── Feedback about omul (REQ185, REQ186) ──────────────────
 	// Sent from the app menu, or in answer to the prompt after a session, to the
 	// operator's own feedback database. Each channel is off unless its switch is
@@ -294,6 +312,10 @@ for (const line of publicOriginStartupReport()) console.log(line);
 // reason again: an unconfigured provider makes the feature absent rather than
 // broken, and that difference is only visible from in here.
 for (const line of deckGenerationStartupReport()) console.log(line);
+
+// Whether a visitor may open an account here (REQ251). A closed sign-up looks,
+// from outside, like a sign-up form that fails.
+for (const line of instanceAccessStartupReport(instanceAccess)) console.log(line);
 
 // Who, if anyone, this deployment made an administrator (REQ164). Same reason a
 // third time: an empty allowlist is the safe default and is indistinguishable

@@ -206,6 +206,26 @@ describe("create, then read it back", () => {
 			/No such template/,
 		);
 	});
+
+	test("an instance closed to creating without an account answers with its own reason (REQ252)", async () => {
+		const before = process.env.OMUL_GUEST_CREATION_DISABLED;
+		process.env.OMUL_GUEST_CREATION_DISABLED = "true";
+		try {
+			let raised: Error | null = null;
+			try {
+				await omul("create", "--template", "retrospective");
+			} catch (error) {
+				raised = error as Error;
+			}
+			expect(raised).toBeInstanceOf(CliError);
+			expect(raised?.message).toContain("HTTP 401");
+			expect(raised?.message).toContain(
+				"This instance creates presentations for signed-in accounts only",
+			);
+		} finally {
+			restore("OMUL_GUEST_CREATION_DISABLED", before);
+		}
+	});
 });
 
 describe("what the client refuses before it asks", () => {

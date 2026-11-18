@@ -4,6 +4,7 @@ import { ENGLISH_INTERFACE_TEXT, pluralText } from "../interface-text";
 import type { DeckTemplate, DeckTemplateCategory } from "../types";
 import { HighlightedText } from "./HighlightedText";
 import { SlideTypeIcon } from "./SlideTypeIcon";
+import { ReasonButton } from "./ui/ReasonTip";
 
 // ── One template, on a card ───────────────────────────────────
 //
@@ -148,19 +149,29 @@ export function UseTemplateButton({
 }) {
 	const { text } = useInterfaceText();
 	const words = text.workspaces;
+	// A refusal is drawn as a `ReasonButton` (REQ127): focusable,
+	// `aria-disabled`, its reason shown on hover, focus or tap and linked by
+	// `aria-describedby`. A `disabled` button with the reason in its `title`
+	// reaches no keyboard, touch screen or screen reader (REQ252 review).
+	if (refusal !== null) {
+		return (
+			<ReasonButton
+				label={label}
+				reason={refusal}
+				className="btn-primary text-sm"
+				onClick={onUse}
+			>
+				{words.templateUse}
+			</ReasonButton>
+		);
+	}
 	return (
 		<button
 			type="button"
 			className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
 			onClick={onUse}
-			disabled={busy || refusal !== null}
-			title={
-				refusal !== null
-					? refusal
-					: busy && !creating
-						? words.templateBusy
-						: label
-			}
+			disabled={busy}
+			title={busy && !creating ? words.templateBusy : label}
 		>
 			{creating ? words.templateCreating : words.templateUse}
 		</button>

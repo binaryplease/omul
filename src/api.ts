@@ -20,6 +20,8 @@ import {
 	type FeedbackConfig,
 	FIRST_PASS,
 	type Folder,
+	type InstanceAccess,
+	InstanceAccessSchema,
 	isDeckMovedOnCode,
 	isVoteRefusalCode,
 	isWithheldTally,
@@ -535,6 +537,17 @@ export const api = {
 	 * link for it.
 	 */
 	getLegalLinks: () => request<LegalLinks>("/legal"),
+
+	/**
+	 * What this instance lets a visitor do (REQ251, REQ252): whether a visitor
+	 * may open an account, and whether a visitor without one may create a
+	 * presentation. Parsed through the route's own schema, so a field this client
+	 * does not receive takes the schema's default.
+	 */
+	getInstanceAccess: () =>
+		request<unknown>("/instance-access").then(
+			(access): InstanceAccess => InstanceAccessSchema.parse(access),
+		),
 
 	/**
 	 * Where this deployment's product website has its home (REQ200), in English

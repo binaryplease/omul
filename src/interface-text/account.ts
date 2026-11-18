@@ -15,6 +15,13 @@ export const en = {
 	// The sign-in dialog.
 	signInTitle: "Sign in to {brand}",
 	createAccount: "Create account",
+	// Why "Create account" is disabled while the operator has closed sign-up (REQ251).
+	signUpClosed:
+		"Sign-ups are closed on this instance. Ask its operator for an account.",
+	// Why every create control is disabled for a signed-out visitor while the
+	// operator has closed creating without an account (REQ252).
+	guestCreationClosed:
+		"This instance creates presentations for signed-in accounts only. Sign in to create a presentation.",
 	forgotIntro:
 		"Enter your account email and we'll send a link to choose a new password.",
 	namePlaceholder: "Name (optional)",
@@ -133,6 +140,10 @@ export const de: Partial<typeof en> = {
 
 	signInTitle: "Bei {brand} anmelden",
 	createAccount: "Konto anlegen",
+	signUpClosed:
+		"Auf dieser Instanz können keine Konten angelegt werden. Frag ihren Betreiber nach einem Konto.",
+	guestCreationClosed:
+		"Diese Instanz erstellt Präsentationen nur für angemeldete Konten. Melde dich an, um eine Präsentation zu erstellen.",
 	forgotIntro:
 		"Gib die E-Mail-Adresse deines Kontos ein, und wir schicken dir einen Link, mit dem du ein neues Passwort wählen kannst.",
 	namePlaceholder: "Name (optional)",

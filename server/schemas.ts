@@ -8707,3 +8707,26 @@ export function deckFilenameSlug(title: string): string {
 			.slice(0, 60) || "presentation"
 	);
 }
+
+// ── What this instance lets a visitor do (REQ251, REQ252) ────
+
+/**
+ * What `GET /api/instance-access` answers with: the two operator switches that
+ * close parts of a public instance, stated as what is open. Both fields are
+ * always present (ADR-0024).
+ *
+ * - `signUpOpen` is `false` while `OMUL_SIGNUP_DISABLED=true` (REQ251): the
+ *   server refuses a new account, and the sign-in dialog draws its
+ *   "Create account" tab disabled with the reason.
+ * - `guestCreationOpen` is `false` while `OMUL_GUEST_CREATION_DISABLED=true`
+ *   (REQ252): both create routes refuse a caller without an account, and the
+ *   client draws every create control disabled with the reason.
+ *
+ * The defaults are what an instance with neither switch set answers.
+ */
+export const InstanceAccessSchema = z.object({
+	signUpOpen: z.boolean().default(true),
+	guestCreationOpen: z.boolean().default(true),
+});
+
+export type InstanceAccess = z.infer<typeof InstanceAccessSchema>;

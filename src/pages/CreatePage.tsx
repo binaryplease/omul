@@ -17,6 +17,7 @@ import {
 	accessibilityFindingsBySlide,
 	revealAccessibilityField,
 } from "../components/AccessibilityFindings";
+import { CreateControl } from "../components/CreateControl";
 import { DeckMergeDialog } from "../components/DeckMergeDialog";
 import type { SlideAccessibilityFinding } from "../components/DeckAccessibility";
 import { deckAccessibilityFindings } from "../components/DeckAccessibility";
@@ -61,6 +62,7 @@ import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { useToast } from "../components/ui/Toast";
+import { useGuestCreationRefusal } from "../guest-creation";
 import { useDocumentLanguage, useInterfaceText } from "../interface-language";
 import {
 	ENGLISH_INTERFACE_TEXT,
@@ -312,6 +314,11 @@ export function CreatePage({
 	const { addToast } = useToast();
 	const storeApi = useStoreApi();
 	const isEdit = !!editId;
+	// `/create` is reachable by URL, so the editor's Create is disabled with
+	// its reason here too while creating without an account is closed and
+	// nobody is signed in (REQ252). Saving an existing deck is not a create.
+	const guestCreationRefusal = useGuestCreationRefusal();
+	const createRefusal = isEdit ? null : guestCreationRefusal;
 	const { text, language: interfaceLanguage } = useInterfaceText();
 	const editorText = text.editor;
 	/**
@@ -645,6 +652,7 @@ export function CreatePage({
 	};
 
 	const handleSubmit = async () => {
+		if (createRefusal) return;
 		if (!title.trim()) {
 			setError(editorText.titleRequired);
 			return;
@@ -929,8 +937,9 @@ export function CreatePage({
 						>
 							{editorText.cancel}
 						</button>
-						<button
-							type="button"
+						<CreateControl
+							refusal={createRefusal}
+							label={editorText.create}
 							className="btn-primary text-sm"
 							onClick={handleSubmit}
 							disabled={saving}
@@ -942,7 +951,7 @@ export function CreatePage({
 								: isEdit
 									? editorText.saveChanges
 									: editorText.create}
-						</button>
+						</CreateControl>
 					</div>
 				</div>
 

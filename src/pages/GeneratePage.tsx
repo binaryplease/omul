@@ -7,6 +7,7 @@ import { SlideTypeIcon } from "../components/SlideTypeIcon";
 import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { useToast } from "../components/ui/Toast";
+import { useGuestCreationRefusal } from "../guest-creation";
 import {
 	textWithElement,
 	useDocumentLanguage,
@@ -105,6 +106,10 @@ export function GeneratePage({ go }: { go: (r: Route) => void }) {
 	// credential: the route re-resolves both halves per request, so getting this
 	// wrong here only mis-draws the button.
 	const needsSignIn = Boolean(availability?.requiresAccount) && !session;
+	// While creating without an account is closed and nobody is signed in
+	// (REQ252), the reason is the one every create control states. The server
+	// reports `requiresAccount: true` then too, so `needsSignIn` agrees.
+	const createRefusal = useGuestCreationRefusal();
 
 	/**
 	 * Why the button cannot be pressed right now, or `null` when it can — one
@@ -117,6 +122,7 @@ export function GeneratePage({ go }: { go: (r: Route) => void }) {
 		// "Not configured" is the one reason the report gives
 		// (`server/deck-generator.ts`), worded here in the interface language.
 		if (availability && !availability.available) return words.blockedUnavailable;
+		if (createRefusal) return createRefusal;
 		if (needsSignIn) return words.blockedSignIn;
 		if (generating) return words.blockedGenerating;
 		if (trimmed === "") return words.blockedEmpty;

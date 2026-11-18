@@ -32,6 +32,10 @@ import {
 	type DeckGenerator,
 	deckGenerator as defaultDeckGenerator,
 } from "../deck-generator";
+import {
+	GUEST_CREATION_CLOSED_MESSAGE,
+	guestCreationDisabled,
+} from "../instance-access";
 import { guardGeneration } from "../rate-limit";
 import { GenerateDeckSchema } from "../schemas";
 import { createPresentation } from "../services/presentations";
@@ -76,7 +80,7 @@ export function createDeckGenerationRoutes(
 					tags: ["Generation"],
 					summary: "Whether this server can generate decks",
 					description:
-						"Reports whether this deployment is configured to generate a deck from a prompt (REQ007), and on what terms: `available`, a `reason` when it is not (an explicit `null` when it is), the `promptMaxLength` a prompt is held to, the `slideTypes` a generated deck may be built from, and `requiresAccount` — whether a caller must be signed in to spend this deployment's provider budget (true unless the operator set `OMUL_GENERATION_ALLOW_ANONYMOUS=true`). Public and read-only — all of it is a fact about the build, not about the caller. A surface offering generation reads this to disable its control with the reason rather than hiding it.",
+						"Reports whether this deployment is configured to generate a deck from a prompt (REQ007), and on what terms: `available`, a `reason` when it is not (an explicit `null` when it is), the `promptMaxLength` a prompt is held to, the `slideTypes` a generated deck may be built from, and `requiresAccount` — whether a caller must be signed in to spend this deployment's provider budget (true unless the operator set `OMUL_GENERATION_ALLOW_ANONYMOUS=true`, and always true while the operator set `OMUL_GUEST_CREATION_DISABLED=true`, REQ252). Public and read-only — all of it is a fact about the build, not about the caller. A surface offering generation reads this to disable its control with the reason rather than hiding it.",
 				},
 			})
 
@@ -106,10 +110,19 @@ export function createDeckGenerationRoutes(
 					// so a signed-out caller costs this deployment nothing at all and a
 					// legitimate one is not drained of budget by refusals they cannot act
 					// on.
-					if (availability.requiresAccount && !userId) {
+					//
+					// `requiresAccount` is also `true` while the operator closed creating
+					// without an account (REQ252); the caller is then told that, rather
+					// than that this server drafts for account holders only.
+					// The guest-creation switch is also checked here directly, so a
+					// generator whose report leaves it out cannot drop the refusal.
+					const guestCreationClosed = guestCreationDisabled();
+					if ((availability.requiresAccount || guestCreationClosed) && !userId) {
 						set.status = REFUSAL_STATUS["account-required"];
 						return {
-							error: ACCOUNT_REQUIRED_MESSAGE,
+							error: guestCreationClosed
+								? GUEST_CREATION_CLOSED_MESSAGE
+								: ACCOUNT_REQUIRED_MESSAGE,
 							refused: "account-required" satisfies DeckGenerationRefusal,
 						};
 					}
@@ -147,7 +160,7 @@ export function createDeckGenerationRoutes(
 						tags: ["Generation"],
 						summary: "Generate a draft deck from a prompt",
 						description:
-							"Turns a short text prompt into a draft deck and returns it as an ordinary editable presentation (REQ007) — the same document, status and one-time `creatorToken` `POST /api/presentations` answers with, created through the same path. The generator chooses the slide types and writes the question text, in the deck's own `language`. **The output is a draft:** no answer is ever marked correct — not on a quiz slide, not on a choice slide — because the generator has no field in which to express one, so marking the answer key is the organizer's first edit. Nothing records that the deck was generated. Room settings (pace, reveal mode, Q&A, participant channels, theme) take their ordinary defaults and are not the prompt's to set. Answers `503` when this deployment has no generation provider configured (ask `GET /api/deck-generation` first), `401` when it requires an account and the request carries none (`requiresAccount` on that same route — this is the control that survives `OMUL_RATE_LIMITS_DISABLED`), `502` when the provider fails or answers with something unusable, `422` for a prompt that is empty or over `promptMaxLength` or a `language` over 40 characters, and `429` over the generation budget — five per five minutes per client, which also spends the ordinary create budget (REQ145).",
+							"Turns a short text prompt into a draft deck and returns it as an ordinary editable presentation (REQ007) — the same document, status and one-time `creatorToken` `POST /api/presentations` answers with, created through the same path. The generator chooses the slide types and writes the question text, in the deck's own `language`. **The output is a draft:** no answer is ever marked correct — not on a quiz slide, not on a choice slide — because the generator has no field in which to express one, so marking the answer key is the organizer's first edit. Nothing records that the deck was generated. Room settings (pace, reveal mode, Q&A, participant channels, theme) take their ordinary defaults and are not the prompt's to set. Answers `503` when this deployment has no generation provider configured (ask `GET /api/deck-generation` first), `401` when it requires an account and the request carries none (`requiresAccount` on that same route — this is the control that survives `OMUL_RATE_LIMITS_DISABLED`; while the operator set `OMUL_GUEST_CREATION_DISABLED=true` it is required whatever `OMUL_GENERATION_ALLOW_ANONYMOUS` says, and the `error` says this instance creates presentations for signed-in accounts only, REQ252), `502` when the provider fails or answers with something unusable, `422` for a prompt that is empty or over `promptMaxLength` or a `language` over 40 characters, and `429` over the generation budget — five per five minutes per client, which also spends the ordinary create budget (REQ145).",
 					},
 				},
 			)
