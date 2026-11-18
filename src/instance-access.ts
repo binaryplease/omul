@@ -1,8 +1,9 @@
 /**
  * What this instance lets a visitor do (REQ251, REQ252), read from
  * `GET /api/instance-access` once per page load and shared by every surface
- * that asks — the sign-in dialog's "Create account" tab and the home page's
- * offer to keep this browser's decks (REQ194).
+ * that asks — the sign-in dialog's "Create account" tab, the home page's
+ * offer to keep this browser's decks (REQ194), and every create control
+ * through `useGuestCreationRefusal()` (`src/guest-creation.ts`, REQ252).
  *
  * Until the answer arrives, and after a failed read, every surface draws the
  * instance as open ({@link OPEN_INSTANCE_ACCESS}), which is how an instance

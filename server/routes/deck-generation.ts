@@ -114,10 +114,13 @@ export function createDeckGenerationRoutes(
 					// `requiresAccount` is also `true` while the operator closed creating
 					// without an account (REQ252); the caller is then told that, rather
 					// than that this server drafts for account holders only.
-					if (availability.requiresAccount && !userId) {
+					// The guest-creation switch is also checked here directly, so a
+					// generator whose report leaves it out cannot drop the refusal.
+					const guestCreationClosed = guestCreationDisabled();
+					if ((availability.requiresAccount || guestCreationClosed) && !userId) {
 						set.status = REFUSAL_STATUS["account-required"];
 						return {
-							error: guestCreationDisabled()
+							error: guestCreationClosed
 								? GUEST_CREATION_CLOSED_MESSAGE
 								: ACCOUNT_REQUIRED_MESSAGE,
 							refused: "account-required" satisfies DeckGenerationRefusal,

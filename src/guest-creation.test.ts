@@ -165,18 +165,37 @@ describe("the deck card's Duplicate (REQ252)", () => {
 });
 
 describe("the template gallery's Use (REQ252)", () => {
-	test("refused, it is drawn disabled with the reason as its title", () => {
-		const markup = renderToStaticMarkup(
+	function renderUse(refusal: string | null, busy = false) {
+		return renderToStaticMarkup(
 			createElement(UseTemplateButton, {
 				label: "Use Retrospective",
 				creating: false,
-				busy: false,
-				refusal: REASON,
+				busy,
+				refusal,
 				onUse: () => {},
 			}),
 		);
-		expect(markup).toContain('disabled=""');
-		expect(markup).toContain(`title="${REASON}"`);
+	}
+
+	test("refused, it stays focusable, aria-disabled and described by its reason, not a title-only disabled button", () => {
+		const markup = renderUse(REASON);
+		const tag = markup.match(/<button[^>]*>/)?.[0] ?? "";
+		expect(tag).toContain('aria-disabled="true"');
+		expect(tag).not.toMatch(/\sdisabled=""/);
+		expect(tag).not.toContain(`title="${REASON}"`);
+		expect(tag).toContain('aria-label="Use Retrospective"');
+		const describedBy = tag.match(/aria-describedby="([^"]+)"/)?.[1];
+		expect(describedBy).toBeTruthy();
+		expect(markup).toContain(`id="${describedBy}"`);
+		expect(markup).toContain(REASON);
+	});
+
+	test("available, it is the plain button it was, busy or not", () => {
+		const available = renderUse(null);
+		expect(available).not.toContain("aria-disabled");
+		expect(available).not.toContain('disabled=""');
+		expect(available).toContain('title="Use Retrospective"');
+		expect(renderUse(null, true)).toContain('disabled=""');
 	});
 });
 

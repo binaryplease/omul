@@ -539,8 +539,9 @@ export const api = {
 	getLegalLinks: () => request<LegalLinks>("/legal"),
 
 	/**
-	 * What this instance lets a visitor do (REQ251): whether a visitor may open
-	 * an account. Parsed through the route's own schema, so a field this client
+	 * What this instance lets a visitor do (REQ251, REQ252): whether a visitor
+	 * may open an account, and whether a visitor without one may create a
+	 * presentation. Parsed through the route's own schema, so a field this client
 	 * does not receive takes the schema's default.
 	 */
 	getInstanceAccess: () =>

@@ -36,6 +36,9 @@ type AnyJson = any;
 let baseUrl = "";
 let server: { stop: () => Promise<void> } | null = null;
 let accountKey = "";
+let lenientUrl = "";
+let lenientServer: { stop: () => Promise<void> } | null = null;
+let lenientGeneratorCalls = 0;
 let accountCookie = "";
 
 const SLIDES = [
@@ -145,6 +148,25 @@ describe("OMUL_GUEST_CREATION_DISABLED (REQ252)", () => {
 		baseUrl = `http://localhost:${app.server?.port}`;
 		server = { stop: async () => void app.stop() };
 
+		// A generator whose report never asks for an account and which records
+		// whether it was called: the route must refuse on the guest-creation
+		// switch itself rather than trust the report (REQ252 review finding 2).
+		const lenientGenerator = {
+			availability: () => ({
+				...generator.availability(),
+				requiresAccount: false,
+			}),
+			generate: (prompt: string, language: string) => {
+				lenientGeneratorCalls += 1;
+				return generator.generate(prompt, language);
+			},
+		};
+		const lenientApp = new Elysia()
+			.use(createDeckGenerationRoutes(lenientGenerator))
+			.listen(0);
+		lenientUrl = `http://localhost:${lenientApp.server?.port}`;
+		lenientServer = { stop: async () => void lenientApp.stop() };
+
 		const account = await auth.api.signUpEmail({
 			body: {
 				email: "guest-creation@example.com",
@@ -165,6 +187,7 @@ describe("OMUL_GUEST_CREATION_DISABLED (REQ252)", () => {
 
 	afterAll(async () => {
 		await server?.stop();
+		await lenientServer?.stop();
 		rmSync(temporaryDirectory, { recursive: true, force: true });
 	});
 
@@ -322,6 +345,22 @@ describe("OMUL_GUEST_CREATION_DISABLED (REQ252)", () => {
 					},
 				);
 			}
+		});
+
+		test("switch on: the route refuses even when the generator's report does not ask for an account", async () => {
+			await withEnvironment(CLOSED, async () => {
+				lenientGeneratorCalls = 0;
+				const response = await fetch(`${lenientUrl}/api/deck-generation`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ prompt: "a retro for my team" }),
+				});
+				expect(response.status).toBe(401);
+				expect(((await response.json()) as AnyJson).error).toBe(
+					GUEST_CREATION_CLOSED_MESSAGE,
+				);
+				expect(lenientGeneratorCalls).toBe(0);
+			});
 		});
 
 		test("switch on: a cookie session and an API key still generate", async () => {

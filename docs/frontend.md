@@ -96,7 +96,9 @@ that already exist — compose these, never re-hand-roll:
   rail or an entrance animation's transform cannot clip or misplace it.
   `UNAVAILABLE_CONTROL` is the dimmed look, composed rather than re-declared.
   The editor's slide-list bulk bar and the slide header's move and delete
-  controls wear it. A `disabled` button with the reason in its `title` or
+  controls wear it, and so do the sign-in dialog's "Create account" tab while
+  sign-up is closed (REQ251) and every create control while creating without an
+  account is closed (REQ252, through `CreateControl` and `UseTemplateButton`). A `disabled` button with the reason in its `title` or
   accessible name only is what it replaces: a keyboard cannot reach it and a
   pointer is rarely shown it.
 - **Theme switch and legal texts** — `<AppMenu/>` in

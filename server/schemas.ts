@@ -8718,9 +8718,9 @@ export function deckFilenameSlug(title: string): string {
  * - `signUpOpen` is `false` while `OMUL_SIGNUP_DISABLED=true` (REQ251): the
  *   server refuses a new account, and the sign-in dialog draws its
  *   "Create account" tab disabled with the reason.
- * - `guestCreationOpen` is REQ252's: `false` once that requirement's switch
- *   closes presentation creation without an account. Until REQ252 is built it
- *   is always `true`.
+ * - `guestCreationOpen` is `false` while `OMUL_GUEST_CREATION_DISABLED=true`
+ *   (REQ252): both create routes refuse a caller without an account, and the
+ *   client draws every create control disabled with the reason.
  *
  * The defaults are what an instance with neither switch set answers.
  */
