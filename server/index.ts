@@ -47,10 +47,12 @@ const legalLinksReport = legalLinksStartupReport();
 const keptQueryParamsReport = keptQueryParamsStartupReport();
 // The website's home (REQ200), for the same reason.
 const websiteLinksReport = websiteLinksStartupReport();
-// What this instance lets a visitor do (REQ251): whether sign-up is open. Read
-// once here for the route that reports it; `server/accounts.ts` read the same
-// switch when it was imported above, so a malformed value has already stopped
-// the boot by now.
+// What this instance lets a visitor do (REQ251, REQ252): whether sign-up is
+// open, and whether a visitor without an account may create a presentation.
+// Read once here for the route that reports it. `server/accounts.ts` read the
+// sign-up switch when it was imported above; the guest-creation switch is read
+// here first, so a malformed value of either stops the boot on this line at
+// the latest. The create routes re-read the guest-creation switch per request.
 const instanceAccess = resolveInstanceAccess();
 
 // Open the document store before starting the server.
@@ -180,9 +182,10 @@ const app = new Elysia()
 	// Unset means the app's own home page.
 	.use(websiteRoutes)
 
-	// ── What this instance lets a visitor do (REQ251) ─────────
-	// Whether a visitor may open an account, read by the sign-in dialog to draw
-	// "Create account" disabled with its reason while sign-up is closed.
+	// ── What this instance lets a visitor do (REQ251, REQ252) ─
+	// Whether a visitor may open an account, and whether a visitor without one
+	// may create a presentation — read by the client to draw "Create account"
+	// and the create controls disabled with their reason while either is closed.
 	.use(createInstanceAccessRoutes(instanceAccess))
 
 	// ── Feedback about omul (REQ185, REQ186) ──────────────────

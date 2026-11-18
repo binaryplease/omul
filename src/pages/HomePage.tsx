@@ -25,6 +25,7 @@ import {
 import { AuthControls, AuthDialog, VerifyEmailBanner } from "../auth";
 import { useSession } from "../auth-client";
 import { BrandMark } from "../components/BrandMark";
+import { CreateControl } from "../components/CreateControl";
 import {
 	CollaboratorsDialog,
 	deckAccessLevelLabel,
@@ -37,6 +38,7 @@ import {
 import { MoveToWorkspaceDialog } from "../components/MoveToWorkspaceDialog";
 import { ICON_BUTTON_HOVER } from "../components/ShareCluster";
 import { AppMenu } from "../components/ui/AppMenu";
+import { ReasonButton } from "../components/ui/ReasonTip";
 import { ConfirmModal } from "../components/ui/ConfirmModal";
 import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
@@ -50,6 +52,7 @@ import {
 	emailRecoveryPromptDismissed,
 	useAccountSeenInThisBrowser,
 } from "../email-recovery-prompt";
+import { useGuestCreationRefusal } from "../guest-creation";
 import { useInstanceAccess } from "../instance-access";
 import { getDict } from "../i18n";
 import { useDocumentLanguage, useInterfaceText } from "../interface-language";
@@ -124,6 +127,10 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 	const accountSeen = useAccountSeenInThisBrowser(userId);
 	// While the operator has closed sign-up (REQ251) the offer asks to sign in.
 	const { signUpOpen } = useInstanceAccess();
+	// While the operator has closed creating without an account (REQ252) and
+	// nobody is signed in, every way to start a deck here is drawn disabled
+	// with this reason; joining by code is not a create and stays open.
+	const createRefusal = useGuestCreationRefusal();
 	const [recoveryDialogTab, setRecoveryDialogTab] =
 		useState<EmailRecoveryOffer | null>(null);
 	// Signed out, every listed deck is one this browser holds a token for, so
@@ -213,6 +220,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 					owned={ownedIds.has(pres.id)}
 					signedIn={userId !== null}
 					duplicating={duplicatingId === pres.id}
+					duplicateRefusal={createRefusal}
 					onOpen={() => go({ page: "present", id: pres.id })}
 					onShare={() => setShareTarget(pres)}
 					onFile={() => setFileTarget(pres)}
@@ -234,6 +242,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 	};
 
 	const handleImportFile = async (file: File) => {
+		if (createRefusal) return;
 		setImporting(true);
 		try {
 			const text = await file.text();
@@ -261,7 +270,7 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 	};
 
 	const handleDuplicate = async (source: Presentation) => {
-		if (duplicatingId) return;
+		if (duplicatingId || createRefusal) return;
 		setDuplicatingId(source.id);
 		try {
 			const copy = await api.duplicatePresentation(source.id);
@@ -308,38 +317,41 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 
 				{/* Actions */}
 				<div className="flex flex-wrap gap-4 mb-16 slide-in slide-in-delay-1">
-					<button
+					<CreateControl
+						refusal={createRefusal}
+						label={words.createPresentation}
 						className="btn-primary text-lg px-8 py-3"
-						type="button"
 						onClick={() => go({ page: "create" })}
 					>
 					{words.createPresentation}
-					</button>
+					</CreateControl>
 					{/* The catalog of prebuilt decks (REQ005), beside the blank-deck
 					    button it is the alternative to. */}
-					<button
+					<CreateControl
+						refusal={createRefusal}
+						label={words.useTemplate}
 						className="btn-secondary text-lg px-8 py-3 inline-flex items-center gap-2"
-						type="button"
 						onClick={() => go({ page: "templates" })}
 						title={words.useTemplateTitle}
 					>
 						<LayoutTemplate size={18} />
 						{words.useTemplate}
-					</button>
+					</CreateControl>
 					{/* Drafting from a prompt (REQ007) — the third way a deck starts,
 					    beside the blank one and the prebuilt one. Whether this build
 					    can actually generate is the page's own question to ask, so the
 					    way in is always here and the reason, when there is
 					    one, is stated where the control it blocks lives. */}
-					<button
+					<CreateControl
+						refusal={createRefusal}
+						label={words.generateDraft}
 						className="btn-secondary text-lg px-8 py-3 inline-flex items-center gap-2"
-						type="button"
 						onClick={() => go({ page: "generate" })}
 						title={words.generateDraftTitle}
 					>
 						<Sparkles size={18} />
 						{words.generateDraft}
-					</button>
+					</CreateControl>
 					{/* Workspaces (REQ128) — the other owner a deck can have. Always
 					    offered, whether or not this browser is signed in: the page
 					    itself says what a workspace is and why it needs an account,
@@ -360,16 +372,17 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 					>
 					{words.joinWithCode}
 					</button>
-					<button
+					<CreateControl
+						refusal={createRefusal}
+						label={words.importDeck}
 						className="btn-secondary text-lg px-8 py-3 inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-wait"
-						type="button"
 						onClick={() => fileInputRef.current?.click()}
 						disabled={importing}
 						title={words.importTitle}
 					>
 						<Upload size={18} />
 						{importing ? words.importing : words.importDeck}
-					</button>
+					</CreateControl>
 					<input
 						ref={fileInputRef}
 						type="file"
@@ -435,24 +448,28 @@ export function HomePage({ go }: { go: (r: Route) => void }) {
 							{words.noPresentationsBody}
 							</p>
 							<div className="flex flex-wrap items-center justify-center gap-3">
-								<button
+								{/* The empty list's own ways to start a deck are creates too
+								    (REQ252), refused with the same reason as the hero's. */}
+								<CreateControl
+									refusal={createRefusal}
+									label={words.createFirst}
 									className="btn-primary px-6 py-2.5"
-									type="button"
 									onClick={() => go({ page: "create" })}
 								>
 								{words.createFirst}
-								</button>
+								</CreateControl>
 								{/* The emptier this list is, the more useful a prebuilt deck
 								    is (REQ005) — so the offer is here too, not only in the
 								    hero above. */}
-								<button
+								<CreateControl
+									refusal={createRefusal}
+									label={words.startFromTemplate}
 									className="btn-secondary px-6 py-2.5 inline-flex items-center gap-2"
-									type="button"
 									onClick={() => go({ page: "templates" })}
 								>
 									<LayoutTemplate size={16} />
 									{words.startFromTemplate}
-								</button>
+								</CreateControl>
 							</div>
 						</div>
 					) : folders.length === 0 ? (
@@ -754,6 +771,7 @@ export function OwnDeckCard({
 	owned,
 	signedIn,
 	duplicating,
+	duplicateRefusal = null,
 	onOpen,
 	onShare,
 	onFile,
@@ -769,6 +787,12 @@ export function OwnDeckCard({
 	owned: boolean;
 	signedIn: boolean;
 	duplicating: boolean;
+	/**
+	 * Why this visitor may not duplicate the deck — a duplicate is a create, so
+	 * it is refused while creating without an account is closed and nobody is
+	 * signed in (REQ252) — or `null` when they may.
+	 */
+	duplicateRefusal?: string | null;
 	onOpen: () => void;
 	onShare: () => void;
 	/** Choose this deck's folder (REQ126) — owner-only, like sharing. */
@@ -881,18 +905,36 @@ export function OwnDeckCard({
 				>
 					<Download size={18} />
 				</button>
-				<button
-					type="button"
-					className={`${OWN_DECK_ACTION} ${ICON_BUTTON_HOVER} disabled:cursor-wait`}
-					onClick={(event) => {
-						event.stopPropagation();
-						onDuplicate();
-					}}
-					disabled={duplicating}
-					title={words.duplicateDeck}
-				>
-					<Copy size={18} />
-				</button>
+				{duplicateRefusal !== null ? (
+					// The wrapper keeps a tap on the refused control from reaching the
+					// card, which would open the deck.
+					<span
+						className="contents"
+						onClick={(event) => event.stopPropagation()}
+					>
+						<ReasonButton
+							label={words.duplicateDeck}
+							reason={duplicateRefusal}
+							className={`${OWN_DECK_ACTION} ${ICON_BUTTON_HOVER}`}
+							onClick={onDuplicate}
+						>
+							<Copy size={18} />
+						</ReasonButton>
+					</span>
+				) : (
+					<button
+						type="button"
+						className={`${OWN_DECK_ACTION} ${ICON_BUTTON_HOVER} disabled:cursor-wait`}
+						onClick={(event) => {
+							event.stopPropagation();
+							onDuplicate();
+						}}
+						disabled={duplicating}
+						title={words.duplicateDeck}
+					>
+						<Copy size={18} />
+					</button>
+				)}
 				<button
 					type="button"
 					className={`${OWN_DECK_ACTION} transition-colors ${REMOVE_BUTTON_HOVER}`}

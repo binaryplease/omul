@@ -47,6 +47,10 @@
 
 import { z } from "zod";
 import {
+	GUEST_CREATION_DISABLED_ENV,
+	guestCreationDisabled,
+} from "./instance-access";
+import {
 	DECK_PROMPT_MAX_LENGTH,
 	DECK_TITLE_MAX_LENGTH,
 	POINTS_ITEM_LIMIT,
@@ -616,6 +620,8 @@ export type DeckGenerationAvailability = {
 	/**
 	 * Whether this deployment requires an account to generate — the second,
 	 * rate-limit-independent control (see {@link DECK_GENERATION_ANONYMOUS_ENV}).
+	 * Always `true` while creating without an account is closed (REQ252,
+	 * `OMUL_GUEST_CREATION_DISABLED`).
 	 *
 	 * Reported rather than left to be discovered on a 401, because it is exactly
 	 * the fact a surface needs to disable its control with the true reason.
@@ -674,7 +680,10 @@ export function createDeckGenerator(
 			reason: available ? null : UNAVAILABLE_MESSAGE,
 			promptMaxLength: DECK_PROMPT_MAX_LENGTH,
 			slideTypes: [...GENERATED_SLIDE_TYPES],
-			requiresAccount: !deckGenerationAllowsAnonymous(),
+			// REQ252 — while the operator closed creating without an account, a
+			// generated deck is a deck like any other, so the account requirement
+			// holds whatever OMUL_GENERATION_ALLOW_ANONYMOUS says.
+			requiresAccount: !deckGenerationAllowsAnonymous() || guestCreationDisabled(),
 		};
 	}
 
@@ -779,7 +788,11 @@ export function deckGenerationStartupReport(): string[] {
 	// Who may spend that credential is the other half of the posture, and the
 	// half an operator is most likely to be wrong about — so it is stated
 	// whenever generation is on, not only when it has been opened up.
-	if (deckGenerationAllowsAnonymous()) {
+	if (deckGenerationAllowsAnonymous() && guestCreationDisabled()) {
+		lines.push(
+			`[deck-generation] Restricted to signed-in accounts — ${GUEST_CREATION_DISABLED_ENV}="true" closes creating without an account, and that overrides ${DECK_GENERATION_ANONYMOUS_ENV}="true".`,
+		);
+	} else if (deckGenerationAllowsAnonymous()) {
 		lines.push(
 			`[deck-generation] OPEN — ${DECK_GENERATION_ANONYMOUS_ENV}="true", so callers with no account can spend your provider budget.`,
 			"[deck-generation] Only the abuse limits bound this, and OMUL_RATE_LIMITS_DISABLED would remove those too.",

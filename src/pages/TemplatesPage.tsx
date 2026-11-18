@@ -8,6 +8,7 @@ import { TemplateCard, UseTemplateButton } from "../components/TemplateCard";
 import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { useToast } from "../components/ui/Toast";
+import { useGuestCreationRefusal } from "../guest-creation";
 import {
 	textWithElement,
 	useDocumentLanguage,
@@ -87,6 +88,10 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 	// a second click while the first create is in flight would leave the
 	// organizer with two decks and one editor.
 	const [creatingId, setCreatingId] = useState<string | null>(null);
+	// `/templates` is reachable by URL, so each entry's Use is disabled with its
+	// reason while creating without an account is closed and nobody is signed
+	// in (REQ252). Browsing the catalog stays open.
+	const createRefusal = useGuestCreationRefusal();
 	const { addToast } = useToast();
 	const { text, language } = useInterfaceText();
 	const words = text.templates;
@@ -120,7 +125,7 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 	const filtering = category !== "all" || search.trim() !== "";
 
 	const handleUse = async (template: DeckTemplate) => {
-		if (creatingId) return;
+		if (creatingId || createRefusal) return;
 		setCreatingId(template.id);
 		try {
 			const created = await api.createPresentation(
@@ -257,6 +262,7 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 											})}
 											creating={creatingId === template.id}
 											busy={creatingId !== null}
+											refusal={createRefusal}
 											onUse={() => handleUse(template)}
 										/>
 									</TemplateCard>

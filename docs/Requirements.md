@@ -259,7 +259,7 @@ Prose outside the markers is preserved.
 | [REQ249.md](requirements/REQ249.md) | An operator can build and run a self-hosted omul on a plain Linux host without Docker, following one documented path with persistent data and a restart-on-boot service | Platform & Operations | P2 | done | internal |
 | [REQ250.md](requirements/REQ250.md) | The server binds to an explicit host that defaults to loopback | Platform & Operations | P2 | pending | internal |
 | [REQ251.md](requirements/REQ251.md) | The operator can close account sign-up with OMUL_SIGNUP_DISABLED, and existing accounts keep signing in | Accounts & Workspaces | P2 | done | BR156 |
-| [REQ252.md](requirements/REQ252.md) | The operator can close presentation creation without an account with OMUL_GUEST_CREATION_DISABLED, enforced on every server route that creates a deck | Access & Sharing | P2 | pending | BR156 |
+| [REQ252.md](requirements/REQ252.md) | The operator can close presentation creation without an account with OMUL_GUEST_CREATION_DISABLED, enforced on every server route that creates a deck | Access & Sharing | P2 | done | BR156 |
 
 _242 entries — one row per file in `requirements/`._
 <!-- index:end -->

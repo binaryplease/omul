@@ -19,6 +19,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readClosingSwitch } from "./closing-switch";
 import {
+	GUEST_CREATION_DISABLED_ENV,
+	guestCreationDisabled,
 	instanceAccessStartupReport,
 	resolveInstanceAccess,
 	SIGNUP_DISABLED_ENV,
@@ -84,6 +86,56 @@ describe("OMUL_SIGNUP_DISABLED — what the instance reports (REQ251)", () => {
 	});
 });
 
+describe("OMUL_GUEST_CREATION_DISABLED — what the instance reports (REQ252)", () => {
+	test("the variable is named OMUL_GUEST_CREATION_DISABLED", () => {
+		expect(GUEST_CREATION_DISABLED_ENV).toBe("OMUL_GUEST_CREATION_DISABLED");
+	});
+
+	test("unset or \"false\" reports creation without an account open, \"true\" closed", () => {
+		expect(resolveInstanceAccess({}).guestCreationOpen).toBe(true);
+		expect(
+			resolveInstanceAccess({ OMUL_GUEST_CREATION_DISABLED: "false" })
+				.guestCreationOpen,
+		).toBe(true);
+		expect(
+			resolveInstanceAccess({ OMUL_GUEST_CREATION_DISABLED: "true" }),
+		).toEqual({ signUpOpen: true, guestCreationOpen: false });
+		expect(guestCreationDisabled({ OMUL_GUEST_CREATION_DISABLED: "true" })).toBe(
+			true,
+		);
+	});
+
+	test("the two switches are independent", () => {
+		expect(
+			resolveInstanceAccess({
+				OMUL_SIGNUP_DISABLED: "true",
+				OMUL_GUEST_CREATION_DISABLED: "false",
+			}),
+		).toEqual({ signUpOpen: false, guestCreationOpen: true });
+		expect(
+			resolveInstanceAccess({
+				OMUL_SIGNUP_DISABLED: "true",
+				OMUL_GUEST_CREATION_DISABLED: "true",
+			}),
+		).toEqual({ signUpOpen: false, guestCreationOpen: false });
+	});
+
+	test("a malformed value throws naming OMUL_GUEST_CREATION_DISABLED", () => {
+		expect(() =>
+			resolveInstanceAccess({ OMUL_GUEST_CREATION_DISABLED: "yes" }),
+		).toThrow("OMUL_GUEST_CREATION_DISABLED");
+	});
+
+	test("the boot report says which posture this is", () => {
+		const open = instanceAccessStartupReport(resolveInstanceAccess({}));
+		expect(open[1]).toContain("without an account is open");
+		const closed = instanceAccessStartupReport(
+			resolveInstanceAccess({ OMUL_GUEST_CREATION_DISABLED: "true" }),
+		);
+		expect(closed[1]).toContain("without an account is closed");
+	});
+});
+
 describe("GET /api/instance-access", () => {
 	async function served(environment: Record<string, string | undefined>) {
 		const app = createInstanceAccessRoutes(resolveInstanceAccess(environment));
@@ -104,6 +156,14 @@ describe("GET /api/instance-access", () => {
 		const { status, body } = await served({ OMUL_SIGNUP_DISABLED: "true" });
 		expect(status).toBe(200);
 		expect(body).toEqual({ signUpOpen: false, guestCreationOpen: true });
+	});
+
+	test("reports guestCreationOpen: false while OMUL_GUEST_CREATION_DISABLED=true", async () => {
+		const { status, body } = await served({
+			OMUL_GUEST_CREATION_DISABLED: "true",
+		});
+		expect(status).toBe(200);
+		expect(body).toEqual({ signUpOpen: true, guestCreationOpen: false });
 	});
 });
 
@@ -222,5 +282,32 @@ describe("Better Auth with OMUL_SIGNUP_DISABLED (REQ251)", () => {
 		if (result.booted) return;
 		expect(result.exitCode).not.toBe(0);
 		expect(result.stderr).toContain("OMUL_SIGNUP_DISABLED");
+	});
+});
+
+// ── The server, booted with a malformed guest-creation switch (REQ252) ───
+
+describe("booting the server with OMUL_GUEST_CREATION_DISABLED", () => {
+	test("any other value than \"true\" or \"false\" stops the boot, naming the variable", () => {
+		const environment: Record<string, string> = {};
+		for (const [name, value] of Object.entries(process.env)) {
+			if (value !== undefined) environment[name] = value;
+		}
+		environment.DATABASE_PATH = ":memory:";
+		environment.OMUL_ADMIN_DB = ":memory:";
+		environment.OMUL_AUTH_DB = join(temporaryDirectory, "boot-auth.sqlite");
+		environment.PORT = "0";
+		environment[GUEST_CREATION_DISABLED_ENV] = "yes";
+		// The switch is read before the store is opened or a port is bound, so
+		// the process ends on its own; the timeout only bounds a regression.
+		const ran = Bun.spawnSync({
+			cmd: ["bun", "--no-env-file", join(import.meta.dir, "index.ts")],
+			env: environment,
+			timeout: 30_000,
+		});
+		expect(ran.exitCode).not.toBe(0);
+		expect(ran.stderr.toString()).toContain(
+			`${GUEST_CREATION_DISABLED_ENV} is set to "yes"`,
+		);
 	});
 });

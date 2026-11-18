@@ -57,6 +57,7 @@ What a deployment has to set, and why each one matters:
 | `BETTER_AUTH_SECRET` | **The container refuses to start** (REQ171). It signs every session cookie, and the container never sets `OMUL_ALLOW_INSECURE_DEV_AUTH_SECRET`, so the server fails closed rather than sign with the development literal that ships in the source — where it would hand every reader of the repository the ability to mint an administrator session. The crash names the variable and the command that produces a value. Supply it the way your deployment supplies secrets — an encrypted `env_file`, a secret manager, an orchestrator secret — not from this repository |
 | `OMUL_ADMIN_EMAILS` | **Nobody is an administrator** (REQ164). `/api/admin/*` answers `403` to every account, the operator's own included. Nothing else changes: no presenter or participant path goes through the admin surface, so an instance with no administrators is a complete one. The allowlist ships empty deliberately — an image carrying one deployment's administrators would name them in every other deployment built from the same source |
 | `OMUL_SIGNUP_DISABLED` | **Anyone who reaches the instance can open an account** (REQ251), as every instance before this switch could. Correct for an instance that wants self-service accounts; one that is reachable from the internet only so participants can join sets it to `"true"` — see **Closing account sign-up** below |
+| `OMUL_GUEST_CREATION_DISABLED` | **Anyone who reaches the instance can create presentations without an account** (REQ252), and they are stored on your server. Correct for an open instance; one that is reachable from the internet only so participants can join sets it to `"true"` — see **Closing presentation creation without an account** below |
 | `OMUL_BASE_HOST` | Better Auth's trusted origins are only `localhost:5173` / `localhost:3000`, so every state-changing auth request from the public host fails the Origin check and **nobody can sign in at all**; it is also what puts a reachable link in verification and password-reset mail, and what the `/api` discovery index advertises (REQ151) |
 | `OMUL_TRUST_PROXY` | Behind a reverse proxy, every visitor shares the proxy's one rate-limit bucket, and the `/api` discovery index falls back to the origin it observes — see **Behind a reverse proxy** below. Correct as it stands for a directly-exposed container |
 | `OMUL_IMPRINT_URL` / `OMUL_PRIVACY_URL` / `OMUL_TERMS_URL` | The app links no imprint, privacy policy or terms anywhere — the app menu holds only the theme switch, and nothing is named where a visitor signs up, creates a deck or joins one (REQ183). Correct for a private instance; a deployment that has to make those texts reachable sets the three — see **Environment variables** below |
@@ -116,6 +117,44 @@ OMUL_SIGNUP_DISABLED=true
   for a switch that closes something, the repository's usual "exactly `"true"`
   is on" rule would leave the instance open on a typo such as `"1"`. Which
   posture is in force is printed on every boot (`[accounts] Sign-up is …`).
+
+### Closing presentation creation without an account (REQ252)
+
+An instance that is reachable from the internet so that participants can join
+lets any visitor create and store presentations without an account, unless the
+operator closes that:
+
+```
+OMUL_GUEST_CREATION_DISABLED=true
+```
+
+- **What it closes.** `POST /api/presentations` and `POST /api/deck-generation`
+  answer `401` to a caller without an account, with an `error` saying this
+  instance creates presentations for signed-in accounts only. That covers a
+  blank deck, a template, a duplicate, an import, a generated draft and the
+  command-line client's `omul create`, which prints the server's reason. A
+  refused caller spends no rate-limit budget. The home page keeps Create
+  Presentation, Use template, Generate a draft, Import and each deck's
+  Duplicate visible and disabled for a signed-out visitor, with the reason:
+  sign in to create a presentation. `/create` and `/templates` disable their
+  create action the same way, because both are reachable by URL.
+- **What stays open.** A caller with an account creates as before, by cookie
+  session or by API key. Joining a presentation by code needs no account.
+  Presentations that already exist keep working: an ownerless deck stays
+  editable with its edit token, and claiming one into an account requires an
+  account, as it always did. Nothing is deleted or expired.
+- **Generation.** `GET /api/deck-generation` reports `requiresAccount: true`
+  while the switch is on, whatever `OMUL_GENERATION_ALLOW_ANONYMOUS` says, and
+  the boot report says that the switch overrides it.
+- **Who may have an account is the other switch.** Every account may create.
+  To stop visitors from opening an account and then creating, close sign-up as
+  well (`OMUL_SIGNUP_DISABLED`, above); the two switches are independent.
+- **Accepted values.** The same rule as `OMUL_SIGNUP_DISABLED`: unset, empty or
+  `"false"` keeps creation without an account open, which is how the instance
+  behaved before the switch existed; `"true"` closes it; **any other value
+  stops the server at boot** with an error naming the variable. Which posture
+  is in force is printed on every boot (`[accounts] Creating presentations
+  without an account is …`).
 
 ### Running without Docker
 
@@ -213,6 +252,7 @@ Set via `.mise.toml` for dev, override as needed:
 - `OMUL_ALLOW_INSECURE_DEV_AUTH_SECRET` — set to exactly `"true"` to permit the built-in development signing secret instead of the variable above. **Off unless set, and nothing but local development sets it**: the dev tasks in `.mise.toml` and `server/test-preload.ts` do, and no build, container or deployment does. Do not set it on a host that serves anyone but you — it re-opens exactly the hole REQ171 closed. It is a purpose-named runtime switch rather than a `NODE_ENV` check because `bun build` folds `process.env.NODE_ENV` into the bundle at build time: gated on that, a bundle built with `NODE_ENV` unset froze **open** and signed every cookie with the placeholder no matter what the running server's environment said
 - `OMUL_ADMIN_EMAILS` — comma-separated sign-in addresses of the accounts that may use the admin surface (`/api/admin/*`), matched case-insensitively after trimming and read once at startup (REQ164, `server/admins.ts`). **Unset is the default and means nobody is an administrator**: every admin route answers `403`, including to the operator, and the instance is otherwise complete — nothing a presenter or participant does goes through that surface. The empty default is deliberate rather than an omission. The list used to be compiled in, which named one deployment's administrators in every image built from this source and left a self-hoster no way to name their own short of forking and rebuilding; a shipped fallback list would restore exactly that. Blank, whitespace and stray commas all read as "nobody", so a typo cannot promote anyone. There is still no role column and no self-service grant — who is an administrator is an operator's decision, now taken in configuration instead of in source. Which posture is in force is printed on every boot (`[admin] …`). Supply it the way the signing secret is supplied, by the deployment's own secret/environment delivery, not from this repository
 - `OMUL_SIGNUP_DISABLED` — `"true"` closes account sign-up (REQ251, `server/instance-access.ts`); unset, empty or `"false"` (the `.mise.toml` default) keeps it open, and any other value is a **fatal startup error** naming the variable. Existing accounts keep signing in, and joining by code is unaffected. Read once at boot, reported to the client as `signUpOpen` by `GET /api/instance-access`, and printed on every boot (`[accounts] …`) — see **Closing account sign-up** above
+- `OMUL_GUEST_CREATION_DISABLED` — `"true"` closes presentation creation without an account (REQ252, `server/instance-access.ts`); unset, empty or `"false"` (the `.mise.toml` default) keeps it open, and any other value is a **fatal startup error** naming the variable. `POST /api/presentations` and `POST /api/deck-generation` then answer `401` to a caller without an account before spending any rate-limit budget; a cookie session or an API key still creates, joining by code and existing edit tokens still work. Checked at boot, re-read by the create routes on every request, reported to the client as `guestCreationOpen` by `GET /api/instance-access`, and printed on every boot (`[accounts] …`) — see **Closing presentation creation without an account** above
 - `BETTER_AUTH_URL` / `OMUL_BASE_HOST` — canonical public origin for auth callbacks (production, behind a reverse proxy); inferred per-request in dev. `OMUL_BASE_HOST` also adds the public host to Better Auth's trusted origins, so behind a proxy it is **required for sign-in to work at all**, not just for correct mail links. It is a **bare host** (`omul.example.com`, a `:port` allowed) read as `https://`, never a URL — a value carrying a scheme, path or trailing slash is a fatal startup error rather than a silently ignored one. It is also what the `/api` discovery index advertises (REQ151)
 - `OMUL_TRUSTED_ORIGINS` — extra comma-separated origins allowed to drive auth
 - `SEND_EMAILS` — set to exactly `"true"` to actually send mail (else the emailer logs)
@@ -249,7 +289,7 @@ and stays that way.
 |---|---|---|
 | `GOOGLE_GENERATIVE_AI_API_KEY` | unset | The credential. **Unset is the default and means generation is off.** |
 | `OMUL_GENERATION_MODEL` | `gemini-flash-latest` | Which model is asked. A floating "latest" alias rather than a pinned snapshot. |
-| `OMUL_GENERATION_ALLOW_ANONYMOUS` | unset (i.e. `false`) | Set to exactly `"true"` to let callers **with no account** generate. The default requires a signed-in account — see below. |
+| `OMUL_GENERATION_ALLOW_ANONYMOUS` | unset (i.e. `false`) | Set to exactly `"true"` to let callers **with no account** generate. The default requires a signed-in account — see below. Has no effect while `OMUL_GUEST_CREATION_DISABLED="true"` (REQ252). |
 
 Provider: Google's Generative AI API, reached through the Vercel AI SDK
 (`ai` + `@ai-sdk/google`) — the same SDK and the same variable name
