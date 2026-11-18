@@ -27,7 +27,7 @@ import {
 	BOTTOM_DOCK_ATTRIBUTE,
 	disabledReason,
 } from "../components/ui/BarMenu";
-import { interfaceTextFor } from "../interface-text";
+import { fillText, interfaceTextFor } from "../interface-text";
 import {
 	keyBelongsToField,
 	panelCountTone,
@@ -61,7 +61,11 @@ const panelDescriptor = source.slice(
 );
 const deckMenuRows = source.slice(
 	source.indexOf("const deckMenuRows = (close: () => void) => ("),
-	source.indexOf("const sessionClockShown"),
+	source.indexOf("const moreMenuRows = (close: () => void) => ("),
+);
+const presentMenuRows = source.slice(
+	source.indexOf("const presentMenuRows = (close: () => void) => ("),
+	source.indexOf("const deckMenuRows = (close: () => void) => ("),
 );
 
 /** The `className` of the element opened right after `marker`. */
@@ -151,7 +155,6 @@ describe("the presenter top bar is three ordered zones (REQ190)", () => {
 		// command zone draws.
 		for (const control of [
 			'go({ page: "edit", id: pres.id })',
-			'<PreviewLink\n\t\t\t\tvariant="menu-row"',
 			"ariaLabel={resultsLinkButtonLabel}",
 			"ariaLabel={exportControlLabel}",
 			"ariaLabel={resetButtonLabel}",
@@ -232,6 +235,74 @@ describe("the presenter top bar is three ordered zones (REQ190)", () => {
 	});
 });
 
+describe("Present is one menu holding every way to present (REQ247)", () => {
+	const english = interfaceTextFor("en");
+
+	test("the Present rows are present here, a presenting window and the preview, in that order", () => {
+		const order = [
+			"label={pageText.present}",
+			"enterPresenting();",
+			"label={pageText.openPresentingWindow}",
+			"presentingWindowName(pres.id)",
+			'<PreviewLink\n\t\t\t\tvariant="menu-row"',
+		];
+		let at = 0;
+		for (const marker of order) {
+			const found = presentMenuRows.indexOf(marker, at);
+			expect({ marker, found: found > -1 }).toEqual({ marker, found: true });
+			at = found + marker.length;
+		}
+	});
+
+	test("the Deck rows hold neither the preview nor the presenting window", () => {
+		// Acceptance: "Open presenting window" sat in the Deck menu, away from
+		// Present; the preview went with it.
+		expect(deckMenuRows.length).toBeGreaterThan(0);
+		expect(deckMenuRows).not.toContain("<PreviewLink");
+		expect(deckMenuRows).not.toContain("openPresentingWindow");
+		expect(deckMenuRows).not.toContain("enterPresenting");
+		for (const text of [english, german]) {
+			for (const offers of [
+				text.presenterPage.deckMenuOffers,
+				text.presenterPage.deckMenuOffersWithEdit,
+			]) {
+				expect(offers).not.toMatch(/preview|presenting window|Vorschau|Präsentationsfenster/i);
+			}
+		}
+	});
+
+	test("the Screen group's Present control opens those rows, and focus comes back to it", () => {
+		const screen = topBar.slice(topBar.indexOf("aria-label={pageText.sharedScreenGroup}"));
+		const presentMenu = screen.slice(screen.indexOf("<BarMenu"), screen.indexOf("</BarMenu>"));
+		expect(presentMenu).toContain("triggerRef={presentControlRef}");
+		expect(presentMenu).toContain("label={presentMenuLabel}");
+		expect(presentMenu).toContain("triggerClassName={`${BAR_GROUP_ITEM} max-sm:hidden`}");
+		expect(presentMenu).toMatch(/\{presentMenuRows\}\s*$/);
+		// The bar has no second way into the view beside the menu.
+		expect(source).not.toContain("onClick={enterPresenting}");
+	});
+
+	test("the Present and More triggers name all three rows, in English and in German", () => {
+		for (const text of [english, german]) {
+			const page = text.presenterPage;
+			const presentName = fillText(page.presentMenuLabel, {
+				offers: page.presentMenuOffers,
+			});
+			const moreName = fillText(page.moreMenuLabel, {
+				present: page.presentMenuOffers,
+				offers: page.deckMenuOffers,
+			});
+			for (const row of [page.preview, page.openPresentingWindow]) {
+				expect(presentName.toLowerCase()).toContain(row.toLowerCase());
+				expect(moreName.toLowerCase()).toContain(row.toLowerCase());
+			}
+			expect(presentName.startsWith(`${page.present} — `)).toBe(true);
+			expect(moreName).not.toMatch(/\{\w+\}/);
+		}
+		expect(german.presenterPage.presentMenuLabel).toBe("Präsentieren — {offers}");
+	});
+});
+
 describe("the door is the room's standing invitation (REQ191)", () => {
 	test("the join-bar switch is retired: the page no longer reads showJoinBar", () => {
 		expect(source.includes("showJoinBar")).toBe(false);
@@ -302,9 +373,10 @@ describe("below 1280px the bar is laid out for whoever holds the screen (REQ199)
 		const command_ = topBar.slice(command);
 		expect(command_).toMatch(/triggerClassName=\{`[^`]*\bmax-sm:hidden\b[^`]*`\}/);
 		expect(command_).toMatch(/<AppMenu\s+className=\{`sm:hidden \$\{BAR_CONTROL_SIZE\}`\}\s+leading=\{\{[\s\S]*?rows: moreMenuRows,/);
-		// More leads with Present (REQ247), then the very same Deck rows.
-		expect(source).toMatch(/const moreMenuRows = \(close: \(\) => void\) => \([\s\S]*?label=\{pageText\.present\}[\s\S]*?\{deckMenuRows\(close\)\}/);
+		// More leads with the Present rows (REQ247), then the very same Deck rows.
+		expect(source).toMatch(/const moreMenuRows = \(close: \(\) => void\) => \(\s*<>\s*\{presentMenuRows\(close\)\}[\s\S]*?\{deckMenuRows\(close\)\}/);
 		expect(source.match(/\{deckMenuRows\}|\{deckMenuRows\(close\)\}/g)?.length).toBe(2);
+		expect(source.match(/\{presentMenuRows\}|\{presentMenuRows\(close\)\}/g)?.length).toBe(2);
 	});
 
 	test("More and Deck name the rows from one list, and More leaves its own sections to `AppMenu`", () => {
@@ -313,10 +385,10 @@ describe("below 1280px the bar is laid out for whoever holds the screen (REQ199)
 			/const deckMenuLabel = fillText\(pageText\.deckMenuLabel, \{\s*offers: deckMenuOffers,\s*\}\);/,
 		);
 		expect(command_).toMatch(
-			/label: fillText\(pageText\.moreMenuLabel, \{\s*offers: deckMenuOffers,\s*\}\),/,
+			/label: fillText\(pageText\.moreMenuLabel, \{\s*present: pageText\.presentMenuOffers,\s*offers: deckMenuOffers,\s*\}\),/,
 		);
 		expect(pageSection).toContain('deckMenuLabel: "Deck — {offers}",');
-		expect(pageSection).toContain('moreMenuLabel: "More — present, {offers}",');
+		expect(pageSection).toContain('moreMenuLabel: "More — {present}, {offers}",');
 		// German keeps the "Name — what it holds" shape both triggers share.
 		expect(german.presenterPage.deckMenuLabel).toMatch(/^\S+ — \{offers\}$/);
 		expect(german.presenterPage.moreMenuLabel).toMatch(/^\S+ — .*\{offers\}$/);

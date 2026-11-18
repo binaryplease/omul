@@ -130,6 +130,41 @@ export function presentingShortcut({
 			: null;
 }
 
+/**
+ * How long after a full screen ends an Escape still counts as the press that
+ * ended it. A browser that spends Esc on its full screen may hand the same key
+ * to the page around `fullscreenchange`; that delivery is not a second press.
+ * The page passes `0` for a press that arrives after the document left full
+ * screen but before that event reached it.
+ */
+export const FULLSCREEN_ESCAPE_GRACE_MS = 500;
+
+/**
+ * What Escape does in the presenting view (REQ247). One press never ends both
+ * the full screen and the view: in full screen it ends the full screen alone,
+ * an Escape that arrives within `FULLSCREEN_ESCAPE_GRACE_MS` of a full screen
+ * ending is that same press and does nothing more, and any other Escape leaves
+ * the view. So the view stays on the projector after full screen until the
+ * presenter takes it off with a further Esc or Exit.
+ */
+export function presentingEscape({
+	inFullscreen,
+	msSinceFullscreenEnded,
+}: {
+	inFullscreen: boolean;
+	/** `null` when no full screen has ended on this page. */
+	msSinceFullscreenEnded: number | null;
+}): "end-fullscreen" | "spent" | "leave" {
+	if (inFullscreen) return "end-fullscreen";
+	if (
+		msSinceFullscreenEnded !== null &&
+		msSinceFullscreenEnded < FULLSCREEN_ESCAPE_GRACE_MS
+	) {
+		return "spent";
+	}
+	return "leave";
+}
+
 /** One paging direction, as the strip draws it (`slidePagingFor`). */
 type PagingDirection = { index: number | null; disabled: boolean; label: string };
 

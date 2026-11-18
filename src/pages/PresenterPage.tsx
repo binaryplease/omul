@@ -74,6 +74,7 @@ import {
 	NEXT_SLIDE_KEYS,
 	PRESENTING_HASH,
 	PresentingView,
+	presentingEscape,
 	presentingShortcut,
 	presentingWindowName,
 	PREVIOUS_SLIDE_KEYS,
@@ -462,7 +463,15 @@ export function PresenterPage({
 	// Whether the full screen in force is the one this view asked for. One the
 	// presenter started themselves (F11) is left alone on the way out.
 	const requestedFullscreenRef = useRef(false);
-	// Where focus goes back to on leaving the view.
+	// When a full screen last ended (`performance.now()`), so the Escape that
+	// ended it is not taken as a second press (`presentingEscape`).
+	const fullscreenEndedAtRef = useRef<number | null>(null);
+	// Whether the last `fullscreenchange` left this page in full screen.
+	// Chromium clears `document.fullscreenElement` before it dispatches that
+	// event, so in the gap between the two this is still true while the
+	// document is already out, and an Escape there is the press that ended it.
+	const fullscreenSeenRef = useRef(document.fullscreenElement !== null);
+	// Where focus goes back to on leaving the view: the Present menu's trigger.
 	const presentControlRef = useRef<HTMLButtonElement>(null);
 	const wasPresentingRef = useRef(presenting);
 	const { addToast } = useToast();
@@ -918,11 +927,12 @@ export function PresenterPage({
 	};
 
 	/**
-	 * The presenting view (REQ247): entered by the Present control, its More
-	 * row, `F` or the address, and left by Esc, `F`, Exit or leaving full
-	 * screen. Its state rides the address with `replaceState`, so a reload stays
-	 * in it and Back does not toggle it. The document element goes full screen,
-	 * so menus, the QR dialog and the toasts stay on screen with it.
+	 * The presenting view (REQ247): entered by the Present menu's first row
+	 * (More's below `sm`), `F` or the address, and left by Esc, `F` or Exit.
+	 * Leaving full screen leaves the view on (`followFullscreen`, below). Its
+	 * state rides the address with `replaceState`, so a reload stays in it and
+	 * Back does not toggle it. The document element goes full screen, so menus,
+	 * the QR dialog and the toasts stay on screen with it.
 	 */
 	const requestFullscreen = () => {
 		if (!document.fullscreenEnabled || document.fullscreenElement) return;
@@ -953,17 +963,22 @@ export function PresenterPage({
 		}
 	};
 
-	// Leaving browser full screen by any route leaves a view that asked for it,
-	// so a browser that spends Esc on the full screen still leaves in one press.
-	// The handlers read only setters and refs, so the first render's serve.
+	// Leaving browser full screen by any route — Esc, F11, the browser's own
+	// controls — leaves the presenting view on, in this window and in a
+	// presenting window alike: the projector keeps showing the slide alone until
+	// the presenter leaves the view with a further Esc, `F` or Exit, so the
+	// console never reaches the room because a full screen ended. The view owns
+	// no full screen after that, so leaving it later exits none. The handlers
+	// read only setters and refs, so the first render's serve.
 	useEffect(() => {
 		const followFullscreen = () => {
 			setFullscreenElement(document.fullscreenElement ?? null);
+			fullscreenSeenRef.current = document.fullscreenElement !== null;
 			if (document.fullscreenElement) {
 				setStartCardShown(false);
-			} else if (requestedFullscreenRef.current) {
+			} else {
 				requestedFullscreenRef.current = false;
-				leavePresenting();
+				fullscreenEndedAtRef.current = performance.now();
 			}
 		};
 		document.addEventListener("fullscreenchange", followFullscreen);
@@ -992,8 +1007,8 @@ export function PresenterPage({
 		return () => window.removeEventListener("hashchange", followAddress);
 	}, [presenting]);
 
-	// Back on the control that entered, or on More below `sm`, where Present is
-	// a row of that menu. The page's tree is drawn again on leaving, so focus is
+	// Back on the Present menu's trigger, or on More below `sm`, where the
+	// Present rows lead that menu. The page's tree is drawn again on leaving, so focus is
 	// handed to its new copy rather than to what held it before.
 	useEffect(() => {
 		if (wasPresentingRef.current && !presenting) {
@@ -1035,12 +1050,26 @@ export function PresenterPage({
 			}
 			const dialogOpen =
 				confirmShareEdit || confirmReset || exportOpen || resultsLinkOpen;
-			// In the presenting view Escape leaves it (REQ247), unless a menu has
-			// answered it or a dialog owns it.
+			// In the presenting view Escape ends a full screen first and leaves
+			// the view only on a further press (REQ247, `presentingEscape`),
+			// unless a menu has answered it or a dialog owns it.
 			if (e.key === "Escape" && presenting) {
 				if (!e.defaultPrevented && !dialogOpen) {
 					e.preventDefault();
-					leavePresenting();
+					const fullscreenEndedAt = fullscreenEndedAtRef.current;
+					const escape = presentingEscape({
+						inFullscreen: document.fullscreenElement !== null,
+						msSinceFullscreenEnded: fullscreenSeenRef.current
+							? 0
+							: fullscreenEndedAt === null
+								? null
+								: performance.now() - fullscreenEndedAt,
+					});
+					if (escape === "end-fullscreen") {
+						document.exitFullscreen().catch(() => {});
+					} else if (escape === "leave") {
+						leavePresenting();
+					}
 				}
 				return;
 			}
@@ -1748,21 +1777,70 @@ export function PresenterPage({
 	const deckEditable =
 		isOwner && (pres.status === "draft" || pres.status === "ended");
 	// What the Deck rows offer, named once for the two triggers that open them:
-	// the Deck menu from `sm`, and More below it, where `AppMenu` adds its own
-	// sections to the name (REQ199).
+	// the Deck menu from `sm`, and More below it, where the Present rows come
+	// first and `AppMenu` adds its own sections to the name (REQ199).
 	const deckMenuOffers = deckEditable
 		? pageText.deckMenuOffersWithEdit
 		: pageText.deckMenuOffers;
 	const deckMenuLabel = fillText(pageText.deckMenuLabel, {
 		offers: deckMenuOffers,
 	});
+	const presentMenuLabel = fillText(pageText.presentMenuLabel, {
+		offers: pageText.presentMenuOffers,
+	});
 
 	/**
-	 * Everything about the deck that is not its lifecycle, as rows: drawn by the
-	 * Deck menu from `sm` and at the head of the phone's More menu below it
-	 * (REQ199), one definition so the two cannot come to differ. Each row is
-	 * offered whatever the deck's status — a preview writes nothing (REQ103),
-	 * an export of a running session is a legitimate snapshot (REQ095/REQ096),
+	 * Every way the slide reaches the room alone, as rows (REQ247): the
+	 * presenting view in this window, a second window straight into it, and the
+	 * preview. Drawn by the Present menu in the Screen group from `sm` and at
+	 * the head of the phone's More menu below it, one definition so the two
+	 * cannot come to differ. Each row hands off, so each closes the menu first.
+	 */
+	const presentMenuRows = (close: () => void) => (
+		<>
+			<BarMenuRow
+				icon={<Presentation size={16} />}
+				label={pageText.present}
+				ariaLabel={presentLabel}
+				title={presentLabel}
+				onClick={() => {
+					close();
+					enterPresenting();
+				}}
+			/>
+			{/* A second window straight into the presenting view, for an extended
+			    screen. The named target brings back the one already open; both
+			    windows follow the deck through the broadcast. */}
+			<BarMenuRow
+				icon={<MonitorUp size={16} />}
+				label={pageText.openPresentingWindow}
+				title={pageText.openPresentingWindowTitle}
+				onClick={() => {
+					close();
+					window.open(
+						`/present/${pres.id}${PRESENTING_HASH}`,
+						presentingWindowName(pres.id),
+					);
+				}}
+			/>
+			<PreviewLink
+				variant="menu-row"
+				presentationId={pres.id}
+				go={(route) => {
+					close();
+					go(route);
+				}}
+				canPreview={isOwner}
+			/>
+		</>
+	);
+
+	/**
+	 * Everything about the deck that is neither its lifecycle nor a way to
+	 * present it, as rows: drawn by the Deck menu from `sm` and in the phone's
+	 * More menu below it, after the Present rows (REQ199), one definition so the
+	 * two cannot come to differ. Each row is offered whatever the deck's
+	 * status — an export of a running session is a legitimate snapshot (REQ095/REQ096),
 	 * a results link minted mid-session is a thing to hand somebody (REQ098),
 	 * and a survey deck collects answers while it is still a draft, so no status
 	 * is reliably "nothing to reset" (REQ101) — and disabled with its reason,
@@ -1785,31 +1863,6 @@ export function PresenterPage({
 					<div aria-hidden className={MENU_DIVIDER} />
 				</>
 			)}
-			<PreviewLink
-				variant="menu-row"
-				presentationId={pres.id}
-				go={(route) => {
-					close();
-					go(route);
-				}}
-				canPreview={isOwner}
-			/>
-			{/* A second window straight into the presenting view, for an extended
-			    screen (REQ247). The named target brings back the one already open;
-			    both windows follow the deck through the broadcast. */}
-			<BarMenuRow
-				icon={<MonitorUp size={16} />}
-				label={pageText.openPresentingWindow}
-				title={pageText.openPresentingWindowTitle}
-				onClick={() => {
-					close();
-					window.open(
-						`/present/${pres.id}${PRESENTING_HASH}`,
-						presentingWindowName(pres.id),
-					);
-				}}
-			/>
-			<div aria-hidden className={MENU_DIVIDER} />
 			<BarMenuRow
 				icon={<Link2 size={16} />}
 				label={pageText.shareResultsRow}
@@ -1851,20 +1904,11 @@ export function PresenterPage({
 		</>
 	);
 
-	// The phone's More menu leads with Present (REQ247), where the Screen group's
-	// Present control is from `sm`, then the Deck rows.
+	// The phone's More menu leads with the Present rows (REQ247), where the
+	// Screen group's Present menu is from `sm`, then the Deck rows.
 	const moreMenuRows = (close: () => void) => (
 		<>
-			<BarMenuRow
-				icon={<Presentation size={16} />}
-				label={pageText.present}
-				ariaLabel={presentLabel}
-				title={presentLabel}
-				onClick={() => {
-					close();
-					enterPresenting();
-				}}
-			/>
+			{presentMenuRows(close)}
 			<div aria-hidden className={MENU_DIVIDER} />
 			{deckMenuRows(close)}
 		</>
@@ -1992,21 +2036,28 @@ export function PresenterPage({
 								>
 									{screenBlanked ? <MonitorOff size={16} /> : <Monitor size={16} />}
 								</button>
-								{/* The presenting view (REQ247): the slide alone, for
-								    every viewer. Not a toggle — it is not drawn while
-								    the view is on. Below `sm` it is More's first row,
+								{/* Present (REQ247): one menu holding every way the
+								    slide reaches the room alone — the presenting view
+								    here, a presenting window, the preview
+								    (`presentMenuRows`). Not a toggle — it is not drawn
+								    while the view is on. Below `sm` its rows lead More,
 								    and the dock keeps its shape. */}
-								<button
-									ref={presentControlRef}
-									type="button"
-									onClick={enterPresenting}
-									aria-label={presentLabel}
-									title={presentLabel}
-									className={`${BAR_GROUP_ITEM} max-sm:hidden`}
+								<BarMenu
+									triggerRef={presentControlRef}
+									label={presentMenuLabel}
+									title={pageText.present}
+									heading={pageText.present}
+									triggerClassName={`${BAR_GROUP_ITEM} max-sm:hidden`}
+									trigger={
+										<>
+											<Presentation size={16} aria-hidden />
+											<span>{pageText.present}</span>
+											<ChevronDown size={14} aria-hidden />
+										</>
+									}
 								>
-									<Presentation size={16} aria-hidden />
-									<span>{pageText.present}</span>
-								</button>
+									{presentMenuRows}
+								</BarMenu>
 							</div>
 
 							{/* The panels beside the slide: chips from `sm`, one menu
@@ -2190,6 +2241,7 @@ export function PresenterPage({
 								className={`sm:hidden ${BAR_CONTROL_SIZE}`}
 								leading={{
 									label: fillText(pageText.moreMenuLabel, {
+										present: pageText.presentMenuOffers,
 										offers: deckMenuOffers,
 									}),
 									title: pageText.more,

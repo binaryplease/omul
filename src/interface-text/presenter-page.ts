@@ -36,6 +36,10 @@ export const en = {
 	hidePanels: "Hide panels",
 	present: "Present",
 	presentLabel: "Present — show only the slide, full screen (F)",
+	/** What the Present rows offer, for the Present and More triggers' names. */
+	presentMenuOffers: "present, open presenting window, preview",
+	/** `{offers}` is `presentMenuOffers`. */
+	presentMenuLabel: "Present — {offers}",
 
 	// The panels, as the bar and the Panels menu name them.
 	qaPanel: "Q&A",
@@ -97,14 +101,16 @@ export const en = {
 	// The Deck menu, and More below `sm`.
 	deck: "Deck",
 	/** What the Deck rows offer, for the Deck and More triggers' names. */
-	deckMenuOffers: "preview, open presenting window, share results, export, reset",
-	deckMenuOffersWithEdit:
-		"edit, preview, open presenting window, share results, export, reset",
+	deckMenuOffers: "share results, export, reset",
+	deckMenuOffersWithEdit: "edit, share results, export, reset",
 	/** `{offers}` is `deckMenuOffers` or `deckMenuOffersWithEdit`. */
 	deckMenuLabel: "Deck — {offers}",
 	more: "More",
-	/** `{offers}` as above; the app menu adds its own sections after it. */
-	moreMenuLabel: "More — present, {offers}",
+	/**
+	 * `{present}` is `presentMenuOffers` and `{offers}` the Deck's, as above; the
+	 * app menu adds its own sections after them.
+	 */
+	moreMenuLabel: "More — {present}, {offers}",
 	editPresentation: "Edit presentation",
 	openPresentingWindow: "Open presenting window",
 	openPresentingWindowTitle:
@@ -198,6 +204,8 @@ export const de: Partial<typeof en> = {
 	hidePanels: "Bereiche ausblenden",
 	present: "Präsentieren",
 	presentLabel: "Präsentieren — nur die Folie zeigen, im Vollbild (F)",
+	presentMenuOffers: "Präsentieren, Präsentationsfenster öffnen, Vorschau",
+	presentMenuLabel: "Präsentieren — {offers}",
 
 	qaPanel: "Fragen",
 	audiencePanel: "Publikum",
@@ -250,13 +258,12 @@ export const de: Partial<typeof en> = {
 	noSlides: "Keine Folien",
 
 	deck: "Präsentation",
-	deckMenuOffers:
-		"Vorschau, Präsentationsfenster öffnen, Ergebnisse teilen, Exportieren, Zurücksetzen",
+	deckMenuOffers: "Ergebnisse teilen, Exportieren, Zurücksetzen",
 	deckMenuOffersWithEdit:
-		"Bearbeiten, Vorschau, Präsentationsfenster öffnen, Ergebnisse teilen, Exportieren, Zurücksetzen",
+		"Bearbeiten, Ergebnisse teilen, Exportieren, Zurücksetzen",
 	deckMenuLabel: "Präsentation — {offers}",
 	more: "Mehr",
-	moreMenuLabel: "Mehr — Präsentieren, {offers}",
+	moreMenuLabel: "Mehr — {present}, {offers}",
 	editPresentation: "Präsentation bearbeiten",
 	openPresentingWindow: "Präsentationsfenster öffnen",
 	openPresentingWindowTitle:

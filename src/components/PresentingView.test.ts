@@ -16,7 +16,9 @@ import {
 	isTypingTarget,
 	NEXT_SLIDE_KEYS,
 	PRESENTING_HASH,
+	FULLSCREEN_ESCAPE_GRACE_MS,
 	PRESENTING_LAYER_IDLE_MS,
+	presentingEscape,
 	presentingShortcut,
 	presentingWindowName,
 	PREVIOUS_SLIDE_KEYS,
@@ -133,6 +135,47 @@ describe("the keys of the presenting view (REQ247)", () => {
 			/if \(e\.key === "Escape" && presenting\) \{\s*if \(!e\.defaultPrevented && !dialogOpen\) \{/,
 		);
 	});
+
+	test("one Escape never ends both the full screen and the view", () => {
+		// In full screen, Escape ends the full screen alone.
+		expect(
+			presentingEscape({ inFullscreen: true, msSinceFullscreenEnded: null }),
+		).toBe("end-fullscreen");
+		// The press a browser spent on its full screen, delivered after it ended.
+		expect(
+			presentingEscape({ inFullscreen: false, msSinceFullscreenEnded: 20 }),
+		).toBe("spent");
+		// A further press leaves.
+		expect(
+			presentingEscape({
+				inFullscreen: false,
+				msSinceFullscreenEnded: FULLSCREEN_ESCAPE_GRACE_MS,
+			}),
+		).toBe("leave");
+		expect(
+			presentingEscape({ inFullscreen: false, msSinceFullscreenEnded: null }),
+		).toBe("leave");
+	});
+
+	test("the page's Escape goes through that rule and leaves only on `leave`", () => {
+		const handler = page.slice(
+			page.indexOf("const handleKeyDown = useCallback("),
+			page.indexOf('window.addEventListener("keydown", handleKeyDown)'),
+		);
+		const escape = handler.slice(
+			handler.indexOf('if (e.key === "Escape" && presenting) {'),
+			handler.indexOf("// Below `sm`, Escape takes down the panel sheet"),
+		);
+		expect(escape).toContain("const escape = presentingEscape({");
+		// Chromium clears the full screen before it dispatches the event, so a
+		// press in that gap counts as the one that ended it.
+		expect(escape).toMatch(/msSinceFullscreenEnded: fullscreenSeenRef\.current\s*\?\s*0\s*:/);
+		expect(page).toContain("fullscreenSeenRef.current = document.fullscreenElement !== null;");
+		expect(escape).toMatch(
+			/if \(escape === "end-fullscreen"\) \{\s*document\.exitFullscreen\(\)\.catch\(\(\) => \{\}\);\s*\} else if \(escape === "leave"\) \{\s*leavePresenting\(\);\s*\}/,
+		);
+		expect(escape.match(/leavePresenting\(\)/g)?.length).toBe(1);
+	});
 });
 
 describe("the address and the second window (REQ247)", () => {
@@ -165,6 +208,21 @@ describe("the address and the second window (REQ247)", () => {
 		expect(presentingWindowName("deck-1")).toBe("omul-presenting-deck-1");
 		expect(page).toContain(
 			"`/present/${pres.id}${PRESENTING_HASH}`,\n\t\t\t\t\t\tpresentingWindowName(pres.id),",
+		);
+	});
+
+	test("leaving full screen leaves the presenting view on", () => {
+		// Acceptance: Esc in full screen ended the full screen and the view at
+		// once, so the presenter's console reached the projector.
+		const follow = page.slice(
+			page.indexOf("const followFullscreen = () => {"),
+			page.indexOf('document.addEventListener("fullscreenchange", followFullscreen);'),
+		);
+		expect(follow.length).toBeGreaterThan(0);
+		expect(follow).not.toContain("leavePresenting");
+		expect(follow).not.toContain("setPresenting(");
+		expect(follow).toMatch(
+			/\} else \{\s*requestedFullscreenRef\.current = false;\s*fullscreenEndedAtRef\.current = performance\.now\(\);\s*\}/,
 		);
 	});
 
@@ -270,10 +328,10 @@ describe("how the presenter screen offers the view (REQ247)", () => {
 	const screenGroup = screen.slice(0, screen.indexOf("</div>"));
 
 	test("Present follows Blank in the Screen group, from `sm`", () => {
-		expect(screenGroup.indexOf("aria-pressed={screenBlanked}")).toBeLessThan(
-			screenGroup.indexOf("onClick={enterPresenting}"),
-		);
-		expect(screenGroup).toContain("className={`${BAR_GROUP_ITEM} max-sm:hidden`}");
+		const blank = screenGroup.indexOf("aria-pressed={screenBlanked}");
+		expect(blank).toBeGreaterThan(-1);
+		expect(blank).toBeLessThan(screenGroup.indexOf("{presentMenuRows}"));
+		expect(screenGroup).toContain("triggerClassName={`${BAR_GROUP_ITEM} max-sm:hidden`}");
 		expect(screenGroup).not.toContain("aria-pressed={presenting");
 		expect(page).toContain("const presentLabel = pageText.presentLabel;");
 		expect(pageSection).toContain(
