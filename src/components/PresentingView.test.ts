@@ -296,6 +296,7 @@ describe("what the room sees, and the strip (REQ247)", () => {
 			"onPage(paging.next.index)",
 			'<div aria-hidden className="w-px h-5 bg-border" />',
 			"aria-pressed={blank.pressed}",
+			"<AudienceBlankIcon blanked={blank.pressed} />",
 			"onClick={onShowQr}",
 			"{fullscreenOffered && (",
 			'<div aria-hidden className="w-px h-5 bg-border" />',
@@ -309,6 +310,8 @@ describe("what the room sees, and the strip (REQ247)", () => {
 		}
 		expect(strip).toContain("disabled={paging.previous.disabled}");
 		expect(strip).toContain("disabled={blank.disabled}");
+		// The blank's glyph is the Present menu row's (`AudienceBlankIcon`), not a monitor.
+		expect(source).not.toMatch(/\bMonitor(?:Off)?\b/);
 		expect(viewSection).toContain('leave: "Leave presenting view (Esc)",');
 	});
 
@@ -327,10 +330,15 @@ describe("how the presenter screen offers the view (REQ247)", () => {
 	const screen = page.slice(page.indexOf("aria-label={pageText.sharedScreenGroup}"));
 	const screenGroup = screen.slice(0, screen.indexOf("</div>"));
 
-	test("Present follows Blank in the Screen group, from `sm`", () => {
-		const blank = screenGroup.indexOf("aria-pressed={screenBlanked}");
-		expect(blank).toBeGreaterThan(-1);
-		expect(blank).toBeLessThan(screenGroup.indexOf("{presentMenuRows}"));
+	test("Present is the Screen group's one control, from `sm`, and the blank is one of its rows", () => {
+		// The blank moved from a button beside Present into its menu (REQ109).
+		expect(screenGroup).not.toContain("aria-pressed={screenBlanked}");
+		expect(screenGroup).toContain("{presentMenuRows}");
+		const rows = page.slice(
+			page.indexOf("const presentMenuRows = (close: () => void) => ("),
+			page.indexOf("const deckMenuRows = (close: () => void) => ("),
+		);
+		expect(rows).toContain("{...blankMenuRow({ blanked: screenBlanked, canControl: isOwner }, text)}");
 		expect(screenGroup).toContain("triggerClassName={`${BAR_GROUP_ITEM} max-sm:hidden`}");
 		expect(screenGroup).not.toContain("aria-pressed={presenting");
 		expect(page).toContain("const presentLabel = pageText.presentLabel;");

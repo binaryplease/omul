@@ -10,8 +10,6 @@ import {
 	MessageCircleQuestion,
 	MessageSquare,
 	MessagesSquare,
-	Monitor,
-	MonitorOff,
 	MonitorUp,
 	PanelRight,
 	Pencil,
@@ -53,6 +51,7 @@ import {
 } from "../components/PresenterNotes";
 import {
 	AudienceBlankCurtain,
+	AudienceBlankIcon,
 	audienceBlankToggleLabel,
 	closedAtStartNotice,
 	sharedScreenView,
@@ -271,6 +270,35 @@ export function slidePagingFor(
 						: slideOfCount(nextIndex)),
 			}),
 		},
+	};
+}
+
+/**
+ * The blank's row in the Present menu (REQ109/REQ247), for a state and a
+ * viewer: a visible name that stays put, the pressed state for the check mark
+ * and assistive tech, and the accessible name `audienceBlankToggleLabel` gives
+ * the control — the action, and for a viewer who may not blank, why not, which
+ * the row also shows under its name.
+ */
+export function blankMenuRow(
+	{ blanked, canControl }: { blanked: boolean; canControl: boolean },
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): {
+	label: string;
+	ariaLabel: string;
+	title: string;
+	reason: string;
+	disabled: boolean;
+	pressed: boolean;
+} {
+	const name = audienceBlankToggleLabel({ blanked, canControl }, text);
+	return {
+		label: text.presenterPage.blankRow,
+		ariaLabel: name,
+		title: name,
+		reason: disabledReason(name),
+		disabled: !canControl,
+		pressed: blanked,
 	};
 }
 
@@ -1792,9 +1820,11 @@ export function PresenterPage({
 	/**
 	 * Every way the slide reaches the room alone, as rows (REQ247): the
 	 * presenting view in this window, a second window straight into it, and the
-	 * preview. Drawn by the Present menu in the Screen group from `sm` and at
-	 * the head of the phone's More menu below it, one definition so the two
-	 * cannot come to differ. Each row hands off, so each closes the menu first.
+	 * preview — then the one switch that takes the room's screen away (REQ109).
+	 * Drawn by the Present menu in the Screen group from `sm` and at the head of
+	 * the phone's More menu below it, one definition so the two cannot come to
+	 * differ. Each row hands off, so each closes the menu first: blanking
+	 * swaps this whole page for the curtain, which carries the way back.
 	 */
 	const presentMenuRows = (close: () => void) => (
 		<>
@@ -1831,6 +1861,23 @@ export function PresenterPage({
 					go(route);
 				}}
 				canPreview={isOwner}
+			/>
+			<div aria-hidden className={MENU_DIVIDER} />
+			{/* The blank (REQ109). Pressed means taken off, and the pressed
+			    state is the room's rather than this browser's: a second browser
+			    projecting the deck reads the same field off the same broadcast.
+			    The visible name stays put and the check mark carries the state;
+			    the accessible name states the action and, for a viewer who may
+			    not blank, why not. The way back is drawn on the curtain itself,
+			    and `B` toggles it from the presenting view. */}
+			<BarMenuRow
+				icon={<AudienceBlankIcon blanked={screenBlanked} />}
+				{...blankMenuRow({ blanked: screenBlanked, canControl: isOwner }, text)}
+				onClick={() => {
+					close();
+					handleSetBlanked(!screenBlanked);
+				}}
+				trailing={screenBlanked ? <Check size={14} aria-hidden /> : undefined}
 			/>
 		</>
 	);
@@ -2013,35 +2060,19 @@ export function PresenterPage({
 							    blank, which takes everything else with it. */}
 							<ShareCluster variant="menu" controls={shareControls} />
 
-							{/* The one switch that takes the projected screen away.
-							    Pressed means taken off, and the pressed state is the
-							    room's rather than this browser's: a second browser
-							    projecting the deck reads the same field off the same
-							    broadcast. The blank (REQ109) governs the whole projected
-							    view, so there is no sub-region to sit beside, and the
-							    way back is drawn on the curtain itself.
+							{/* The shared screen: one Present menu (REQ247) holding
+							    every way the slide reaches the room alone — the
+							    presenting view here, a presenting window, the preview
+							    — and the blank that takes the projected screen away
+							    (REQ109), all in `presentMenuRows`. The trigger only
+							    opens the menu; it is not drawn while the view is on.
+							    Below `sm` the rows lead More instead, so the group is
+							    not drawn in the dock.
 
 							    From `sm` to `xl` it starts the second line's right
 							    edge, so the door holds Back's edge and the switches hold
 							    the app menu's (REQ199). */}
-							<div role="group" aria-label={pageText.sharedScreenGroup} className={`${BAR_GROUP} sm:max-xl:ml-auto`}>
-								<button
-									type="button"
-									onClick={() => handleSetBlanked(!screenBlanked)}
-									disabled={!isOwner}
-									aria-pressed={screenBlanked}
-									aria-label={blankButtonLabel}
-									title={blankButtonLabel}
-									className={BAR_GROUP_ITEM}
-								>
-									{screenBlanked ? <MonitorOff size={16} /> : <Monitor size={16} />}
-								</button>
-								{/* Present (REQ247): one menu holding every way the
-								    slide reaches the room alone — the presenting view
-								    here, a presenting window, the preview
-								    (`presentMenuRows`). Not a toggle — it is not drawn
-								    while the view is on. Below `sm` its rows lead More,
-								    and the dock keeps its shape. */}
+							<div role="group" aria-label={pageText.sharedScreenGroup} className={`${BAR_GROUP} sm:max-xl:ml-auto max-sm:hidden`}>
 								<BarMenu
 									triggerRef={presentControlRef}
 									label={presentMenuLabel}

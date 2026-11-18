@@ -37,9 +37,15 @@ export const en = {
 	present: "Present",
 	presentLabel: "Present — show only the slide, full screen (F)",
 	/** What the Present rows offer, for the Present and More triggers' names. */
-	presentMenuOffers: "present, open presenting window, preview",
+	presentMenuOffers:
+		"present, open presenting window, preview, blank the shared screen",
 	/** `{offers}` is `presentMenuOffers`. */
 	presentMenuLabel: "Present — {offers}",
+	/**
+	 * The blank's row in the Present menu (REQ109). Its accessible name is
+	 * `audienceBlankToggleLabel`'s, which states the action in either state.
+	 */
+	blankRow: "Blank the shared screen",
 
 	// The panels, as the bar and the Panels menu name them.
 	qaPanel: "Q&A",
@@ -204,8 +210,10 @@ export const de: Partial<typeof en> = {
 	hidePanels: "Bereiche ausblenden",
 	present: "Präsentieren",
 	presentLabel: "Präsentieren — nur die Folie zeigen, im Vollbild (F)",
-	presentMenuOffers: "Präsentieren, Präsentationsfenster öffnen, Vorschau",
+	presentMenuOffers:
+		"Präsentieren, Präsentationsfenster öffnen, Vorschau, geteilten Bildschirm ausblenden",
 	presentMenuLabel: "Präsentieren — {offers}",
+	blankRow: "Geteilten Bildschirm ausblenden",
 
 	qaPanel: "Fragen",
 	audiencePanel: "Publikum",

@@ -1,4 +1,4 @@
-import { EyeOff, Lock, LockOpen } from "lucide-react";
+import { EyeClosed, EyeOff, Lock, LockOpen } from "lucide-react";
 import { DeckMark } from "./DeckTheme";
 import type { LiveRoomState, Presentation } from "../types";
 import { audienceViewBlanked, slideAcceptsSubmissions } from "../types";
@@ -314,10 +314,11 @@ export function ParticipationGate({
 /**
  * What the presenter's blank control is called, in the state it is in.
  *
- * Spelled out because the chip carries an icon and no text, so this string is
- * the whole control — and because "blank" on its own says nothing about the one
- * thing an organizer needs to know before pressing it: that it costs them
- * nothing they have collected.
+ * Spelled out because the presenting view's strip draws the control as an icon
+ * with no text, so this string is the whole control there, and the Present
+ * menu's row names it and shows its refusal reason from it — and because
+ * "blank" on its own says nothing about the one thing an organizer needs to
+ * know before pressing it: that it costs them nothing they have collected.
  */
 export function audienceBlankToggleLabel(
 	{
@@ -336,6 +337,28 @@ export function audienceBlankToggleLabel(
 			: liveRoom.blankSpectatorShown;
 	}
 	return blanked ? liveRoom.blankShow : liveRoom.blankHide;
+}
+
+/**
+ * The blank control's glyph, one definition for the Present menu's row and the
+ * presenting view's strip. Shown, `EyeOff`: the glyph this tree already uses
+ * for "the room does not see this" (the curtain below, the notes' privacy
+ * badge). Blanked, `EyeClosed`: the room's view is shut, a different outline
+ * (a closed lid, no slash) so the two states do not read alike. No monitor:
+ * `MonitorUp` is the presenting window's, and `Eye` is the preview's.
+ */
+export function AudienceBlankIcon({
+	blanked,
+	size = 16,
+}: {
+	blanked: boolean;
+	size?: number;
+}) {
+	return blanked ? (
+		<EyeClosed size={size} aria-hidden />
+	) : (
+		<EyeOff size={size} aria-hidden />
+	);
 }
 
 /**

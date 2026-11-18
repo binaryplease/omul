@@ -118,8 +118,8 @@ that already exist — compose these, never re-hand-roll:
   Appearance; the menu appends what its own sections hold to that name
   (`appMenuTriggerLabel()`), feedback included where it is on, in a `w-64`
   panel, with focus on its first enabled row on open. The presenter's phone bar
-  folds its Deck menu into a More menu this way rather than drawing two menu
-  triggers side by side. Below Appearance sits the Language section (REQ248):
+  folds its Present and Deck menus into a More menu this way rather than
+  drawing their triggers side by side. Below Appearance sits the Language section (REQ248):
   Automatic, English, Deutsch. The participant screen and the preview pass
   `speaksDeckLanguage`, which drops the section; there the menu speaks the
   `language` prop, the deck's (REQ225), or English where none is given.
@@ -391,9 +391,13 @@ that already exist — compose these, never re-hand-roll:
   control goes by in each of its states, `<SlideParticipationControl/>` the
   presenter's open/close switch — on the slide it governs, beside the reveal and
   the timer restart — and `<ParticipationGate/>` the participant's
-  half. **Blanking** (REQ109): `audienceBlankToggleLabel()` and
-  `<AudienceBlankCurtain/>`, the stated screen the projector wears instead of
-  the slide.
+  half. **Blanking** (REQ109): `audienceBlankToggleLabel()`,
+  `<AudienceBlankIcon/>` — the control's glyph, `EyeOff` shown and `EyeClosed`
+  blanked, for the presenter's Present-menu row and the presenting view's strip
+  alike — and `<AudienceBlankCurtain/>`, the stated screen the projector wears
+  instead of the slide. The presenter's bar draws no blank button of its own:
+  the blank is the last row of the Present menu (`presentMenuRows`, REQ247),
+  which leads More below `sm`.
   Four rules the module exists to keep:
   - **The predicates are not here.** `slideAcceptsSubmissions()` and
     `audienceViewBlanked()` live in `server/schemas.ts` and are re-exported
@@ -852,7 +856,7 @@ that already exist — compose these, never re-hand-roll:
   will make of a half-typed colour, and what stands while nothing is authored.
 - **Preview entry** — `src/components/PreviewLink.tsx` is the single control that
   opens a dry run, composed by the editor and — as `variant="menu-row"`, a row
-  of the Deck menu — the presenter's screen. It is
+  of the Present menu (`presentMenuRows`, REQ247) — the presenter's screen. It is
   offered whether or not the browser holds the deck, disabled with its reason:
   a preview reads the deck's answer keys, so it needs the same
   credential an edit does.

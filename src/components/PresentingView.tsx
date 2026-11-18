@@ -3,8 +3,6 @@ import {
 	ChevronRight,
 	Maximize,
 	Minimize2,
-	Monitor,
-	MonitorOff,
 	QrCode,
 } from "lucide-react";
 import {
@@ -19,6 +17,7 @@ import {
 import { flushSync } from "react-dom";
 import { getDict, resolveLang } from "../i18n";
 import { useInterfaceText } from "../interface-language";
+import { AudienceBlankIcon } from "./LiveRoom";
 import { BAR_GROUP, BAR_GROUP_ITEM } from "./ShareCluster";
 
 // ── Presenting view (REQ247) ─────────────────────────────────
@@ -467,7 +466,7 @@ export function PresentingView({
 						title={blank.label}
 						className={BAR_GROUP_ITEM}
 					>
-						{blank.pressed ? <MonitorOff size={16} /> : <Monitor size={16} />}
+						<AudienceBlankIcon blanked={blank.pressed} />
 					</button>
 					<button
 						type="button"

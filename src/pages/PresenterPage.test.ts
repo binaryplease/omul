@@ -18,17 +18,25 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import {
+	AudienceBlankIcon,
+	audienceBlankToggleLabel,
+} from "../components/LiveRoom";
 import {
 	buildShareControls,
 	joinMenuLabel,
 	shareMenuLabel,
 } from "../components/ShareCluster";
 import {
+	BarMenuRow,
 	BOTTOM_DOCK_ATTRIBUTE,
 	disabledReason,
 } from "../components/ui/BarMenu";
 import { fillText, interfaceTextFor } from "../interface-text";
 import {
+	blankMenuRow,
 	keyBelongsToField,
 	panelCountTone,
 	panelSheetEscape,
@@ -123,10 +131,10 @@ describe("the presenter top bar is three ordered zones (REQ190)", () => {
 		}
 	});
 
-	test("the shared-screen switches and the panels sit in the room console", () => {
+	test("the door, the shared-screen group and the panels sit in the room console", () => {
 		for (const control of [
 			"<ShareCluster",
-			"aria-label={blankButtonLabel}",
+			"aria-label={pageText.sharedScreenGroup}",
 			"panelToggles.map(",
 		]) {
 			const position = topBar.indexOf(control);
@@ -238,13 +246,17 @@ describe("the presenter top bar is three ordered zones (REQ190)", () => {
 describe("Present is one menu holding every way to present (REQ247)", () => {
 	const english = interfaceTextFor("en");
 
-	test("the Present rows are present here, a presenting window and the preview, in that order", () => {
+	test("the Present rows are present here, a presenting window, the preview and the blank, in that order", () => {
 		const order = [
 			"label={pageText.present}",
 			"enterPresenting();",
 			"label={pageText.openPresentingWindow}",
 			"presentingWindowName(pres.id)",
 			'<PreviewLink\n\t\t\t\tvariant="menu-row"',
+			"<div aria-hidden className={MENU_DIVIDER} />",
+			"icon={<AudienceBlankIcon blanked={screenBlanked} />}",
+			"{...blankMenuRow({ blanked: screenBlanked, canControl: isOwner }, text)}",
+			"handleSetBlanked(!screenBlanked);",
 		];
 		let at = 0;
 		for (const marker of order) {
@@ -282,7 +294,7 @@ describe("Present is one menu holding every way to present (REQ247)", () => {
 		expect(source).not.toContain("onClick={enterPresenting}");
 	});
 
-	test("the Present and More triggers name all three rows, in English and in German", () => {
+	test("the Present and More triggers name all four rows, in English and in German", () => {
 		for (const text of [english, german]) {
 			const page = text.presenterPage;
 			const presentName = fillText(page.presentMenuLabel, {
@@ -292,7 +304,7 @@ describe("Present is one menu holding every way to present (REQ247)", () => {
 				present: page.presentMenuOffers,
 				offers: page.deckMenuOffers,
 			});
-			for (const row of [page.preview, page.openPresentingWindow]) {
+			for (const row of [page.preview, page.openPresentingWindow, page.blankRow]) {
 				expect(presentName.toLowerCase()).toContain(row.toLowerCase());
 				expect(moreName.toLowerCase()).toContain(row.toLowerCase());
 			}
@@ -300,6 +312,92 @@ describe("Present is one menu holding every way to present (REQ247)", () => {
 			expect(moreName).not.toMatch(/\{\w+\}/);
 		}
 		expect(german.presenterPage.presentMenuLabel).toBe("Präsentieren — {offers}");
+	});
+});
+
+describe("the blank is a row of the Present menu, not a bar button (REQ109/REQ247)", () => {
+	const english = interfaceTextFor("en");
+	const screenGroup = topBar.slice(
+		topBar.indexOf("aria-label={pageText.sharedScreenGroup}"),
+		topBar.indexOf("aria-label={pageText.panelsGroup}"),
+	);
+	const row = (blanked: boolean, canControl: boolean, text = english) =>
+		renderToStaticMarkup(
+			createElement(BarMenuRow, {
+				icon: createElement(AudienceBlankIcon, { blanked }),
+				...blankMenuRow({ blanked, canControl }, text),
+				onClick: () => {},
+			}),
+		);
+	/** An attribute value as `renderToStaticMarkup` escapes it. */
+	const escaped = (value: string) => value.replace(/'/g, "&#x27;");
+
+	test("the shared-screen group draws the Present trigger and no blank button", () => {
+		expect(screenGroup.length).toBeGreaterThan(0);
+		expect(screenGroup).not.toContain("handleSetBlanked");
+		expect(screenGroup).not.toContain("aria-pressed");
+		expect(screenGroup).not.toContain("blankButtonLabel");
+		expect(screenGroup).not.toContain("AudienceBlankIcon");
+		expect(screenGroup.match(/<button\b/g)).toBeNull();
+		expect(screenGroup.match(/<BarMenu\b/g)?.length).toBe(1);
+		// Its one trigger is not drawn below `sm`, so neither is the group.
+		expect(screenGroup).toMatch(/^aria-label=\{pageText\.sharedScreenGroup\} className=\{`[^`]*\bmax-sm:hidden\b/);
+		// Nowhere else in the bar draws it either: the menu row is the one in it.
+		expect(topBar).not.toContain("handleSetBlanked");
+		// The menu row and the presenting view's strip; `B` reads the deck itself.
+		expect(source.match(/handleSetBlanked\(!screenBlanked\)/g)?.length).toBe(2);
+	});
+
+	test("shown and held: the row offers to blank, unpressed, and is enabled", () => {
+		const markup = row(false, true);
+		expect(markup).toContain(`aria-label="${escaped(audienceBlankToggleLabel({ blanked: false, canControl: true }))}"`);
+		expect(markup).toContain('aria-label="Blank the shared screen — the room&#x27;s screen goes dark');
+		expect(markup).toContain('aria-pressed="false"');
+		expect(markup).not.toContain('disabled=""');
+		expect(markup).toContain(">Blank the shared screen</span>");
+		expect(markup).toContain("lucide-eye-off");
+	});
+
+	test("blanked and held: the row offers to show the slide again, pressed, in another glyph", () => {
+		const markup = row(true, true);
+		expect(markup).toContain(`aria-label="${escaped(audienceBlankToggleLabel({ blanked: true, canControl: true }))}"`);
+		expect(markup).toContain('aria-label="Show the slide again — ');
+		expect(markup).toContain('aria-pressed="true"');
+		expect(markup).not.toContain('disabled=""');
+		expect(markup).toContain("lucide-eye-closed");
+		expect(markup).not.toContain("lucide-eye-off");
+	});
+
+	test("for a viewer who does not hold the deck the row is disabled with its reason shown", () => {
+		for (const blanked of [false, true]) {
+			const label = audienceBlankToggleLabel({ blanked, canControl: false });
+			const markup = row(blanked, false);
+			expect(markup).toContain(`aria-label="${escaped(label)}"`);
+			expect(markup).toContain('disabled=""');
+			expect(markup).toContain(`>${escaped(disabledReason(label))}</span>`);
+			expect(markup).toContain(`aria-pressed="${blanked}"`);
+		}
+		expect(blankMenuRow({ blanked: false, canControl: false }).reason).toBe(
+			"You cannot edit this presentation, so its screen is not yours to blank",
+		);
+	});
+
+	test("the row reads German, its name and its reason", () => {
+		const german = interfaceTextFor("de");
+		const held = blankMenuRow({ blanked: false, canControl: true }, german);
+		expect(held.label).toBe("Geteilten Bildschirm ausblenden");
+		expect(held.ariaLabel).toBe(
+			audienceBlankToggleLabel({ blanked: false, canControl: true }, german),
+		);
+		const refused = blankMenuRow({ blanked: false, canControl: false }, german);
+		expect(refused.reason).toBe(
+			"Du kannst diese Präsentation nicht bearbeiten, also kannst du ihren Bildschirm nicht ausblenden",
+		);
+	});
+
+	test("the bar no longer draws a monitor glyph for the blank", () => {
+		expect(source).not.toMatch(/\bMonitorOff\b/);
+		expect(source).not.toMatch(/<Monitor size/);
 	});
 });
 
@@ -398,7 +496,7 @@ describe("below 1280px the bar is laid out for whoever holds the screen (REQ199)
 	});
 
 	test("from `sm` to `xl` line 2 holds both edges", () => {
-		expect(consoleZone).toMatch(/aria-label=\{pageText\.sharedScreenGroup\} className=\{`\$\{BAR_GROUP\} sm:max-xl:ml-auto`\}/);
+		expect(consoleZone).toMatch(/aria-label=\{pageText\.sharedScreenGroup\} className=\{`\$\{BAR_GROUP\} sm:max-xl:ml-auto max-sm:hidden`\}/);
 	});
 
 	test("one control height per width lives in the shared tokens, at every width (REQ192)", () => {
