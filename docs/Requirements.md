@@ -258,6 +258,8 @@ Prose outside the markers is preserved.
 | [REQ248.md](requirements/REQ248.md) | The organizer's interface has a language of its own, chosen per browser in the app menu, defaulting to the browser's language, offered in English and German, independent of the deck's participant language | Rendering & Theming | P1 | in-progress | internal |
 | [REQ249.md](requirements/REQ249.md) | An operator can build and run a self-hosted omul on a plain Linux host without Docker, following one documented path with persistent data and a restart-on-boot service | Platform & Operations | P2 | done | internal |
 | [REQ250.md](requirements/REQ250.md) | The server binds to an explicit host that defaults to loopback | Platform & Operations | P2 | pending | internal |
+| [REQ251.md](requirements/REQ251.md) | The operator can close account sign-up with OMUL_SIGNUP_DISABLED, and existing accounts keep signing in | Accounts & Workspaces | P2 | pending | BR156 |
+| [REQ252.md](requirements/REQ252.md) | The operator can close presentation creation without an account with OMUL_GUEST_CREATION_DISABLED, enforced on every server route that creates a deck | Access & Sharing | P2 | pending | BR156 |
 
-_240 entries — one row per file in `requirements/`._
+_242 entries — one row per file in `requirements/`._
 <!-- index:end -->
