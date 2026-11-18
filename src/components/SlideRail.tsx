@@ -1,5 +1,6 @@
 import { SkipForward } from "lucide-react";
 import type { ButtonHTMLAttributes } from "react";
+import { useInterfaceText } from "../interface-language";
 import type { SlideType } from "../types";
 import { slideTextToPlain } from "./SlideText";
 import { SlideTypeIcon } from "./SlideTypeIcon";
@@ -57,6 +58,7 @@ export function SlideRailItem({
 	// `type` (slide type) and `title` (slide title) are our own props; drop the
 	// native button attributes of the same name so they don't collide.
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type" | "title">) {
+	const { text } = useInterfaceText();
 	const gist = slideTextToPlain(title);
 	return (
 		<button
@@ -68,11 +70,11 @@ export function SlideRailItem({
 		>
 			<div className="flex items-center gap-2 md:mb-1">
 				<span className="font-mono text-xs text-text-muted">{index + 1}</span>
-				<SlideTypeIcon type={type} />
+				<SlideTypeIcon type={type} labels={text.slideView.slideTypes} />
 				{skipped && <SkippedSlideMarker />}
 			</div>
 			<p className={`truncate ${alwaysShowTitle ? "" : "hidden md:block"}`}>
-				{gist || "Untitled"}
+				{gist || text.presenterPage.untitledSlide}
 			</p>
 		</button>
 	);
@@ -84,13 +86,14 @@ export function SlideRailItem({
  * drawing its own, so a skipped slide reads the same on both.
  */
 export function SkippedSlideMarker() {
+	const { text } = useInterfaceText();
 	return (
 		<span
 			className="inline-flex items-center gap-0.5 text-[11px] text-text-dim"
-			title="Skipped — Next and Previous step over this slide"
+			title={text.presenterPage.skippedTitle}
 		>
 			<SkipForward size={11} aria-hidden />
-			<span className="sr-only">, skipped</span>
+			<span className="sr-only">{text.presenterPage.skippedSuffix}</span>
 		</span>
 	);
 }

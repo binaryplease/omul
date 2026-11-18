@@ -7,6 +7,16 @@ import { SlideTypeIcon } from "../components/SlideTypeIcon";
 import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { useToast } from "../components/ui/Toast";
+import {
+	textWithElement,
+	useDocumentLanguage,
+	useInterfaceText,
+} from "../interface-language";
+import {
+	fillText,
+	type InterfaceLanguage,
+	type InterfaceText,
+} from "../interface-text";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 import type { DeckGenerationAvailability, GeneratedSlideType } from "../types";
@@ -32,18 +42,24 @@ import { DECK_PROMPT_MAX_LENGTH } from "../types";
 // with no provider key configured is the ordinary case, so the control is drawn
 // and disabled with the reason rather than hidden — a missing button
 // is indistinguishable from a broken one.
-
-/** What the box suggests when the organizer has typed nothing yet. */
-const PROMPT_PLACEHOLDER =
-	"A 30-minute retrospective for a team of eight that just shipped a rough release — how it went, what to keep, what to change.";
+//
+// The page is in the interface language (REQ248), and the deck it drafts
+// starts with its participant language set to it — which is also the language
+// the generator is asked to write the questions in, so a German presenter gets
+// a German draft.
 
 /**
- * The one sentence this page has to land, and the reason it is drawn beside the
- * result rather than buried in a tooltip: what comes back is a draft, and the
- * one thing a draft cannot be trusted about is which answer is right.
+ * What a generation asks the server for: the brief, and the interface language
+ * as the deck's starting participant language and the language it is written
+ * in (REQ248). Only the starting value — the presenter changes it in the deck's
+ * settings like any other.
  */
-const DRAFT_NOTICE =
-	"Everything it writes is a starting point — read it before you run it. No answer comes back marked correct, so mark the answer key yourself on any quiz or knowledge-check slide.";
+export function deckGenerationRequest(
+	prompt: string,
+	language: InterfaceLanguage,
+): { prompt: string; language: InterfaceLanguage } {
+	return { prompt, language };
+}
 
 export function GeneratePage({ go }: { go: (r: Route) => void }) {
 	const [availability, setAvailability] =
@@ -56,8 +72,11 @@ export function GeneratePage({ go }: { go: (r: Route) => void }) {
 	const [generating, setGenerating] = useState(false);
 	const { addToast } = useToast();
 	const { data: session } = useSession();
+	const { text, language } = useInterfaceText();
+	const words = text.generate;
 
-	usePageTitle("Generate a deck");
+	usePageTitle(words.pageTitle);
+	useDocumentLanguage(language);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -94,17 +113,18 @@ export function GeneratePage({ go }: { go: (r: Route) => void }) {
 	 * cannot or will not do first, then what they have not typed yet.
 	 */
 	const blockedReason = (): string | null => {
-		if (loadError) {
-			return `Could not ask this server whether it can generate: ${loadError}`;
-		}
-		if (availability && !availability.available) return availability.reason;
-		if (needsSignIn) {
-			return "Sign in to generate a deck — this server only drafts for account holders.";
-		}
-		if (generating) return "Drafting your deck — this takes a few seconds.";
-		if (trimmed === "") return "Describe the session you want first.";
+		if (loadError) return fillText(words.blockedLoadFailed, { reason: loadError });
+		// "Not configured" is the one reason the report gives
+		// (`server/deck-generator.ts`), worded here in the interface language.
+		if (availability && !availability.available) return words.blockedUnavailable;
+		if (needsSignIn) return words.blockedSignIn;
+		if (generating) return words.blockedGenerating;
+		if (trimmed === "") return words.blockedEmpty;
 		if (overLength) {
-			return `That brief is ${trimmed.length} characters; the limit is ${promptMaxLength}.`;
+			return fillText(words.blockedTooLong, {
+				count: trimmed.length,
+				limit: promptMaxLength,
+			});
 		}
 		return null;
 	};
@@ -115,14 +135,16 @@ export function GeneratePage({ go }: { go: (r: Route) => void }) {
 		if (blocked || generating) return;
 		setGenerating(true);
 		try {
-			const created = await api.generatePresentation({ prompt: trimmed });
-			addToast(`Drafted “${created.title}” — review it before you run it`, "success");
+			const created = await api.generatePresentation(
+				deckGenerationRequest(trimmed, language),
+			);
+			addToast(fillText(words.drafted, { title: created.title }), "success");
 			go({ page: "edit", id: created.id });
 		} catch (generateError: unknown) {
 			addToast(
 				generateError instanceof Error
 					? generateError.message
-					: "Could not generate a deck from that prompt",
+					: words.generateFailed,
 				"error",
 			);
 		} finally {
@@ -144,23 +166,22 @@ export function GeneratePage({ go }: { go: (r: Route) => void }) {
 						onClick={() => go({ page: "home" })}
 					>
 						<ChevronLeft size={16} />
-						Back
+						{words.back}
 					</button>
 					<div className="flex items-center gap-3 mb-2">
 						<Sparkles size={16} className="text-accent" />
 						<span className="font-mono text-sm text-text-muted tracking-wider uppercase">
-							generate
+							{words.eyebrow}
 						</span>
 					</div>
 					<h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-3">
-						Describe the session, get a{" "}
-						<span className="text-accent-text">draft deck</span>
+						{textWithElement(
+							words.title,
+							"accent",
+							<span className="text-accent-text">{words.titleAccent}</span>,
+						)}
 					</h1>
-					<p className="text-text-muted max-w-xl">
-						Say what the session is for and who is in the room. You get a full
-						deck you own from the moment it lands — the slides are yours to
-						edit, reorder or throw away.
-					</p>
+					<p className="text-text-muted max-w-xl">{words.intro}</p>
 				</header>
 
 				{loading ? (
@@ -170,19 +191,19 @@ export function GeneratePage({ go }: { go: (r: Route) => void }) {
 						{/* The draft caveat sits above the box it qualifies —
 						    it is a fact about what this control produces, so it is read
 						    before the control is used rather than after. */}
-						<DraftNotice />
+						<DraftNotice words={words} />
 
 						<div className="flex flex-col gap-2">
 							<label
 								className="text-sm font-medium text-text-muted"
 								htmlFor="deck-prompt"
 							>
-								What is the session for?
+								{words.promptLabel}
 							</label>
 							<textarea
 								id="deck-prompt"
 								className="input min-h-36 resize-y leading-relaxed"
-								placeholder={PROMPT_PLACEHOLDER}
+								placeholder={words.promptPlaceholder}
 								value={prompt}
 								onChange={(event) => setPrompt(event.target.value)}
 								disabled={generating}
@@ -192,7 +213,10 @@ export function GeneratePage({ go }: { go: (r: Route) => void }) {
 								id="deck-prompt-count"
 								className={`text-xs font-mono ${overLength ? "text-error" : "text-text-dim"}`}
 							>
-								{trimmed.length} / {promptMaxLength}
+								{fillText(words.promptCount, {
+									count: trimmed.length,
+									limit: promptMaxLength,
+								})}
 							</div>
 						</div>
 
@@ -205,21 +229,25 @@ export function GeneratePage({ go }: { go: (r: Route) => void }) {
 								className="btn-primary px-6 py-3 inline-flex items-center justify-center gap-2 self-start disabled:opacity-50 disabled:cursor-not-allowed"
 								onClick={handleGenerate}
 								disabled={blocked !== null}
-								title={blocked ?? "Draft a deck from this brief"}
+								title={blocked ?? words.generateTitle}
 							>
 								<Sparkles size={18} />
-								{generating ? "Drafting…" : "Generate draft deck"}
+								{generating ? words.generating : words.generate}
 							</button>
 							{blocked && (
 								<p className="text-sm text-text-dim max-w-xl">{blocked}</p>
 							)}
 							{/* Generating creates a deck — the same contract the blank
 							    editor's Create concludes (REQ183). */}
-							<LegalNotice action="generating a draft" className="max-w-xl" />
+							<LegalNotice
+								action={text.legalNotice.generatingDraft}
+								wording={text.legalNotice}
+								className="max-w-xl"
+							/>
 						</div>
 
 						{availability && availability.available && (
-							<SlideTypesOffered types={availability.slideTypes} />
+							<SlideTypesOffered types={availability.slideTypes} text={text} />
 						)}
 					</div>
 				)}
@@ -228,12 +256,17 @@ export function GeneratePage({ go }: { go: (r: Route) => void }) {
 	);
 }
 
-/** The draft caveat, stated where it applies rather than after the fact. */
-function DraftNotice() {
+/**
+ * The draft caveat — the one sentence this page has to land, and the reason it
+ * is drawn beside the result rather than buried in a tooltip: what comes back
+ * is a draft, and the one thing a draft cannot be trusted about is which answer
+ * is right.
+ */
+function DraftNotice({ words }: { words: InterfaceText["generate"] }) {
 	return (
 		<div className="flex items-start gap-3 p-4 rounded-xl bg-surface-raised border border-border">
 			<AlertTriangle size={18} className="text-accent flex-shrink-0 mt-0.5" />
-			<p className="text-sm text-text-muted">{DRAFT_NOTICE}</p>
+			<p className="text-sm text-text-muted">{words.draftNotice}</p>
 		</div>
 	);
 }
@@ -244,13 +277,23 @@ function DraftNotice() {
  * get?" is answered before the wait rather than after it. The set is the
  * server's own report, never a second list kept here.
  */
-function SlideTypesOffered({ types }: { types: GeneratedSlideType[] }) {
+function SlideTypesOffered({
+	types,
+	text,
+}: {
+	types: GeneratedSlideType[];
+	text: InterfaceText;
+}) {
 	return (
 		<div className="flex flex-wrap items-center gap-2 text-sm text-text-dim">
-			<span className="font-mono text-xs">it may use</span>
+			<span className="font-mono text-xs">{text.generate.mayUse}</span>
 			<span className="flex flex-wrap items-center gap-1.5">
 				{types.map((type) => (
-					<SlideTypeIcon key={type} type={type} />
+					<SlideTypeIcon
+						key={type}
+						type={type}
+						labels={text.slideView.slideTypes}
+					/>
 				))}
 			</span>
 		</div>

@@ -1,4 +1,5 @@
 import { Eye } from "lucide-react";
+import { useInterfaceText } from "../interface-language";
 import type { Route } from "../router";
 import { BarMenuRow } from "./ui/BarMenu";
 
@@ -35,15 +36,15 @@ export function PreviewLink({
 	variant?: "button" | "menu-row";
 	className?: string;
 }) {
-	const title = canPreview
-		? "Preview the deck with test votes — nothing is saved and no session is started"
-		: "You don't have edit access to this presentation, so its preview is not yours to open";
+	const { text } = useInterfaceText();
+	const pageText = text.presenterPage;
+	const title = canPreview ? pageText.previewTitle : pageText.previewRefused;
 	const open = () => go({ page: "preview", id: presentationId });
 	if (variant === "menu-row") {
 		return (
 			<BarMenuRow
 				icon={<Eye size={16} />}
-				label="Preview"
+				label={pageText.preview}
 				reason={title}
 				disabled={!canPreview}
 				title={title}
@@ -60,7 +61,7 @@ export function PreviewLink({
 			title={title}
 		>
 			<Eye size={14} />
-			<span className="hidden sm:inline">Preview</span>
+			<span className="hidden sm:inline">{pageText.preview}</span>
 		</button>
 	);
 }

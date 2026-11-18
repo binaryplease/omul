@@ -41,6 +41,11 @@ import {
 	formatHexColor,
 	parseHexColor,
 } from "./color";
+import { interfaceTextFor } from "../interface-text";
+import {
+	de as germanDeckTheme,
+	en as englishDeckTheme,
+} from "../interface-text/deck-theme";
 import type { DeckBrand } from "../types";
 import {
 	BUILT_IN_DECK_THEME_IDS,
@@ -754,6 +759,64 @@ describe("deckThemeOptions — the editor's picker", () => {
 		expect(option?.label).toBe("Acme");
 		// And the picker still draws it before a deck has been loaded.
 		expect(deckThemeOptions(null).at(-1)?.label).toBe("Custom");
+	});
+});
+
+describe("the pickers in the interface language (REQ248)", () => {
+	const german = interfaceTextFor("de");
+
+	test("each German table names exactly the themes and faces the English one does", () => {
+		for (const table of [
+			"themeDescriptions",
+			"fontLabels",
+			"fontDescriptions",
+		] as const) {
+			expect(Object.keys(germanDeckTheme[table] ?? {}).sort()).toEqual(
+				Object.keys(englishDeckTheme[table]).sort(),
+			);
+		}
+	});
+
+	test("the English catalogs are the English interface text", () => {
+		for (const theme of BUILT_IN_DECK_THEME_IDS) {
+			expect(DECK_THEME_APPEARANCE[theme].description).toBe(
+				englishDeckTheme.themeDescriptions[theme],
+			);
+		}
+		for (const font of DECK_FONT_IDS) {
+			expect(DECK_FONT_STACKS[font].label).toBe(englishDeckTheme.fontLabels[font]);
+			expect(DECK_FONT_STACKS[font].description).toBe(
+				englishDeckTheme.fontDescriptions[font],
+			);
+		}
+	});
+
+	test("a German interface words every card in German, keeping the theme names", () => {
+		const english = deckThemeOptions(null);
+		const options = deckThemeOptions(null, german);
+		expect(options.map((option) => option.value)).toEqual(
+			english.map((option) => option.value),
+		);
+		for (const [index, option] of options.entries()) {
+			expect(option.description).not.toBe(english[index]?.description);
+			if (option.value !== CUSTOM_DECK_THEME_ID) {
+				expect(option.label).toBe(DECK_THEME_APPEARANCE[option.value].label);
+			}
+		}
+		expect(options.at(-1)?.label).toBe("Eigenes Design");
+		// An organizer's own name for their theme is a name, not interface text.
+		expect(deckThemeOptions(brand({ name: "Acme" }), german).at(-1)?.label).toBe(
+			"Acme",
+		);
+	});
+
+	test("a German interface describes every face in German", () => {
+		const english = deckFontOptions();
+		const options = deckFontOptions(german);
+		expect(options.map((option) => option.value)).toEqual([...DECK_FONT_IDS]);
+		for (const [index, option] of options.entries()) {
+			expect(option.description).not.toBe(english[index]?.description);
+		}
 	});
 });
 

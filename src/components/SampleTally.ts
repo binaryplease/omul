@@ -1,3 +1,4 @@
+import { ENGLISH_INTERFACE_TEXT, type InterfaceText } from "../interface-text";
 import type { Slide } from "../types";
 import {
 	acceptedQuizAnswers,
@@ -64,26 +65,16 @@ const SAMPLE_ROOM = 24;
  */
 const SAMPLE_TIMESTAMP = "2024-01-01T09:00:00.000Z";
 
-/** What a stand-in crowd shouts at a word cloud. */
-const SAMPLE_WORDS = [
-	"clarity",
-	"momentum",
-	"focus",
-	"trust",
-	"speed",
-	"craft",
-	"ownership",
-	"curiosity",
-];
-
-/** What a stand-in crowd writes into an open question. */
-const SAMPLE_RESPONSES = [
-	"The examples made it click.",
-	"More time for questions next round.",
-	"Best session of the day.",
-	"Could we get the slides afterwards?",
-	"The live demo was the highlight.",
-];
+/**
+ * What a stand-in crowd shouts at a word cloud and writes into an open
+ * question — `sampleWords` and `sampleResponses` of the interface text
+ * (`src/interface-text/slide-canvas.ts`), handed in by the canvas in the
+ * deck's language where that is an interface language (REQ248).
+ */
+export type SampleRoomWords = Pick<
+	InterfaceText["slideCanvas"],
+	"sampleWords" | "sampleResponses"
+>;
 
 /**
  * Fold a slide id into a seed.
@@ -158,14 +149,14 @@ function toTwoDecimals(value: number): number {
  * a form with no fields — it says what to author instead of leaving an empty
  * frame to be read as a broken renderer.
  */
-export function sampleTallyNote(slide: Slide): string {
-	if (!slideHasResults(slide.type)) {
-		return "This slide collects nothing, so there are no results to draw.";
-	}
-	if (!sampleTallyHasContent(slide)) {
-		return "Nothing to chart yet — write the answers this slide offers and they appear here.";
-	}
-	return "Sample results — a stand-in room, so you can see how this slide draws. Nothing here is saved or sent.";
+export function sampleTallyNote(
+	slide: Slide,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	const copy = text.slideCanvas;
+	if (!slideHasResults(slide.type)) return copy.sampleNoResults;
+	if (!sampleTallyHasContent(slide)) return copy.sampleNothingYet;
+	return copy.sampleNote;
 }
 
 /**
@@ -213,6 +204,7 @@ export function sampleTallyHasContent(slide: Slide): boolean {
 export function sampleTallyFor(
 	slide: Slide,
 	deckQuizCount = 0,
+	roomWords: SampleRoomWords = ENGLISH_INTERFACE_TEXT.slideCanvas,
 ): Record<string, unknown> | null {
 	if (!slideHasResults(slide.type)) return null;
 	const random = createSampleRandom(sampleTallySeed(slide.id ?? ""));
@@ -224,9 +216,9 @@ export function sampleTallyFor(
 				? sampleTypedQuizTally(slide, random)
 				: sampleChoiceTally(slide, random);
 		case "word-cloud":
-			return sampleWordCloudTally(random);
+			return sampleWordCloudTally(random, roomWords.sampleWords);
 		case "open-text":
-			return sampleOpenTextTally(slide, random);
+			return sampleOpenTextTally(slide, random, roomWords.sampleResponses);
 		case "scale":
 			return sampleScaleTally(slide, random);
 		case "ranking":
@@ -379,9 +371,12 @@ function sampleQuizScoring(
  * to draw. They are generic enough not to look like an answer to the question
  * above them, and varied enough in count that the size ramp is visible.
  */
-function sampleWordCloudTally(random: () => number): Record<string, unknown> {
-	const counts = shareRoom(random, SAMPLE_WORDS.length, SAMPLE_ROOM * 2);
-	const words = SAMPLE_WORDS.map((text, index) => ({
+function sampleWordCloudTally(
+	random: () => number,
+	sampleWords: readonly string[],
+): Record<string, unknown> {
+	const counts = shareRoom(random, sampleWords.length, SAMPLE_ROOM * 2);
+	const words = sampleWords.map((text, index) => ({
 		text,
 		count: counts[index],
 	})).sort((first, second) => second.count - first.count);
@@ -396,8 +391,9 @@ function sampleWordCloudTally(random: () => number): Record<string, unknown> {
 function sampleOpenTextTally(
 	slide: Slide,
 	random: () => number,
+	sampleResponses: readonly string[],
 ): Record<string, unknown> {
-	const responses = SAMPLE_RESPONSES.map((text, index) => ({
+	const responses = sampleResponses.map((text, index) => ({
 		id: `sample-response-${index + 1}`,
 		text,
 		createdAt: SAMPLE_TIMESTAMP,

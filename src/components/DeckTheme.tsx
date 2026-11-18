@@ -16,6 +16,7 @@ import {
 } from "./color";
 import type { ChoiceOption } from "./EditorControls";
 import { useTheme } from "./ui/Theme";
+import { ENGLISH_INTERFACE_TEXT, type InterfaceText } from "../interface-text";
 import type {
 	BuiltInDeckThemeId,
 	DeckBrand,
@@ -119,6 +120,12 @@ export type DeckFontStack = {
 };
 
 /**
+ * What the catalogs below say about each theme and face, in English — the
+ * source text of the interface's `deckTheme` section (REQ248).
+ */
+const ENGLISH_DECK_THEME_TEXT = ENGLISH_INTERFACE_TEXT.deckTheme;
+
+/**
  * The faces a theme may name (REQ092), and the only place their stacks are
  * spelled out.
  *
@@ -129,30 +136,34 @@ export type DeckFontStack = {
  * the fallback on every machine but the designer's — which is exactly what "so
  * every surface resolves the same face" rules out, and what no runtime fetch
  * from a third-party host may fix, because this product makes none.
+ *
+ * The labels and descriptions are the English interface text's
+ * (`src/interface-text/deck-theme.ts`); the picker reads them in the
+ * presenter's language through {@link deckFontOptions}.
  */
 export const DECK_FONT_STACKS: Record<DeckFontId, DeckFontStack> = {
 	figtree: {
-		label: "Figtree",
-		description: "The house face — bundled with the app.",
+		label: ENGLISH_DECK_THEME_TEXT.fontLabels.figtree,
+		description: ENGLISH_DECK_THEME_TEXT.fontDescriptions.figtree,
 		display: '"Figtree Variable", system-ui, sans-serif',
 		mono: '"DM Mono", "Menlo", monospace',
 	},
 	system: {
-		label: "System sans",
-		description: "Whatever this device sets its own interface in.",
+		label: ENGLISH_DECK_THEME_TEXT.fontLabels.system,
+		description: ENGLISH_DECK_THEME_TEXT.fontDescriptions.system,
 		display:
 			'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
 		mono: 'ui-monospace, "SFMono-Regular", "Menlo", monospace',
 	},
 	serif: {
-		label: "Serif",
-		description: "A typeset look for text-heavy decks.",
+		label: ENGLISH_DECK_THEME_TEXT.fontLabels.serif,
+		description: ENGLISH_DECK_THEME_TEXT.fontDescriptions.serif,
 		display: 'ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif',
 		mono: 'ui-monospace, "SFMono-Regular", "Menlo", monospace',
 	},
 	mono: {
-		label: "Mono",
-		description: "Control-room monospace — bundled with the app.",
+		label: ENGLISH_DECK_THEME_TEXT.fontLabels.mono,
+		description: ENGLISH_DECK_THEME_TEXT.fontDescriptions.mono,
 		display: '"DM Mono", ui-monospace, "Menlo", monospace',
 		mono: '"DM Mono", ui-monospace, "Menlo", monospace',
 	},
@@ -189,8 +200,7 @@ export const DECK_THEME_APPEARANCE: Record<
 	// is the decision rather than a side effect of it.
 	signal: {
 		label: "Signal",
-		description:
-			"The house look — signal blue on a neutral canvas, set in Figtree.",
+		description: ENGLISH_DECK_THEME_TEXT.themeDescriptions.signal,
 		swatch: { canvas: "#131316", accent: "#2e5cff" },
 		font: "figtree",
 		dark: {
@@ -243,7 +253,7 @@ export const DECK_THEME_APPEARANCE: Record<
 	// Ink / Charcoal / Slate canvas, with the standard text ramp above it.
 	pulse: {
 		label: "Pulse",
-		description: "The house palette — Pulse Blue on a Deep Ink canvas.",
+		description: ENGLISH_DECK_THEME_TEXT.themeDescriptions.pulse,
 		swatch: { canvas: "#141820", accent: "#3b82f6" },
 		font: "figtree",
 		dark: {
@@ -292,7 +302,7 @@ export const DECK_THEME_APPEARANCE: Record<
 	// so the accent reads as the room's light rather than as a sticker on grey.
 	ember: {
 		label: "Ember",
-		description: "Amber into tangerine over a warm canvas — the Warmth row.",
+		description: ENGLISH_DECK_THEME_TEXT.themeDescriptions.ember,
 		swatch: { canvas: "#1a160f", accent: "#f59e0b" },
 		font: "figtree",
 		dark: {
@@ -342,7 +352,7 @@ export const DECK_THEME_APPEARANCE: Record<
 	// is live, and a paper canvas in light mode.
 	editorial: {
 		label: "Editorial",
-		description: "A serif face and Data Spectrum violet — quiet and typeset.",
+		description: ENGLISH_DECK_THEME_TEXT.themeDescriptions.editorial,
 		swatch: { canvas: "#16111f", accent: "#8b5cf6" },
 		font: "serif",
 		dark: {
@@ -392,7 +402,7 @@ export const DECK_THEME_APPEARANCE: Record<
 	// the signal, and a near-black green canvas.
 	broadcast: {
 		label: "Broadcast",
-		description: "Control-room monospace and emerald signal on near-black.",
+		description: ENGLISH_DECK_THEME_TEXT.themeDescriptions.broadcast,
 		swatch: { canvas: "#0d1714", accent: "#10b981" },
 		font: "mono",
 		dark: {
@@ -659,7 +669,7 @@ function derivedCanvasAndText(
 }
 
 /** What the picker calls a theme the organizer has not named. */
-const UNNAMED_BRAND_LABEL = "Custom";
+const UNNAMED_BRAND_LABEL = ENGLISH_DECK_THEME_TEXT.unnamedTheme;
 
 /**
  * What a theme authored on the deck looks like (REQ080, REQ135) — the same shape
@@ -703,7 +713,7 @@ export function deckBrandAppearance(brand: DeckBrand): DeckThemeAppearance {
 
 	return {
 		label: brand.name.trim() || UNNAMED_BRAND_LABEL,
-		description: "This deck's own colours and typeface, authored below.",
+		description: ENGLISH_DECK_THEME_TEXT.customThemeDescription,
 		swatch: { canvas: formatHexColor(canvas), accent: formatHexColor(accent) },
 		font: brand.font,
 		dark: variants.dark,
@@ -963,17 +973,22 @@ export function DeckThemeSwatch({
  * The deck's own theme is offered as a choice beside the built-in five (REQ080),
  * and wears the brand it currently carries: an organizer picking it sees the
  * colours they authored on the card, not a placeholder for them.
+ *
+ * `text` is the interface text the cards are worded in (REQ248); a theme's
+ * name, and the name an organizer gave their own, are names and stay as they
+ * are.
  */
 export function deckThemeOptions(
 	brand: DeckBrand | null,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
 ): ChoiceOption<DeckThemeId>[] {
 	const authored = deckBrandAppearance(brand ?? EMPTY_DECK_BRAND);
 	return [
-		...builtInDeckThemeOptions(),
+		...builtInDeckThemeOptions(text),
 		{
 			value: CUSTOM_DECK_THEME_ID as DeckThemeId,
-			label: authored.label,
-			description: authored.description,
+			label: (brand?.name ?? "").trim() || text.deckTheme.unnamedTheme,
+			description: text.deckTheme.customThemeDescription,
 			icon: <DeckThemeSwatch appearance={authored} />,
 		},
 	];
@@ -985,20 +1000,24 @@ export function deckThemeOptions(
  * same cards {@link deckThemeOptions} leads with, so a theme reads the same in
  * both places.
  */
-export function builtInDeckThemeOptions(): ChoiceOption<BuiltInDeckThemeId>[] {
+export function builtInDeckThemeOptions(
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): ChoiceOption<BuiltInDeckThemeId>[] {
 	return BUILT_IN_DECK_THEME_IDS.map((theme) => ({
 		value: theme,
 		label: DECK_THEME_APPEARANCE[theme].label,
-		description: DECK_THEME_APPEARANCE[theme].description,
+		description: text.deckTheme.themeDescriptions[theme],
 		icon: <DeckThemeSwatch appearance={DECK_THEME_APPEARANCE[theme]} />,
 	}));
 }
 
 /** The faces as the editor offers them (REQ092) — one descriptor, as above. */
-export function deckFontOptions(): ChoiceOption<DeckFontId>[] {
+export function deckFontOptions(
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): ChoiceOption<DeckFontId>[] {
 	return DECK_FONT_IDS.map((font) => ({
 		value: font,
-		label: DECK_FONT_STACKS[font].label,
-		description: DECK_FONT_STACKS[font].description,
+		label: text.deckTheme.fontLabels[font],
+		description: text.deckTheme.fontDescriptions[font],
 	}));
 }

@@ -1,3 +1,4 @@
+import { ENGLISH_INTERFACE_TEXT, type InterfaceText } from "../interface-text";
 import type { WorkspaceMember, WorkspaceRole } from "../types";
 import { WORKSPACE_ROLES } from "../types";
 
@@ -19,55 +20,37 @@ import { WORKSPACE_ROLES } from "../types";
 /**
  * The roles as a person reads them, weakest first — the same order and the same
  * set the API accepts, because a picker that offered a fourth or dropped one
- * would be offering a role the server has no word for.
+ * would be offering a role the server has no word for. Their words are the
+ * interface language's (REQ248), in `src/interface-text/workspaces.ts`.
  */
-export const WORKSPACE_ROLE_DESCRIPTORS: readonly {
-	role: WorkspaceRole;
-	label: string;
-	summary: string;
-}[] = [
-	{
-		role: "commenter",
-		label: "Commenter",
-		summary:
-			"Opens every deck the workspace owns and comments on its slides. Cannot create, edit or present a deck, or start one from a template.",
-	},
-	{
-		role: "member",
-		label: "Member",
-		summary:
-			"Opens, edits and presents every deck the workspace owns, and creates new ones in it. Cannot delete a deck, change who is in the workspace, or rename it.",
-	},
-	{
-		role: "admin",
-		label: "Admin",
-		summary:
-			"Everything a member can do, plus deleting the workspace's decks, deciding who else those decks are shared with, and adding or removing members.",
-	},
-	{
-		role: "owner",
-		label: "Owner",
-		summary:
-			"Everything an admin can do, plus renaming and deleting the workspace, making somebody else an owner, and moving a deck back out into a personal account.",
-	},
-];
+export const WORKSPACE_ROLE_DESCRIPTORS: readonly { role: WorkspaceRole }[] =
+	WORKSPACE_ROLES.map((role) => ({ role }));
 
 /** How a role is named on screen. Falls back to the raw value, never to "". */
-export function workspaceRoleLabel(role: WorkspaceRole | null): string {
-	if (!role) return "No access";
-	return (
-		WORKSPACE_ROLE_DESCRIPTORS.find((descriptor) => descriptor.role === role)
-			?.label ?? role
-	);
+export function workspaceRoleLabel(
+	role: WorkspaceRole | null,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	if (!role) return text.workspaces.noAccess;
+	return text.workspaces.roles[role]?.label ?? role;
+}
+
+/** How a role is named inside a sentence: "You are member here." */
+export function workspaceRoleInSentence(
+	role: WorkspaceRole | null,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	if (!role) return text.workspaces.noAccess;
+	return text.workspaces.roles[role]?.inSentence ?? role;
 }
 
 /** What a role grants, in one sentence, for the picker's helper line. */
-export function workspaceRoleSummary(role: WorkspaceRole | null): string {
-	if (!role) return "You are not in this workspace.";
-	return (
-		WORKSPACE_ROLE_DESCRIPTORS.find((descriptor) => descriptor.role === role)
-			?.summary ?? ""
-	);
+export function workspaceRoleSummary(
+	role: WorkspaceRole | null,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	if (!role) return text.workspaces.notInWorkspace;
+	return text.workspaces.roles[role]?.summary ?? "";
 }
 
 /**
@@ -81,10 +64,11 @@ export function workspaceRoleSummary(role: WorkspaceRole | null): string {
  */
 export function workspaceMemberDisplayName(
 	member: Pick<WorkspaceMember, "email" | "name">,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
 ): string {
 	if (member.name?.trim()) return member.name.trim();
 	if (member.email?.trim()) return member.email.trim();
-	return "Account no longer exists";
+	return text.workspaces.accountGone;
 }
 
 /**

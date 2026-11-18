@@ -56,6 +56,21 @@ import {
 const BASE = "";
 
 /**
+ * A file `importPresentation` refuses before asking the server, by why — so
+ * the page that imports can word it in the interface language (REQ248). Its
+ * message is the English.
+ */
+export class ImportFileError extends Error {
+	constructor(readonly reason: "not-object" | "missing-fields") {
+		super(
+			reason === "not-object"
+				? "Invalid file: expected a JSON object"
+				: "Invalid file: missing `title` or `slides`",
+		);
+	}
+}
+
+/**
  * A refused request, keeping what the error body *said* beyond its prose. The
  * `refused` code is how a stated vote refusal (REQ054/REQ057/REQ111) reaches
  * the UI machine-readably, so the participant screen can name the reason in
@@ -1556,11 +1571,11 @@ export const api = {
 	 */
 	importPresentation: async (data: unknown): Promise<any> => {
 		if (!data || typeof data !== "object") {
-			throw new Error("Invalid file: expected a JSON object");
+			throw new ImportFileError("not-object");
 		}
 		const d = data as Record<string, unknown>;
 		if (typeof d.title !== "string" || !Array.isArray(d.slides)) {
-			throw new Error("Invalid file: missing `title` or `slides`");
+			throw new ImportFileError("missing-fields");
 		}
 		return api.createPresentation({
 			title: d.title,

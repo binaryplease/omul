@@ -1,11 +1,18 @@
 import { Trash2, UserPlus, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
+import { textWithElement, useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceText,
+} from "../interface-text";
 import type {
 	DeckAccessLevel,
 	DeckCollaborator,
 	DeckCollaboratorEntry,
 } from "../types";
+import { DECK_ACCESS_LEVELS } from "../types";
 import { BRAND_NAME } from "./BrandMark";
 import { Modal } from "./ui/Modal";
 
@@ -21,7 +28,8 @@ import { Modal } from "./ui/Modal";
 // A folder (REQ126) is shared through the same dialog, because it is the same
 // question asked one level up: the grant is the same shape, at the same levels,
 // and reaches every deck filed in the folder. Only the calls and the sentences
-// differ, and both are chosen by `subject.kind` from the two tables below.
+// differ, and both are chosen by `subject.kind`: the calls from the table
+// below, the sentences from the interface text's `sharing.subjects` (REQ248).
 //
 // A deck's dialog also lists the accounts that reach the deck through the folder
 // it is filed in. Those rows are read-only here: a folder grant is changed and
@@ -35,57 +43,42 @@ import { Modal } from "./ui/Modal";
 /**
  * The three levels as a person reads them: one descriptor, composed
  * by the picker in this dialog and by the badge on a shared deck's card, so the
- * two cannot come to describe the same grant differently.
+ * two cannot come to describe the same grant differently. Their words are the
+ * interface language's (REQ248), in `src/interface-text/sharing.ts`.
  *
- * `summary` says what the level grants **today** and is deliberately blunt about
- * `comment`: the level exists and is carried faithfully through the model, but
- * comment threads on slides are their own piece of work, so today it authorizes
- * exactly what `view` does. An owner who was told otherwise would be granting
- * something that is not there.
+ * Each level's summary says what it grants **today** and is deliberately blunt
+ * about `comment`: the level exists and is carried faithfully through the model,
+ * but comment threads on slides are their own piece of work, so today it
+ * authorizes exactly what `view` does. An owner who was told otherwise would be
+ * granting something that is not there.
  */
-export const DECK_ACCESS_LEVEL_DESCRIPTORS: readonly {
-	level: DeckAccessLevel;
-	label: string;
-	summary: string;
-}[] = [
-	{
-		level: "view",
-		label: "Can view",
-		summary:
-			"Opens the deck and its results, including what the room is kept from. Changes nothing.",
-	},
-	{
-		level: "comment",
-		label: "Can comment",
-		summary:
-			"Everything a viewer can do. Commenting on slides is not built yet, so today this grants no more than “Can view”.",
-	},
-	{
-		level: "edit",
-		label: "Can edit",
-		summary:
-			"Edits the slides, runs the session and reveals results. Cannot delete the deck or change who it is shared with — both stay with you.",
-	},
-];
+export const DECK_ACCESS_LEVEL_DESCRIPTORS: readonly { level: DeckAccessLevel }[] =
+	DECK_ACCESS_LEVELS.map((level) => ({ level }));
 
 /** How a level is named on screen. Falls back to the raw value, never to "". */
-export function deckAccessLevelLabel(level: DeckAccessLevel | null): string {
-	if (!level) return "No access";
-	return (
-		DECK_ACCESS_LEVEL_DESCRIPTORS.find(
-			(descriptor) => descriptor.level === level,
-		)?.label ?? level
-	);
+export function deckAccessLevelLabel(
+	level: DeckAccessLevel | null,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	if (!level) return text.sharing.noAccess;
+	return text.sharing.accessLevels[level]?.label ?? level;
+}
+
+/** How a level is named inside a sentence: "Ada can now can view this deck". */
+function deckAccessLevelInSentence(
+	level: DeckAccessLevel,
+	text: InterfaceText,
+): string {
+	return text.sharing.accessLevels[level]?.inSentence ?? level;
 }
 
 /** What a level grants, in one sentence, for the picker's helper line. */
-export function deckAccessLevelSummary(level: DeckAccessLevel | null): string {
-	if (!level) return "This deck is not shared with you.";
-	return (
-		DECK_ACCESS_LEVEL_DESCRIPTORS.find(
-			(descriptor) => descriptor.level === level,
-		)?.summary ?? ""
-	);
+export function deckAccessLevelSummary(
+	level: DeckAccessLevel | null,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	if (!level) return text.sharing.notSharedWithYou;
+	return text.sharing.accessLevels[level]?.summary ?? "";
 }
 
 /**
@@ -98,10 +91,11 @@ export function deckAccessLevelSummary(level: DeckAccessLevel | null): string {
  */
 export function collaboratorDisplayName(
 	collaborator: Pick<DeckCollaborator, "email" | "name">,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
 ): string {
 	if (collaborator.name?.trim()) return collaborator.name.trim();
 	if (collaborator.email.trim()) return collaborator.email.trim();
-	return "Account no longer exists";
+	return text.sharing.accountGone;
 }
 
 /** A row of the deck's list that reaches the deck through a shared folder. */
@@ -157,12 +151,18 @@ export function revokedGrantNotice(
 	kind: ShareSubject["kind"],
 	collaborator: Pick<DeckCollaborator, "email" | "name">,
 	folderStanding: FolderStanding[],
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
 ): string {
-	const name = collaboratorDisplayName(collaborator);
-	if (kind === "folder") return `${name} no longer has access through this folder`;
+	const words = text.sharing;
+	const name = collaboratorDisplayName(collaborator, text);
+	if (kind === "folder") return fillText(words.revokedThroughFolder, { name });
 	const kept = folderStandingOf(collaborator, folderStanding);
-	if (!kept) return `${name} no longer has access`;
-	return `${name} no longer has a grant on this deck, but keeps “${deckAccessLevelLabel(kept.level)}” through the folder “${kept.folder.name}”`;
+	if (!kept) return fillText(words.revoked, { name });
+	return fillText(words.revokedKeepsFolder, {
+		name,
+		level: deckAccessLevelLabel(kept.level, text),
+		folder: kept.folder.name,
+	});
 }
 
 /** What the revoke button on a grant's row says it will do. */
@@ -170,23 +170,25 @@ export function revokeTitle(
 	kind: ShareSubject["kind"],
 	collaborator: Pick<DeckCollaborator, "email">,
 	folderStanding: FolderStanding[],
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
 ): string {
-	if (kind === "folder") {
-		return "Remove this person's access through this folder — it stops at their next request";
-	}
+	const words = text.sharing;
+	if (kind === "folder") return words.revokeThroughFolder;
 	const kept = folderStandingOf(collaborator, folderStanding);
-	if (!kept) return "Remove this person's access — it stops at their next request";
-	return `Remove this grant — they keep “${deckAccessLevelLabel(kept.level)}” through the folder “${kept.folder.name}”`;
+	if (!kept) return words.revoke;
+	return fillText(words.revokeKeepsFolder, {
+		level: deckAccessLevelLabel(kept.level, text),
+		folder: kept.folder.name,
+	});
 }
 
 /** What the list says when the subject has no grants of its own. */
 export function noGrantsSentence(
 	unshared: string,
 	folderStanding: FolderStanding[],
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
 ): string {
-	return folderStanding.length > 0
-		? "No account has a grant on this deck itself."
-		: unshared;
+	return folderStanding.length > 0 ? text.sharing.noOwnGrants : unshared;
 }
 
 /** What the dialog shares: one deck (REQ075), or a folder of them (REQ126). */
@@ -219,51 +221,19 @@ const SHARE_CALLS: Record<
 	},
 };
 
-/** How the dialog speaks about each kind of subject. */
-const SHARE_COPY: Record<
-	ShareSubject["kind"],
-	{
-		title: string;
-		reach: string;
-		found: string;
-		granted: string;
-		inviteTitle: string;
-		unshared: string;
-		kept: string;
-	}
-> = {
-	deck: {
-		title: "Share this deck",
-		reach: "",
-		found: "find it",
-		granted: "this deck",
-		inviteTitle: "Share this deck with that account",
-		unshared:
-			"This deck is shared with nobody. Only you can open, edit and run it.",
-		kept: "Deleting this deck, and deciding who it is shared with, stay with you whatever level you grant.",
-	},
-	folder: {
-		title: "Share this folder",
-		reach:
-			" The level reaches every deck filed in it — the ones there now and any you file later — and a deck you move out of it is no longer reached.",
-		found: "find its decks",
-		granted: "the decks in this folder",
-		inviteTitle: "Share this folder and its decks with that account",
-		unshared:
-			"This folder is shared with nobody. Its decks are reached only by you and by whoever each deck is shared with.",
-		kept: "Deleting its decks, and deciding who the folder is shared with, stay with you whatever level you grant.",
-	},
-};
-
 /** Who one row names: the account's name, and its address under that. */
 function CollaboratorIdentity({
 	collaborator,
+	text,
 }: {
 	collaborator: Pick<DeckCollaborator, "email" | "name">;
+	text: InterfaceText;
 }) {
 	return (
 		<div className="flex-1 min-w-0">
-			<div className="truncate">{collaboratorDisplayName(collaborator)}</div>
+			<div className="truncate">
+				{collaboratorDisplayName(collaborator, text)}
+			</div>
 			{collaborator.name?.trim() && collaborator.email ? (
 				<div className="text-xs text-text-dim truncate">
 					{collaborator.email}
@@ -280,25 +250,32 @@ function CollaboratorIdentity({
  */
 function FolderStandingList({
 	folderStanding,
+	text,
 }: {
 	folderStanding: FolderStanding[];
+	text: InterfaceText;
 }) {
+	const words = text.sharing;
 	const folderName = folderStanding[0].folder.name;
-	const managedThere = `Change or revoke this in the share dialog of the folder “${folderName}”`;
+	const managedThere = fillText(words.folderManagedThere, {
+		folder: folderName,
+	});
 	return (
 		<div className="rounded-lg border border-border bg-surface-raised px-4 py-3 text-sm flex flex-col gap-3">
 			<p className="text-xs text-text-dim">
-				These accounts reach this deck through the shared folder{" "}
-				<span className="text-text">{folderName}</span>. Revoking a grant above
-				leaves this access in place. An account listed in both places has the
-				stronger of its two levels. Change or revoke this access in that
-				folder's share dialog.
+				{textWithElement(
+					words.folderStandingNote,
+					"folder",
+					<span className="text-text">{folderName}</span>,
+				)}
 			</p>
 			<ul className="flex flex-col gap-3">
 				{folderStanding.map((standing) => (
 					<li key={standing.id} className="flex items-center gap-2">
-						<CollaboratorIdentity collaborator={standing} />
-						<div className="w-36 shrink-0">
+						<CollaboratorIdentity collaborator={standing} text={text} />
+						{/* As wide as its longest level, not a fixed width: a fixed
+						    one cut "Kommentieren" short (REQ248). */}
+						<div className="shrink-0">
 							<select
 								className="input text-xs disabled:opacity-50 disabled:cursor-not-allowed"
 								value={standing.level}
@@ -307,7 +284,7 @@ function FolderStandingList({
 							>
 								{DECK_ACCESS_LEVEL_DESCRIPTORS.map((descriptor) => (
 									<option key={descriptor.level} value={descriptor.level}>
-										{descriptor.label}
+										{deckAccessLevelLabel(descriptor.level, text)}
 									</option>
 								))}
 							</select>
@@ -317,6 +294,7 @@ function FolderStandingList({
 							className="text-text-dim p-2 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
 							disabled
 							title={managedThere}
+							aria-label={managedThere}
 						>
 							<Trash2 size={16} />
 						</button>
@@ -343,8 +321,10 @@ export function CollaboratorsDialog({
 	const [email, setEmail] = useState("");
 	const [level, setLevel] = useState<DeckAccessLevel>("view");
 	const [busy, setBusy] = useState(false);
+	const { text } = useInterfaceText();
+	const words = text.sharing;
 	const calls = SHARE_CALLS[subject.kind];
-	const copy = SHARE_COPY[subject.kind];
+	const copy = words.subjects[subject.kind];
 
 	const refresh = useCallback(async () => {
 		try {
@@ -377,14 +357,18 @@ export function CollaboratorsDialog({
 			await refresh();
 			setEmail("");
 			onNotify(
-				`${collaboratorDisplayName(grant)} can now ${deckAccessLevelLabel(grant.level).toLowerCase()} ${copy.granted}`,
+				fillText(words.shared, {
+					name: collaboratorDisplayName(grant, text),
+					level: deckAccessLevelInSentence(grant.level, text),
+					granted: copy.granted,
+				}),
 				"success",
 			);
 		} catch (shareError: unknown) {
 			onNotify(
 				shareError instanceof Error
 					? shareError.message
-					: `Could not share ${copy.granted}`,
+					: fillText(words.shareFailed, { granted: copy.granted }),
 				"error",
 			);
 		} finally {
@@ -407,14 +391,17 @@ export function CollaboratorsDialog({
 				current.map((entry) => (entry.id === updated.id ? updated : entry)),
 			);
 			onNotify(
-				`${collaboratorDisplayName(updated)} — ${deckAccessLevelLabel(updated.level).toLowerCase()}`,
+				fillText(words.levelChanged, {
+					name: collaboratorDisplayName(updated, text),
+					level: deckAccessLevelInSentence(updated.level, text),
+				}),
 				"info",
 			);
 		} catch (levelError: unknown) {
 			onNotify(
 				levelError instanceof Error
 					? levelError.message
-					: "Could not change that access level",
+					: words.levelFailed,
 				"error",
 			);
 		} finally {
@@ -430,14 +417,14 @@ export function CollaboratorsDialog({
 				current.filter((entry) => entry.id !== collaborator.id),
 			);
 			onNotify(
-				revokedGrantNotice(subject.kind, collaborator, folderStanding),
+				revokedGrantNotice(subject.kind, collaborator, folderStanding, text),
 				"info",
 			);
 		} catch (revokeError: unknown) {
 			onNotify(
 				revokeError instanceof Error
 					? revokeError.message
-					: "Could not remove that collaborator",
+					: words.revokeFailed,
 				"error",
 			);
 		} finally {
@@ -449,12 +436,13 @@ export function CollaboratorsDialog({
 		<Modal title={copy.title} icon={Users} onClose={onClose}>
 			<div className="flex flex-col gap-4">
 				<p className="text-sm text-text-muted">
-					Give another {BRAND_NAME} account access to{" "}
-					<span className="text-text">{subject.title}</span>.{copy.reach} They
-					sign in with their own account and {copy.found} under “Shared with
-					you” — there is no link to pass on and nothing for them to forward. The
-					level you choose is enforced on the server for every change they try
-					to make, not just in what they are shown.
+					{textWithElement(
+						fillText(words.intro, { brand: BRAND_NAME }),
+						"title",
+						<span className="text-text">{subject.title}</span>,
+					)}
+					{copy.reach}
+					{fillText(words.introHow, { found: copy.found })}
 				</p>
 
 				{/* Invite by the address the account signed up with — a caller never
@@ -463,7 +451,8 @@ export function CollaboratorsDialog({
 					<input
 						type="email"
 						className="input text-sm"
-						placeholder="their@email.address"
+						placeholder={words.emailPlaceholder}
+						aria-label={words.emailName}
 						value={email}
 						onChange={(event) => setEmail(event.target.value)}
 						onKeyDown={(event) => {
@@ -480,11 +469,11 @@ export function CollaboratorsDialog({
 								onChange={(event) =>
 									setLevel(event.target.value as DeckAccessLevel)
 								}
-								title="What this person will be able to do"
+								title={words.levelName}
 							>
 								{DECK_ACCESS_LEVEL_DESCRIPTORS.map((descriptor) => (
 									<option key={descriptor.level} value={descriptor.level}>
-										{descriptor.label}
+										{deckAccessLevelLabel(descriptor.level, text)}
 									</option>
 								))}
 							</select>
@@ -497,32 +486,36 @@ export function CollaboratorsDialog({
 							title={
 								email.trim()
 									? copy.inviteTitle
-									: `${copy.inviteTitle} — type the account's email address first`
+									: fillText(words.inviteEmailFirst, { invite: copy.inviteTitle })
 							}
 						>
 							<UserPlus size={14} />
-							Invite
+							{words.invite}
 						</button>
 					</div>
 					{/* What the chosen level buys, under the control that chooses it —
 					    a level is a promise to somebody, and reading it afterwards is
 					    too late. */}
-					<p className="text-xs text-text-dim">{deckAccessLevelSummary(level)}</p>
+					<p className="text-xs text-text-dim">
+						{deckAccessLevelSummary(level, text)}
+					</p>
 				</div>
 
 				<div className="rounded-lg border border-border bg-surface-raised px-4 py-3 text-sm">
 					{loading ? (
-						<span className="text-text-dim">Checking…</span>
+						<span className="text-text-dim">{words.checking}</span>
 					) : collaborators.length === 0 ? (
 						<span className="text-text-muted">
-							{noGrantsSentence(copy.unshared, folderStanding)}
+							{noGrantsSentence(copy.unshared, folderStanding, text)}
 						</span>
 					) : (
 						<ul className="flex flex-col gap-3">
 							{collaborators.map((collaborator) => (
 								<li key={collaborator.id} className="flex items-center gap-2">
-									<CollaboratorIdentity collaborator={collaborator} />
-									<div className="w-36 shrink-0">
+									<CollaboratorIdentity collaborator={collaborator} text={text} />
+									{/* As wide as its longest level, not a fixed width: a
+									    fixed one cut "Kommentieren" short (REQ248). */}
+									<div className="shrink-0">
 										<select
 											className="input text-xs"
 											value={collaborator.level}
@@ -533,11 +526,11 @@ export function CollaboratorsDialog({
 													event.target.value as DeckAccessLevel,
 												)
 											}
-											title="Change what this person can do"
+											title={words.changeLevel}
 										>
 											{DECK_ACCESS_LEVEL_DESCRIPTORS.map((descriptor) => (
 												<option key={descriptor.level} value={descriptor.level}>
-													{descriptor.label}
+													{deckAccessLevelLabel(descriptor.level, text)}
 												</option>
 											))}
 										</select>
@@ -547,7 +540,12 @@ export function CollaboratorsDialog({
 										className="text-text-dim hover:text-error transition-colors p-2 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
 										onClick={() => revoke(collaborator)}
 										disabled={busy}
-										title={revokeTitle(subject.kind, collaborator, folderStanding)}
+										title={revokeTitle(
+											subject.kind,
+											collaborator,
+											folderStanding,
+											text,
+										)}
 									>
 										<Trash2 size={16} />
 									</button>
@@ -558,13 +556,11 @@ export function CollaboratorsDialog({
 				</div>
 
 				{folderStanding.length > 0 ? (
-					<FolderStandingList folderStanding={folderStanding} />
+					<FolderStandingList folderStanding={folderStanding} text={text} />
 				) : null}
 
 				<p className="text-xs text-text-dim">
-					Removing somebody takes effect at once — there is nothing of theirs to
-					expire. What it cannot reach is a page they already have open, which
-					keeps what it was last sent until it next asks the server. {copy.kept}
+					{fillText(words.removalNote, { kept: copy.kept })}
 				</p>
 			</div>
 		</Modal>

@@ -32,6 +32,9 @@ import { join, relative } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { api, ApiError } from "../api";
+import { InterfaceLanguageProvider } from "../interface-language";
+import { interfaceTextFor } from "../interface-text";
+import { INTERFACE_LANGUAGE_KEY } from "../storage";
 import type { AnswerTheme } from "../types";
 import {
 	ANSWER_THEMES_PURPOSE,
@@ -382,5 +385,59 @@ describe("the grouping surface stays unmounted", () => {
 			)
 			.map((file) => file.name);
 		expect(calling).toEqual(["components/AnswerThemes.tsx"]);
+	});
+});
+
+/**
+ * Slice 2c of REQ248: the strip and the panel in the interface language. The
+ * batch review found the strip under the editor's canvas English under a
+ * German interface.
+ */
+describe("answer themes in the interface language (REQ248 slice 7)", () => {
+	const german = interfaceTextFor("de").answerThemes;
+
+	afterEach(() => {
+		delete (globalThis as { localStorage?: unknown }).localStorage;
+	});
+
+	function germanMarkup(component: typeof AnswerThemesStrip) {
+		(globalThis as { localStorage?: unknown }).localStorage = {
+			getItem: (key: string) => (key === INTERFACE_LANGUAGE_KEY ? "de" : null),
+			setItem: () => {},
+			removeItem: () => {},
+		};
+		return renderedText(
+			renderToStaticMarkup(
+				createElement(
+					InterfaceLanguageProvider,
+					null,
+					createElement(component, SLIDE_PROPS),
+				),
+			),
+		);
+	}
+
+	test("the closed strip and the open panel draw no English", () => {
+		const strip = germanMarkup(AnswerThemesStrip);
+		expect(strip).toContain(german.stripClosed);
+		expect(strip).toContain(german.scope);
+		expect(strip).not.toContain("Group this slide");
+		expect(strip).not.toContain(ANSWER_THEMES_SCOPE);
+		const panel = germanMarkup(AnswerThemesPanel);
+		expect(panel).toContain(german.purpose);
+		expect(panel).toContain(german.addTheme);
+		expect(panel).not.toContain(ANSWER_THEMES_PURPOSE);
+		expect(panel).not.toContain("Add theme");
+	});
+
+	test("the pure readings take the German words", () => {
+		expect(answerCountLabel(1, "de", german)).toBe("1 Antwort");
+		expect(answerCountLabel(3, "de", german)).toBe("3 Antworten");
+		expect(answerThemeCreation({ name: "", themeCount: 0 }, german).reason).toBe(
+			german.nameFirst,
+		);
+		expect(
+			answerThemesLoadFailure(new ApiError("Not found", null, 404), german),
+		).toBe(german.notSaved);
 	});
 });

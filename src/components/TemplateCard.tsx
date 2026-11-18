@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { useInterfaceText } from "../interface-language";
+import { ENGLISH_INTERFACE_TEXT, pluralText } from "../interface-text";
 import type { DeckTemplate, DeckTemplateCategory } from "../types";
 import { HighlightedText } from "./HighlightedText";
 import { SlideTypeIcon } from "./SlideTypeIcon";
@@ -19,26 +21,22 @@ import { SlideTypeIcon } from "./SlideTypeIcon";
 // where it was found.
 
 /**
- * What each category is called on screen. The vocabulary itself is the schema's
- * (`DECK_TEMPLATE_CATEGORIES`); these are the words for it, and they live beside
- * the card because the card is the only thing that says them out loud — on
- * either surface.
+ * What each category is called on screen, in English. The vocabulary itself is
+ * the schema's (`DECK_TEMPLATE_CATEGORIES`); its words are the interface
+ * language's (REQ248, `templateCategories` in `src/interface-text/workspaces.ts`),
+ * which the card, the publish dialog and the gallery's filter read. This is
+ * that table's English, for a caller with no interface language to read.
  */
 export const DECK_TEMPLATE_CATEGORY_LABELS: Record<
 	DeckTemplateCategory,
 	string
-> = {
-	meeting: "Meetings",
-	workshop: "Workshops",
-	education: "Teaching",
-	feedback: "Feedback",
-	engagement: "Engagement",
-};
+> = ENGLISH_INTERFACE_TEXT.workspaces.templateCategories;
 
 export function TemplateCard({
 	template,
 	search,
 	index,
+	contentLanguage,
 	children,
 }: {
 	/**
@@ -50,27 +48,35 @@ export function TemplateCard({
 	search: string;
 	/** Position in the grid, for the staggered entrance the pages share. */
 	index: number;
+	/**
+	 * The language the entry's own title, description and tags are written in,
+	 * where the surface knows it — the built-in catalog is English — so a screen
+	 * reader on a German interface reads them as English (REQ248). The card's
+	 * own words are the interface language's either way.
+	 */
+	contentLanguage?: string;
 	/** This surface's actions, and anything it alone has to say. */
 	children?: ReactNode;
 }) {
+	const { text, language } = useInterfaceText();
 	const slideCount = template.slides.length;
 	return (
 		<article
 			className={`flex flex-col gap-3 p-5 rounded-xl bg-surface-raised border border-border hover:border-text-dim transition-all shadow-panel slide-in slide-in-delay-${Math.min(index + 1, 5)}`}
 		>
 			<div className="flex items-start justify-between gap-3">
-				<h2 className="font-semibold leading-tight">
+				<h2 className="font-semibold leading-tight" lang={contentLanguage}>
 					<HighlightedText text={template.title} search={search} />
 				</h2>
 				<span className="flex-shrink-0 rounded-full border border-border-subtle bg-surface px-2.5 py-0.5 text-xs text-text-muted">
 					<HighlightedText
-						text={DECK_TEMPLATE_CATEGORY_LABELS[template.category]}
+						text={text.workspaces.templateCategories[template.category]}
 						search={search}
 					/>
 				</span>
 			</div>
 
-			<p className="text-sm text-text-muted">
+			<p className="text-sm text-text-muted" lang={contentLanguage}>
 				<HighlightedText text={template.description} search={search} />
 			</p>
 
@@ -79,16 +85,20 @@ export function TemplateCard({
 			    only how long it is. */}
 			<div className="flex flex-wrap items-center gap-2 text-sm text-text-dim">
 				<span className="font-mono text-xs">
-					{slideCount} slide{slideCount === 1 ? "" : "s"}
+					{pluralText(language, slideCount, text.workspaces.slideCount)}
 				</span>
 				<span className="flex flex-wrap items-center gap-1.5">
 					{template.slides.map((slide) => (
-						<SlideTypeIcon key={slide.id} type={slide.type} />
+						<SlideTypeIcon
+							key={slide.id}
+							type={slide.type}
+							labels={text.slideView.slideTypes}
+						/>
 					))}
 				</span>
 			</div>
 
-			<div className="flex flex-wrap gap-1.5">
+			<div className="flex flex-wrap gap-1.5" lang={contentLanguage}>
 				{template.tags.map((tag) => (
 					<span
 						key={tag}
@@ -136,6 +146,8 @@ export function UseTemplateButton({
 	refusal?: string | null;
 	onUse: () => void;
 }) {
+	const { text } = useInterfaceText();
+	const words = text.workspaces;
 	return (
 		<button
 			type="button"
@@ -146,11 +158,11 @@ export function UseTemplateButton({
 				refusal !== null
 					? refusal
 					: busy && !creating
-						? "Another template is being created — one at a time."
+						? words.templateBusy
 						: label
 			}
 		>
-			{creating ? "Creating…" : "Use template"}
+			{creating ? words.templateCreating : words.templateUse}
 		</button>
 	);
 }

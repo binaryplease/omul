@@ -2,6 +2,8 @@ import type { LucideIcon } from "lucide-react";
 import { Heart, Laugh, Lightbulb, PartyPopper, ThumbsUp } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { getDict } from "../i18n";
+import { useInterfaceText } from "../interface-language";
+import type { InterfaceText } from "../interface-text";
 import {
 	type LiveReaction,
 	pruneReactions,
@@ -86,7 +88,10 @@ export type ReactionLabels = {
 	unavailable: string;
 };
 
-/** The presenter's wording — the shared screen is not translated. */
+/**
+ * The presenter's wording in English, for the surfaces that are not translated
+ * yet — the presenter screen reads {@link presenterReactionLabels} instead.
+ */
 export const REACTION_LABELS_EN: ReactionLabels = {
 	title: "Reactions",
 	kinds: {
@@ -98,6 +103,22 @@ export const REACTION_LABELS_EN: ReactionLabels = {
 	},
 	unavailable: "Reactions are closed for this presentation",
 };
+
+/** The presenter screen's labels, in the interface language (REQ248). */
+export function presenterReactionLabels(text: InterfaceText): ReactionLabels {
+	const { panels } = text;
+	return {
+		title: panels.reactionsTitle,
+		kinds: {
+			like: panels.reactionLike,
+			love: panels.reactionLove,
+			celebrate: panels.reactionCelebrate,
+			laugh: panels.reactionLaugh,
+			insight: panels.reactionInsight,
+		},
+		unavailable: panels.reactionsUnavailable,
+	};
+}
 
 /**
  * The same labels in the deck's language (REQ084) — the one place the
@@ -263,10 +284,11 @@ export function ReactionChannelControl({
 	enabled: boolean;
 	onChange: (enabled: boolean) => void;
 }) {
+	const { panels } = useInterfaceText().text;
 	return (
 		<Toggle
-			label="Reactions from the audience"
-			description="Participants can react to any slide. Reactions are shown live and are never stored or counted."
+			label={panels.reactionChannelToggle}
+			description={panels.reactionChannelDescription}
 			checked={enabled}
 			onChange={onChange}
 		/>

@@ -18,16 +18,25 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import {
+	AudienceBlankIcon,
+	audienceBlankToggleLabel,
+} from "../components/LiveRoom";
 import {
 	buildShareControls,
 	joinMenuLabel,
 	shareMenuLabel,
 } from "../components/ShareCluster";
 import {
+	BarMenuRow,
 	BOTTOM_DOCK_ATTRIBUTE,
 	disabledReason,
 } from "../components/ui/BarMenu";
+import { fillText, interfaceTextFor } from "../interface-text";
 import {
+	blankMenuRow,
 	keyBelongsToField,
 	panelCountTone,
 	panelSheetEscape,
@@ -39,6 +48,16 @@ const shareCluster = readFileSync(
 	join(import.meta.dir, "..", "components", "ShareCluster.tsx"),
 	"utf8",
 );
+// The page's and the share controls' English text (REQ248).
+const pageSection = readFileSync(
+	join(import.meta.dir, "..", "interface-text", "presenter-page.ts"),
+	"utf8",
+);
+const shareSection = readFileSync(
+	join(import.meta.dir, "..", "interface-text", "share.ts"),
+	"utf8",
+);
+const german = interfaceTextFor("de");
 const topBarStart = source.indexOf("{/* Top bar (REQ190)");
 const topBar = source.slice(topBarStart, source.indexOf("</header>", topBarStart));
 const identity = topBar.indexOf("{/* Identity zone */}");
@@ -50,7 +69,11 @@ const panelDescriptor = source.slice(
 );
 const deckMenuRows = source.slice(
 	source.indexOf("const deckMenuRows = (close: () => void) => ("),
-	source.indexOf("const sessionClockShown"),
+	source.indexOf("const moreMenuRows = (close: () => void) => ("),
+);
+const presentMenuRows = source.slice(
+	source.indexOf("const presentMenuRows = (close: () => void) => ("),
+	source.indexOf("const deckMenuRows = (close: () => void) => ("),
 );
 
 /** The `className` of the element opened right after `marker`. */
@@ -98,7 +121,7 @@ describe("the presenter top bar is three ordered zones (REQ190)", () => {
 
 	test("every lifecycle button and the View only marker sit in the command zone", () => {
 		const lifecycle = [
-			topBar.indexOf("View only"),
+			topBar.indexOf("{pageText.viewOnly}"),
 			topBar.indexOf("onClick={handleStart}"),
 			topBar.indexOf("onClick={handleEnd}"),
 			topBar.lastIndexOf("onClick={handleStart}"),
@@ -108,10 +131,10 @@ describe("the presenter top bar is three ordered zones (REQ190)", () => {
 		}
 	});
 
-	test("the shared-screen switches and the panels sit in the room console", () => {
+	test("the door, the shared-screen group and the panels sit in the room console", () => {
 		for (const control of [
 			"<ShareCluster",
-			"aria-label={blankButtonLabel}",
+			"aria-label={pageText.sharedScreenGroup}",
 			"panelToggles.map(",
 		]) {
 			const position = topBar.indexOf(control);
@@ -140,7 +163,6 @@ describe("the presenter top bar is three ordered zones (REQ190)", () => {
 		// command zone draws.
 		for (const control of [
 			'go({ page: "edit", id: pres.id })',
-			'<PreviewLink\n\t\t\t\tvariant="menu-row"',
 			"ariaLabel={resultsLinkButtonLabel}",
 			"ariaLabel={exportControlLabel}",
 			"ariaLabel={resetButtonLabel}",
@@ -156,16 +178,22 @@ describe("the presenter top bar is three ordered zones (REQ190)", () => {
 	});
 
 	test("the share menu still offers every way in, the edit link last", () => {
-		for (const title of [
-			'title: "Copy join link"',
-			'title: "Show QR code"',
-			'title: "Copy embed code (iframe snippet)"',
-			'title: "Copy share link with edit permissions"',
+		for (const [key, title] of [
+			["copyJoinLink", "Copy join link"],
+			["showQrCode", "Show QR code"],
+			["copyEmbedCode", "Copy embed code (iframe snippet)"],
+			["copyEditLink", "Copy share link with edit permissions"],
 		]) {
-			expect(shareCluster).toContain(title);
+			expect(shareCluster).toContain(`title: shareText.${key},`);
+			expect(shareSection).toContain(`${key}: "${title}",`);
 		}
+		// The edit link is the last action pushed, after the others.
+		expect(shareCluster.indexOf("title: shareText.copyEditLink,")).toBeGreaterThan(
+			shareCluster.indexOf("title: shareText.copyEmbedCode,"),
+		);
 		// The join code still copies itself on one tap, under its own title.
-		expect(shareCluster).toContain("Copy join code");
+		expect(shareCluster).toMatch(/title=\{shareText\.copyJoinCode\}/);
+		expect(shareSection).toContain('copyJoinCode: "Copy join code",');
 		expect(shareCluster).toContain("onClick={join.onClick}");
 		expect(shareCluster).not.toMatch(/variant: "bar"|"compact"/);
 	});
@@ -198,7 +226,7 @@ describe("the presenter top bar is three ordered zones (REQ190)", () => {
 		const qrButton = shareCluster.indexOf("aria-haspopup=\"dialog\"");
 		expect(qrButton).toBeGreaterThan(shareCluster.indexOf("onClick={join.onClick}"));
 		expect(qrButton).toBeLessThan(
-			shareCluster.indexOf("label={shareMenuLabel(menuActions)}"),
+			shareCluster.indexOf("label={shareMenuLabel(menuActions, text)}"),
 		);
 		expect(shareCluster).toContain("menuActions.map((action) => (");
 	});
@@ -215,6 +243,164 @@ describe("the presenter top bar is three ordered zones (REQ190)", () => {
 	});
 });
 
+describe("Present is one menu holding every way to present (REQ247)", () => {
+	const english = interfaceTextFor("en");
+
+	test("the Present rows are present here, a presenting window, the preview and the blank, in that order", () => {
+		const order = [
+			"label={pageText.present}",
+			"enterPresenting();",
+			"label={pageText.openPresentingWindow}",
+			"presentingWindowName(pres.id)",
+			'<PreviewLink\n\t\t\t\tvariant="menu-row"',
+			"<div aria-hidden className={MENU_DIVIDER} />",
+			"icon={<AudienceBlankIcon blanked={screenBlanked} />}",
+			"{...blankMenuRow({ blanked: screenBlanked, canControl: isOwner }, text)}",
+			"handleSetBlanked(!screenBlanked);",
+		];
+		let at = 0;
+		for (const marker of order) {
+			const found = presentMenuRows.indexOf(marker, at);
+			expect({ marker, found: found > -1 }).toEqual({ marker, found: true });
+			at = found + marker.length;
+		}
+	});
+
+	test("the Deck rows hold neither the preview nor the presenting window", () => {
+		// Acceptance: "Open presenting window" sat in the Deck menu, away from
+		// Present; the preview went with it.
+		expect(deckMenuRows.length).toBeGreaterThan(0);
+		expect(deckMenuRows).not.toContain("<PreviewLink");
+		expect(deckMenuRows).not.toContain("openPresentingWindow");
+		expect(deckMenuRows).not.toContain("enterPresenting");
+		for (const text of [english, german]) {
+			for (const offers of [
+				text.presenterPage.deckMenuOffers,
+				text.presenterPage.deckMenuOffersWithEdit,
+			]) {
+				expect(offers).not.toMatch(/preview|presenting window|Vorschau|Präsentationsfenster/i);
+			}
+		}
+	});
+
+	test("the Screen group's Present control opens those rows, and focus comes back to it", () => {
+		const screen = topBar.slice(topBar.indexOf("aria-label={pageText.sharedScreenGroup}"));
+		const presentMenu = screen.slice(screen.indexOf("<BarMenu"), screen.indexOf("</BarMenu>"));
+		expect(presentMenu).toContain("triggerRef={presentControlRef}");
+		expect(presentMenu).toContain("label={presentMenuLabel}");
+		expect(presentMenu).toContain("triggerClassName={`${BAR_GROUP_ITEM} max-sm:hidden`}");
+		expect(presentMenu).toMatch(/\{presentMenuRows\}\s*$/);
+		// The bar has no second way into the view beside the menu.
+		expect(source).not.toContain("onClick={enterPresenting}");
+	});
+
+	test("the Present and More triggers name all four rows, in English and in German", () => {
+		for (const text of [english, german]) {
+			const page = text.presenterPage;
+			const presentName = fillText(page.presentMenuLabel, {
+				offers: page.presentMenuOffers,
+			});
+			const moreName = fillText(page.moreMenuLabel, {
+				present: page.presentMenuOffers,
+				offers: page.deckMenuOffers,
+			});
+			for (const row of [page.preview, page.openPresentingWindow, page.blankRow]) {
+				expect(presentName.toLowerCase()).toContain(row.toLowerCase());
+				expect(moreName.toLowerCase()).toContain(row.toLowerCase());
+			}
+			expect(presentName.startsWith(`${page.present} — `)).toBe(true);
+			expect(moreName).not.toMatch(/\{\w+\}/);
+		}
+		expect(german.presenterPage.presentMenuLabel).toBe("Präsentieren — {offers}");
+	});
+});
+
+describe("the blank is a row of the Present menu, not a bar button (REQ109/REQ247)", () => {
+	const english = interfaceTextFor("en");
+	const screenGroup = topBar.slice(
+		topBar.indexOf("aria-label={pageText.sharedScreenGroup}"),
+		topBar.indexOf("aria-label={pageText.panelsGroup}"),
+	);
+	const row = (blanked: boolean, canControl: boolean, text = english) =>
+		renderToStaticMarkup(
+			createElement(BarMenuRow, {
+				icon: createElement(AudienceBlankIcon, { blanked }),
+				...blankMenuRow({ blanked, canControl }, text),
+				onClick: () => {},
+			}),
+		);
+	/** An attribute value as `renderToStaticMarkup` escapes it. */
+	const escaped = (value: string) => value.replace(/'/g, "&#x27;");
+
+	test("the shared-screen group draws the Present trigger and no blank button", () => {
+		expect(screenGroup.length).toBeGreaterThan(0);
+		expect(screenGroup).not.toContain("handleSetBlanked");
+		expect(screenGroup).not.toContain("aria-pressed");
+		expect(screenGroup).not.toContain("blankButtonLabel");
+		expect(screenGroup).not.toContain("AudienceBlankIcon");
+		expect(screenGroup.match(/<button\b/g)).toBeNull();
+		expect(screenGroup.match(/<BarMenu\b/g)?.length).toBe(1);
+		// Its one trigger is not drawn below `sm`, so neither is the group.
+		expect(screenGroup).toMatch(/^aria-label=\{pageText\.sharedScreenGroup\} className=\{`[^`]*\bmax-sm:hidden\b/);
+		// Nowhere else in the bar draws it either: the menu row is the one in it.
+		expect(topBar).not.toContain("handleSetBlanked");
+		// The menu row and the presenting view's strip; `B` reads the deck itself.
+		expect(source.match(/handleSetBlanked\(!screenBlanked\)/g)?.length).toBe(2);
+	});
+
+	test("shown and held: the row offers to blank, unpressed, and is enabled", () => {
+		const markup = row(false, true);
+		expect(markup).toContain(`aria-label="${escaped(audienceBlankToggleLabel({ blanked: false, canControl: true }))}"`);
+		expect(markup).toContain('aria-label="Blank the shared screen — the room&#x27;s screen goes dark');
+		expect(markup).toContain('aria-pressed="false"');
+		expect(markup).not.toContain('disabled=""');
+		expect(markup).toContain(">Blank the shared screen</span>");
+		expect(markup).toContain("lucide-eye-off");
+	});
+
+	test("blanked and held: the row offers to show the slide again, pressed, in another glyph", () => {
+		const markup = row(true, true);
+		expect(markup).toContain(`aria-label="${escaped(audienceBlankToggleLabel({ blanked: true, canControl: true }))}"`);
+		expect(markup).toContain('aria-label="Show the slide again — ');
+		expect(markup).toContain('aria-pressed="true"');
+		expect(markup).not.toContain('disabled=""');
+		expect(markup).toContain("lucide-eye-closed");
+		expect(markup).not.toContain("lucide-eye-off");
+	});
+
+	test("for a viewer who does not hold the deck the row is disabled with its reason shown", () => {
+		for (const blanked of [false, true]) {
+			const label = audienceBlankToggleLabel({ blanked, canControl: false });
+			const markup = row(blanked, false);
+			expect(markup).toContain(`aria-label="${escaped(label)}"`);
+			expect(markup).toContain('disabled=""');
+			expect(markup).toContain(`>${escaped(disabledReason(label))}</span>`);
+			expect(markup).toContain(`aria-pressed="${blanked}"`);
+		}
+		expect(blankMenuRow({ blanked: false, canControl: false }).reason).toBe(
+			"You cannot edit this presentation, so its screen is not yours to blank",
+		);
+	});
+
+	test("the row reads German, its name and its reason", () => {
+		const german = interfaceTextFor("de");
+		const held = blankMenuRow({ blanked: false, canControl: true }, german);
+		expect(held.label).toBe("Geteilten Bildschirm ausblenden");
+		expect(held.ariaLabel).toBe(
+			audienceBlankToggleLabel({ blanked: false, canControl: true }, german),
+		);
+		const refused = blankMenuRow({ blanked: false, canControl: false }, german);
+		expect(refused.reason).toBe(
+			"Du kannst diese Präsentation nicht bearbeiten, also kannst du ihren Bildschirm nicht ausblenden",
+		);
+	});
+
+	test("the bar no longer draws a monitor glyph for the blank", () => {
+		expect(source).not.toMatch(/\bMonitorOff\b/);
+		expect(source).not.toMatch(/<Monitor size/);
+	});
+});
+
 describe("the door is the room's standing invitation (REQ191)", () => {
 	test("the join-bar switch is retired: the page no longer reads showJoinBar", () => {
 		expect(source.includes("showJoinBar")).toBe(false);
@@ -227,7 +413,7 @@ describe("the door is the room's standing invitation (REQ191)", () => {
 	});
 
 	test("the QR overlay is a dialog that shows the room's head-count", () => {
-		const overlay = source.slice(source.indexOf("{showQr && ("));
+		const overlay = source.slice(source.indexOf("const qrDialog = showQr && ("));
 		expect(overlay).toContain('role="dialog"');
 		expect(overlay).toContain('aria-modal="true"');
 		expect(overlay).toContain("participantCount");
@@ -259,8 +445,10 @@ describe("below 1280px the bar is laid out for whoever holds the screen (REQ199)
 	});
 
 	test("the dock pages the deck on a phone, and only there", () => {
-		const slides = consoleZone.slice(consoleZone.indexOf('aria-label="Slides"'));
-		expect(consoleZone).toMatch(/role="group" aria-label="Slides" className=\{`\$\{BAR_GROUP\} ml-auto sm:hidden`\}/);
+		const slides = consoleZone.slice(
+			consoleZone.indexOf("aria-label={pageText.slidesGroup}"),
+		);
+		expect(consoleZone).toMatch(/role="group" aria-label=\{pageText\.slidesGroup\} className=\{`\$\{BAR_GROUP\} ml-auto sm:hidden`\}/);
 		expect(slides).toContain("pageTo(slidePaging.previous.index)");
 		expect(slides).toContain("pageTo(slidePaging.next.index)");
 		// Disabled with its reason, never hidden, from the one paging value the
@@ -282,21 +470,33 @@ describe("below 1280px the bar is laid out for whoever holds the screen (REQ199)
 	test("below `sm` the Deck trigger gives way to one More menu leading with the same rows", () => {
 		const command_ = topBar.slice(command);
 		expect(command_).toMatch(/triggerClassName=\{`[^`]*\bmax-sm:hidden\b[^`]*`\}/);
-		expect(command_).toMatch(/<AppMenu\s+className=\{`sm:hidden \$\{BAR_CONTROL_SIZE\}`\}\s+leading=\{\{[\s\S]*?rows: deckMenuRows,/);
-		expect(source.match(/\{deckMenuRows\}|rows: deckMenuRows/g)?.length).toBe(2);
+		expect(command_).toMatch(/<AppMenu\s+className=\{`sm:hidden \$\{BAR_CONTROL_SIZE\}`\}\s+leading=\{\{[\s\S]*?rows: moreMenuRows,/);
+		// More leads with the Present rows (REQ247), then the very same Deck rows.
+		expect(source).toMatch(/const moreMenuRows = \(close: \(\) => void\) => \(\s*<>\s*\{presentMenuRows\(close\)\}[\s\S]*?\{deckMenuRows\(close\)\}/);
+		expect(source.match(/\{deckMenuRows\}|\{deckMenuRows\(close\)\}/g)?.length).toBe(2);
+		expect(source.match(/\{presentMenuRows\}|\{presentMenuRows\(close\)\}/g)?.length).toBe(2);
 	});
 
 	test("More and Deck name the rows from one list, and More leaves its own sections to `AppMenu`", () => {
 		const command_ = topBar.slice(command);
-		expect(source).toContain("const deckMenuLabel = `Deck — ${deckMenuOffers}`;");
-		expect(command_).toContain("label: `More — ${deckMenuOffers}`,");
+		expect(source).toMatch(
+			/const deckMenuLabel = fillText\(pageText\.deckMenuLabel, \{\s*offers: deckMenuOffers,\s*\}\);/,
+		);
+		expect(command_).toMatch(
+			/label: fillText\(pageText\.moreMenuLabel, \{\s*present: pageText\.presentMenuOffers,\s*offers: deckMenuOffers,\s*\}\),/,
+		);
+		expect(pageSection).toContain('deckMenuLabel: "Deck — {offers}",');
+		expect(pageSection).toContain('moreMenuLabel: "More — {present}, {offers}",');
+		// German keeps the "Name — what it holds" shape both triggers share.
+		expect(german.presenterPage.deckMenuLabel).toMatch(/^\S+ — \{offers\}$/);
+		expect(german.presenterPage.moreMenuLabel).toMatch(/^\S+ — .*\{offers\}$/);
 		// The app menu's sections are named by the menu, feedback included where
 		// it is on (`appMenuTriggerLabel`), never restated here.
 		expect(source).not.toMatch(/appearance and legal|feedback and legal/);
 	});
 
 	test("from `sm` to `xl` line 2 holds both edges", () => {
-		expect(consoleZone).toMatch(/aria-label="Shared screen" className=\{`\$\{BAR_GROUP\} sm:max-xl:ml-auto`\}/);
+		expect(consoleZone).toMatch(/aria-label=\{pageText\.sharedScreenGroup\} className=\{`\$\{BAR_GROUP\} sm:max-xl:ml-auto max-sm:hidden`\}/);
 	});
 
 	test("one control height per width lives in the shared tokens, at every width (REQ192)", () => {
@@ -316,7 +516,7 @@ describe("below 1280px the bar is laid out for whoever holds the screen (REQ199)
 		// The Deck trigger, the View only marker and both app-menu mounts read
 		// the tokens too.
 		expect(topBar).toMatch(/triggerClassName=\{`flex \$\{BAR_CONTROL_HEIGHT\}/);
-		expect(topBar).toMatch(/className=\{`inline-flex \$\{BAR_CONTROL_HEIGHT\}[^`]*`\}\s*title="You don't have edit access/);
+		expect(topBar).toMatch(/className=\{`inline-flex \$\{BAR_CONTROL_HEIGHT\}[^`]*`\}\s*title=\{pageText\.viewOnlyTitle\}/);
 		expect(topBar.match(/\$\{BAR_CONTROL_SIZE\}/g)?.length).toBe(2);
 	});
 
@@ -351,7 +551,7 @@ describe("below 1280px the bar is laid out for whoever holds the screen (REQ199)
 		// The sheet's own close hides every open panel through the descriptor,
 		// under a heading a screen reader can jump to.
 		expect(sheet).toMatch(/className="sticky top-0 [^"]*\bsm:hidden"/);
-		expect(sheet).toMatch(/<h2 className="[^"]*">\s*Panels\s*<\/h2>/);
+		expect(sheet).toMatch(/<h2 className="[^"]*">\s*\{pageText\.panels\}\s*<\/h2>/);
 		expect(sheet).toContain('onClick={() => hidePanels("dock")}');
 		expect(source).toMatch(
 			/const hidePanels = \(focus: PanelSheetFocus\) => \{\s*for \(const toggle of panelToggles\)/,
@@ -432,8 +632,12 @@ describe("below 1280px the bar is laid out for whoever holds the screen (REQ199)
 		const handler = source.slice(source.indexOf("const handleKeyDown = useCallback("));
 		const guard = handler.indexOf("if (keyBelongsToField(e)) return;");
 		expect(guard).toBeGreaterThan(handler.indexOf("panelSheetEscape("));
-		expect(guard).toBeLessThan(handler.indexOf('if (e.key === "ArrowRight"'));
-		expect(guard).toBeLessThan(handler.indexOf('if (e.key === "ArrowLeft"'));
+		expect(guard).toBeLessThan(handler.indexOf("if (NEXT_SLIDE_KEYS.includes(e.key))"));
+		expect(guard).toBeLessThan(
+			handler.indexOf("if (PREVIOUS_SLIDE_KEYS.includes(e.key))"),
+		);
+		// The presenting view's `F` and `B` (REQ247) are typed letters in a field.
+		expect(guard).toBeLessThan(handler.indexOf("presentingShortcut({"));
 	});
 
 	test("a panel's count reads at 4.5:1: `0` and — are muted, not dim (REQ190)", () => {
@@ -555,5 +759,69 @@ describe("presenter paging steps over skipped slides (REQ110)", () => {
 		const rail = source.slice(source.indexOf("<SlideRailItem"));
 		expect(rail).toContain("skipped={slide.skipped}");
 		expect(rail).toContain("onClick={() => isOwner && handleSlide(i)}");
+	});
+});
+
+describe("the presenter screen in the interface language (REQ248)", () => {
+	test("paging names its slides in German, keeping the reason after the dash", () => {
+		const paging = slidePagingFor(
+			{ slides: [{}, {}, { skipped: true }], activeSlideIndex: 1, refusal: null },
+			german,
+			"de",
+		);
+		expect(paging.previous.label).toBe("Vorherige Folie — Folie 1 von 3");
+		expect(paging.next.label).toBe(
+			"Nächste Folie — alle späteren Folien werden übersprungen",
+		);
+		expect(disabledReason(paging.next.label)).toBe(
+			"Alle späteren Folien werden übersprungen",
+		);
+	});
+
+	test("the share and join menus are named in German, edit link or not", () => {
+		const noop = () => {};
+		for (const isOwner of [true, false]) {
+			const { actions } = buildShareControls(
+				{
+					code: "123456",
+					host: "omul.example",
+					isOwner,
+					copied: { code: false, link: false, embed: false, editLink: false },
+					onCopyCode: noop,
+					onCopyLink: noop,
+					onShowQr: noop,
+					onCopyEmbed: noop,
+					onShareEdit: noop,
+				},
+				german,
+			);
+			expect(actions[0]?.title).toBe("Link zum Mitmachen kopieren");
+			const menuActions = actions.filter((action) => action.key !== "qr");
+			expect(shareMenuLabel(menuActions, german)).toBe(
+				isOwner
+					? "Teilen — Link zum Mitmachen, Einbettungscode oder Bearbeitungslink kopieren"
+					: "Teilen — Link zum Mitmachen oder Einbettungscode kopieren",
+			);
+			// The code on the trigger's face still leads its name (WCAG 2.5.3).
+			expect(joinMenuLabel("123456", menuActions, german)).toStartWith(
+				"Mitmachen 123456 — ",
+			);
+		}
+	});
+
+	test("the room's words on this screen read the deck's dictionary", () => {
+		const overlay = source.slice(source.indexOf("const qrDialog = showQr && ("));
+		for (const key of [
+			"roomText.roomScanToJoin",
+			"roomText.roomOrGoTo",
+			"roomText.roomJoinCode",
+			"roomText.roomHeadCount",
+		]) {
+			expect(overlay).toContain(key);
+		}
+		expect(source).toContain("const roomText = getDict(pres.language);");
+		// The room's block carries the deck's language, Close the presenter's.
+		expect(overlay).toContain("lang={roomLanguage}");
+		expect(overlay).toMatch(/lang=\{language\}[\s\S]*?\{pageText\.close\}/);
 	});
 });

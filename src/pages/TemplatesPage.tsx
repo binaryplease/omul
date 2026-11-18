@@ -4,14 +4,21 @@ import { api } from "../api";
 import { Segmented } from "../components/EditorControls";
 import { LegalNotice } from "../components/LegalLinks";
 import { ICON_BUTTON_HOVER } from "../components/ShareCluster";
-import {
-	DECK_TEMPLATE_CATEGORY_LABELS,
-	TemplateCard,
-	UseTemplateButton,
-} from "../components/TemplateCard";
+import { TemplateCard, UseTemplateButton } from "../components/TemplateCard";
 import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { useToast } from "../components/ui/Toast";
+import {
+	textWithElement,
+	useDocumentLanguage,
+	useInterfaceText,
+} from "../interface-language";
+import {
+	fillText,
+	type InterfaceLanguage,
+	type InterfaceText,
+	pluralText,
+} from "../interface-text";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 import type { DeckTemplate, DeckTemplateCategory } from "../types";
@@ -34,15 +41,39 @@ import { DECK_TEMPLATE_CATEGORIES, filterDeckTemplates } from "../types";
 // The card itself is `components/TemplateCard.tsx` and is not this page's: a
 // workspace's own published templates (REQ004) are the same entry with a
 // publisher on it, drawn by the same component on the workspace's page.
+//
+// The page is in the interface language (REQ248), and a deck made here starts
+// with its participant language set to it, as one made on /create does. The
+// templates' own titles, descriptions and slides are the catalog's, and stay
+// as it wrote them.
+
+/**
+ * What picking an entry asks the server for: a copy of it, its participant
+ * language starting in the interface language (REQ248). Only the starting
+ * value — the presenter changes it in the deck's settings like any other.
+ */
+export function templateCreateRequest(
+	templateId: string,
+	language: InterfaceLanguage,
+): { templateId: string; language: InterfaceLanguage } {
+	return { templateId, language };
+}
+
+/** The language the built-in catalog's entries are written in (`server/templates.ts`). */
+const CATALOG_LANGUAGE = "en";
 
 /** The category filter's choices: every category, plus "everything". */
-const CATEGORY_FILTER_OPTIONS: { value: string; label: string }[] = [
-	{ value: "all", label: "All" },
-	...DECK_TEMPLATE_CATEGORIES.map((category) => ({
-		value: category,
-		label: DECK_TEMPLATE_CATEGORY_LABELS[category],
-	})),
-];
+function categoryFilterOptions(
+	text: InterfaceText,
+): { value: string; label: string }[] {
+	return [
+		{ value: "all", label: text.templates.allCategories },
+		...DECK_TEMPLATE_CATEGORIES.map((category) => ({
+			value: category,
+			label: text.workspaces.templateCategories[category],
+		})),
+	];
+}
 
 export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 	const [templates, setTemplates] = useState<DeckTemplate[]>([]);
@@ -57,8 +88,11 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 	// organizer with two decks and one editor.
 	const [creatingId, setCreatingId] = useState<string | null>(null);
 	const { addToast } = useToast();
+	const { text, language } = useInterfaceText();
+	const words = text.templates;
 
-	usePageTitle("Templates");
+	usePageTitle(words.pageTitle);
+	useDocumentLanguage(language);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -89,14 +123,16 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 		if (creatingId) return;
 		setCreatingId(template.id);
 		try {
-			const created = await api.createPresentation({ templateId: template.id });
-			addToast(`Created from “${template.title}”`, "success");
+			const created = await api.createPresentation(
+				templateCreateRequest(template.id, language),
+			);
+			addToast(fillText(words.createdFrom, { title: template.title }), "success");
 			go({ page: "edit", id: created.id });
 		} catch (createError: unknown) {
 			addToast(
 				createError instanceof Error
 					? createError.message
-					: "Failed to create from this template",
+					: words.createFailed,
 				"error",
 			);
 		} finally {
@@ -118,25 +154,29 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 						onClick={() => go({ page: "home" })}
 					>
 						<ChevronLeft size={16} />
-						Back
+						{words.back}
 					</button>
 					<div className="flex items-center gap-3 mb-2">
 						<LayoutTemplate size={16} className="text-accent" />
 						<span className="font-mono text-sm text-text-muted tracking-wider uppercase">
-							templates
+							{words.eyebrow}
 						</span>
 					</div>
 					<h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-3">
-						Start from a <span className="text-accent-text">prebuilt deck</span>
+						{textWithElement(
+							words.title,
+							"accent",
+							<span className="text-accent-text">{words.titleAccent}</span>,
+						)}
 					</h1>
-					<p className="text-text-muted max-w-xl">
-						Every template is a full deck you own from the moment you pick it —
-						the slides are copied into a new presentation and are yours to edit,
-						reorder or throw away.
-					</p>
+					<p className="text-text-muted max-w-xl">{words.intro}</p>
 					{/* Picking a template creates a deck — the same contract the
 					    blank editor's Create concludes (REQ183). */}
-					<LegalNotice action="using a template" className="mt-3 max-w-xl" />
+					<LegalNotice
+						action={text.legalNotice.usingTemplate}
+						wording={text.legalNotice}
+						className="mt-3 max-w-xl"
+					/>
 				</header>
 
 				{/* The two filters, above the results they narrow. */}
@@ -149,8 +189,8 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 						<input
 							className="input input-search"
 							type="search"
-							placeholder="Search templates"
-							aria-label="Search templates"
+							placeholder={words.searchPlaceholder}
+							aria-label={words.searchPlaceholder}
 							value={search}
 							onChange={(event) => setSearch(event.target.value)}
 						/>
@@ -162,22 +202,22 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 							className={`absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 disabled:opacity-40 ${ICON_BUTTON_HOVER}`}
 							onClick={() => setSearch("")}
 							disabled={search === ""}
-							title={
-								search === ""
-									? "Nothing to clear — the search box is empty."
-									: "Clear the search"
-							}
-							aria-label="Clear the search"
+							title={search === "" ? words.clearSearchEmpty : words.clearSearch}
+							aria-label={words.clearSearch}
 						>
 							<X size={14} />
 						</button>
 					</div>
-					<Segmented
-						ariaLabel="Filter templates by category"
-						value={category}
-						onChange={setCategory}
-						options={CATEGORY_FILTER_OPTIONS}
-					/>
+					{/* Six choices outgrow a phone in either language, so the row
+					    scrolls within itself rather than widening the page. */}
+					<div className="max-w-full overflow-x-auto">
+						<Segmented
+							ariaLabel={words.categoryFilter}
+							value={category}
+							onChange={setCategory}
+							options={categoryFilterOptions(text)}
+						/>
+					</div>
 				</div>
 
 				{loading ? (
@@ -188,11 +228,14 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 					<>
 						<p className="mb-4 text-sm text-text-dim">
 							{filtering
-								? `${visible.length} of ${templates.length} templates match`
-								: `${templates.length} template${templates.length === 1 ? "" : "s"}`}
+								? pluralText(language, visible.length, words.matchCount, {
+										total: templates.length,
+									})
+								: pluralText(language, templates.length, words.templateCount)}
 						</p>
 						{visible.length === 0 ? (
 							<EmptyResult
+								words={words}
 								onClear={() => {
 									setSearch("");
 									setCategory("all");
@@ -206,9 +249,12 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 										template={template}
 										search={search}
 										index={index}
+										contentLanguage={CATALOG_LANGUAGE}
 									>
 										<UseTemplateButton
-											label={`Create a new deck from “${template.title}”`}
+											label={fillText(words.useTemplateLabel, {
+												title: template.title,
+											})}
 											creating={creatingId === template.id}
 											busy={creatingId !== null}
 											onUse={() => handleUse(template)}
@@ -225,19 +271,24 @@ export function TemplatesPage({ go }: { go: (r: Route) => void }) {
 }
 
 /** Nothing matched — say what would show more, rather than an empty grid. */
-function EmptyResult({ onClear }: { onClear: () => void }) {
+function EmptyResult({
+	words,
+	onClear,
+}: {
+	words: InterfaceText["templates"];
+	onClear: () => void;
+}) {
 	return (
 		<div className="text-center py-16">
 			<div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-surface-raised border border-border mb-6">
 				<LayoutTemplate size={28} />
 			</div>
-			<h3 className="text-lg font-semibold mb-2">No template matches</h3>
+			<h3 className="text-lg font-semibold mb-2">{words.noMatch}</h3>
 			<p className="text-text-muted mb-6 max-w-sm mx-auto">
-				Nothing in the catalog answers both filters. Clear them to see every
-				template again.
+				{words.noMatchBody}
 			</p>
 			<button className="btn-secondary px-6 py-2.5" type="button" onClick={onClear}>
-				Clear filters
+				{words.clearFilters}
 			</button>
 		</div>
 	);

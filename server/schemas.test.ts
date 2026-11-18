@@ -822,6 +822,18 @@ describe("REQ159 — what a deck may be written with, and how much of it", () =>
 		const nestedRefusal = slideWriteRefusalFor([nested]);
 		expect(nestedRefusal?.slideIndex).toBe(0);
 		expect(nestedRefusal?.message).toContain("options.1.text");
+		// The facts the sentence is built from, for a surface that words it in
+		// another language (REQ248).
+		expect(refusal?.field).toBe("notes");
+		expect(refusal?.limit).toEqual({
+			kind: "characters",
+			maximum: SLIDE_TEXT_MAX_LENGTH,
+		});
+		expect(nestedRefusal?.field).toBe("options.1.text");
+		expect(nestedRefusal?.limit).toEqual({
+			kind: "characters",
+			maximum: SLIDE_ITEM_TEXT_MAX_LENGTH,
+		});
 	});
 
 	test("slideWriteRefusalFor refuses the whole list past the slide ceiling", () => {

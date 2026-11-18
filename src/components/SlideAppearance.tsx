@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { ENGLISH_INTERFACE_TEXT, type InterfaceText } from "../interface-text";
 import type { Rgb } from "./color";
 import {
 	BLACK,
@@ -123,28 +124,34 @@ export function slidePlacementClasses(
 	return SLIDE_PLACEMENT_CLASSES[slideAppearanceFor(slide).placement];
 }
 
-/** The layouts as the editor offers them (REQ087) — one descriptor, as above. */
-export function slideLayoutOptions(): ChoiceOption<SlideLayout>[] {
+/**
+ * The layouts as the editor offers them (REQ087) — one descriptor, as above,
+ * labelled in the interface language (REQ248).
+ */
+export function slideLayoutOptions(
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): ChoiceOption<SlideLayout>[] {
+	const copy = text.slideSettings;
 	return [
 		{
 			value: "inherit",
-			label: "Theme default",
-			description: "Lay this slide out the way the deck's theme does.",
+			label: copy.layoutInherit,
+			description: copy.layoutInheritDescription,
 		},
 		{
 			value: "center",
-			label: "Centred",
-			description: "Heading, media and answers stacked down the middle.",
+			label: copy.layoutCenter,
+			description: copy.layoutCenterDescription,
 		},
 		{
 			value: "left",
-			label: "Left",
-			description: "Everything aligned to the leading edge.",
+			label: copy.layoutLeft,
+			description: copy.layoutLeftDescription,
 		},
 		{
 			value: "right",
-			label: "Right",
-			description: "Everything aligned to the trailing edge.",
+			label: copy.layoutRight,
+			description: copy.layoutRightDescription,
 		},
 	];
 }

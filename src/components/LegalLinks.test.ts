@@ -27,6 +27,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { interfaceTextFor } from "../interface-text";
 import type { LegalLinks } from "../types";
 import {
 	configuredLegalLinks,
@@ -150,10 +151,11 @@ describe("the legal texts in the app menu, on every route (REQ183)", () => {
 	});
 
 	/**
-	 * A mounted menu, with or without the language a participant's screen
-	 * hands it (REQ225).
+	 * A mounted menu, plain or marked as speaking the deck's language, with the
+	 * language a participant's screen hands it (REQ225, REQ248).
 	 */
-	const APP_MENU_MOUNT = /<AppMenu(?: language=\{[^}]*\})? \/>/;
+	const APP_MENU_MOUNT =
+		/<AppMenu(?: speaksDeckLanguage)?(?: language=\{[^}]*\})? \/>/;
 	const mountsIn = (source: string) =>
 		source.match(new RegExp(APP_MENU_MOUNT.source, "g")) ?? [];
 
@@ -235,7 +237,7 @@ describe("the legal texts in the app menu, on every route (REQ183)", () => {
 		const source = readSource("pages/PreviewPage.tsx");
 		expect(source).toContain("const runMissing = !pres || !preview;");
 		const errorBranch = source.indexOf("if (error && runMissing) {");
-		const menu = source.indexOf("<AppMenu />", errorBranch);
+		const menu = source.indexOf("<AppMenu speaksDeckLanguage />", errorBranch);
 		const nextBranch = source.indexOf("if (loading ||", errorBranch);
 		expect(errorBranch).toBeGreaterThan(-1);
 		expect(menu).toBeGreaterThan(errorBranch);
@@ -294,22 +296,40 @@ describe("the notice where a contract is concluded (REQ183)", () => {
 		expect(notice({ ...NO_LEGAL_LINKS, imprintUrl: "/imprint" })).toBe("");
 	});
 
+	test("a German interface gets the notice in German, links in place (REQ248)", () => {
+		const german = interfaceTextFor("de").legalNotice;
+		const markup = renderToStaticMarkup(
+			createElement(LegalNoticeText, {
+				links: ALL_LINKS,
+				action: german.creatingPresentation,
+				wording: german,
+			}),
+		);
+		expect(textOf(markup)).toBe(
+			"Mit dem Erstellen dieser Präsentation stimmst du den Nutzungsbedingungen zu. In der Datenschutzerklärung steht, wie deine Daten verarbeitet werden.",
+		);
+		expect(markup).toMatch(/<a href="\/terms"[^>]*>Nutzungsbedingungen<\/a> zu\./);
+		expect(markup).toMatch(
+			/In der <a href="https:\/\/example\.com\/privacy"[^>]*>Datenschutzerklärung<\/a> steht/,
+		);
+	});
+
 	/** Each point, the file it lives in and how it mounts the notice. */
 	const CONTRACT_POINTS = [
 		{
 			name: "account sign-up",
 			file: "auth.tsx",
-			mount: '{mode === "signup" && <LegalNotice action="creating an account" />}',
+			mount: "<LegalNotice action={legalNotice.creatingAccount} wording={legalNotice} />",
 		},
 		{
 			name: "creating a presentation",
 			file: "pages/CreatePage.tsx",
-			mount: 'action="creating this presentation"',
+			mount: "action={text.legalNotice.creatingPresentation}",
 		},
 		{
 			name: "joining with a six-digit code",
 			file: "pages/JoinPage.tsx",
-			mount: '<LegalNotice action="joining"',
+			mount: "action={text.legalNotice.joining}",
 		},
 	] as const;
 
@@ -339,7 +359,7 @@ describe("the notice where a contract is concluded (REQ183)", () => {
 		const source = readSource("pages/CreatePage.tsx");
 		const submit = source.indexOf("onClick={handleSubmit}");
 		const mount = source.search(
-			/\{!isEdit && \(\s*<LegalNotice\s+action="creating this presentation"/,
+			/\{!isEdit && \(\s*<LegalNotice\s+action=\{text\.legalNotice\.creatingPresentation\}\s+wording=\{text\.legalNotice\}/,
 		);
 		const headerEnd = source.indexOf("</header>", submit);
 		expect(submit).toBeGreaterThan(-1);
@@ -352,9 +372,9 @@ describe("the notice where a contract is concluded (REQ183)", () => {
 		const mount = source.indexOf(CONTRACT_POINTS[2].mount);
 		// The scan view and the code-entry view are the two branches of one
 		// toggle; the notice sits after both, so neither hides it.
-		expect(mount).toBeGreaterThan(source.indexOf("Cancel scan"));
-		expect(mount).toBeGreaterThan(source.indexOf("Scan QR Code"));
-		expect(mount).toBeLessThan(source.indexOf("Back to home"));
+		expect(mount).toBeGreaterThan(source.indexOf("{words.cancelScan}"));
+		expect(mount).toBeGreaterThan(source.indexOf("{words.scanQr}"));
+		expect(mount).toBeLessThan(source.indexOf("{words.backHome}"));
 	});
 
 	/**

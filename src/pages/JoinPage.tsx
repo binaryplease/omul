@@ -1,13 +1,18 @@
 import { QrCode } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../api";
+import { ApiError, api } from "../api";
 import { DeckMark, DeckThemeScope } from "../components/DeckTheme";
 import { LegalNotice } from "../components/LegalLinks";
 import { AppMenu } from "../components/ui/AppMenu";
+import { useDocumentLanguage, useInterfaceText } from "../interface-language";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 
 // ── Join Page ─────────────────────────────────────────────────
+//
+// In the interface language (REQ248): no deck, and so no deck language, is
+// known until the code resolves. The participant screen it opens speaks the
+// deck's.
 
 export function JoinPage({ go }: { go: (r: Route) => void }) {
 	const [code, setCode] = useState("");
@@ -18,14 +23,17 @@ export function JoinPage({ go }: { go: (r: Route) => void }) {
 	const videoRef = useRef<HTMLVideoElement>(null);
 	const streamRef = useRef<MediaStream | null>(null);
 	const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	const { text, language } = useInterfaceText();
+	const words = text.join;
 
-	usePageTitle("Join");
+	usePageTitle(words.pageTitle);
+	useDocumentLanguage(language);
 
 	const handleJoin = useCallback(
 		async (joinCode?: string) => {
 			const cleanCode = (joinCode ?? code).replace(/\s/g, "");
 			if (cleanCode.length !== 6) {
-				setError("Enter a 6-digit code");
+				setError(words.codeIncomplete);
 				return;
 			}
 
@@ -34,13 +42,17 @@ export function JoinPage({ go }: { go: (r: Route) => void }) {
 			try {
 				await api.joinByCode(cleanCode);
 				go({ page: "participate", code: cleanCode });
-			} catch (e: unknown) {
-				setError((e as Error).message);
+			} catch (joinError: unknown) {
+				if (joinError instanceof ApiError && joinError.status === 404) {
+					setError(words.codeNotFound);
+				} else {
+					setError((joinError as Error).message);
+				}
 			} finally {
 				setJoining(false);
 			}
 		},
-		[code, go],
+		[code, go, words],
 	);
 
 	const stopScanning = useCallback(() => {
@@ -60,9 +72,7 @@ export function JoinPage({ go }: { go: (r: Route) => void }) {
 
 		// Check for BarcodeDetector support
 		if (!("BarcodeDetector" in window)) {
-			setError(
-				"QR scanning is not supported in this browser. Try Chrome or Safari on mobile.",
-			);
+			setError(words.scanUnsupported);
 			return;
 		}
 
@@ -110,15 +120,13 @@ export function JoinPage({ go }: { go: (r: Route) => void }) {
 		} catch (e: unknown) {
 			const err = e as { name?: string; message?: string };
 			if (err.name === "NotAllowedError") {
-				setError(
-					"Camera access was denied. Please allow camera access to scan QR codes.",
-				);
+				setError(words.cameraDenied);
 			} else {
-				setError("Could not access camera. Please enter the code manually.");
+				setError(words.cameraFailed);
 			}
 			setScanning(false);
 		}
-	}, [handleJoin, stopScanning]);
+	}, [handleJoin, stopScanning, words]);
 
 	// Cleanup camera on unmount
 	useEffect(() => {
@@ -162,12 +170,10 @@ export function JoinPage({ go }: { go: (r: Route) => void }) {
 			<div className="relative z-10 flex flex-col items-center w-full max-w-md px-4">
 				<DeckMark deck={null} className="mb-6" />
 				<h1 className="text-3xl font-bold mb-2 text-center">
-					Join Presentation
+					{words.heading}
 				</h1>
 				<p className="text-text-muted mb-8 text-center">
-					{scanning
-						? "Point your camera at the QR code"
-						: "Enter the 6-digit code shown on screen"}
+					{scanning ? words.pointCamera : words.enterCode}
 				</p>
 
 				{error && (
@@ -206,7 +212,7 @@ export function JoinPage({ go }: { go: (r: Route) => void }) {
 							className="btn-secondary text-sm"
 							onClick={stopScanning}
 						>
-							Cancel scan
+							{words.cancelScan}
 						</button>
 					</div>
 				) : (
@@ -215,6 +221,7 @@ export function JoinPage({ go }: { go: (r: Route) => void }) {
 						<input
 							className="join-code-input mb-6"
 							placeholder="------"
+							aria-label={words.codeInput}
 							value={code}
 							onChange={handleCodeChange}
 							onKeyDown={(e) => e.key === "Enter" && handleJoin()}
@@ -242,14 +249,14 @@ export function JoinPage({ go }: { go: (r: Route) => void }) {
 							onClick={() => handleJoin()}
 							disabled={joining || code.length !== 6}
 						>
-							{joining ? "Joining..." : "Join"}
+							{joining ? words.joining : words.join}
 						</button>
 
 						{/* Divider */}
 						<div className="flex items-center gap-3 w-full max-w-xs my-5">
 							<div className="flex-1 h-px bg-border" />
 							<span className="text-xs text-text-dim uppercase tracking-wider">
-								or
+								{words.or}
 							</span>
 							<div className="flex-1 h-px bg-border" />
 						</div>
@@ -261,24 +268,27 @@ export function JoinPage({ go }: { go: (r: Route) => void }) {
 							onClick={startScanning}
 						>
 							<QrCode size={16} />
-							Scan QR Code
+							{words.scanQr}
 						</button>
 					</>
 				)}
 
 				{/* Joining a room concludes a contract, so the terms and the privacy
 				    policy are named before the code is submitted (REQ183) — below
-				    both ways in, typed and scanned, since either one joins. English
-				    like the rest of this screen: no deck, and so no deck language,
-				    is known until the code resolves. */}
-				<LegalNotice action="joining" className="mt-6 max-w-xs text-center" />
+				    both ways in, typed and scanned, since either one joins. In the
+				    interface language like the rest of this screen. */}
+				<LegalNotice
+					action={text.legalNotice.joining}
+					wording={text.legalNotice}
+					className="mt-6 max-w-xs text-center"
+				/>
 
 				<button
 					type="button"
 					className="mt-6 text-sm text-text-muted hover:text-text transition-colors"
 					onClick={() => go({ page: "home" })}
 				>
-					Back to home
+					{words.backHome}
 				</button>
 			</div>
 		</div>,

@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { AuthDialog } from "../auth";
 import { signOut, useSession } from "../auth-client";
 import type { getDict } from "../i18n";
+import { InterfaceLanguageScope } from "../interface-language";
+import type { InterfaceLanguage } from "../interface-text";
 import type { ParticipantSignInRefusalCode } from "../types";
 
 // ── Signed-in participants (REQ134) ───────────────────────────
@@ -85,17 +87,21 @@ export function participantSignInPrompt(
  * answers by joining again; `onSignedOut` fires when it stops naming one, which
  * is how a switch starts. `returnTo` is the deck's own path, handed to the
  * dialog for the one step that leaves the page (a password reset email).
+ * `dialogLanguage` is the language the sign-in dialog speaks — the prompt's,
+ * where that is an interface language, and English where it is not (REQ248).
  */
 export function ParticipantSignInGate({
 	refused,
 	labels,
 	returnTo,
+	dialogLanguage = "en",
 	onSignedIn,
 	onSignedOut,
 }: {
 	refused: ParticipantSignInRefusalCode;
 	labels: ParticipantSignInLabels;
 	returnTo: string;
+	dialogLanguage?: InterfaceLanguage;
 	onSignedIn: () => void;
 	onSignedOut: () => void;
 }) {
@@ -149,7 +155,9 @@ export function ParticipantSignInGate({
 				{prompt.actionLabel}
 			</button>
 			{dialogOpen && (
-				<AuthDialog returnTo={returnTo} onClose={() => setDialogOpen(false)} />
+				<InterfaceLanguageScope language={dialogLanguage}>
+					<AuthDialog returnTo={returnTo} onClose={() => setDialogOpen(false)} />
+				</InterfaceLanguageScope>
 			)}
 		</div>
 	);

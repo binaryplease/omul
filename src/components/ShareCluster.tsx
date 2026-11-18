@@ -8,6 +8,12 @@ import {
 	QrCode,
 } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceText,
+} from "../interface-text";
+import { useInterfaceText } from "../interface-language";
 import { BarMenu, BarMenuRow, MENU_DIVIDER } from "./ui/BarMenu";
 
 // ── Share cluster (REQ: join-code / link / QR / embed / edit-link) ─────
@@ -102,44 +108,49 @@ export type ShareControls = { join: ShareJoin; actions: ShareAction[] };
  * Pure descriptor builder — the single source of truth for the share-control
  * set. Data in, data out: no state, no DOM. The edit-link control is owner-only
  * (a non-owner has no creator token to mint an edit link from), so it is
- * omitted from the set rather than rendered inert.
+ * omitted from the set rather than rendered inert. Its names are in the
+ * interface language of `text` (REQ248), English without one.
  */
-export function buildShareControls(params: {
-	code: string;
-	host: string;
-	isOwner: boolean;
-	copied: { code: boolean; link: boolean; embed: boolean; editLink: boolean };
-	onCopyCode: () => void;
-	onCopyLink: () => void;
-	onShowQr: () => void;
-	onCopyEmbed: () => void;
-	onShareEdit: () => void;
-}): ShareControls {
+export function buildShareControls(
+	params: {
+		code: string;
+		host: string;
+		isOwner: boolean;
+		copied: { code: boolean; link: boolean; embed: boolean; editLink: boolean };
+		onCopyCode: () => void;
+		onCopyLink: () => void;
+		onShowQr: () => void;
+		onCopyEmbed: () => void;
+		onShareEdit: () => void;
+	},
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): ShareControls {
+	const shareText = text.share;
 	const actions: ShareAction[] = [
 		{
 			key: "link",
-			title: "Copy join link",
+			title: shareText.copyJoinLink,
 			icon: <Link size={14} />,
-			label: "Link",
-			copiedLabel: "Copied!",
+			label: shareText.linkShort,
+			copiedLabel: shareText.copied,
 			copied: params.copied.link,
 			onClick: params.onCopyLink,
 		},
 		{
 			key: "qr",
-			title: "Show QR code",
+			title: shareText.showQrCode,
 			icon: <QrCode size={14} />,
-			label: "QR",
-			copiedLabel: "QR",
+			label: shareText.qrShort,
+			copiedLabel: shareText.qrShort,
 			copied: false,
 			onClick: params.onShowQr,
 		},
 		{
 			key: "embed",
-			title: "Copy embed code (iframe snippet)",
+			title: shareText.copyEmbedCode,
 			icon: <Code size={14} />,
-			label: "Embed",
-			copiedLabel: "Copied!",
+			label: shareText.embedShort,
+			copiedLabel: shareText.copied,
 			copied: params.copied.embed,
 			onClick: params.onCopyEmbed,
 		},
@@ -147,10 +158,10 @@ export function buildShareControls(params: {
 	if (params.isOwner) {
 		actions.push({
 			key: "edit-link",
-			title: "Copy share link with edit permissions",
+			title: shareText.copyEditLink,
 			icon: <Pencil size={14} />,
-			label: "Edit Link",
-			copiedLabel: "Copied!",
+			label: shareText.editLinkShort,
+			copiedLabel: shareText.copied,
 			copied: params.copied.editLink,
 			onClick: params.onShareEdit,
 		});
@@ -170,11 +181,14 @@ export function buildShareControls(params: {
  * What the Share trigger is called: every action the menu behind it holds. The
  * QR code is not among them — it has its own button beside the code (REQ191).
  */
-export function shareMenuLabel(actions: ShareAction[]): string {
+export function shareMenuLabel(
+	actions: ShareAction[],
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
 	const editLink = actions.some((action) => action.key === "edit-link");
-	return `Share — copy the join link${
-		editLink ? ", the embed code or the edit link" : " or the embed code"
-	}`;
+	return editLink
+		? text.share.shareMenuLabelWithEditLink
+		: text.share.shareMenuLabel;
 }
 
 /**
@@ -182,11 +196,18 @@ export function shareMenuLabel(actions: ShareAction[]): string {
  * everything the menu behind it holds. The visible code leads the name, so a
  * voice user can say what they see (WCAG 2.5.3).
  */
-export function joinMenuLabel(code: string, actions: ShareAction[]): string {
+export function joinMenuLabel(
+	code: string,
+	actions: ShareAction[],
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
 	const editLink = actions.some((action) => action.key === "edit-link");
-	return `Join ${code} — show the QR code, copy the code, the join link${
-		editLink ? ", the embed code or the edit link" : " or the embed code"
-	}`;
+	return fillText(
+		editLink
+			? text.share.joinMenuLabelWithEditLink
+			: text.share.joinMenuLabel,
+		{ code },
+	);
 }
 
 /**
@@ -239,6 +260,8 @@ export function ShareCluster({
 	className?: string;
 	controls: ShareControls;
 }) {
+	const { text } = useInterfaceText();
+	const shareText = text.share;
 	const { join, actions } = controls;
 	const qr = actions.find((action) => action.key === "qr");
 	const menuActions = actions.filter((action) => action.key !== "qr");
@@ -249,12 +272,12 @@ export function ShareCluster({
 					type="button"
 					className={`${BAR_GROUP_ITEM} px-2.5`}
 					onClick={join.onClick}
-					title="Copy join code"
+					title={shareText.copyJoinCode}
 				>
 					<span className="text-xs text-text-muted">
-						<span className="2xl:hidden">Join:</span>
+						<span className="2xl:hidden">{shareText.joinChip}</span>
 						<span className="hidden 2xl:inline">
-							Join at{" "}
+							{shareText.joinChipAt}{" "}
 							<span className="inline-block max-w-56 truncate align-bottom font-mono text-text">
 								{join.host}
 							</span>
@@ -281,9 +304,9 @@ export function ShareCluster({
 					</button>
 				)}
 				<BarMenu
-					label={shareMenuLabel(menuActions)}
-					title="Share"
-					heading={`Share · join ${join.code}`}
+					label={shareMenuLabel(menuActions, text)}
+					title={shareText.share}
+					heading={fillText(shareText.shareMenuHeading, { code: join.code })}
 					triggerClassName={BAR_GROUP_ITEM}
 					trigger={<ChevronDown size={14} aria-hidden />}
 				>
@@ -292,9 +315,9 @@ export function ShareCluster({
 			</div>
 			<div className={`${BAR_GROUP} sm:hidden ${className}`}>
 				<BarMenu
-					label={joinMenuLabel(join.code, menuActions)}
-					title={`Join ${join.code}`}
-					heading={`Join · ${join.code}`}
+					label={joinMenuLabel(join.code, menuActions, text)}
+					title={fillText(shareText.joinMenuTitle, { code: join.code })}
+					heading={fillText(shareText.joinMenuHeading, { code: join.code })}
 					triggerClassName={`${BAR_GROUP_ITEM} px-2`}
 					trigger={
 						<>
@@ -320,8 +343,8 @@ export function ShareCluster({
 							)}
 							<BarMenuRow
 								icon={join.copied ? <Check size={14} /> : <Copy size={14} />}
-								label={join.copied ? "Copied!" : "Copy join code"}
-								title="Copy join code"
+								label={join.copied ? shareText.copied : shareText.copyJoinCode}
+								title={shareText.copyJoinCode}
 								onClick={join.onClick}
 							/>
 							{shareMenuRows(menuActions, close)}

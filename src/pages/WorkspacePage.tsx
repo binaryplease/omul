@@ -20,6 +20,7 @@ import { TemplateCard, UseTemplateButton } from "../components/TemplateCard";
 import {
 	assignableWorkspaceRoles,
 	workspaceMemberDisplayName,
+	workspaceRoleInSentence,
 	workspaceRoleLabel,
 	workspaceRoleSummary,
 	WORKSPACE_ROLE_DESCRIPTORS,
@@ -29,6 +30,12 @@ import { ConfirmModal } from "../components/ui/ConfirmModal";
 import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { useToast } from "../components/ui/Toast";
+import {
+	textWithElement,
+	useDocumentLanguage,
+	useInterfaceText,
+} from "../interface-language";
+import { fillText, formatDate, pluralText } from "../interface-text";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 import type {
@@ -99,8 +106,11 @@ export function WorkspacePage({
 	const { addToast } = useToast();
 	const { data: session } = useSession();
 	const userId = session?.user?.id ?? null;
+	const { text, language } = useInterfaceText();
+	const words = text.workspaces;
 
-	usePageTitle(workspace?.name ?? "Workspace");
+	usePageTitle(workspace?.name ?? words.workspaceFallbackTitle);
+	useDocumentLanguage(language);
 
 	const load = useCallback(async () => {
 		setLoading(true);
@@ -125,7 +135,7 @@ export function WorkspacePage({
 			setRefused(
 				loadError instanceof Error
 					? loadError.message
-					: "This workspace could not be opened",
+					: words.openFailed,
 			);
 		} finally {
 			setLoading(false);
@@ -157,14 +167,17 @@ export function WorkspacePage({
 			setMembers(await api.listWorkspaceMembers(id));
 			setEmail("");
 			addToast(
-				`${workspaceMemberDisplayName(member)} is now ${workspaceRoleLabel(member.role).toLowerCase()}`,
+			fillText(words.memberAdded, {
+				name: workspaceMemberDisplayName(member, text),
+				role: workspaceRoleInSentence(member.role, text),
+			}),
 				"success",
 			);
 		} catch (addError: unknown) {
 			addToast(
 				addError instanceof Error
 					? addError.message
-					: "Could not add that account",
+					: words.addFailed,
 				"error",
 			);
 		} finally {
@@ -180,7 +193,10 @@ export function WorkspacePage({
 				current.map((entry) => (entry.id === updated.id ? updated : entry)),
 			);
 			addToast(
-				`${workspaceMemberDisplayName(updated)} — ${workspaceRoleLabel(updated.role).toLowerCase()}`,
+			fillText(words.roleChanged, {
+				name: workspaceMemberDisplayName(updated, text),
+				role: workspaceRoleInSentence(updated.role, text),
+			}),
 				"info",
 			);
 			// Changing your own role changes what this page may draw next.
@@ -189,7 +205,7 @@ export function WorkspacePage({
 			addToast(
 				roleError instanceof Error
 					? roleError.message
-					: "Could not change that role",
+					: words.roleFailed,
 				"error",
 			);
 		} finally {
@@ -205,20 +221,22 @@ export function WorkspacePage({
 		try {
 			await api.removeWorkspaceMember(id, target.id);
 			if (target.mine) {
-				addToast("You have left the workspace", "info");
+				addToast(words.youLeft, "info");
 				go({ page: "workspaces" });
 				return;
 			}
 			setMembers((current) => current.filter((entry) => entry.id !== target.id));
 			addToast(
-				`${workspaceMemberDisplayName(target)} is no longer in this workspace — its decks are untouched`,
+			fillText(words.memberRemoved, {
+				name: workspaceMemberDisplayName(target, text),
+			}),
 				"info",
 			);
 		} catch (removeError: unknown) {
 			addToast(
 				removeError instanceof Error
 					? removeError.message
-					: "Could not remove that member",
+					: words.removeFailed,
 				"error",
 			);
 		} finally {
@@ -233,15 +251,12 @@ export function WorkspacePage({
 		try {
 			const updated = await api.setWorkspaceDefaultTheme(id, defaultTheme);
 			setWorkspace(updated);
-			addToast(
-				"New decks here start in this theme — existing decks keep theirs",
-				"success",
-			);
+			addToast(words.defaultThemeChanged, "success");
 		} catch (themeError: unknown) {
 			addToast(
 				themeError instanceof Error
 					? themeError.message
-					: "Could not change the default theme",
+					: words.defaultThemeFailed,
 				"error",
 			);
 		} finally {
@@ -256,12 +271,12 @@ export function WorkspacePage({
 		try {
 			const updated = await api.renameWorkspace(id, trimmed);
 			setWorkspace(updated);
-			addToast("Workspace renamed", "success");
+			addToast(words.renamed, "success");
 		} catch (renameError: unknown) {
 			addToast(
 				renameError instanceof Error
 					? renameError.message
-					: "Could not rename this workspace",
+					: words.renameFailed,
 				"error",
 			);
 			setRenaming(workspace?.name ?? "");
@@ -274,13 +289,13 @@ export function WorkspacePage({
 		setDeleteWorkspaceOpen(false);
 		try {
 			await api.deleteWorkspace(id);
-			addToast("Workspace deleted", "success");
+			addToast(words.deleted, "success");
 			go({ page: "workspaces" });
 		} catch (deleteError: unknown) {
 			addToast(
 				deleteError instanceof Error
 					? deleteError.message
-					: "Could not delete this workspace",
+					: words.deleteFailed,
 				"error",
 			);
 		}
@@ -291,19 +306,21 @@ export function WorkspacePage({
 		setCreatingDeck(true);
 		try {
 			const created = await api.createPresentation({
-				title: "Untitled presentation",
+				title: words.newDeckTitle,
 				slides: [
-					{ id: crypto.randomUUID(), type: "text", question: "New slide" },
+					{ id: crypto.randomUUID(), type: "text", question: words.newDeckSlide },
 				],
 				workspaceId: id,
+				// A deck starts in the interface language, as on /create (REQ248).
+				language,
 			});
-			addToast("Deck created in this workspace", "success");
+			addToast(words.deckCreated, "success");
 			go({ page: "edit", id: created.id });
 		} catch (createError: unknown) {
 			addToast(
 				createError instanceof Error
 					? createError.message
-					: "Could not create a deck here",
+					: words.deckCreateFailed,
 				"error",
 			);
 		} finally {
@@ -319,14 +336,18 @@ export function WorkspacePage({
 			const created = await api.createPresentation({
 				workspaceId: id,
 				workspaceTemplateId: template.id,
+				language,
 			});
-			addToast(`Created from “${template.title}”`, "success");
+			addToast(
+				fillText(words.createdFromTemplate, { title: template.title }),
+				"success",
+			);
 			go({ page: "edit", id: created.id });
 		} catch (createError: unknown) {
 			addToast(
 				createError instanceof Error
 					? createError.message
-					: "Could not create a deck from this template",
+					: words.createFromTemplateFailed,
 				"error",
 			);
 		} finally {
@@ -343,15 +364,12 @@ export function WorkspacePage({
 			setTemplates((current) =>
 				current.filter((entry) => entry.id !== target.id),
 			);
-			addToast(
-				`“${target.title}” is no longer a template — every deck made from it stays`,
-				"info",
-			);
+			addToast(fillText(words.unpublished, { title: target.title }), "info");
 		} catch (unpublishError: unknown) {
 			addToast(
 				unpublishError instanceof Error
 					? unpublishError.message
-					: "Could not take that template down",
+					: words.unpublishFailed,
 				"error",
 			);
 		}
@@ -364,12 +382,12 @@ export function WorkspacePage({
 		try {
 			await api.setPresentationWorkspace(target.id, null);
 			setDecks((current) => current.filter((deck) => deck.id !== target.id));
-			addToast(`“${target.title}” is now yours alone`, "info");
+			addToast(fillText(words.movedOut, { title: target.title }), "info");
 		} catch (moveError: unknown) {
 			addToast(
 				moveError instanceof Error
 					? moveError.message
-					: "Could not move that deck out",
+					: words.moveOutFailed,
 				"error",
 			);
 		}
@@ -390,12 +408,12 @@ export function WorkspacePage({
 						onClick={() => go({ page: "workspaces" })}
 					>
 						<ChevronLeft size={16} />
-						All workspaces
+						{words.allWorkspaces}
 					</button>
 					<div className="flex items-center gap-3 mb-2">
 						<Building2 size={16} className="text-accent" />
 						<span className="font-mono text-sm text-text-muted tracking-wider uppercase">
-							workspace
+							{words.workspaceEyebrow}
 						</span>
 					</div>
 					{loading ? null : workspace ? (
@@ -415,7 +433,7 @@ export function WorkspacePage({
 										autoFocus
 										className="input text-lg font-semibold"
 										type="text"
-										aria-label="Workspace name"
+										aria-label={words.workspaceName}
 										maxLength={WORKSPACE_NAME_MAX_LENGTH}
 										value={renaming}
 										disabled={busy}
@@ -442,21 +460,20 @@ export function WorkspacePage({
 									className="text-text-dim hover:text-accent transition-colors p-2 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-text-dim"
 									onClick={() => setEditingName(true)}
 									disabled={!canAdminister || editingName || busy}
-									title={
-										canAdminister
-											? "Rename this workspace"
-											: "Rename this workspace — only its owner can"
-									}
+									title={canAdminister ? words.rename : words.renameOwnerOnly}
 								>
 									<Pencil size={16} />
 								</button>
 							</div>
 							<p className="text-text-muted">
-								You are{" "}
+							{textWithElement(
+								words.youAre,
+								"role",
 								<span className="text-accent-text">
-									{workspaceRoleLabel(myRole).toLowerCase()}
-								</span>{" "}
-								here. {workspaceRoleSummary(myRole)}
+									{workspaceRoleInSentence(myRole, text)}
+								</span>,
+							)}{" "}
+							{workspaceRoleSummary(myRole, text)}
 							</p>
 						</>
 					) : (
@@ -470,9 +487,12 @@ export function WorkspacePage({
 					<>
 						{/* ── The decks the workspace owns ──────────────── */}
 						<section className="mb-14 slide-in slide-in-delay-1">
-							<div className="flex items-center justify-between gap-4 mb-6">
+							{/* Wraps rather than squeezing, like the home page's list
+							    heading: on a narrow screen the button drops under the
+							    heading instead of both breaking into short lines. */}
+							<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 mb-6">
 								<h2 className="text-xl font-semibold text-text-muted">
-									Decks this workspace owns
+									{words.decksHeading}
 								</h2>
 								<button
 									type="button"
@@ -481,12 +501,12 @@ export function WorkspacePage({
 									disabled={!canCreateWorkspaceDecks(myRole) || creatingDeck}
 									title={
 										canCreateWorkspaceDecks(myRole)
-											? "Create a deck the workspace owns"
-											: "Create a deck here — your role in this workspace does not allow it"
+										? words.createDeck
+										: words.createDeckRefused
 									}
 								>
 									<Plus size={14} />
-									{creatingDeck ? "Creating…" : "New deck"}
+									{creatingDeck ? words.creating : words.newDeck}
 								</button>
 							</div>
 							{/* The theme a new deck here starts in (REQ086) sits with the
@@ -495,38 +515,29 @@ export function WorkspacePage({
 							    every role but the one that may rename the workspace. */}
 							<div className="mb-6 max-w-2xl">
 								<h3 className="text-sm font-medium text-text-muted mb-1">
-									New decks start in
+									{words.defaultThemeHeading}
 								</h3>
 								<p className="text-xs text-text-dim mb-3">
-									A deck created here without a theme of its own takes this
-									one, and can change it afterwards. Decks that already exist
-									keep theirs.
-									{canAdminister
-										? ""
-										: " Only the workspace's owner can change it."}
+									{words.defaultThemeNote}
+									{canAdminister ? "" : words.defaultThemeOwnerOnly}
 								</p>
 								<ChoiceCards
-									ariaLabel="Default theme for new decks in this workspace"
+									ariaLabel={words.defaultThemeName}
 									variant="tile"
 									columns={3}
 									value={workspace.defaultTheme}
 									onChange={changeDefaultTheme}
-									options={builtInDeckThemeOptions().map((option) => ({
+									options={builtInDeckThemeOptions(text).map((option) => ({
 										...option,
 										disabled: !canAdminister || busy,
 										disabledReason: canAdminister
-											? "Saving the default theme…"
-											: "Only the workspace's owner can change its default theme",
+										? words.defaultThemeSaving
+										: words.defaultThemeRefused,
 									}))}
 								/>
 							</div>
 							{decks.length === 0 ? (
-								<p className="text-text-muted">
-									No decks yet. One created here belongs to the workspace rather
-									than to you — everybody in it can open it, every role but a
-									commenter can edit and present it, and it stays when anybody
-									leaves.
-								</p>
+								<p className="text-text-muted">{words.noDecks}</p>
 							) : (
 								<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
 									{decks.map((deck) => (
@@ -550,7 +561,7 @@ export function WorkspacePage({
 												<div className="flex items-center gap-4 text-sm text-text-muted">
 													<span className="font-mono">{deck.code}</span>
 													<span>
-														{new Date(deck.createdAt).toLocaleDateString()}
+														{formatDate(language, deck.createdAt)}
 													</span>
 												</div>
 											</div>
@@ -570,10 +581,10 @@ export function WorkspacePage({
 												disabled={!canPublish}
 												title={
 													!canPublish
-														? "Publish this deck as a template — only a workspace admin can"
+													? words.publishRefused
 														: publishedFrom(deck)
-															? "Republish this deck as a template — the entry takes its slides as they are now"
-															: "Publish this deck as a template the whole workspace can start from"
+														? words.republish
+														: words.publish
 												}
 											>
 												<LayoutTemplate size={18} />
@@ -591,9 +602,7 @@ export function WorkspacePage({
 												}}
 												disabled={!canAdminister}
 												title={
-													canAdminister
-														? "Move this deck out of the workspace and into your account"
-														: "Move this deck out — only the workspace's owner can"
+													canAdminister ? words.moveOut : words.moveOutOwnerOnly
 												}
 											>
 												<LogOut size={18} />
@@ -607,16 +616,12 @@ export function WorkspacePage({
 						{/* ── What it publishes (REQ004) ────────────────── */}
 						<section className="mb-14 slide-in slide-in-delay-2">
 							<h2 className="text-xl font-semibold text-text-muted mb-6">
-								Templates this workspace publishes
+								{words.templatesHeading}
 							</h2>
 							{templates.length === 0 ? (
 								<p className="text-text-muted max-w-2xl">
-									None yet. Publish one of the decks above and everybody here can
-									start from a copy of it — the copy is taken at the moment you
-									publish, so the deck stays yours to keep editing.
-									{canPublish
-										? ""
-										: " Publishing needs the admin role; ask somebody who has it."}
+									{words.noTemplates}
+									{canPublish ? "" : words.noTemplatesAdminOnly}
 								</p>
 							) : (
 								<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -631,19 +636,16 @@ export function WorkspacePage({
 											    somebody behind it — an account that has since been
 											    deleted leaves the entry standing and says so. */}
 											<p className="text-xs text-text-dim">
-												Published by{" "}
-												{template.publishedByName ?? "a former member"} ·{" "}
-												{new Date(template.createdAt).toLocaleDateString()}
+											{fillText(words.publishedBy, {
+												name: template.publishedByName ?? words.formerMember,
+												date: formatDate(language, template.createdAt),
+											})}
 											</p>
 											<UseTemplateButton
-												label={`Create a new deck in this workspace from “${template.title}”`}
+												label={fillText(words.useTemplate, { title: template.title })}
 												creating={creatingFromId === template.id}
 												busy={creatingFromId !== null}
-												refusal={
-													canCreateDecks
-														? null
-														: "Create a deck from this template — your role in this workspace does not allow it"
-												}
+												refusal={canCreateDecks ? null : words.useTemplateRefused}
 												onUse={() => createFromTemplate(template)}
 											/>
 											<button
@@ -652,12 +654,10 @@ export function WorkspacePage({
 												onClick={() => setUnpublishTarget(template)}
 												disabled={!canPublish}
 												title={
-													canPublish
-														? "Take this template out of the gallery — no deck is touched"
-														: "Take this template down — only a workspace admin can"
+												canPublish ? words.unpublishTitle : words.unpublishAdminOnly
 												}
 											>
-												Unpublish
+											{words.unpublish}
 											</button>
 										</TemplateCard>
 									))}
@@ -668,15 +668,15 @@ export function WorkspacePage({
 						{/* ── Who is in it ──────────────────────────────── */}
 						<section className="slide-in slide-in-delay-3 max-w-2xl">
 							<h2 className="text-xl font-semibold mb-6 text-text-muted">
-								Who is in this workspace
+								{words.rosterHeading}
 							</h2>
 
 							<div className="flex flex-col gap-2 mb-6">
 								<input
 									type="email"
 									className="input text-sm"
-									placeholder="their@email.address"
-									aria-label="Email address to add"
+									placeholder={words.emailPlaceholder}
+									aria-label={words.emailToAdd}
 									value={email}
 									disabled={!canManage}
 									onChange={(event) => setEmail(event.target.value)}
@@ -693,7 +693,7 @@ export function WorkspacePage({
 											onChange={(event) =>
 												setRole(event.target.value as WorkspaceRole)
 											}
-											title="What this person will be able to do"
+											title={words.roleToGive}
 										>
 											{WORKSPACE_ROLE_DESCRIPTORS.filter((descriptor) =>
 												assignableWorkspaceRoles(myRole).includes(
@@ -701,7 +701,7 @@ export function WorkspacePage({
 												),
 											).map((descriptor) => (
 												<option key={descriptor.role} value={descriptor.role}>
-													{descriptor.label}
+												{workspaceRoleLabel(descriptor.role, text)}
 												</option>
 											))}
 										</select>
@@ -713,21 +713,21 @@ export function WorkspacePage({
 										disabled={!canManage || busy || !email.trim()}
 										title={
 											!canManage
-												? "Add somebody — your role in this workspace does not allow it"
+											? words.addRefused
 												: email.trim()
-													? "Add this account to the workspace"
-													: "Add somebody — type the account's email address first"
+												? words.addThis
+												: words.addEmailFirst
 										}
 									>
 										<UserPlus size={14} />
-										Add
+										{words.add}
 									</button>
 								</div>
 								{/* What the chosen role buys, under the control that chooses
 								    it — a role is a promise to somebody, and reading it
 								    afterwards is too late. */}
 								<p className="text-xs text-text-dim">
-									{workspaceRoleSummary(role)}
+									{workspaceRoleSummary(role, text)}
 								</p>
 							</div>
 
@@ -737,9 +737,9 @@ export function WorkspacePage({
 										<li key={member.id} className="flex items-center gap-2">
 											<div className="flex-1 min-w-0">
 												<div className="truncate">
-													{workspaceMemberDisplayName(member)}
+													{workspaceMemberDisplayName(member, text)}
 													{member.mine ? (
-														<span className="text-text-dim"> (you)</span>
+													<span className="text-text-dim">{words.you}</span>
 													) : null}
 												</div>
 												{member.name?.trim() && member.email ? (
@@ -748,7 +748,7 @@ export function WorkspacePage({
 													</div>
 												) : null}
 											</div>
-											<div className="w-28 shrink-0">
+											<div className="w-36 shrink-0">
 												<select
 													className="input text-xs disabled:opacity-60 disabled:cursor-not-allowed"
 													value={member.role}
@@ -758,9 +758,7 @@ export function WorkspacePage({
 														(member.role === "owner" && !canAdminister)
 													}
 													title={
-														canManage
-															? "Change what this person can do here"
-															: "Change this role — your own role does not allow it"
+														canManage ? words.changeRole : words.changeRoleRefused
 													}
 													onChange={(event) =>
 														changeRole(
@@ -779,7 +777,7 @@ export function WorkspacePage({
 															key={descriptor.role}
 															value={descriptor.role}
 														>
-															{descriptor.label}
+														{workspaceRoleLabel(descriptor.role, text)}
 														</option>
 													))}
 												</select>
@@ -797,10 +795,10 @@ export function WorkspacePage({
 												}
 												title={
 													member.mine
-														? "Leave this workspace"
+														? words.leave
 														: canManage
-															? "Remove this person from the workspace"
-															: "Remove somebody — your role in this workspace does not allow it"
+															? words.remove
+															: words.removeRefused
 												}
 											>
 												{member.mine ? (
@@ -815,13 +813,9 @@ export function WorkspacePage({
 							</div>
 
 							<p className="text-xs text-text-dim mt-4">
-								Removing somebody takes effect at once — there is nothing of
-								theirs to expire — and the workspace keeps every deck they
-								worked on. Deleting a deck and deciding who outside the
-								workspace it is shared with need the admin role;{" "}
-								{workspaceRoleLabel("owner").toLowerCase()} is the only role
-								that can rename or delete the workspace itself, or change the
-								theme its new decks start in.
+							{fillText(words.rosterNote, {
+								owner: workspaceRoleInSentence("owner", text),
+							})}
 							</p>
 
 							{/* Deleting the workspace is the last thing on the page, below
@@ -834,12 +828,12 @@ export function WorkspacePage({
 								title={
 									canAdminister
 										? decks.length > 0
-											? "Delete this workspace — move or delete its decks first"
-											: "Delete this workspace"
-										: "Delete this workspace — only its owner can"
+										? words.deleteWorkspaceHasDecks
+										: words.deleteWorkspace
+										: words.deleteWorkspaceOwnerOnly
 								}
 							>
-								Delete this workspace
+							{words.deleteWorkspace}
 							</button>
 						</section>
 					</>
@@ -848,13 +842,18 @@ export function WorkspacePage({
 
 			<ConfirmModal
 				open={!!removeTarget}
-				title={removeTarget?.mine ? "Leave workspace" : "Remove member"}
+				title={removeTarget?.mine ? words.leaveTitle : words.removeTitle}
 				message={
 					removeTarget?.mine
-						? `Leave “${workspace?.name}”? You lose access to its decks — the decks themselves stay with the workspace.`
-						: `Remove ${removeTarget ? workspaceMemberDisplayName(removeTarget) : ""} from “${workspace?.name}”? They lose access at once. Every deck they worked on stays with the workspace.`
+					? fillText(words.leaveMessage, { workspace: workspace?.name ?? "" })
+					: fillText(words.removeMessage, {
+							name: removeTarget
+								? workspaceMemberDisplayName(removeTarget, text)
+								: "",
+							workspace: workspace?.name ?? "",
+						})
 				}
-				confirmLabel={removeTarget?.mine ? "Leave" : "Remove"}
+				confirmLabel={removeTarget?.mine ? words.leaveConfirm : words.removeConfirm}
 				variant="danger"
 				onConfirm={removeMember}
 				onCancel={() => setRemoveTarget(null)}
@@ -862,9 +861,9 @@ export function WorkspacePage({
 
 			<ConfirmModal
 				open={!!moveOutTarget}
-				title="Move deck out of the workspace"
-				message={`Move “${moveOutTarget?.title}” into your own account? It leaves this workspace's list, everybody else in it loses access, and its old edit link stays retired.`}
-				confirmLabel="Move to my account"
+				title={words.moveOutTitle}
+				message={fillText(words.moveOutMessage, { title: moveOutTarget?.title ?? "" })}
+				confirmLabel={words.moveOutConfirm}
 				onConfirm={moveDeckOut}
 				onCancel={() => setMoveOutTarget(null)}
 			/>
@@ -893,9 +892,11 @@ export function WorkspacePage({
 
 			<ConfirmModal
 				open={!!unpublishTarget}
-				title="Unpublish template"
-				message={`Take “${unpublishTarget?.title}” out of this workspace's gallery? Nobody will be able to start from it again. No deck is touched — not the one it was published from, and not any deck already made from it.`}
-				confirmLabel="Unpublish"
+				title={words.unpublishConfirmTitle}
+				message={fillText(words.unpublishMessage, {
+					title: unpublishTarget?.title ?? "",
+				})}
+				confirmLabel={words.unpublish}
 				variant="danger"
 				onConfirm={unpublish}
 				onCancel={() => setUnpublishTarget(null)}
@@ -903,13 +904,17 @@ export function WorkspacePage({
 
 			<ConfirmModal
 				open={deleteWorkspaceOpen}
-				title="Delete workspace"
+				title={words.deleteWorkspaceTitle}
 				message={
 					decks.length > 0
-						? `“${workspace?.name}” still owns ${decks.length} deck${decks.length === 1 ? "" : "s"}. Move them out or delete them first — deleting the workspace never deletes a deck.`
-						: `Delete “${workspace?.name}”? Everybody in it loses it, and this cannot be undone.`
+					? pluralText(language, decks.length, words.deleteWorkspaceBlocked, {
+							workspace: workspace?.name ?? "",
+						})
+					: fillText(words.deleteWorkspaceMessage, {
+							workspace: workspace?.name ?? "",
+						})
 				}
-				confirmLabel="Delete"
+				confirmLabel={words.deleteConfirm}
 				variant="danger"
 				onConfirm={removeWorkspace}
 				onCancel={() => setDeleteWorkspaceOpen(false)}

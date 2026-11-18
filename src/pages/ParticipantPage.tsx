@@ -55,6 +55,11 @@ import { LoadingState } from "../components/ui/Loading";
 import { useToast } from "../components/ui/Toast";
 import { rememberDeckSeenInRoom } from "../feedback-prompt";
 import { browserLanguage, getDict, resolveLang } from "../i18n";
+import {
+	InterfaceLanguageScope,
+	useDocumentLanguage,
+} from "../interface-language";
+import { resolveInterfaceLanguage } from "../interface-text";
 import type { Route } from "../router";
 import { urlForRoute, usePageTitle } from "../router";
 import { useSessionSocket, useStore } from "../store";
@@ -355,6 +360,8 @@ export function ParticipantPage({
 	const { addToast } = useToast();
 
 	usePageTitle(pres ? `${pres.title} - Participate` : "Participate");
+	// This screen speaks the deck's language, not the interface's (REQ248).
+	useDocumentLanguage(pres?.language || undefined);
 
 	const isSurvey = pres?.mode === "survey";
 
@@ -766,11 +773,19 @@ export function ParticipantPage({
 	 * signs the participant in, and the dialog must not vanish with the sign-in
 	 * screen it was opened over.
 	 */
+	const accountDialogLanguage = resolveInterfaceLanguage("auto", [
+		resolveLang(pres?.language ?? browserLanguage()),
+	]);
 	const themed = (screen: React.ReactNode) => (
 		<DeckThemeScope deck={pres}>
 			<div lang={pres?.language || undefined} className="contents">
 				{screen}
-				<PasswordResetLanding />
+				{/* In the deck's language where that is an interface language,
+				    English where it is not (REQ248) — the browser's until a deck
+				    is known, as the sign-in prompt is. */}
+				<InterfaceLanguageScope language={accountDialogLanguage}>
+					<PasswordResetLanding />
+				</InterfaceLanguageScope>
 			</div>
 		</DeckThemeScope>
 	);
@@ -797,7 +812,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<AppMenu language={promptLanguage} />
+					<AppMenu speaksDeckLanguage language={promptLanguage} />
 				</div>
 				<div
 					lang={promptLanguage}
@@ -811,6 +826,7 @@ export function ParticipantPage({
 							{ page: "participate", code },
 							window.location.search,
 						)}
+						dialogLanguage={resolveInterfaceLanguage("auto", [promptLanguage])}
 						onSignedIn={() => loadByCode(code)}
 						onSignedOut={() => setSignInRefusal("sign-in-required")}
 					/>
@@ -823,7 +839,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<AppMenu language={pres?.language} />
+					<AppMenu speaksDeckLanguage language={pres?.language} />
 				</div>
 				<div className="relative z-10 text-center">
 					<p className="text-error mb-4">{screen.message}</p>
@@ -858,7 +874,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<AppMenu language={pres.language} />
+					<AppMenu speaksDeckLanguage language={pres.language} />
 				</div>
 				<div className="relative z-10 flex flex-col items-center text-center">
 					{/* REQ136 — the organizer's mark on the last screen the room sees,
@@ -920,7 +936,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<AppMenu language={pres.language} />
+					<AppMenu speaksDeckLanguage language={pres.language} />
 				</div>
 				<div className="relative z-10 flex flex-col items-center px-4">
 					<DeckMark deck={pres} className="mb-6" />
@@ -969,7 +985,7 @@ export function ParticipantPage({
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
-					<AppMenu language={pres.language} />
+					<AppMenu speaksDeckLanguage language={pres.language} />
 				</div>
 				<div className="relative z-10 flex flex-col items-center text-center">
 					{/* REQ136 — the join screen's mark: the organizer's logo when the
@@ -1018,7 +1034,7 @@ export function ParticipantPage({
 				    cannot swallow a tap meant for the answer below it. */}
 				<ReactionStream reactions={liveReactions} />
 				<div className="absolute top-4 right-4 z-20">
-					<AppMenu language={pres.language} />
+					<AppMenu speaksDeckLanguage language={pres.language} />
 				</div>
 				<div
 					className={`relative z-10 w-full ${

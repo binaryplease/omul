@@ -28,6 +28,7 @@ import { SlideRailItem } from "../components/SlideRail";
 import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { useToast } from "../components/ui/Toast";
+import { useDocumentLanguage } from "../interface-language";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 import type { Presentation, Slide } from "../types";
@@ -224,6 +225,9 @@ export function PreviewPage({
 	});
 
 	usePageTitle(pres ? `${pres.title} - Preview` : "Preview");
+	// The preview's slides speak the deck's language, not the interface's
+	// (REQ248); its English chrome carries lang="en" of its own.
+	useDocumentLanguage(pres?.language || undefined);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -366,7 +370,7 @@ export function PreviewPage({
 		return themed(
 			<div className="min-h-screen bg-void flex items-center justify-center text-error">
 				<div className="absolute top-4 right-4 z-20">
-					<AppMenu />
+					<AppMenu speaksDeckLanguage />
 				</div>
 				{error}
 			</div>,
@@ -389,7 +393,13 @@ export function PreviewPage({
 	return themed(
 		<div className="min-h-screen w-full bg-void bg-grid bg-noise flex flex-col">
 			<div className="relative z-10 flex flex-col flex-1">
-				<header className="border-b border-border bg-surface/80 backdrop-blur-sm">
+				{/* The preview's chrome is English (no REQ248 slice translates it),
+				    while the page declares the deck's language for the slides it
+				    shows, so the chrome says which language it is in. */}
+				<header
+					lang="en"
+					className="border-b border-border bg-surface/80 backdrop-blur-sm"
+				>
 					<div className="flex items-center justify-between gap-2 px-4 sm:px-6 py-2 sm:py-3 overflow-x-auto whitespace-nowrap">
 						<div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-shrink">
 							<button
@@ -414,7 +424,7 @@ export function PreviewPage({
 						</div>
 
 						<div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-							<AppMenu />
+							<AppMenu speaksDeckLanguage />
 							<button
 								type="button"
 								className="btn-secondary text-sm flex items-center gap-1.5"
@@ -513,7 +523,10 @@ export function PreviewPage({
 							<div className="flex-1 flex flex-col xl:flex-row min-w-0">
 								{/* The shared screen. */}
 								<section className="flex-1 min-w-0 flex flex-col border-b xl:border-b-0 xl:border-r border-border">
-									<h2 className="flex items-center gap-2 px-4 py-2 text-xs font-mono uppercase tracking-wider text-text-muted border-b border-border bg-surface/40">
+									<h2
+										lang="en"
+										className="flex items-center gap-2 px-4 py-2 text-xs font-mono uppercase tracking-wider text-text-muted border-b border-border bg-surface/40"
+									>
 										<Monitor size={14} />
 										{SHARED_SCREEN_LABEL}
 									</h2>
@@ -588,7 +601,10 @@ export function PreviewPage({
 
 								{/* A participant's phone. */}
 								<section className="flex-1 min-w-0 flex flex-col xl:max-w-md">
-									<h2 className="flex items-center gap-2 px-4 py-2 text-xs font-mono uppercase tracking-wider text-text-muted border-b border-border bg-surface/40">
+									<h2
+										lang="en"
+										className="flex items-center gap-2 px-4 py-2 text-xs font-mono uppercase tracking-wider text-text-muted border-b border-border bg-surface/40"
+									>
 										<Smartphone size={14} />
 										Participant
 									</h2>

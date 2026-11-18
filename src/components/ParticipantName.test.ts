@@ -27,6 +27,7 @@ import {
 	participantRosterHeading,
 } from "./ParticipantName";
 import type { ParticipantRosterEntry } from "../types";
+import { interfaceTextFor } from "../interface-text";
 
 // ── Does this browser still owe the deck a name? ─────────────
 
@@ -139,5 +140,13 @@ describe("participantNameLabelsFor (REQ076/REQ084)", () => {
 	test("an unknown language tag falls back rather than emptying the gate", () => {
 		const unknown = participantNameLabelsFor(getDict("xx"));
 		expect(unknown.title).toBe(PARTICIPANT_NAME_LABELS_EN.title);
+	});
+});
+
+describe("participantRosterHeading in the interface language (REQ248)", () => {
+	test("German names the panel and its count", () => {
+		const german = interfaceTextFor("de");
+		expect(participantRosterHeading(null, german, "de")).toBe("Teilnehmende");
+		expect(participantRosterHeading([], german, "de")).toBe("Teilnehmende (0)");
 	});
 });

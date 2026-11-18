@@ -149,9 +149,10 @@ Four variables decide whether that instance works, and each fails in its own way
 | `OMUL_TRUST_PROXY` | Behind a reverse proxy, every visitor shares one rate-limit bucket. Leave it unset for a directly-exposed container |
 | `OMUL_ADMIN_EMAILS` | **Nobody is an administrator** and `/api/admin/*` answers `403` to everyone. That is a complete instance — presenters and participants never touch the admin surface — so set it only if you want that surface |
 
-**Mount the directory, not the file.** Three SQLite databases live under
-`/app/data` (`omul.sqlite`, `auth.sqlite`, `admin.sqlite`); binding the single
-file silently drops two of them. Nothing here backs that directory up, and
+**Mount the directory, not the file.** Up to four SQLite databases live under
+`/app/data` (`omul.sqlite`, `auth.sqlite`, `admin.sqlite`, and `feedback.sqlite`
+once feedback is switched on); binding the single file silently drops the
+others. Nothing here backs that directory up, and
 copying a live WAL-mode SQLite file is not a backup — use `VACUUM INTO`, or copy
 with the container stopped.
 
@@ -164,6 +165,12 @@ else to change.
 The same applies to the `docker run` line above: it names
 `ghcr.io/binaryplease/omul:latest`, which an anonymous Docker cannot pull today.
 Build it locally first — `docker build -t omul .` — and run that tag instead.
+
+**Without Docker**, build with the Dockerfile's two build commands and run the
+result under systemd. You need Bun, and no database service.
+[docs/self-hosting-without-docker.md](docs/self-hosting-without-docker.md)
+covers the whole path, including where the data lives and how to back it up and
+upgrade.
 
 [docs/deployment.md](docs/deployment.md) is the full reference: every
 environment variable with what breaks when it is unset, the state and backup

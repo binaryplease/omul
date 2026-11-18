@@ -28,6 +28,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { interfaceTextFor } from "../interface-text";
 import { applyEditorOperation, blankDocument, newSlide } from "../store/editorDocument";
 import type { Presentation, Slide } from "../types";
 import { COUNTDOWN_DEFAULT_SECONDS, isContentSlideType } from "../types";
@@ -520,5 +521,18 @@ describe("a running countdown is drawn in step on the live surfaces (REQ107)", (
 				"Return the countdown to its full length",
 			);
 		}
+	});
+
+	test("the label is the presenter's, so it follows the interface language (REQ248)", () => {
+		const german = interfaceTextFor("de");
+		expect(
+			countdownControlLabel(
+				{ phase: "idle", canControl: false, live: true },
+				german,
+			),
+		).toBe(german.slideView.countdownNotEditor);
+		expect(german.slideView.countdownNotEditor).not.toBe(
+			countdownControlLabel({ phase: "idle", canControl: false, live: true }),
+		);
 	});
 });

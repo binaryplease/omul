@@ -24,9 +24,14 @@
  * `server/slide-comments.integration.test.ts`, where it can actually fail.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { InterfaceLanguageProvider } from "../interface-language";
+import { INTERFACE_LANGUAGE_KEY } from "../storage";
 import type { SlideComment } from "../types";
 import {
+	SlideCommentsStrip,
 	slideCommentAuthorLabel,
 	slideCommentComposerState,
 	slideCommentDraftFor,
@@ -35,6 +40,7 @@ import {
 	slideCommentsFor,
 	withSlideCommentDraft,
 } from "./SlideComments";
+import { interfaceTextFor } from "../interface-text";
 
 function comment(overrides: Partial<SlideComment> = {}): SlideComment {
 	return {
@@ -215,5 +221,85 @@ describe("the draft belongs to its slide (REQ160)", () => {
 		expect(before.s3).toBe("this chart is misleading");
 		expect(after.s3).toBe("this chart misleads");
 		expect(after).not.toBe(before);
+	});
+});
+
+describe("the thread's words in the interface language (REQ248)", () => {
+	const german = interfaceTextFor("de");
+
+	afterEach(() => {
+		delete (globalThis as { localStorage?: unknown }).localStorage;
+	});
+
+	test("who said it", () => {
+		expect(slideCommentAuthorLabel(comment({ mine: true }), german)).toBe("Du");
+		expect(slideCommentAuthorLabel(comment({ authorName: null }), german)).toBe(
+			"Gelöschtes Konto",
+		);
+		// A name is the author's own, in no language.
+		expect(
+			slideCommentAuthorLabel(comment({ authorName: "Reviewer" }), german),
+		).toBe("Reviewer");
+	});
+
+	test("why the box is idle — but the server's own refusal stays its own", () => {
+		expect(
+			slideCommentComposerState({ accessLevel: "view", error: null }, german)
+				.reason,
+		).toBe(german.panels.commentReadOnly);
+		expect(
+			slideCommentComposerState(
+				{ accessLevel: "edit", error: "Sign in to read this deck's comments" },
+				german,
+			).reason,
+		).toBe("Sign in to read this deck's comments");
+	});
+
+	// Review (REQ248 batch, finding 1): the strip under the editor's canvas
+	// read English under a German interface.
+	test("the closed strip under the editor's canvas says its count in German", () => {
+		expect(slideCommentStripLabel(0, "de", german)).toBe(
+			"Noch keine Kommentare zu dieser Folie",
+		);
+		expect(slideCommentStripLabel(1, "de", german)).toBe("1 Kommentar");
+		expect(slideCommentStripLabel(1200, "de", german)).toBe("1.200 Kommentare");
+	});
+
+	test("the strip itself draws no English under a German interface", () => {
+		(globalThis as { localStorage?: unknown }).localStorage = {
+			getItem: (key: string) => (key === INTERFACE_LANGUAGE_KEY ? "de" : null),
+			setItem: () => {},
+			removeItem: () => {},
+		};
+		const markup = renderToStaticMarkup(
+			createElement(
+				InterfaceLanguageProvider,
+				null,
+				createElement(SlideCommentsStrip, {
+					comments: [comment()],
+					slideId: "s1",
+					accessLevel: "edit",
+					error: null,
+					loading: false,
+					onSubmit: async () => {},
+					onDelete: async () => {},
+				}),
+			),
+		);
+		expect(markup).toContain("1 Kommentar");
+		expect(markup).toContain('aria-label="Kommentare zu dieser Folie anzeigen"');
+		expect(markup).toContain("Nur Konten mit Zugriff");
+		expect(markup).not.toContain("comment");
+		expect(markup).not.toContain("Only the accounts");
+	});
+
+	test("when it was written, in the interface language's format", () => {
+		const stamp = "2026-01-01T09:00:00.000Z";
+		expect(slideCommentTimeLabel(stamp, "de")).toBe(
+			new Date(stamp).toLocaleString("de", {
+				dateStyle: "medium",
+				timeStyle: "short",
+			}),
+		);
 	});
 });

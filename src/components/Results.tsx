@@ -10,6 +10,14 @@ import {
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { POLL_COLORS } from "../constants";
 import { countPhrase, type Dict, fillTemplate, getDict } from "../i18n";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceLanguage,
+	type InterfaceText,
+	pluralText,
+} from "../interface-text";
 import type {
 	FormFieldType,
 	GridAxis,
@@ -40,6 +48,49 @@ import {
 	leaderboardLabelsFor,
 	readLeaderboard,
 } from "./Leaderboard";
+
+// ── Who reads a result's words (REQ248) ───────────────────────
+//
+// A result view is drawn on a participant's phone, on the shared screen, on the
+// results page, in a slide's image and in the editor's preview. On the shared
+// screen — the presenter's screen, which is also the projector — its captions
+// are addressed to the room, so they follow the deck's language, while the few
+// words in it meant for the presenter follow the interface language. Only that
+// screen hands its wording in; every other caller keeps the English it has
+// always drawn, which is why the default is the English dictionary and the
+// English interface text rather than anything read from a provider.
+
+/** How a result view words itself on the shared screen (REQ248). */
+export type ResultsWording = {
+	/** The deck's dictionary, for the words the room reads. */
+	room: Dict;
+	/** The interface text, for the words the presenter reads. */
+	presenter: InterfaceText;
+	/** The interface language, for a `lang` on presenter words among the room's. */
+	presenterLanguage: InterfaceLanguage;
+};
+
+/** The English every surface but the shared screen draws. */
+export const ENGLISH_RESULTS_WORDING: ResultsWording = {
+	room: getDict("en"),
+	presenter: ENGLISH_INTERFACE_TEXT,
+	presenterLanguage: "en",
+};
+
+const ENGLISH_ROOM = ENGLISH_RESULTS_WORDING.room;
+
+/**
+ * One of a `One`/`Other` pair of room captions, by whether `count` is 1, with
+ * `{count}` and `values` filled in.
+ */
+function countedCaption(
+	count: number,
+	one: string,
+	other: string,
+	values: Record<string, string | number> = {},
+): string {
+	return fillText(count === 1 ? one : other, { count, ...values });
+}
 
 // ── Moderating what the room submitted (REQ027) ───────────────
 //
@@ -75,7 +126,7 @@ export type AnswerModeration = {
  * two spellings of a refusal are two explanations of one rule.
  */
 export const ANSWER_MODERATION_DENIED =
-	"Delete this answer — you cannot edit this presentation, so what the room submitted to it is not yours to remove";
+	ENGLISH_INTERFACE_TEXT.slideView.answerDeleteDenied;
 
 /**
  * Whether this surface moderates the answers it is about to draw, and on what
@@ -96,22 +147,25 @@ export const ANSWER_MODERATION_DENIED =
  * belongs to. Absent is for the surfaces where the action is not relevant at
  * all — a participant's phone is never the moderator of the room.
  */
-export function answerModerationFor({
-	slideType,
-	canControl,
-	onDelete,
-}: {
-	slideType: SlideType;
-	/** Whether this viewer holds the deck. A spectator gets the inert control. */
-	canControl: boolean;
-	/** The deletion itself, or `null` on a surface with nothing stored behind it. */
-	onDelete: ((answerId: string) => void) | null;
-}): AnswerModeration | undefined {
+export function answerModerationFor(
+	{
+		slideType,
+		canControl,
+		onDelete,
+	}: {
+		slideType: SlideType;
+		/** Whether this viewer holds the deck. A spectator gets the inert control. */
+		canControl: boolean;
+		/** The deletion itself, or `null` on a surface with nothing stored behind it. */
+		onDelete: ((answerId: string) => void) | null;
+	},
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): AnswerModeration | undefined {
 	if (!onDelete) return undefined;
 	if (!slideAnswersAreDeletable(slideType)) return undefined;
 	return {
 		onDelete: canControl ? onDelete : null,
-		disabledReason: ANSWER_MODERATION_DENIED,
+		disabledReason: text.slideView.answerDeleteDenied,
 	};
 }
 
@@ -134,12 +188,16 @@ export function RemoveAnswerButton({
 	answerText: string;
 	moderation: AnswerModeration;
 }) {
+	// Drawn only where the answers are moderated — the presenter's screen — so
+	// its name is the presenter's, in the interface language (REQ248).
+	const { text, language } = useInterfaceText();
 	const label = moderation.onDelete
-		? `Delete this answer — "${answerText}" is removed from the tally the room sees and from every export`
+		? fillText(text.slideView.answerDelete, { answer: answerText })
 		: moderation.disabledReason;
 	return (
 		<button
 			type="button"
+			lang={language}
 			className={`flex-shrink-0 ${ICON_BUTTON_HOVER} disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-text-muted`}
 			title={label}
 			aria-label={label}
@@ -179,11 +237,16 @@ export function WordCloudAnswerList({
 	answers: WordCloudAnswer[];
 	moderation: AnswerModeration;
 }) {
+	// The list is a moderation surface's, so its heading is the presenter's.
+	const { text, language } = useInterfaceText();
 	if (answers.length === 0) return null;
 	return (
 		<div className="mt-6 border-t border-border pt-4">
-			<p className="text-xs uppercase tracking-wide text-text-dim mb-2">
-				{answers.length} submitted {answers.length === 1 ? "answer" : "answers"}
+			<p
+				lang={language}
+				className="text-xs uppercase tracking-wide text-text-dim mb-2"
+			>
+				{pluralText(language, answers.length, text.slideView.submittedAnswers)}
 			</p>
 			<ul
 				className="flex flex-wrap gap-2 overflow-y-auto pr-1"
@@ -231,8 +294,9 @@ export type AnswerFilterReport = {
 };
 
 /**
- * The shared screen's wording — the presenter's surface is not translated, so it
- * reads the English dictionary's line rather than holding a second copy of it.
+ * The English line, for every surface that does not pass its own — read from
+ * the English dictionary rather than held as a second copy of it. The phone and
+ * the shared screen pass the deck's (REQ084, REQ248).
  */
 export const ANSWER_FILTER_LABEL_EN = getDict("en").answersFiltered;
 
@@ -262,11 +326,20 @@ export function answerFilterReportOf(
 export function AnswerFilterNotice({
 	report,
 	label,
+	presenter = ENGLISH_INTERFACE_TEXT,
+	presenterLanguage = "en",
 }: {
 	report: AnswerFilterReport | null;
 	/** "Answers withheld by the profanity filter", in this surface's language. */
 	label: string;
+	/**
+	 * The words around the withheld answers, which only whoever holds the deck
+	 * reads: the interface language where the surface hands it in (REQ248).
+	 */
+	presenter?: InterfaceText;
+	presenterLanguage?: InterfaceLanguage;
 }) {
+	const words = presenter.slideView;
 	const [open, setOpen] = useState(false);
 	if (!report || report.count === 0) return null;
 	const heading = `${label}: ${report.count}`;
@@ -290,8 +363,11 @@ export function AnswerFilterNotice({
 					<ShieldAlert size={14} className="flex-shrink-0 text-warning" />
 					{heading}
 				</span>
-				<span className="flex flex-shrink-0 items-center gap-1 text-xs text-text-muted">
-					{open ? "Hide" : "Show"}
+				<span
+					className="flex flex-shrink-0 items-center gap-1 text-xs text-text-muted"
+					lang={presenterLanguage}
+				>
+					{open ? words.answerFilterHide : words.answerFilterShow}
 					<ChevronDown
 						size={14}
 						className={`transition-transform ${open ? "rotate-180" : ""}`}
@@ -300,16 +376,17 @@ export function AnswerFilterNotice({
 			</button>
 			{open && (
 				<div className="border-t border-border px-3 py-2">
-					<p className="mb-2 text-xs text-text-dim">
-						Shown to you because this presentation is yours or shared with you.
-						The room, and anyone reading it through a results link, sees only
-						the count.
+					<p className="mb-2 text-xs text-text-dim" lang={presenterLanguage}>
+						{words.answerFilterOwnerOnly}
 					</p>
 					<ul className="space-y-1.5">
 						{report.answers.map((answer) => (
 							<li key={answer.id} className="flex items-start gap-2 text-sm">
-								<span className="mt-0.5 flex-shrink-0 rounded border border-warning/40 bg-warning/10 px-1.5 text-[10px] font-medium uppercase tracking-wide text-warning">
-									Filtered
+								<span
+									className="mt-0.5 flex-shrink-0 rounded border border-warning/40 bg-warning/10 px-1.5 text-[10px] font-medium uppercase tracking-wide text-warning"
+									lang={presenterLanguage}
+								>
+									{words.answerFilterBadge}
 								</span>
 								<span className="min-w-0 break-words">{answer.text}</span>
 							</li>
@@ -399,6 +476,7 @@ export function ResultsDisplay({
 	labels = RESULT_LABELS_EN,
 	highlightEntryId = null,
 	answerFilterLabel = ANSWER_FILTER_LABEL_EN,
+	wording = ENGLISH_RESULTS_WORDING,
 }: {
 	slide: Slide;
 	results: any;
@@ -430,18 +508,31 @@ export function ResultsDisplay({
 	 */
 	highlightEntryId?: string | null;
 	/**
-	 * How the profanity filter's line reads (REQ085). The shared screen keeps the
-	 * English default; a participant's phone passes the deck's language (REQ084).
+	 * How the profanity filter's line reads (REQ085). A participant's phone
+	 * (REQ084) and the shared screen (REQ248) pass the deck's language.
 	 */
 	answerFilterLabel?: string;
+	/**
+	 * The rest of the view's words (REQ248): the captions in the deck's language
+	 * and the presenter's few in the interface language. Only the shared screen
+	 * passes it; every other surface keeps the English default it always drew,
+	 * a participant's phone included.
+	 */
+	wording?: ResultsWording;
 }) {
 	// REQ085 — what the filter withheld from this tally, read once; `null` on
 	// every slide it does not read and on a deck that has it off.
 	const filterReport = answerFilterReportOf(slide, results);
 	const filterNotice = (
-		<AnswerFilterNotice report={filterReport} label={answerFilterLabel} />
+		<AnswerFilterNotice
+			report={filterReport}
+			label={answerFilterLabel}
+			presenter={wording.presenter}
+			presenterLanguage={wording.presenterLanguage}
+		/>
 	);
 	const withheldCount = filterReport ? filterReport.count : 0;
+	const room = wording.room;
 	switch (slide.type) {
 		case "multiple-choice":
 		case "quiz":
@@ -467,6 +558,7 @@ export function ResultsDisplay({
 					valueDisplay={valueDisplay ?? slide.mcValueDisplay ?? "both"}
 					authoredOptions={slide.options}
 					labels={labels}
+					room={room}
 				/>
 			);
 		case "word-cloud":
@@ -481,6 +573,7 @@ export function ResultsDisplay({
 						answers={results.answers ?? null}
 						moderation={moderation}
 						withheldCount={withheldCount}
+						room={room}
 					/>
 					{filterNotice}
 				</>
@@ -498,26 +591,27 @@ export function ResultsDisplay({
 						upvotedIds={upvotedIds}
 						moderation={moderation}
 						withheldCount={withheldCount}
+						room={room}
 					/>
 					{filterNotice}
 				</>
 			);
 		case "scale":
-			return <ScaleResults results={results} />;
+			return <ScaleResults results={results} room={room} />;
 		case "ranking":
-			return <RankingResults results={results} />;
+			return <RankingResults results={results} room={room} />;
 		case "grid":
-			return <GridResults results={results} />;
+			return <GridResults results={results} room={room} />;
 		case "points":
-			return <PointsResults results={results} />;
+			return <PointsResults results={results} room={room} />;
 		case "guess-number":
-			return <GuessNumberResults results={results} />;
+			return <GuessNumberResults results={results} room={room} />;
 		case "pin-image":
-			return <PinImageResults results={results} />;
+			return <PinImageResults results={results} room={room} />;
 		case "form":
 			// REQ061 — the fill rate. What people wrote never reaches a screen; see
 			// the block above FormResults for why the rendering does not exist.
-			return <FormResults results={results} />;
+			return <FormResults results={results} wording={wording} />;
 		case "leaderboard":
 			// REQ059 — the one slide whose "results" are not its own votes but the
 			// deck's standings across every quiz question before it.
@@ -598,13 +692,29 @@ type ChoiceTally = {
 /**
  * The count / percentage / both descriptor (REQ011). One list, worn by the
  * editor's authored default and by the presenter's live switch on the shared
- * screen, so the two can never offer different choices.
+ * screen, so the two can never offer different choices. Labelled in the
+ * interface language (REQ248): the switch is the presenter's, not the room's.
  */
-export const MC_VALUE_DISPLAY_OPTIONS: ChoiceOption<McValueDisplay>[] = [
-	{ value: "count", label: "Count", icon: <Hash size={14} /> },
-	{ value: "percentage", label: "Percent", icon: <Percent size={14} /> },
-	{ value: "both", label: "Both" },
-];
+export function mcValueDisplayOptions(
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): ChoiceOption<McValueDisplay>[] {
+	return [
+		{
+			value: "count",
+			label: text.slideView.valueCount,
+			icon: <Hash size={14} />,
+		},
+		{
+			value: "percentage",
+			label: text.slideView.valuePercent,
+			icon: <Percent size={14} />,
+		},
+		{ value: "both", label: text.slideView.valueBoth },
+	];
+}
+
+/** The options in English, for the surfaces REQ248 has not reached yet. */
+export const MC_VALUE_DISPLAY_OPTIONS = mcValueDisplayOptions();
 
 /**
  * A choice tally as it arrives over the wire: JSON, so every field is nominally
@@ -707,16 +817,16 @@ function CorrectMark({
  * The footnote a multi-select slide needs so its percentages read correctly:
  * they are shares of the people who answered and deliberately sum past 100%.
  */
-function MultiSelectNote({ tally }: { tally: ChoiceTally }) {
+function MultiSelectNote({ tally, room }: { tally: ChoiceTally; room: Dict }) {
 	if (tally.maxSelections === 1) return null;
-	const limit =
-		tally.maxSelections === 0
-			? "any number of options"
-			: `up to ${tally.maxSelections} options`;
 	return (
 		<p className="mt-4 text-center text-xs text-text-dim">
-			Participants could select {limit} — percentages are of the{" "}
-			{tally.respondentCount} who answered, so they add up to more than 100%.
+			{fillText(
+				tally.maxSelections === 0
+					? room.resultsMultiSelectAny
+					: room.resultsMultiSelectUpTo,
+				{ max: tally.maxSelections, count: tally.respondentCount },
+			)}
 		</p>
 	);
 }
@@ -758,7 +868,8 @@ function QuizScoreNote({
 /**
  * The one-line response count shown above a slide's results. Multi-select
  * choice slides (REQ014) say both numbers, because "7 responses" from four
- * people reads as seven people otherwise.
+ * people reads as seven people otherwise. In the words of `room`, the deck's
+ * dictionary on the shared screen (REQ248) and English everywhere else.
  */
 export function describeResponses(
 	slide: Slide,
@@ -782,6 +893,7 @@ export function ChoiceResults({
 	valueDisplay,
 	authoredOptions,
 	labels = RESULT_LABELS_EN,
+	room = ENGLISH_ROOM,
 }: {
 	style: NonNullable<Slide["mcDisplayStyle"]>;
 	results: ChoiceTallyPayload;
@@ -789,6 +901,8 @@ export function ChoiceResults({
 	/** The slide's own options — the fallback for a withheld solution (REQ056). */
 	authoredOptions?: { id: string; isCorrect?: boolean | null | undefined }[];
 	labels?: ResultLabels;
+	/** The room's words beyond `labels` (REQ248) — see {@link ResultsWording}. */
+	room?: Dict;
 }) {
 	// REQ215 — a quiz question whose result this reader may not see yet carries
 	// no counts at all, so there is no chart to draw: bars at zero would report a
@@ -821,7 +935,7 @@ export function ChoiceResults({
 					labels={labels}
 				/>
 			)}
-			<MultiSelectNote tally={tally} />
+			<MultiSelectNote tally={tally} room={room} />
 			<QuizScoreNote scoring={tally.scoring} labels={labels} />
 		</div>
 	);
@@ -1438,6 +1552,7 @@ export function WordCloudResults({
 	answers = null,
 	moderation,
 	withheldCount = 0,
+	room = ENGLISH_ROOM,
 }: {
 	words: { text: string; count: number }[];
 	/**
@@ -1452,12 +1567,14 @@ export function WordCloudResults({
 	 * filter's line beneath it speak.
 	 */
 	withheldCount?: number;
+	/** The room's words (REQ248) — see {@link ResultsWording}. */
+	room?: Dict;
 }) {
 	if (!words || words.length === 0) {
 		if (withheldCount > 0) return null;
 		return (
 			<div className="text-center text-text-dim py-8">
-				Waiting for responses...
+				{room.waitingForResponses}
 			</div>
 		);
 	}
@@ -1481,7 +1598,7 @@ export function WordCloudResults({
 					width="100%"
 					height="100%"
 					role="img"
-					aria-label="Word cloud"
+					aria-label={room.resultsWordCloud}
 				>
 					{items.map((it, i) => (
 						<g
@@ -1500,9 +1617,7 @@ export function WordCloudResults({
 							>
 								{it.text}
 							</text>
-							<title>
-								{it.text} ({it.count})
-							</title>
+							<title>{`${it.text} (${it.count})`}</title>
 						</g>
 					))}
 				</svg>
@@ -1531,6 +1646,7 @@ export function OpenTextResults({
 	upvotedIds,
 	moderation,
 	withheldCount = 0,
+	room = ENGLISH_ROOM,
 }: {
 	responses: OpenTextResponse[];
 	layout: "speech-bubbles" | "grid";
@@ -1546,12 +1662,14 @@ export function OpenTextResults({
 	moderation?: AnswerModeration;
 	/** Responses the profanity filter kept off the wall (REQ085) — see the cloud's. */
 	withheldCount?: number;
+	/** The room's words (REQ248) — see {@link ResultsWording}. */
+	room?: Dict;
 }) {
 	if (!responses || responses.length === 0) {
 		if (withheldCount > 0) return null;
 		return (
 			<div className="text-center text-text-dim py-8">
-				Waiting for responses...
+				{room.waitingForResponses}
 			</div>
 		);
 	}
@@ -1605,7 +1723,9 @@ export function OpenTextResults({
 										? "bg-accent border-accent text-on-accent"
 										: "bg-surface border-border text-text-muted hover:border-accent"
 								} ${!onUpvote ? "opacity-70 cursor-default" : ""}`}
-								aria-label={isUpvoted ? "Remove upvote" : "Upvote"}
+								aria-label={
+									isUpvoted ? room.resultsRemoveUpvote : room.resultsUpvote
+								}
 							>
 								<span className="inline-flex items-center gap-1">
 									<ArrowUp size={11} />
@@ -1646,14 +1766,21 @@ type RankingTally = {
 	ballots: number;
 };
 
-export function RankingResults({ results }: { results: RankingTally }) {
+export function RankingResults({
+	results,
+	room = ENGLISH_ROOM,
+}: {
+	results: RankingTally;
+	/** The room's words (REQ248) — see {@link ResultsWording}. */
+	room?: Dict;
+}) {
 	const items = results?.items ?? [];
 	const ballots = results?.ballots ?? 0;
 
 	if (ballots === 0 || items.length === 0) {
 		return (
 			<div className="text-center text-text-dim py-8">
-				Waiting for responses...
+				{room.waitingForResponses}
 			</div>
 		);
 	}
@@ -1681,7 +1808,11 @@ export function RankingResults({ results }: { results: RankingTally }) {
 								<span className="truncate font-medium">{item.text}</span>
 							</span>
 							<span className="shrink-0 font-mono text-sm text-text-muted">
-								{item.points} pt{item.points === 1 ? "" : "s"}
+								{countedCaption(
+									item.points,
+									room.resultsPointsOne,
+									room.resultsPointsOther,
+								)}
 							</span>
 						</div>
 						<div className="h-8 rounded-lg bg-surface-raised overflow-hidden border border-border">
@@ -1698,17 +1829,21 @@ export function RankingResults({ results }: { results: RankingTally }) {
 							    all — say that, rather than print a position
 							    nobody gave it. */}
 							{item.averageRank === null
-								? "not ranked by anyone"
-								: `average position ${item.averageRank}`}
+								? room.resultsNotRanked
+								: fillText(room.resultsAveragePosition, {
+										position: item.averageRank,
+									})}
 							{item.notRanked > 0 &&
-								` · left out by ${item.notRanked} of ${ballots}`}
+								` · ${fillText(room.resultsLeftOutBy, {
+									count: item.notRanked,
+									total: ballots,
+								})}`}
 						</p>
 					</div>
 				);
 			})}
 			<p className="pt-1 text-center text-xs text-text-dim">
-				Points are awarded by position on each ranking — the higher an item is
-				placed, the more it scores.
+				{room.resultsRankingNote}
 			</p>
 		</div>
 	);
@@ -1747,14 +1882,21 @@ type PointsTally = {
 	totalPoints: number;
 };
 
-export function PointsResults({ results }: { results: PointsTally }) {
+export function PointsResults({
+	results,
+	room = ENGLISH_ROOM,
+}: {
+	results: PointsTally;
+	/** The room's words (REQ248) — see {@link ResultsWording}. */
+	room?: Dict;
+}) {
 	const items = results?.items ?? [];
 	const ballots = results?.ballots ?? 0;
 
 	if (ballots === 0 || items.length === 0) {
 		return (
 			<div className="text-center text-text-dim py-8">
-				Waiting for responses...
+				{room.waitingForResponses}
 			</div>
 		);
 	}
@@ -1777,8 +1919,12 @@ export function PointsResults({ results }: { results: PointsTally }) {
 								<span className="truncate font-medium">{item.text}</span>
 							</span>
 							<span className="shrink-0 font-mono text-sm text-text-muted">
-								{item.points} pt{item.points === 1 ? "" : "s"} ·{" "}
-								{Math.round(item.share)}%
+								{countedCaption(
+									item.points,
+									room.resultsPointsOne,
+									room.resultsPointsOther,
+								)}{" "}
+								· {Math.round(item.share)}%
 							</span>
 						</div>
 						<div className="h-8 rounded-lg bg-surface-raised overflow-hidden border border-border">
@@ -1798,19 +1944,24 @@ export function PointsResults({ results }: { results: PointsTally }) {
 							    average is a few people betting heavily, a high share with a
 							    low one is the whole room tipping. */}
 							{item.averagePoints === null
-								? "nobody spent points on this"
-								: `${item.funderCount} of ${ballots} funded it · ${item.averagePoints} pts each on average`}
+								? room.resultsNobodyFunded
+								: fillText(room.resultsFunded, {
+										count: item.funderCount,
+										total: ballots,
+										average: item.averagePoints,
+									})}
 							{item.notFunded > 0 &&
 								item.averagePoints !== null &&
-								` · ${item.notFunded} gave it nothing`}
+								` · ${fillText(room.resultsGaveNothing, { count: item.notFunded })}`}
 						</p>
 					</div>
 				);
 			})}
 			<p className="pt-1 text-center text-xs text-text-dim">
-				Every participant spread {results.budget} points across these items —{" "}
-				{results.totalPoints} points from {ballots} response
-				{ballots === 1 ? "" : "s"} in total.
+				{countedCaption(ballots, room.resultsBudgetOne, room.resultsBudgetOther, {
+					budget: results.budget,
+					points: results.totalPoints,
+				})}
 			</p>
 		</div>
 	);
@@ -1867,7 +2018,14 @@ function GuessStat({ label, value }: { label: string; value: string }) {
 	);
 }
 
-export function GuessNumberResults({ results }: { results: GuessTally }) {
+export function GuessNumberResults({
+	results,
+	room = ENGLISH_ROOM,
+}: {
+	results: GuessTally;
+	/** The room's words (REQ248) — see {@link ResultsWording}. */
+	room?: Dict;
+}) {
 	const guessCount = results?.guessCount ?? 0;
 	const range = results?.range;
 	const buckets = results?.buckets ?? [];
@@ -1875,7 +2033,7 @@ export function GuessNumberResults({ results }: { results: GuessTally }) {
 	if (!range || buckets.length === 0) {
 		return (
 			<div className="text-center text-text-dim py-8">
-				Waiting for responses...
+				{room.waitingForResponses}
 			</div>
 		);
 	}
@@ -1890,20 +2048,27 @@ export function GuessNumberResults({ results }: { results: GuessTally }) {
 				columns={buckets}
 				correctRange={results.correctRange ?? null}
 				reference={results.reference ?? null}
+				roomDict={room}
 			/>
 
 			{guessCount === 0 ? (
-				<p className="text-center text-text-dim">Waiting for responses...</p>
+				<p className="text-center text-text-dim">{room.waitingForResponses}</p>
 			) : (
 				<div className="grid grid-cols-4 gap-2">
-					<GuessStat label="Guesses" value={String(guessCount)} />
+					<GuessStat label={room.resultsGuesses} value={String(guessCount)} />
 					{/* Mean and median side by side: they part company exactly when a
 					    single wild estimate drags the average somewhere nobody guessed,
 					    and the gap between them is worth a sentence on stage. */}
-					<GuessStat label="Average" value={String(results.averageGuess)} />
-					<GuessStat label="Median" value={String(results.medianGuess)} />
 					<GuessStat
-						label="Range"
+						label={room.resultsAverage}
+						value={String(results.averageGuess)}
+					/>
+					<GuessStat
+						label={room.resultsMedian}
+						value={String(results.medianGuess)}
+					/>
+					<GuessStat
+						label={room.resultsRange}
 						value={`${results.lowestGuess}–${results.highestGuess}`}
 					/>
 				</div>
@@ -1915,14 +2080,18 @@ export function GuessNumberResults({ results }: { results: GuessTally }) {
 			{results.reference !== null && (
 				<div className="rounded-lg border border-success/30 bg-success/5 px-3 py-2.5 text-center">
 					<p className="text-sm text-text">
-						Correct answer:{" "}
+						{room.resultsCorrectAnswer}:{" "}
 						<span className="font-mono font-bold text-success">
 							{results.reference}
 						</span>
 						{results.correctRange &&
 							results.correctRange.min !== results.correctRange.max && (
 								<span className="text-text-muted">
-									{` (±${results.tolerance} counts — ${results.correctRange.min}–${results.correctRange.max})`}
+									{` (${fillText(room.resultsTolerance, {
+										tolerance: results.tolerance ?? "",
+										min: results.correctRange.min,
+										max: results.correctRange.max,
+									})})`}
 								</span>
 							)}
 					</p>
@@ -1930,10 +2099,12 @@ export function GuessNumberResults({ results }: { results: GuessTally }) {
 						{/* `correctShare` is null when nobody has guessed yet —
 						    say so, rather than print a 0% no responses produced. */}
 						{results.correctShare === null
-							? "No guesses yet"
-							: `${results.correctCount} of ${guessCount} landed inside it · ${Math.round(
-									results.correctShare,
-								)}%`}
+							? room.resultsNoGuessesYet
+							: fillText(room.resultsLandedInside, {
+									count: results.correctCount ?? "",
+									total: guessCount,
+									share: Math.round(results.correctShare),
+								})}
 					</p>
 				</div>
 			)}
@@ -1972,14 +2143,21 @@ type GridTally = {
 	totalVotes: number;
 };
 
-export function GridResults({ results }: { results: GridTally }) {
+export function GridResults({
+	results,
+	room = ENGLISH_ROOM,
+}: {
+	results: GridTally;
+	/** The room's words (REQ248) — see {@link ResultsWording}. */
+	room?: Dict;
+}) {
 	const items = results?.items ?? [];
 	const placedItems = items.filter((item) => item.averageX !== null);
 
 	if (placedItems.length === 0) {
 		return (
 			<div className="text-center text-text-dim py-8">
-				Waiting for responses...
+				{room.waitingForResponses}
 			</div>
 		);
 	}
@@ -2045,11 +2223,11 @@ export function GridResults({ results }: { results: GridTally }) {
 							    the payload says so with an explicit null, and so does
 							    this row, rather than printing a 0,0 nobody voted for. */}
 							{item.averageX === null || item.averageY === null
-								? "not placed"
+								? room.resultsNotPlaced
 								: `${item.averageX}, ${item.averageY}`}
 							{item.skipped > 0 && (
 								<span className="text-text-dim">
-									{` · ${item.skipped} not assessable`}
+									{` · ${fillText(room.resultsNotAssessable, { count: item.skipped })}`}
 								</span>
 							)}
 						</span>
@@ -2057,8 +2235,7 @@ export function GridResults({ results }: { results: GridTally }) {
 				))}
 			</ol>
 			<p className="pt-1 text-center text-xs text-text-dim">
-				Each numbered dot is where the room put that item on average; the faint
-				dots are the individual placements behind it.
+				{room.resultsGridNote}
 			</p>
 		</div>
 	);
@@ -2099,7 +2276,14 @@ type PinTally = {
 	totalVotes: number;
 };
 
-export function PinImageResults({ results }: { results: PinTally }) {
+export function PinImageResults({
+	results,
+	room = ENGLISH_ROOM,
+}: {
+	results: PinTally;
+	/** The room's words (REQ248) — see {@link ResultsWording}. */
+	room?: Dict;
+}) {
 	const pins = results?.pins ?? [];
 	const image = results?.image ?? { url: "", alt: "" };
 	const area = results?.correctArea ?? null;
@@ -2109,9 +2293,7 @@ export function PinImageResults({ results }: { results: PinTally }) {
 	// than wait for responses that can never arrive.
 	if (!image.url) {
 		return (
-			<div className="py-8 text-center text-text-dim">
-				This slide has no image yet — nothing to pin on.
-			</div>
+			<div className="py-8 text-center text-text-dim">{room.pinNoImage}.</div>
 		);
 	}
 
@@ -2130,10 +2312,11 @@ export function PinImageResults({ results }: { results: PinTally }) {
 						key: "average",
 						x: results.averageX,
 						y: results.averageY,
-						label: "average",
-						title: `Average pin — ${pinCoordinateLabel(
-							results.averageX,
-						)}, ${pinCoordinateLabel(results.averageY)}`,
+						label: room.resultsAverageMark,
+						title: fillText(room.resultsAveragePin, {
+							x: pinCoordinateLabel(results.averageX),
+							y: pinCoordinateLabel(results.averageY),
+						}),
 					},
 				]),
 	];
@@ -2144,29 +2327,35 @@ export function PinImageResults({ results }: { results: PinTally }) {
 				image={image}
 				marks={marks}
 				area={area}
-				areaLabel={area ? "Target area" : undefined}
+				areaLabel={area ? room.resultsTargetArea : undefined}
 				className="mx-auto max-w-2xl"
 			/>
 			{results.pinCount === 0 ? (
-				<p className="text-center text-text-dim">Waiting for responses...</p>
+				<p className="text-center text-text-dim">{room.waitingForResponses}</p>
 			) : (
 				<>
 					<p className="text-center text-sm text-text-muted">
-						{`${results.pinCount} pin${results.pinCount === 1 ? "" : "s"}`}
+						{countedCaption(
+							results.pinCount,
+							room.resultsPinsOne,
+							room.resultsPinsOther,
+						)}
 						{/* REQ053 — the hit rate, but only when this reader has the target
 						    area at all. A count without the area would announce that a
 						    target exists and how hard it is to hit, which is exactly what
 						    withholding it prevents. */}
 						{results.correctCount !== null && (
 							<span className="text-success">
-								{` · ${results.correctCount} in the target area`}
+								{` · ${fillText(room.resultsInTargetArea, {
+									count: results.correctCount,
+								})}`}
 								{results.correctShare !== null
 									? ` (${results.correctShare}%)`
 									: ""}
 							</span>
 						)}
 					</p>
-					<PinHeatLegend label="Brighter areas are where more of the room pointed." />
+					<PinHeatLegend label={room.resultsPinLegend} />
 				</>
 			)}
 		</div>
@@ -2214,22 +2403,31 @@ type FormTally = {
 	totalVotes: number;
 };
 
-export function FormResults({ results }: { results: FormTally }) {
+export function FormResults({
+	results,
+	wording = ENGLISH_RESULTS_WORDING,
+}: {
+	results: FormTally;
+	/**
+	 * The room's words and the presenter's (REQ248): the closing note points the
+	 * presenter at the download, so it is theirs.
+	 */
+	wording?: ResultsWording;
+}) {
 	const fields = results?.fields ?? [];
 	const submissionCount = results?.submissionCount ?? 0;
+	const { room } = wording;
 
 	if (fields.length === 0) {
 		return (
-			<div className="py-8 text-center text-text-dim">
-				This slide has no fields yet — nothing to fill in.
-			</div>
+			<div className="py-8 text-center text-text-dim">{room.formNoFields}.</div>
 		);
 	}
 
 	if (submissionCount === 0) {
 		return (
 			<div className="py-8 text-center text-text-dim">
-				Waiting for responses...
+				{room.waitingForResponses}
 			</div>
 		);
 	}
@@ -2237,7 +2435,11 @@ export function FormResults({ results }: { results: FormTally }) {
 	return (
 		<div className="space-y-4">
 			<p className="text-center text-sm text-text-muted">
-				{`${submissionCount} submission${submissionCount === 1 ? "" : "s"}`}
+				{countedCaption(
+					submissionCount,
+					room.resultsSubmissionsOne,
+					room.resultsSubmissionsOther,
+				)}
 			</p>
 
 			{/* The fill rate, field by field. */}
@@ -2253,7 +2455,10 @@ export function FormResults({ results }: { results: FormTally }) {
 									{field.label}
 								</span>
 								<span className="shrink-0 font-mono text-sm text-text-muted">
-									{`${field.answered} of ${submissionCount}`}
+									{fillText(room.resultsCountOf, {
+										count: field.answered,
+										total: submissionCount,
+									})}
 								</span>
 							</div>
 							<div className="h-2 overflow-hidden rounded-full border border-border bg-surface-raised">
@@ -2290,9 +2495,11 @@ export function FormResults({ results }: { results: FormTally }) {
 			    screen this component reaches — see the block above — so the sentence
 			    that replaces them has to point at the thing that does carry them,
 			    rather than leaving an organizer looking for a control. */}
-			<p className="border-t border-border pt-3 text-center text-xs text-text-dim">
-				What people wrote is not shown on screen — download the results to read
-				it.
+			<p
+				lang={wording.presenterLanguage}
+				className="border-t border-border pt-3 text-center text-xs text-text-dim"
+			>
+				{wording.presenter.slideView.formAnswersNotShown}
 			</p>
 		</div>
 	);
@@ -2312,6 +2519,7 @@ function ScaleAxisBar({
 	labels,
 	minLabel,
 	maxLabel,
+	room,
 }: {
 	min: number;
 	max: number;
@@ -2320,6 +2528,7 @@ function ScaleAxisBar({
 	labels?: { value: number; label: string }[];
 	minLabel?: string;
 	maxLabel?: string;
+	room: Dict;
 }) {
 	const range = Math.max(1, max - min);
 	const avgPct = totalVotes > 0 ? ((average - min) / range) * 100 : 0;
@@ -2367,7 +2576,7 @@ function ScaleAxisBar({
 							boxShadow:
 								"0 0 0 2px var(--color-void), 0 0 8px var(--color-accent-glow)",
 						}}
-						title={`Average ${average}`}
+						title={`${room.resultsAverage} ${average}`}
 					/>
 				)}
 			</div>
@@ -2392,7 +2601,14 @@ function ScaleAxisBar({
 	);
 }
 
-export function ScaleResults({ results }: { results: any }) {
+export function ScaleResults({
+	results,
+	room = ENGLISH_ROOM,
+}: {
+	results: any;
+	/** The room's words (REQ248) — see {@link ResultsWording}. */
+	room?: Dict;
+}) {
 	const {
 		min,
 		max,
@@ -2422,8 +2638,9 @@ export function ScaleResults({ results }: { results: any }) {
 									{st.average}
 								</div>
 								<div className="text-xs text-text-muted">
-									{st.answered} answered
-									{st.skipped > 0 && ` · ${st.skipped} skipped`}
+									{fillText(room.resultsAnswered, { count: st.answered })}
+									{st.skipped > 0 &&
+										` · ${fillText(room.resultsSkipped, { count: st.skipped })}`}
 								</div>
 							</div>
 						</div>
@@ -2435,6 +2652,7 @@ export function ScaleResults({ results }: { results: any }) {
 							labels={labels}
 							minLabel={minLabel}
 							maxLabel={maxLabel}
+							room={room}
 						/>
 					</div>
 				))}
@@ -2448,8 +2666,9 @@ export function ScaleResults({ results }: { results: any }) {
 			<div className="text-center">
 				<div className="text-6xl font-bold text-accent-text count-up">{average}</div>
 				<div className="text-text-muted text-sm mt-1">
-					average of {totalVotes} responses
-					{skipped > 0 && ` (${skipped} skipped)`}
+					{fillText(room.resultsAverageOf, { count: totalVotes })}
+					{skipped > 0 &&
+						` (${fillText(room.resultsSkipped, { count: skipped })})`}
 				</div>
 			</div>
 			<ScaleAxisBar
@@ -2460,6 +2679,7 @@ export function ScaleResults({ results }: { results: any }) {
 				labels={labels}
 				minLabel={minLabel}
 				maxLabel={maxLabel}
+				room={room}
 			/>
 		</div>
 	);

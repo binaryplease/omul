@@ -3,7 +3,11 @@ import { useCallback, useEffect, useState } from "react";
 import { api, clearResultsToken, getResultsToken } from "../api";
 import { DeckMark, DeckThemeScope } from "../components/DeckTheme";
 import { leaderboardHeadingText } from "../components/Leaderboard";
-import { ResultsDisplay, resultLabelsFor } from "../components/Results";
+import {
+	ResultsDisplay,
+	type ResultsWording,
+	resultLabelsFor,
+} from "../components/Results";
 import { SegmentedResults } from "../components/SegmentedResults";
 import { SlideAppearanceScope } from "../components/SlideAppearance";
 import { SlideText } from "../components/SlideText";
@@ -11,7 +15,9 @@ import { SlideTypeIcon } from "../components/SlideTypeIcon";
 import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { StatusBadge } from "../components/ui/StatusBadge";
-import { getDict } from "../i18n";
+import { getDict, resolveLang } from "../i18n";
+import { useDocumentLanguage, useInterfaceText } from "../interface-language";
+import { fillText } from "../interface-text";
 import { usePageTitle } from "../router";
 import { clockOffsetFrom } from "../store/session";
 import type { Presentation, Slide } from "../types";
@@ -39,6 +45,10 @@ import {
 // results endpoint publishes — which under `instant` is the whole tally and
 // under `private` is nothing. What the link changes is the reveal-mode gate, and
 // that is the one thing it changes.
+//
+// The page is in the interface language (REQ248); each chart is worded as the
+// shared screen words it — the room's captions in the deck's language, marked
+// with its `lang`, the few words for whoever holds the deck in the interface's.
 
 /** How often the page re-reads the tallies while it is open. */
 const RESULTS_POLL_MS = 5000;
@@ -114,6 +124,9 @@ export function SharedResultsPage({ id }: { id: string }) {
 	 * consumer in `App.tsx` — has already run by the time this mounts.
 	 */
 	const holdsLink = Boolean(getResultsToken(id));
+	const { text, language } = useInterfaceText();
+	const words = text.sharedResults;
+	useDocumentLanguage(language);
 
 	const load = useCallback(async () => {
 		try {
@@ -150,7 +163,9 @@ export function SharedResultsPage({ id }: { id: string }) {
 	}, [load]);
 
 	const deck = state.kind === "ready" ? state.deck : null;
-	usePageTitle(deck ? `${deck.title} — Results` : "Results");
+	usePageTitle(
+		deck ? fillText(words.deckPageTitle, { title: deck.title }) : words.pageTitle,
+	);
 
 	const themed = (screen: React.ReactNode) => (
 		<DeckThemeScope deck={deck}>
@@ -176,16 +191,16 @@ export function SharedResultsPage({ id }: { id: string }) {
 					<Link2Off size={28} className="text-text-dim" />
 					<h1 className="text-lg font-semibold">
 						{state.kind === "revoked"
-							? "This results link is no longer valid"
+							? words.revokedTitle
 							: state.kind === "missing"
-								? "These results are not available"
-								: "The results could not be loaded"}
+								? words.missingTitle
+								: words.failedTitle}
 					</h1>
 					<p className="text-sm text-text-muted">
 						{state.kind === "revoked"
-							? "The organizer has withdrawn it, or replaced it with a newer one. Ask them for the current link."
+							? words.revokedBody
 							: state.kind === "missing"
-								? "The presentation behind this link has been deleted."
+								? words.missingBody
 								: state.message}
 					</p>
 				</div>
@@ -197,15 +212,25 @@ export function SharedResultsPage({ id }: { id: string }) {
 	const tallies = new Map(state.rows.map((row) => [row.slideId, row.results]));
 	// The slides' results read as the room read them, in the deck's language
 	// (REQ225) — a German deck's board is not a "Leaderboard" here and a
-	// "Bestenliste" on every phone. The page around them is the app's chrome.
-	const resultLabels = resultLabelsFor(getDict(state.deck.language));
+	// "Bestenliste" on every phone. The page around them is in the interface
+	// language (REQ248).
+	const room = getDict(state.deck.language);
+	const roomLanguage = resolveLang(state.deck.language);
+	const resultLabels = resultLabelsFor(room);
+	const wording: ResultsWording = {
+		room,
+		presenter: text,
+		presenterLanguage: language,
+	};
 
 	return themed(
 		<div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12 flex flex-col gap-8">
 			<header className="flex flex-col gap-3 border-b border-border pb-6">
 				<div className="flex items-center gap-3">
 					<DeckMark deck={state.deck} size="md" fallback="none" />
-					<h1 className="text-2xl sm:text-3xl font-bold">{state.deck.title}</h1>
+					<h1 className="text-2xl sm:text-3xl font-bold" lang={roomLanguage}>
+						{state.deck.title}
+					</h1>
 					<StatusBadge status={state.deck.status} />
 					{/* The theme switch and the legal texts (REQ183) — not a way
 					    into the deck, so it belongs on a read-only page too. */}
@@ -219,16 +244,12 @@ export function SharedResultsPage({ id }: { id: string }) {
 				    into the deck. */}
 				<p className="flex items-start gap-2 text-sm text-text-muted">
 					<Eye size={15} className="shrink-0 mt-0.5" />
-					{holdsLink
-						? "Results, shared read-only. This link shows the numbers and grants nothing else — it cannot change the presentation, and the organizer can withdraw it at any time."
-						: "Results, as this presentation publishes them. Slides whose organizer has kept their numbers back are not shown here."}
+					{holdsLink ? words.sharedByLink : words.sharedPublicly}
 				</p>
 			</header>
 
 			{slides.length === 0 ? (
-				<p className="text-text-dim py-16 text-center">
-					This presentation has no slides that collect answers.
-				</p>
+				<p className="text-text-dim py-16 text-center">{words.noSlides}</p>
 			) : (
 				slides.map((slide, index) => {
 					const results = tallies.get(slide.id as string) ?? null;
@@ -243,9 +264,15 @@ export function SharedResultsPage({ id }: { id: string }) {
 										{index + 1}
 									</span>
 									<span className="text-text-muted mt-0.5">
-										<SlideTypeIcon type={slide.type as any} />
+										<SlideTypeIcon
+											type={slide.type as any}
+											labels={text.slideView.slideTypes}
+										/>
 									</span>
-									<h2 className="text-lg sm:text-xl font-semibold flex-1">
+									<h2
+										className="text-lg sm:text-xl font-semibold flex-1"
+										lang={roomLanguage}
+									>
 										<SlideText
 											text={
 												slide.type === "leaderboard"
@@ -271,17 +298,18 @@ export function SharedResultsPage({ id }: { id: string }) {
 									   page is one tab away from a participant's phone — so
 									   it waits for the question to be over, as the shared
 									   screen does. The poll re-renders it when it is. */
-									<p className="text-text-dim text-sm">
-										This quiz question is still being answered — its results
-										appear here once it is over.
-									</p>
+									<p className="text-text-dim text-sm">{words.quizStillRunning}</p>
 								) : results ? (
 									<>
-										<ResultsDisplay
-											slide={slide}
-											results={results}
-											labels={resultLabels}
-										/>
+										<div lang={roomLanguage}>
+											<ResultsDisplay
+												slide={slide}
+												results={results}
+												labels={resultLabels}
+												answerFilterLabel={room.answersFiltered}
+												wording={wording}
+											/>
+										</div>
 										{/* REQ020/REQ116 — the same tally, split by what these
 										    people answered earlier in the deck. Under the chart
 										    it re-draws, because that is what it changes,
@@ -294,6 +322,8 @@ export function SharedResultsPage({ id }: { id: string }) {
 											slides={state.deck.slides as Slide[]}
 											pollTick={pollTick}
 											labels={resultLabels}
+											wording={wording}
+											roomLanguage={roomLanguage}
 										/>
 									</>
 								) : (
@@ -303,9 +333,7 @@ export function SharedResultsPage({ id }: { id: string }) {
 									   reading without a link meets this on every slide the deck
 									   keeps back; a link holder does not meet it at all, because
 									   lifting that gate is what the link is. */
-									<p className="text-text-dim text-sm">
-										The organizer has not published this slide's results.
-									</p>
+									<p className="text-text-dim text-sm">{words.notPublished}</p>
 								)}
 							</section>
 						</SlideAppearanceScope>

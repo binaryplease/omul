@@ -25,7 +25,6 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
 	audienceBlankToggleLabel,
-	AUDIENCE_BLANK_TITLE,
 	closedAtStartNotice,
 	participationLabelsFor,
 	sharedScreenView,
@@ -37,6 +36,7 @@ import { PresenterSlideView } from "./PresenterSlideView";
 import { getDict } from "../i18n";
 import { newSlide } from "../store/editorDocument";
 import type { Presentation, SlideLayout, SlideType } from "../types";
+import { interfaceTextFor } from "../interface-text";
 import { audienceViewBlanked, slideAcceptsSubmissions } from "../types";
 
 describe("participationLabelsFor — the participant's reason (REQ111/REQ084)", () => {
@@ -288,7 +288,11 @@ describe("audienceBlankToggleLabel — the blank chip (REQ109)", () => {
 	test("the curtain says the screen is blank on purpose", () => {
 		// A projector that simply went dark is indistinguishable from one that has
 		// lost its signal.
-		expect(AUDIENCE_BLANK_TITLE.length).toBeGreaterThan(0);
+		// The room reads it, so it is in the deck's language (REQ248).
+		expect(getDict("en").roomScreenBlank).toBe("The screen is blank");
+		expect(getDict("de").roomScreenBlank).toBe(
+			"Der Bildschirm ist ausgeblendet",
+		);
 	});
 });
 
@@ -378,7 +382,9 @@ describe("the participation control's alignment on the presenter screen (REQ111)
 				joinUrl: "https://omul.test/join/123456",
 			}),
 		);
-		const wrapper = markup.match(/<div class="([^"]*)"><button[^>]*aria-pressed/);
+		const wrapper = markup.match(
+			/<div (?:lang="[^"]*" )?class="([^"]*)"><button[^>]*aria-pressed/,
+		);
 		expect(wrapper).not.toBeNull();
 		return (wrapper?.[1] ?? "").split(" ");
 	}
@@ -413,4 +419,66 @@ describe("the participation control's alignment on the presenter screen (REQ111)
 			});
 		}
 	}
+});
+
+describe("the presenter's words in the interface language (REQ248)", () => {
+	const german = interfaceTextFor("de");
+
+	test("the participation control and its toast read German", () => {
+		expect(
+			slideParticipationToggleLabel(
+				{ open: true, canControl: true, live: true },
+				german,
+			),
+		).toContain("Diese Folie schließen");
+		expect(
+			slideParticipationToggleLabel(
+				{ open: false, canControl: true, live: true },
+				german,
+			),
+		).toContain("Diese Folie wieder öffnen");
+		expect(
+			slideParticipationControlText({ open: true, live: true }, german),
+		).toBe("Antworten schließen");
+		expect(slideParticipationToast({ open: false, live: true }, german)).toBe(
+			german.liveRoom.participationToastClosed,
+		);
+	});
+
+	test("every German state still names a distinct thing", () => {
+		const labels = [true, false].flatMap((open) =>
+			[true, false].flatMap((canControl) =>
+				[true, false].map((live) =>
+					slideParticipationToggleLabel({ open, canControl, live }, german),
+				),
+			),
+		);
+		expect(new Set(labels).size).toBe(labels.length);
+	});
+
+	test("the start notice names the closed slides in German", () => {
+		const slides = ["q1", "q2", "q3", "q4"].map((slideId) => ({ id: slideId }));
+		const deck = (closedSlideIds: string[]) =>
+			({ slides, closedSlideIds }) as unknown as Parameters<
+				typeof closedAtStartNotice
+			>[0];
+		expect(closedAtStartNotice(deck(["q3"]), german, "de")).toStartWith(
+			"Folie 3 startet geschlossen",
+		);
+		expect(closedAtStartNotice(deck(["q4", "q1", "q2"]), german, "de")).toStartWith(
+			"Folien 1, 2 und 4 starten geschlossen",
+		);
+	});
+
+	test("the blank chip reads German, with a spectator still told why", () => {
+		expect(
+			audienceBlankToggleLabel({ blanked: false, canControl: true }, german),
+		).toStartWith("Geteilten Bildschirm ausblenden");
+		expect(
+			audienceBlankToggleLabel({ blanked: true, canControl: true }, german),
+		).toStartWith("Folie wieder zeigen");
+		expect(
+			audienceBlankToggleLabel({ blanked: true, canControl: false }, german),
+		).toContain("du kannst diese Präsentation nicht bearbeiten");
+	});
 });

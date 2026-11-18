@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from "react";
+import { ENGLISH_INTERFACE_TEXT, type InterfaceText } from "../interface-text";
 import type { SlideTextSize } from "../types";
 import type { ChoiceOption } from "./EditorControls";
 import { SlideMath } from "./SlideMath";
@@ -75,12 +76,20 @@ export const SLIDE_TEXT_LEADING = {
  * The steps as the editor offers them (one descriptor). Ordered
  * smallest to largest so the control reads as a scale rather than a menu.
  */
-export const SLIDE_TEXT_SIZE_OPTIONS: ChoiceOption<SlideTextSize>[] = [
-	{ value: "small", label: "Small" },
-	{ value: "medium", label: "Medium" },
-	{ value: "large", label: "Large" },
-	{ value: "x-large", label: "Huge" },
-];
+export function slideTextSizeOptions(
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): ChoiceOption<SlideTextSize>[] {
+	const copy = text.slideSettings;
+	return [
+		{ value: "small", label: copy.sizeSmall },
+		{ value: "medium", label: copy.sizeMedium },
+		{ value: "large", label: copy.sizeLarge },
+		{ value: "x-large", label: copy.sizeHuge },
+	];
+}
+
+/** The steps in English, as the tests pin them. */
+export const SLIDE_TEXT_SIZE_OPTIONS = slideTextSizeOptions();
 
 /**
  * What the markup is, in the organizer's words (REQ088, REQ089) — the one
@@ -89,8 +98,7 @@ export const SLIDE_TEXT_SIZE_OPTIONS: ChoiceOption<SlideTextSize>[] = [
  * subset that grew without this line growing with it would be a promise the
  * parser does not keep.
  */
-export const SLIDE_MARKDOWN_HINT =
-	"Heading and body take simple markdown: **bold**, *italic*, `code`, # sub-headings, and - or 1. lists. Links are written [like this](https://example.com) — or just paste an address starting with https://. They open in a new tab. Math is TeX between dollar signs: $x^2$ within a line, $$x^2$$ on a line of its own, and \\$ for a plain dollar sign. A passage in another language is written [like this]{lang=fr}, so a screen reader pronounces it in that language.";
+export const SLIDE_MARKDOWN_HINT = ENGLISH_INTERFACE_TEXT.editor.markdownHint;
 
 /** The accent-underlined treatment every link in authored text wears. */
 export const SLIDE_LINK =

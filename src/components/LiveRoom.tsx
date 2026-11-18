@@ -1,8 +1,16 @@
-import { EyeOff, Lock, LockOpen } from "lucide-react";
+import { EyeClosed, EyeOff, Lock, LockOpen } from "lucide-react";
 import { DeckMark } from "./DeckTheme";
 import type { LiveRoomState, Presentation } from "../types";
 import { audienceViewBlanked, slideAcceptsSubmissions } from "../types";
-import type { getDict } from "../i18n";
+import { getDict, resolveLang } from "../i18n";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	formatNumber,
+	type InterfaceLanguage,
+	type InterfaceText,
+} from "../interface-text";
 
 // ── The live room's two switches (REQ111, REQ109) ─────────────
 //
@@ -24,6 +32,12 @@ import type { getDict } from "../i18n";
 // know about the other — the shared screen that blanks is the shared screen
 // carrying the participation control, and the phone that is told a question is
 // closed is the phone that must *not* be told the room's screen went dark.
+//
+// Who reads each string decides its language (REQ248): the participant's
+// reason for a dead control is the deck's (`participationLabelsFor`, REQ084),
+// and every control, toast and note the presenter reads takes the interface
+// text — the exported helpers as a trailing `text` argument, English when it is
+// left out, and the components through `useInterfaceText()`.
 //
 // The predicates themselves are not here. `slideAcceptsSubmissions` and
 // `audienceViewBlanked` live in `server/schemas.ts` and are re-exported through
@@ -56,9 +70,10 @@ export function participationLabelsFor(
 /**
  * There is deliberately no `PARTICIPATION_LABELS_EN` beside this, unlike the
  * Q&A layer and the chat: the presenter's screen never wears the gate. It
- * carries the *control*, which names the state it is in in the product's own
- * language ({@link slideParticipationToggleLabel}), and a second statement of
- * the same fact on the same screen would be one more thing on a projector.
+ * carries the *control*, which names the state it is in in the presenter's
+ * interface language ({@link slideParticipationToggleLabel}), and a second
+ * statement of the same fact on the same screen would be one more thing on a
+ * projector.
  */
 
 /**
@@ -74,66 +89,82 @@ export function participationLabelsFor(
  * the end, there is no room and nothing collected to keep: a slide closed then
  * goes live closed and opens on the presenter's cue, so that is what it says.
  */
-export function slideParticipationToggleLabel({
-	open,
-	canControl,
-	live,
-}: {
-	open: boolean;
-	canControl: boolean;
-	live: boolean;
-}): string {
+export function slideParticipationToggleLabel(
+	{
+		open,
+		canControl,
+		live,
+	}: {
+		open: boolean;
+		canControl: boolean;
+		live: boolean;
+	},
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	const { liveRoom } = text;
 	if (!canControl) {
 		if (!live) {
 			return open
-				? "This slide will go live open to submissions — you cannot edit this presentation, so it is not yours to close"
-				: "This slide will go live closed to submissions — you cannot edit this presentation, so it is not yours to reopen";
+				? liveRoom.participationSpectatorDraftOpen
+				: liveRoom.participationSpectatorDraftClosed;
 		}
 		return open
-			? "This slide is open to submissions — you cannot edit this presentation, so it is not yours to close"
-			: "This slide is closed to submissions — you cannot edit this presentation, so it is not yours to reopen";
+			? liveRoom.participationSpectatorOpen
+			: liveRoom.participationSpectatorClosed;
 	}
 	if (!live) {
 		return open
-			? "Close this slide before the start — it will go live closed, and the room can answer it only once you reopen it"
-			: "Reopen this slide — it will go live open, so the room can answer it from the start";
+			? liveRoom.participationDraftClose
+			: liveRoom.participationDraftReopen;
 	}
-	return open
-		? "Close this slide — the room stops being able to answer it, and every answer already given is kept"
-		: "Reopen this slide — the room can answer it again, alongside the answers already collected";
+	return open ? liveRoom.participationClose : liveRoom.participationReopen;
 }
 
 /** The words on the control itself, in the same two readings (REQ198). */
-export function slideParticipationControlText({
-	open,
-	live,
-}: {
-	open: boolean;
-	live: boolean;
-}): string {
-	if (!live) return open ? "Go live closed" : "Goes live closed — reopen";
-	return open ? "Close submissions" : "Submissions closed — reopen";
+export function slideParticipationControlText(
+	{
+		open,
+		live,
+	}: {
+		open: boolean;
+		live: boolean;
+	},
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	const { liveRoom } = text;
+	if (!live) {
+		return open
+			? liveRoom.participationControlDraftOpen
+			: liveRoom.participationControlDraftClosed;
+	}
+	return open
+		? liveRoom.participationControlOpen
+		: liveRoom.participationControlClosed;
 }
 
 /**
  * What the presenter is told once the switch has been thrown — the control's
  * own wording, so the toast cannot promise what the control did not say.
  */
-export function slideParticipationToast({
-	open,
-	live,
-}: {
-	open: boolean;
-	live: boolean;
-}): string {
+export function slideParticipationToast(
+	{
+		open,
+		live,
+	}: {
+		open: boolean;
+		live: boolean;
+	},
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	const { liveRoom } = text;
 	if (!live) {
 		return open
-			? "This slide will go live open to submissions"
-			: "This slide will go live closed — reopen it when you want the room to answer";
+			? liveRoom.participationToastDraftOpen
+			: liveRoom.participationToastDraftClosed;
 	}
 	return open
-		? "Submissions reopened on this slide"
-		: "Submissions closed on this slide — the answers already given are kept";
+		? liveRoom.participationToastOpen
+		: liveRoom.participationToastClosed;
 }
 
 /**
@@ -147,17 +178,24 @@ export function slideParticipationToast({
  */
 export function closedAtStartNotice(
 	deck: Pick<Presentation, "slides" | "closedSlideIds">,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+	language: InterfaceLanguage = "en",
 ): string | null {
 	const closedNumbers = deck.slides.flatMap((slide, slideIndex) =>
-		slideAcceptsSubmissions(deck, slide.id) ? [] : [slideIndex + 1],
+		slideAcceptsSubmissions(deck, slide.id)
+			? []
+			: [formatNumber(language, slideIndex + 1)],
 	);
 	if (closedNumbers.length === 0) return null;
 	if (closedNumbers.length === 1) {
-		return `Slide ${closedNumbers[0]} starts closed — reopen it when you want the room to answer`;
+		return fillText(text.liveRoom.closedAtStartOne, {
+			number: closedNumbers[0],
+		});
 	}
-	const leading = closedNumbers.slice(0, -1).join(", ");
-	const last = closedNumbers[closedNumbers.length - 1];
-	return `Slides ${leading} and ${last} start closed — reopen each when you want the room to answer`;
+	return fillText(text.liveRoom.closedAtStartMany, {
+		numbers: closedNumbers.slice(0, -1).join(", "),
+		last: closedNumbers[closedNumbers.length - 1],
+	});
 }
 
 /**
@@ -180,7 +218,8 @@ export function SlideParticipationControl({
 	live: boolean;
 	onChange: (open: boolean) => void;
 }) {
-	const label = slideParticipationToggleLabel({ open, canControl, live });
+	const { text } = useInterfaceText();
+	const label = slideParticipationToggleLabel({ open, canControl, live }, text);
 	return (
 		<button
 			type="button"
@@ -194,7 +233,7 @@ export function SlideParticipationControl({
 			}`}
 		>
 			{open ? <LockOpen size={13} /> : <Lock size={13} />}
-			{slideParticipationControlText({ open, live })}
+			{slideParticipationControlText({ open, live }, text)}
 		</button>
 	);
 }
@@ -275,30 +314,52 @@ export function ParticipationGate({
 /**
  * What the presenter's blank control is called, in the state it is in.
  *
- * Spelled out because the chip carries an icon and no text, so this string is
- * the whole control — and because "blank" on its own says nothing about the one
- * thing an organizer needs to know before pressing it: that it costs them
- * nothing they have collected.
+ * Spelled out because the presenting view's strip draws the control as an icon
+ * with no text, so this string is the whole control there, and the Present
+ * menu's row names it and shows its refusal reason from it — and because
+ * "blank" on its own says nothing about the one thing an organizer needs to
+ * know before pressing it: that it costs them nothing they have collected.
  */
-export function audienceBlankToggleLabel({
-	blanked,
-	canControl,
-}: {
-	blanked: boolean;
-	canControl: boolean;
-}): string {
+export function audienceBlankToggleLabel(
+	{
+		blanked,
+		canControl,
+	}: {
+		blanked: boolean;
+		canControl: boolean;
+	},
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	const { liveRoom } = text;
 	if (!canControl) {
 		return blanked
-			? "The shared screen is blanked — you cannot edit this presentation, so it is not yours to bring back"
-			: "Blank the shared screen — you cannot edit this presentation, so its screen is not yours to blank";
+			? liveRoom.blankSpectatorBlanked
+			: liveRoom.blankSpectatorShown;
 	}
-	return blanked
-		? "Show the slide again — the shared screen comes back exactly where it was"
-		: "Blank the shared screen — the room's screen goes dark on this slide, and nothing else changes: the deck stays here, submissions are left as they are and every answer is kept";
+	return blanked ? liveRoom.blankShow : liveRoom.blankHide;
 }
 
-/** What stands in the slide's place while the shared screen is blanked. */
-export const AUDIENCE_BLANK_TITLE = "The screen is blank";
+/**
+ * The blank control's glyph, one definition for the Present menu's row and the
+ * presenting view's strip. Shown, `EyeOff`: the glyph this tree already uses
+ * for "the room does not see this" (the curtain below, the notes' privacy
+ * badge). Blanked, `EyeClosed`: the room's view is shut, a different outline
+ * (a closed lid, no slash) so the two states do not read alike. No monitor:
+ * `MonitorUp` is the presenting window's, and `Eye` is the preview's.
+ */
+export function AudienceBlankIcon({
+	blanked,
+	size = 16,
+}: {
+	blanked: boolean;
+	size?: number;
+}) {
+	return blanked ? (
+		<EyeClosed size={size} aria-hidden />
+	) : (
+		<EyeOff size={size} aria-hidden />
+	);
+}
 
 /**
  * Which of its two screens the shared surface is drawing right now (REQ109).
@@ -330,6 +391,9 @@ export function sharedScreenView(deck: LiveRoomState | null): SharedScreenView {
  * died. The deck's own mark and one line of explanation say the screen is like
  * this on purpose.
  *
+ * Two readers, two languages (REQ248): the title is the room's, and the note
+ * under it and the way back are the presenter's, in the interface language.
+ *
  * The way back is **on the curtain**, not only in the chrome (an affordance sits
  * beside what it changes): the presenter is looking at the thing they need to
  * undo, and a
@@ -358,12 +422,16 @@ export function AudienceBlankCurtain({
 	onShow: () => void;
 	controls?: React.ReactNode;
 }) {
+	const { liveRoom } = useInterfaceText().text;
 	return (
 		<div className="flex w-full flex-col items-center justify-center gap-4 py-24 text-center">
 			<DeckMark deck={deck} size="sm" fallback="none" />
 			<EyeOff size={32} className="text-text-dim" />
-			<p className="text-lg font-semibold text-text-muted">
-				{AUDIENCE_BLANK_TITLE}
+			<p
+				lang={resolveLang(deck?.language)}
+				className="text-lg font-semibold text-text-muted"
+			>
+				{getDict(deck?.language).roomScreenBlank}
 			</p>
 			{/* What it says has to be true whatever else the presenter has done, so
 			    it states what blanking *did not* touch rather than the state of
@@ -371,13 +439,11 @@ export function AudienceBlankCurtain({
 			    closed (REQ111), and a curtain claiming the question was open would
 			    be reporting the other switch's state and getting it wrong. */}
 			<p className="max-w-sm text-sm text-text-dim">
-				The room sees nothing on the shared screen. Nothing else changed — the
-				deck has not moved, submissions are as you left them, and every answer
-				is still here.
+				{liveRoom.blankCurtainNote}
 			</p>
 			{canControl && (
 				<button type="button" className="btn-primary mt-2" onClick={onShow}>
-					Show the slide again
+					{liveRoom.blankCurtainShow}
 				</button>
 			)}
 			{canControl && controls && (

@@ -6,6 +6,7 @@ import {
 } from "./api";
 import { ThemeProvider } from "./components/ui/Theme";
 import { ToastProvider } from "./components/ui/Toast";
+import { InterfaceLanguageProvider } from "./interface-language";
 import { AdminFeedbackPage } from "./pages/AdminFeedbackPage";
 import { CreatePage } from "./pages/CreatePage";
 import { GeneratePage } from "./pages/GeneratePage";
@@ -131,11 +132,13 @@ export default function App() {
 
 	return (
 		<ThemeProvider>
-			<ToastProvider>
-				<StoreProvider>
-					{content}
-				</StoreProvider>
-			</ToastProvider>
+			<InterfaceLanguageProvider>
+				<ToastProvider>
+					<StoreProvider>
+						{content}
+					</StoreProvider>
+				</ToastProvider>
+			</InterfaceLanguageProvider>
 		</ThemeProvider>
 	);
 }

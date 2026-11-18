@@ -1,4 +1,11 @@
 import { AlertTriangle } from "lucide-react";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceLanguage,
+	type InterfaceText,
+} from "../interface-text";
 import type { Slide } from "../types";
 import {
 	quizAnswerModeFor,
@@ -15,20 +22,25 @@ import { slideTextToPlain } from "./SlideText";
 // editor says it in three places, each where the author will meet it: on the
 // slide's own settings, on its thumbnail in the slide list, and when the deck
 // goes live. One wording, said here and composed by all three, so the slide list
-// cannot call the slide something its settings do not.
+// cannot call the slide something its settings do not. All three are read by
+// the author or the presenter, so the wording is the interface language's
+// (REQ248, `quizAnswerKey` in `src/interface-text/`).
 
-/** What is wrong with such a slide, in one line. */
+/** What is wrong with such a slide, in one line, in English. */
 export const QUIZ_NO_ANSWER_KEY_WARNING =
-	"No correct answer yet — every answer to this question scores 0.";
+	ENGLISH_INTERFACE_TEXT.quizAnswerKey.noAnswerKey;
 
 /**
  * What to do about it, by answer mode: a select-answer question is fixed on the
  * slide, where the options are marked; a typed one in the field below.
  */
-export function quizAnswerKeyRemedy(slide: Slide): string {
+export function quizAnswerKeyRemedy(
+	slide: Slide,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
 	return quizAnswerModeFor(slide) === "type"
-		? "Add an accepted answer below."
-		: "Mark the correct option on the slide.";
+		? text.quizAnswerKey.remedyTyped
+		: text.quizAnswerKey.remedySelect;
 }
 
 /**
@@ -38,13 +50,14 @@ export function quizAnswerKeyRemedy(slide: Slide): string {
  * only announces what changes inside it after it exists.
  */
 export function QuizAnswerKeyWarning({ slide }: { slide: Slide }) {
+	const { text } = useInterfaceText();
 	return (
 		<div role="status">
 			{!quizHasAnswerKey(slide) && (
 				<p className="flex gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
 					<AlertTriangle size={13} className="mt-px flex-shrink-0" aria-hidden />
 					<span>
-						{QUIZ_NO_ANSWER_KEY_WARNING} {quizAnswerKeyRemedy(slide)}
+						{text.quizAnswerKey.noAnswerKey} {quizAnswerKeyRemedy(slide, text)}
 					</span>
 				</p>
 			)}
@@ -62,25 +75,29 @@ export function QuizAnswerKeyWarning({ slide }: { slide: Slide }) {
  */
 export function quizAnswerKeyGoLiveWarning(
 	slides: readonly Slide[],
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+	language: InterfaceLanguage = "en",
 ): { title: string; message: string } | null {
+	const words = text.quizAnswerKey;
 	const missingIndexes = quizSlidesWithoutAnswerKey(slides);
 	if (missingIndexes.length === 0) return null;
 	const named = missingIndexes.map((slideIndex, position) => {
-		const ordinal = `${position === 0 ? "Slide" : "slide"} ${slideIndex + 1}`;
+		const ordinal = fillText(
+			position === 0 ? words.slideFirst : words.slideLater,
+			{ number: slideIndex + 1 },
+		);
 		const question = slideTextToPlain(slides[slideIndex].question);
-		return question ? `${ordinal} (“${question}”)` : ordinal;
+		return question
+			? fillText(words.slideWithQuestion, { slide: ordinal, question })
+			: ordinal;
 	});
-	const list = new Intl.ListFormat("en", {
+	const list = new Intl.ListFormat(language, {
 		style: "long",
 		type: "conjunction",
 	}).format(named);
 	const single = missingIndexes.length === 1;
 	return {
-		title: single
-			? "A quiz question has no correct answer"
-			: "Some quiz questions have no correct answer",
-		message: `${list} ${single ? "has" : "have"} no correct answer, so every answer to ${
-			single ? "it" : "them"
-		} scores 0. Start anyway, or cancel and mark the answers in the editor.`,
+		title: single ? words.titleOne : words.titleOther,
+		message: fillText(single ? words.messageOne : words.messageOther, { list }),
 	};
 }

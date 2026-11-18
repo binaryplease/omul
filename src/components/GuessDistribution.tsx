@@ -1,3 +1,5 @@
+import { type Dict, getDict } from "../i18n";
+import { fillText } from "../interface-text";
 import type { GuessRange } from "../types";
 
 // ── Guess the Number distribution (REQ039–REQ043) ─────────────────────
@@ -118,6 +120,7 @@ export function GuessDistribution({
 	correctRange = null,
 	reference = null,
 	className = "",
+	roomDict = getDict("en"),
 }: {
 	range: GuessRange;
 	columns: GuessColumn[];
@@ -126,6 +129,11 @@ export function GuessDistribution({
 	/** The correct number itself (REQ041); null when there is none. */
 	reference?: number | null;
 	className?: string;
+	/**
+	 * The words of a column's hover text: the deck's dictionary on the shared
+	 * screen (REQ248), English everywhere else.
+	 */
+	roomDict?: Dict;
 }) {
 	const busiest = columns.reduce(
 		(highest, column) => Math.max(highest, column.count),
@@ -181,9 +189,12 @@ export function GuessDistribution({
 							<span
 								key={`${column.from}-${column.to}`}
 								className="flex h-full flex-1 items-end"
-								title={`${guessColumnLabel(column)} — ${column.count} guess${
-									column.count === 1 ? "" : "es"
-								}`}
+								title={fillText(
+									column.count === 1
+										? roomDict.resultsGuessColumnOne
+										: roomDict.resultsGuessColumnOther,
+									{ range: guessColumnLabel(column), count: column.count },
+								)}
 							>
 								<span
 									className={`w-full rounded-t transition-[height] duration-300 ${

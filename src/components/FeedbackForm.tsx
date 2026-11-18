@@ -18,11 +18,12 @@
  * Notes). The unticked start is the `contactMe` default in
  * {@link EMPTY_FEEDBACK_DRAFT}, and it is not configurable.
  *
- * **Its words are a prop.** The menu draws it in English, as the rest of the
- * app's chrome is; the prompt draws it in the deck's language, because it sits
- * on the participant's screen (REQ186). Both read one table, `Dict` in
- * `src/i18n.ts`, through {@link feedbackFormLabelsFor}. The contact box's two
- * lines are not in it: only the menu draws the box, and the menu is English.
+ * **Its words are a prop.** The menu draws it in the interface language
+ * (REQ248); the prompt draws it in the deck's language, because it sits on the
+ * participant's screen (REQ186). Both read one table, `Dict` in `src/i18n.ts`,
+ * through {@link feedbackFormLabelsFor}. The heading and the contact box's two
+ * lines are not in it: only the menu draws them, and it hands them in from the
+ * interface text (`appMenu`); without them they are English.
  *
  * **Its heading is optional.** The menu's dialog is labelled by the form's own
  * heading, which names who reads the answer. The prompt's card carries a
@@ -54,8 +55,23 @@ export const EMPTY_FEEDBACK_DRAFT: FeedbackDraft = {
 };
 
 /** Who reads this — said first, so nobody mistakes it for the presenter's form. */
-const HEADING_LEAD = `Feedback about ${BRAND_NAME}`;
-const HEADING_RECIPIENT = `goes to the people who run ${BRAND_NAME} here, not to the presenter or organizer`;
+export type FeedbackFormHeading = { lead: string; recipient: string };
+
+const ENGLISH_HEADING: FeedbackFormHeading = {
+	lead: `Feedback about ${BRAND_NAME}`,
+	recipient: `goes to the people who run ${BRAND_NAME} here, not to the presenter or organizer`,
+};
+
+/** The contact box's label, and the line naming the address it would use. */
+export type FeedbackFormContact = {
+	label: string;
+	address: (email: string) => string;
+};
+
+const ENGLISH_CONTACT: FeedbackFormContact = {
+	label: "You can contact me about this",
+	address: (email) => `We'd write to ${email} (your account email)`,
+};
 
 /** What the form says, in one language. */
 export type FeedbackFormLabels = {
@@ -105,7 +121,7 @@ export function feedbackFormLabelsFor(dict: Dict): FeedbackFormLabels {
 	};
 }
 
-/** The form as the app menu draws it: in English, like the rest of the chrome. */
+/** The form in English — the default, and the menu's on the deck's screens. */
 export const FEEDBACK_FORM_LABELS: FeedbackFormLabels = feedbackFormLabelsFor(
 	getDict("en"),
 );
@@ -122,6 +138,8 @@ const FIELD_LABEL = "mb-1.5 block text-sm font-medium text-text";
 export function FeedbackFormView({
 	headingId,
 	labels = FEEDBACK_FORM_LABELS,
+	heading: headingText = ENGLISH_HEADING,
+	contact = ENGLISH_CONTACT,
 	draft,
 	contactEmail,
 	status,
@@ -134,6 +152,8 @@ export function FeedbackFormView({
 	/** The id of the form's own heading, or none to draw no heading at all. */
 	headingId?: string;
 	labels?: FeedbackFormLabels;
+	heading?: FeedbackFormHeading;
+	contact?: FeedbackFormContact;
 	draft: FeedbackDraft;
 	/** The address the contact box names, or `null` to draw no box at all. */
 	contactEmail: string | null;
@@ -151,8 +171,10 @@ export function FeedbackFormView({
 
 	const heading = headingId !== undefined && (
 		<h2 id={headingId} className="m-0 text-base font-semibold text-text">
-			{HEADING_LEAD}{" "}
-			<span className="font-normal text-text-muted">— {HEADING_RECIPIENT}</span>
+			{headingText.lead}{" "}
+			<span className="font-normal text-text-muted">
+				— {headingText.recipient}
+			</span>
 		</h2>
 	);
 
@@ -255,13 +277,13 @@ export function FeedbackFormView({
 							aria-describedby={`${fieldId}-address`}
 							onChange={(event) => onContactChange(event.target.checked)}
 						/>
-						You can contact me about this
+						{contact.label}
 					</label>
 					<p
 						id={`${fieldId}-address`}
 						className="m-0 mt-1 pl-6 text-xs text-text-dim break-words"
 					>
-						We'd write to {contactEmail} (your account email)
+						{contact.address(contactEmail)}
 					</p>
 				</div>
 			)}
@@ -299,12 +321,16 @@ export function FeedbackFormView({
 export function FeedbackForm({
 	headingId,
 	labels = FEEDBACK_FORM_LABELS,
+	heading,
+	contact,
 	contactEmail,
 	onSend,
 	onDone,
 }: {
 	headingId?: string;
 	labels?: FeedbackFormLabels;
+	heading?: FeedbackFormHeading;
+	contact?: FeedbackFormContact;
 	contactEmail: string | null;
 	onSend: (draft: FeedbackDraft) => Promise<void>;
 	onDone?: () => void;
@@ -334,6 +360,8 @@ export function FeedbackForm({
 		<FeedbackFormView
 			headingId={headingId}
 			labels={labels}
+			heading={heading}
+			contact={contact}
 			draft={draft}
 			contactEmail={contactEmail}
 			status={status}

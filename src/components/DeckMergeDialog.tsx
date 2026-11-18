@@ -1,13 +1,18 @@
 import { GitMerge } from "lucide-react";
 import { useState } from "react";
+import { useInterfaceText } from "../interface-language";
 import {
-	DECK_FIELD_LABELS,
-	type DeckMergeChoices,
-	type DeckMergeSide,
-	type DeckOverlap,
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceText,
+	pluralText,
+} from "../interface-text";
+import type {
+	DeckMergeChoices,
+	DeckMergeSide,
+	DeckOverlap,
 } from "../store/deckMerge";
 import type { Slide } from "../types";
-import { SLIDE_TYPE_LABELS } from "../types";
 import { ChoiceCards, type ChoiceOption } from "./EditorControls";
 import { slideTextToPlain } from "./SlideText";
 import { Modal } from "./ui/Modal";
@@ -21,54 +26,78 @@ import { Modal } from "./ui/Modal";
 // been made. Cancelling leaves the person's edits on screen, unsaved.
 
 /** What the person calls a slide — the rail's gist, or its type. */
-function slideName(slide: Slide): string {
-	return slideTextToPlain(slide.question ?? "") || SLIDE_TYPE_LABELS[slide.type];
+function slideName(slide: Slide, text: InterfaceText): string {
+	return (
+		slideTextToPlain(slide.question ?? "") ||
+		text.editor.slideTypeNames[slide.type]
+	);
 }
 
 /** A deck setting's value in words, or nothing for one that has none short enough. */
-function settingValue(value: unknown): string | undefined {
-	if (typeof value === "boolean") return value ? "On" : "Off";
-	if (value === null) return "Automatic";
-	if (typeof value === "string") return value.trim() ? value : "Empty";
+function settingValue(
+	value: unknown,
+	wording: InterfaceText["deckMerge"],
+): string | undefined {
+	if (typeof value === "boolean") return value ? wording.valueOn : wording.valueOff;
+	if (value === null) return wording.valueAutomatic;
+	if (typeof value === "string") return value.trim() ? value : wording.valueEmpty;
 	return undefined;
 }
 
 /** The heading of one overlap: which thing both people changed. */
-export function overlapHeading(overlap: DeckOverlap): string {
-	if (overlap.kind === "field") return DECK_FIELD_LABELS[overlap.field];
-	if (overlap.kind === "order") return "Slide order";
+export function overlapHeading(
+	overlap: DeckOverlap,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	const wording = text.deckMerge;
+	if (overlap.kind === "field") return wording.fieldNames[overlap.field];
+	if (overlap.kind === "order") return wording.slideOrder;
 	const slide = overlap.theirs ?? overlap.mine;
-	return slide ? `Slide: ${slideName(slide)}` : "Slide";
+	return slide
+		? fillText(wording.slideNamed, { name: slideName(slide, text) })
+		: wording.slide;
 }
 
 /** The two versions of one overlap, as the choice between them. */
 export function overlapOptions(
 	overlap: DeckOverlap,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
 ): ChoiceOption<DeckMergeSide>[] {
+	const wording = text.deckMerge;
 	if (overlap.kind === "order") {
 		return [
-			{ value: "mine", label: "Keep my order" },
-			{ value: "theirs", label: "Keep the current order" },
+			{ value: "mine", label: wording.keepMyOrder },
+			{ value: "theirs", label: wording.keepCurrentOrder },
 		];
 	}
 	if (overlap.kind === "slide") {
 		const describe = (slide: Slide | null) =>
-			slide ? `Edited: ${slideName(slide)}` : "Deleted";
+			slide
+				? fillText(wording.slideEdited, { name: slideName(slide, text) })
+				: wording.slideDeleted;
 		return [
-			{ value: "mine", label: "Keep mine", description: describe(overlap.mine) },
+			{
+				value: "mine",
+				label: wording.keepMine,
+				description: describe(overlap.mine),
+			},
 			{
 				value: "theirs",
-				label: "Keep the current one",
+				label: wording.keepCurrentOne,
 				description: describe(overlap.theirs),
 			},
 		];
 	}
 	return [
-		{ value: "mine", label: "Keep mine", description: settingValue(overlap.mine) },
+		{
+			value: "mine",
+			label: wording.keepMine,
+			description: settingValue(overlap.mine, wording),
+		},
 		{
 			value: "theirs",
-			label: "Keep the current one",
-			description: settingValue(overlap.theirs),
+			label: wording.keepCurrentOne,
+			description: settingValue(overlap.theirs, wording),
 		},
 	];
 }
@@ -85,58 +114,65 @@ export function DeckMergeDialog({
 	onCancel: () => void;
 }) {
 	const [choices, setChoices] = useState<DeckMergeChoices>({});
+	const { text, language } = useInterfaceText();
+	const wording = text.deckMerge;
 	const remaining = overlaps.filter((overlap) => !choices[overlap.key]).length;
 	const blockedReason =
 		remaining > 0
-			? `Choose a version for ${remaining === 1 ? "the change" : `all ${remaining} changes`} above to save.`
+			? pluralText(language, remaining, wording.chooseRemaining)
 			: saving
-				? "Saving…"
+				? wording.saving
 				: null;
 	return (
-		<Modal title="Someone else saved this deck" icon={GitMerge} onClose={onCancel}>
-			<p className="mb-4 text-sm text-text-muted">
-				Everything only one of you changed is kept. You both changed the{" "}
-				{overlaps.length === 1 ? "thing" : "things"} below — choose which
-				version to keep.
-			</p>
-			<div className="max-h-[50vh] space-y-4 overflow-y-auto pr-1">
-				{overlaps.map((overlap) => (
-					<section key={overlap.key} className="space-y-2">
-						<h4 className="text-sm font-semibold">{overlapHeading(overlap)}</h4>
-						<ChoiceCards<DeckMergeSide | "undecided">
-							value={choices[overlap.key] ?? "undecided"}
-							onChange={(side) =>
-								setChoices((previous) => ({
-									...previous,
-									[overlap.key]: side as DeckMergeSide,
-								}))
-							}
-							options={overlapOptions(overlap)}
-							ariaLabel={overlapHeading(overlap)}
-							columns={2}
-						/>
-					</section>
-				))}
-			</div>
-			<div className="mt-6 flex items-center justify-end gap-3">
-				{blockedReason && (
-					<p id="deck-merge-blocked" className="mr-auto text-xs text-text-muted">
-						{blockedReason}
-					</p>
-				)}
-				<button type="button" className="btn-secondary text-sm" onClick={onCancel}>
-					Cancel
-				</button>
-				<button
-					type="button"
-					className="btn-primary text-sm"
-					disabled={blockedReason !== null}
-					aria-describedby={blockedReason ? "deck-merge-blocked" : undefined}
-					onClick={() => onSave(choices)}
-				>
-					Save
-				</button>
-			</div>
-		</Modal>
+		// The dialog is portaled out of the editor's regions, so it declares the
+		// interface language it is written in (REQ248).
+		<div lang={language}>
+			<Modal title={wording.title} icon={GitMerge} onClose={onCancel}>
+				<p className="mb-4 text-sm text-text-muted">
+					{pluralText(language, overlaps.length, wording.intro)}
+				</p>
+				<div className="max-h-[50vh] space-y-4 overflow-y-auto pr-1">
+					{overlaps.map((overlap) => (
+						<section key={overlap.key} className="space-y-2">
+							<h4 className="text-sm font-semibold">{overlapHeading(overlap, text)}</h4>
+							<ChoiceCards<DeckMergeSide | "undecided">
+								value={choices[overlap.key] ?? "undecided"}
+								onChange={(side) =>
+									setChoices((previous) => ({
+										...previous,
+										[overlap.key]: side as DeckMergeSide,
+									}))
+								}
+								options={overlapOptions(overlap, text)}
+								ariaLabel={overlapHeading(overlap, text)}
+								columns={2}
+							/>
+						</section>
+					))}
+				</div>
+				<div className="mt-6 flex flex-wrap items-center justify-end gap-3">
+					{blockedReason && (
+						<p
+							id="deck-merge-blocked"
+							className="mr-auto grow basis-32 text-xs text-text-muted"
+						>
+							{blockedReason}
+						</p>
+					)}
+					<button type="button" className="btn-secondary text-sm" onClick={onCancel}>
+						{wording.cancel}
+					</button>
+					<button
+						type="button"
+						className="btn-primary text-sm"
+						disabled={blockedReason !== null}
+						aria-describedby={blockedReason ? "deck-merge-blocked" : undefined}
+						onClick={() => onSave(choices)}
+					>
+						{wording.save}
+					</button>
+				</div>
+			</Modal>
+		</div>
 	);
 }

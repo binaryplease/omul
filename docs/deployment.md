@@ -84,6 +84,16 @@ boot, so a restart confirms it landed:
 [admin] Set it to a comma-separated list of account emails to name some. Correct as it stands for a deployment that wants no admin surface.
 ```
 
+### Running without Docker
+
+The image is not required. It builds this repository with Bun and runs
+`dist/server/index.js`, and a plain Linux host can do the same with the
+Dockerfile's build commands and a systemd unit. That path, from a fresh host to
+an instance that keeps its data and starts on boot, is
+[self-hosting-without-docker.md](self-hosting-without-docker.md) (REQ249). It
+uses the variables on this page and the state layout below, with
+`/var/lib/omul` in place of `/app/data`.
+
 ### State and backups
 
 All state lives in **one directory, mounted at `/app/data`**. The image sets
@@ -91,14 +101,17 @@ All state lives in **one directory, mounted at `/app/data`**. The image sets
 without a bind mount or a named volume the data lands in an anonymous volume
 that `up --force-recreate` walks away from.
 
-**Three** SQLite files live there, not one — `omul.sqlite` (zodstore:
-presentations, votes), `auth.sqlite` (Better Auth accounts and sessions) and
-`admin.sqlite` (admin event log). The latter two resolve as siblings of
-`DATABASE_PATH`, so the *directory* is what gets mounted; mounting the single
-file would silently drop two of the three.
+**Up to four** SQLite files live there, not one — `omul.sqlite` (zodstore:
+presentations, votes), `auth.sqlite` (Better Auth accounts and sessions),
+`admin.sqlite` (admin event log) and `feedback.sqlite` (feedback answers,
+REQ185/REQ186). The fourth is created only once `OMUL_FEEDBACK_ENABLED` is
+`"true"` or `OMUL_FEEDBACK_PROMPT_PERCENT` is set. The other three resolve as
+siblings of `DATABASE_PATH` (unless `OMUL_AUTH_DB`, `OMUL_ADMIN_DB` or
+`OMUL_FEEDBACK_DB` names another path), so the *directory* is what gets mounted;
+mounting the single file would silently drop the others.
 
 **Nothing in this repository backs that directory up, and a snapshot of a live
-SQLite file is not a backup.** All three databases run in WAL mode, so copying
+SQLite file is not a backup.** All four databases run in WAL mode, so copying
 the `.sqlite` file while the server is writing can yield an archive that
 restores to a torn state. A correct backup is `VACUUM INTO` or `.backup`
 against the live database, or a copy taken with the container stopped. **What

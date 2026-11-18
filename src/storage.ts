@@ -54,5 +54,11 @@ export const EMAIL_RECOVERY_ACCOUNT_SEEN_KEY =
 /** The light/dark/auto preference (`src/components/ui/Theme.tsx`). */
 export const THEME_KEY = "omul-theme";
 
+/**
+ * The interface language this browser chose in the app menu (REQ248,
+ * `src/interface-language.tsx`): `"auto"` or a language code.
+ */
+export const INTERFACE_LANGUAGE_KEY = "omul-interface-language";
+
 /** The address of an email change waiting on its two mail round-trips. */
 export const PENDING_EMAIL_CHANGE_KEY = "omul:pending-email-change";

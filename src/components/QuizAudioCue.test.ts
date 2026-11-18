@@ -17,6 +17,7 @@ import { basename, join, resolve } from "node:path";
 import { assetSubpath } from "../../server/app-paths";
 import { serveStatic } from "../../server/routes/static";
 import { QUIZ_SUBMISSION_GRACE_MS } from "../../server/schemas";
+import { interfaceTextFor } from "../interface-text";
 import type { Slide } from "../types";
 import {
 	type BufferCuePlayerDependencies,
@@ -927,5 +928,23 @@ describe("quizAudioPreviewControlFor — the editor's play control (REQ058)", ()
 		expect(previewHook).toContain("useQuizAudioPreview(): QuizAudioPreview");
 		expect(previewHook).not.toContain("onUpdate");
 		expect(previewHook).not.toContain("quizAudioUrl");
+	});
+});
+
+describe("quizAudioCueControlFor in the interface language (REQ248)", () => {
+	test("every German state names itself and says more in its name", () => {
+		const german = interfaceTextFor("de");
+		for (const status of EVERY_STATUS) {
+			for (const muted of [false, true]) {
+				const english = quizAudioCueControlFor({ status, muted });
+				const control = quizAudioCueControlFor({ status, muted }, german);
+				expect(control.text.trim()).not.toBe("");
+				expect(control.label.length).toBeGreaterThan(control.text.length);
+				expect(control.label).not.toBe(english.label);
+				// The words change; what pressing it does does not.
+				expect(control.action).toBe(english.action);
+				expect(control.attention).toBe(english.attention);
+			}
+		}
 	});
 });

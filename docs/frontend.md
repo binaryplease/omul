@@ -118,8 +118,44 @@ that already exist — compose these, never re-hand-roll:
   Appearance; the menu appends what its own sections hold to that name
   (`appMenuTriggerLabel()`), feedback included where it is on, in a `w-64`
   panel, with focus on its first enabled row on open. The presenter's phone bar
-  folds its Deck menu into a More menu this way rather than drawing two menu
-  triggers side by side.
+  folds its Present and Deck menus into a More menu this way rather than
+  drawing their triggers side by side. Below Appearance sits the Language section (REQ248):
+  Automatic, English, Deutsch. The participant screen and the preview pass
+  `speaksDeckLanguage`, which drops the section; there the menu speaks the
+  `language` prop, the deck's (REQ225), or English where none is given.
+- **Interface language** — `src/interface-language.tsx` and
+  `src/interface-text/` (REQ248). The language rule: a participant- or
+  room-facing surface speaks the deck's language (`src/i18n.ts`, REQ084,
+  REQ225) and reads `getDict(pres.language)`; an organizer surface speaks the
+  interface language, chosen per browser in the app menu
+  (`INTERFACE_LANGUAGE_KEY` in `src/storage.ts`; default: the first of
+  `navigator.languages` that is offered, else English). Neither sets the
+  other. Read organizer text only through `useInterfaceText()`, as
+  `text.<section>.<key>`. Each section file holds an English `en` with every
+  key and a German `de`; a key without a German entry reads English. A pure
+  helper that returns organizer text takes a trailing `text` parameter that
+  defaults to `ENGLISH_INTERFACE_TEXT`; one that counts or formats also takes
+  a trailing `language` (default `"en"`), because its plural form and number
+  format need the language (`slideCountLabel`,
+  `accessibilityFindingCountLabel`). Counted phrases use `pluralText()` with
+  the deck's `PluralForms` shape; numbers use `formatNumber()`, dates
+  `formatDate()`. A sentence that draws one of its words as an element (a
+  link, a folder's name) is written with a `{placeholder}` and drawn with
+  `textWithElement()`, so each language puts the word where it belongs. Words
+  a deck dictionary already holds for a surface shared with the room (the app
+  menu's, the results' `resultLabelsFor`) are read from the dictionary rather
+  than restated. Room-facing words on an organizer screen — the presenter
+  screen's join line, QR dialog, waiting lines and result captions, the
+  editor canvas's preview of the slide — read `getDict(pres.language)` (for
+  results, `ResultsWording.room`) and carry the deck's `lang`; the
+  presenter's own controls inside them carry the interface language's `lang`.
+  A portaled panel in the interface language carries its own `lang`. A
+  dialog mounted on a screen that speaks the deck's language (the
+  participant's sign-in) is wrapped in `InterfaceLanguageScope`. The provider
+  sets `<html lang>` to `en`; every organizer screen declares the interface
+  language with `useDocumentLanguage()`, and the participant screen and the
+  preview the deck's. `interface-text.test.ts` fails when a key of any
+  section has no German entry.
 - **Legal texts** — `src/components/LegalLinks.tsx` (REQ183).
   `LEGAL_TEXT_DESCRIPTORS` names the imprint, privacy policy and terms once,
   `<LegalLink/>` is the one anchor a legal link is drawn with (new tab,
@@ -355,9 +391,13 @@ that already exist — compose these, never re-hand-roll:
   control goes by in each of its states, `<SlideParticipationControl/>` the
   presenter's open/close switch — on the slide it governs, beside the reveal and
   the timer restart — and `<ParticipationGate/>` the participant's
-  half. **Blanking** (REQ109): `audienceBlankToggleLabel()` and
-  `<AudienceBlankCurtain/>`, the stated screen the projector wears instead of
-  the slide.
+  half. **Blanking** (REQ109): `audienceBlankToggleLabel()`,
+  `<AudienceBlankIcon/>` — the control's glyph, `EyeOff` shown and `EyeClosed`
+  blanked, for the presenter's Present-menu row and the presenting view's strip
+  alike — and `<AudienceBlankCurtain/>`, the stated screen the projector wears
+  instead of the slide. The presenter's bar draws no blank button of its own:
+  the blank is the last row of the Present menu (`presentMenuRows`, REQ247),
+  which leads More below `sm`.
   Four rules the module exists to keep:
   - **The predicates are not here.** `slideAcceptsSubmissions()` and
     `audienceViewBlanked()` live in `server/schemas.ts` and are re-exported
@@ -816,7 +856,7 @@ that already exist — compose these, never re-hand-roll:
   will make of a half-typed colour, and what stands while nothing is authored.
 - **Preview entry** — `src/components/PreviewLink.tsx` is the single control that
   opens a dry run, composed by the editor and — as `variant="menu-row"`, a row
-  of the Deck menu — the presenter's screen. It is
+  of the Present menu (`presentMenuRows`, REQ247) — the presenter's screen. It is
   offered whether or not the browser holds the deck, disabled with its reason:
   a preview reads the deck's answer keys, so it needs the same
   credential an edit does.

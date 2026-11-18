@@ -5,7 +5,7 @@
 // localize UI strings. English is the fallback for any missing key or
 // unknown language tag.
 
-import { participantLanguageFor } from "./types";
+import { participantLanguageFor, type SlideType } from "./types";
 
 export type Lang = "en" | "de" | "fr" | "es" | "it" | "pt" | "nl";
 
@@ -435,6 +435,86 @@ export type Dict = {
 	signInMismatchTitle: string;
 	signInMismatchIntro: string;
 	signInSwitchAccount: string;
+	/**
+	 * The room's invitation on the presenter screen, which is also the projector
+	 * (REQ191, REQ247, REQ248): words the room reads, so they are in the deck's
+	 * language rather than the presenter's interface language. `roomJoinAt` is
+	 * followed by the host, then the code; `roomHeadCount` holds `{count}`, and
+	 * `roomQrAlt`, the join code's image to a screen reader, `{url}`.
+	 */
+	roomJoinAt: string;
+	roomScanToJoin: string;
+	roomOrGoTo: string;
+	roomJoinCode: string;
+	roomHeadCount: string;
+	roomQrAlt: string;
+	/** What the shared screen says while the presenter has blanked it (REQ109). */
+	roomScreenBlank: string;
+	/** Each slide type's name over the question on the shared screen (REQ248). */
+	slideTypeNames: Record<SlideType, string>;
+	/**
+	 * What an instruction slide its author left unwritten says to the room
+	 * (REQ248), in the deck's language for the same reason.
+	 */
+	instructionHeading: string;
+	instructionBody: string;
+	instructionCode: string;
+	/**
+	 * What a choice slide that takes several answers says over its options
+	 * (REQ014), as the editor's canvas previews it (REQ248): `selectUpTo` holds
+	 * `{max}`, the most a participant may pick.
+	 */
+	selectAllThatApply: string;
+	selectUpTo: string;
+	/**
+	 * A result's captions on the shared screen and the shared results page
+	 * (REQ248) — the counts, legends and notes the room reads with a chart,
+	 * beyond the ones `resultLabelsFor` maps (REQ225). A pair ending
+	 * `One`/`Other` is one caption by its count, chosen by whether the count is
+	 * 1; each `{name}` is filled by the result view. A participant's phone draws
+	 * these in English, as it did before REQ248.
+	 */
+	resultsMultiSelectAny: string;
+	resultsMultiSelectUpTo: string;
+	resultsCountOf: string;
+	resultsWordCloud: string;
+	resultsUpvote: string;
+	resultsRemoveUpvote: string;
+	resultsPointsOne: string;
+	resultsPointsOther: string;
+	resultsNotRanked: string;
+	resultsAveragePosition: string;
+	resultsLeftOutBy: string;
+	resultsRankingNote: string;
+	resultsNobodyFunded: string;
+	resultsFunded: string;
+	resultsGaveNothing: string;
+	resultsBudgetOne: string;
+	resultsBudgetOther: string;
+	resultsGuesses: string;
+	resultsAverage: string;
+	resultsMedian: string;
+	resultsRange: string;
+	resultsTolerance: string;
+	resultsNoGuessesYet: string;
+	resultsLandedInside: string;
+	resultsGuessColumnOne: string;
+	resultsGuessColumnOther: string;
+	resultsNotPlaced: string;
+	resultsNotAssessable: string;
+	resultsGridNote: string;
+	resultsAverageMark: string;
+	resultsAveragePin: string;
+	resultsTargetArea: string;
+	resultsPinsOne: string;
+	resultsPinsOther: string;
+	resultsInTargetArea: string;
+	resultsPinLegend: string;
+	resultsSubmissionsOne: string;
+	resultsSubmissionsOther: string;
+	resultsAnswered: string;
+	resultsSkipped: string;
+	resultsAverageOf: string;
 };
 
 const en: Dict = {
@@ -648,6 +728,85 @@ const en: Dict = {
 	signInMismatchIntro:
 		"This device already took part in this presentation under a different account. Switch to that account to continue.",
 	signInSwitchAccount: "Switch account",
+	roomJoinAt: "Join at",
+	roomScanToJoin: "Scan to join",
+	roomOrGoTo: "or go to",
+	roomJoinCode: "Join code",
+	roomHeadCount: "{count} in the room",
+	roomQrAlt: "QR code to join at {url}",
+	roomScreenBlank: "The screen is blank",
+	slideTypeNames: {
+		"multiple-choice": "Multiple Choice",
+		"word-cloud": "Word Cloud",
+		"open-text": "Q&A",
+		scale: "Scale",
+		ranking: "Ranking",
+		grid: "2x2 Grid",
+		points: "100 Points",
+		"guess-number": "Guess the Number",
+		"pin-image": "Pin on Image",
+		quiz: "Quiz",
+		form: "Form",
+		leaderboard: "Leaderboard",
+		text: "Text",
+		image: "Image",
+		video: "Video",
+		embed: "Embedded deck",
+		instruction: "How to join",
+		countdown: "Countdown",
+	},
+	instructionHeading: "Join the presentation",
+	instructionBody: "Go to the URL below or scan the QR code, then enter the code.",
+	instructionCode: "Code",
+	selectAllThatApply: "Select all that apply",
+	selectUpTo: "Select up to {max}",
+	resultsMultiSelectAny:
+		"Participants could select any number of options — percentages are of the {count} who answered, so they add up to more than 100%.",
+	resultsMultiSelectUpTo:
+		"Participants could select up to {max} options — percentages are of the {count} who answered, so they add up to more than 100%.",
+	resultsCountOf: "{count} of {total}",
+	resultsWordCloud: "Word cloud",
+	resultsUpvote: "Upvote",
+	resultsRemoveUpvote: "Remove upvote",
+	resultsPointsOne: "{count} pt",
+	resultsPointsOther: "{count} pts",
+	resultsNotRanked: "not ranked by anyone",
+	resultsAveragePosition: "average position {position}",
+	resultsLeftOutBy: "left out by {count} of {total}",
+	resultsRankingNote:
+		"Points are awarded by position on each ranking — the higher an item is placed, the more it scores.",
+	resultsNobodyFunded: "nobody spent points on this",
+	resultsFunded: "{count} of {total} funded it · {average} pts each on average",
+	resultsGaveNothing: "{count} gave it nothing",
+	resultsBudgetOne:
+		"Every participant spread {budget} points across these items — {points} points from {count} response in total.",
+	resultsBudgetOther:
+		"Every participant spread {budget} points across these items — {points} points from {count} responses in total.",
+	resultsGuesses: "Guesses",
+	resultsAverage: "Average",
+	resultsMedian: "Median",
+	resultsRange: "Range",
+	resultsTolerance: "±{tolerance} counts — {min}–{max}",
+	resultsNoGuessesYet: "No guesses yet",
+	resultsLandedInside: "{count} of {total} landed inside it · {share}%",
+	resultsGuessColumnOne: "{range} — {count} guess",
+	resultsGuessColumnOther: "{range} — {count} guesses",
+	resultsNotPlaced: "not placed",
+	resultsNotAssessable: "{count} not assessable",
+	resultsGridNote:
+		"Each numbered dot is where the room put that item on average; the faint dots are the individual placements behind it.",
+	resultsAverageMark: "average",
+	resultsAveragePin: "Average pin — {x}, {y}",
+	resultsTargetArea: "Target area",
+	resultsPinsOne: "{count} pin",
+	resultsPinsOther: "{count} pins",
+	resultsInTargetArea: "{count} in the target area",
+	resultsPinLegend: "Brighter areas are where more of the room pointed.",
+	resultsSubmissionsOne: "{count} submission",
+	resultsSubmissionsOther: "{count} submissions",
+	resultsAnswered: "{count} answered",
+	resultsSkipped: "{count} skipped",
+	resultsAverageOf: "average of {count} responses",
 };
 
 const de: Dict = {
@@ -863,6 +1022,86 @@ const de: Dict = {
 	signInMismatchIntro:
 		"Dieses Gerät hat an dieser Präsentation bereits mit einem anderen Konto teilgenommen. Wechsle zu diesem Konto, um fortzufahren.",
 	signInSwitchAccount: "Konto wechseln",
+	roomJoinAt: "Mitmachen unter",
+	roomScanToJoin: "Scannen zum Mitmachen",
+	roomOrGoTo: "oder geh auf",
+	roomJoinCode: "Code zum Mitmachen",
+	roomHeadCount: "{count} im Raum",
+	roomQrAlt: "QR-Code zum Mitmachen unter {url}",
+	roomScreenBlank: "Der Bildschirm ist ausgeblendet",
+	slideTypeNames: {
+		"multiple-choice": "Multiple Choice",
+		"word-cloud": "Wortwolke",
+		"open-text": "Fragen",
+		scale: "Skala",
+		ranking: "Rangfolge",
+		grid: "2x2-Raster",
+		points: "100 Punkte",
+		"guess-number": "Zahl schätzen",
+		"pin-image": "Markierung im Bild",
+		quiz: "Quiz",
+		form: "Formular",
+		leaderboard: "Bestenliste",
+		text: "Text",
+		image: "Bild",
+		video: "Video",
+		embed: "Eingebettete Präsentation",
+		instruction: "So machst du mit",
+		countdown: "Countdown",
+	},
+	instructionHeading: "Mach bei der Präsentation mit",
+	instructionBody:
+		"Geh auf die URL unten oder scanne den QR-Code und gib dann den Code ein.",
+	instructionCode: "Code",
+	selectAllThatApply: "Wähle alle zutreffenden aus",
+	selectUpTo: "Wähle bis zu {max} aus",
+	resultsMultiSelectAny:
+		"Teilnehmende konnten beliebig viele Optionen wählen — die Prozente beziehen sich auf die {count}, die geantwortet haben, und ergeben zusammen mehr als 100%.",
+	resultsMultiSelectUpTo:
+		"Teilnehmende konnten bis zu {max} Optionen wählen — die Prozente beziehen sich auf die {count}, die geantwortet haben, und ergeben zusammen mehr als 100%.",
+	resultsCountOf: "{count} von {total}",
+	resultsWordCloud: "Wortwolke",
+	resultsUpvote: "Unterstützen",
+	resultsRemoveUpvote: "Unterstützung zurückziehen",
+	resultsPointsOne: "{count} Pkt.",
+	resultsPointsOther: "{count} Pkt.",
+	resultsNotRanked: "von niemandem eingeordnet",
+	resultsAveragePosition: "im Schnitt auf Platz {position}",
+	resultsLeftOutBy: "{count} von {total} haben es ausgelassen",
+	resultsRankingNote:
+		"Punkte gibt es nach der Position in jeder Rangfolge — je weiter oben ein Element steht, desto mehr Punkte bekommt es.",
+	resultsNobodyFunded: "niemand hat hierauf Punkte verteilt",
+	resultsFunded: "{count} von {total} haben Punkte vergeben · im Schnitt je {average} Pkt.",
+	resultsGaveNothing: "{count} haben nichts vergeben",
+	resultsBudgetOne:
+		"Alle Teilnehmenden haben {budget} Punkte auf diese Elemente verteilt — insgesamt {points} Punkte aus {count} Antwort.",
+	resultsBudgetOther:
+		"Alle Teilnehmenden haben {budget} Punkte auf diese Elemente verteilt — insgesamt {points} Punkte aus {count} Antworten.",
+	resultsGuesses: "Schätzungen",
+	resultsAverage: "Durchschnitt",
+	resultsMedian: "Median",
+	resultsRange: "Spanne",
+	resultsTolerance: "±{tolerance} gilt als richtig — {min}–{max}",
+	resultsNoGuessesYet: "Noch keine Schätzungen",
+	resultsLandedInside: "{count} von {total} liegen darin · {share}%",
+	resultsGuessColumnOne: "{range} — {count} Schätzung",
+	resultsGuessColumnOther: "{range} — {count} Schätzungen",
+	resultsNotPlaced: "nicht platziert",
+	resultsNotAssessable: "{count} nicht bewertbar",
+	resultsGridNote:
+		"Jeder nummerierte Punkt zeigt, wo der Raum dieses Element im Schnitt platziert hat; die blassen Punkte sind die einzelnen Platzierungen dahinter.",
+	resultsAverageMark: "Schnitt",
+	resultsAveragePin: "Durchschnittliche Markierung — {x}, {y}",
+	resultsTargetArea: "Zielbereich",
+	resultsPinsOne: "{count} Markierung",
+	resultsPinsOther: "{count} Markierungen",
+	resultsInTargetArea: "{count} im Zielbereich",
+	resultsPinLegend: "In helleren Bereichen haben mehr Leute im Raum markiert.",
+	resultsSubmissionsOne: "{count} Einsendung",
+	resultsSubmissionsOther: "{count} Einsendungen",
+	resultsAnswered: "{count} beantwortet",
+	resultsSkipped: "{count} übersprungen",
+	resultsAverageOf: "Durchschnitt aus {count} Antworten",
 };
 
 const fr: Dict = {
@@ -1079,6 +1318,86 @@ const fr: Dict = {
 	signInMismatchIntro:
 		"Cet appareil a déjà participé à cette présentation avec un autre compte. Passez à ce compte pour continuer.",
 	signInSwitchAccount: "Changer de compte",
+	roomJoinAt: "Rejoindre sur",
+	roomScanToJoin: "Scannez pour participer",
+	roomOrGoTo: "ou rendez-vous sur",
+	roomJoinCode: "Code de participation",
+	roomHeadCount: "{count} dans la salle",
+	roomQrAlt: "Code QR pour participer sur {url}",
+	roomScreenBlank: "L'écran est masqué",
+	slideTypeNames: {
+		"multiple-choice": "Choix multiple",
+		"word-cloud": "Nuage de mots",
+		"open-text": "Questions",
+		scale: "Échelle",
+		ranking: "Classement",
+		grid: "Grille 2x2",
+		points: "100 points",
+		"guess-number": "Devinez le nombre",
+		"pin-image": "Épingle sur l'image",
+		quiz: "Quiz",
+		form: "Formulaire",
+		leaderboard: "Tableau des scores",
+		text: "Texte",
+		image: "Image",
+		video: "Vidéo",
+		embed: "Présentation intégrée",
+		instruction: "Comment participer",
+		countdown: "Compte à rebours",
+	},
+	instructionHeading: "Rejoignez la présentation",
+	instructionBody:
+		"Rendez-vous sur l'URL ci-dessous ou scannez le QR code, puis saisissez le code.",
+	instructionCode: "Code",
+	selectAllThatApply: "Sélectionnez toutes les réponses qui conviennent",
+	selectUpTo: "Sélectionnez-en jusqu'à {max}",
+	resultsMultiSelectAny:
+		"Les participants pouvaient choisir autant d'options qu'ils voulaient — les pourcentages portent sur les {count} qui ont répondu, leur total dépasse donc 100%.",
+	resultsMultiSelectUpTo:
+		"Les participants pouvaient choisir jusqu'à {max} options — les pourcentages portent sur les {count} qui ont répondu, leur total dépasse donc 100%.",
+	resultsCountOf: "{count} sur {total}",
+	resultsWordCloud: "Nuage de mots",
+	resultsUpvote: "Soutenir",
+	resultsRemoveUpvote: "Retirer le soutien",
+	resultsPointsOne: "{count} pt",
+	resultsPointsOther: "{count} pts",
+	resultsNotRanked: "classé par personne",
+	resultsAveragePosition: "position moyenne {position}",
+	resultsLeftOutBy: "écarté par {count} sur {total}",
+	resultsRankingNote:
+		"Les points dépendent de la position dans chaque classement — plus un élément est placé haut, plus il marque de points.",
+	resultsNobodyFunded: "personne n'y a mis de points",
+	resultsFunded: "{count} sur {total} l'ont financé · {average} pts chacun en moyenne",
+	resultsGaveNothing: "{count} n'y ont rien mis",
+	resultsBudgetOne:
+		"Chaque participant a réparti {budget} points entre ces éléments — {points} points issus de {count} réponse au total.",
+	resultsBudgetOther:
+		"Chaque participant a réparti {budget} points entre ces éléments — {points} points issus de {count} réponses au total.",
+	resultsGuesses: "Estimations",
+	resultsAverage: "Moyenne",
+	resultsMedian: "Médiane",
+	resultsRange: "Écart",
+	resultsTolerance: "±{tolerance} accepté — {min}–{max}",
+	resultsNoGuessesYet: "Pas encore d'estimations",
+	resultsLandedInside: "{count} sur {total} sont dedans · {share}%",
+	resultsGuessColumnOne: "{range} — {count} estimation",
+	resultsGuessColumnOther: "{range} — {count} estimations",
+	resultsNotPlaced: "non placé",
+	resultsNotAssessable: "{count} non évaluable(s)",
+	resultsGridNote:
+		"Chaque point numéroté montre où la salle a placé cet élément en moyenne ; les points pâles sont les placements individuels derrière.",
+	resultsAverageMark: "moyenne",
+	resultsAveragePin: "Repère moyen — {x}, {y}",
+	resultsTargetArea: "Zone cible",
+	resultsPinsOne: "{count} repère",
+	resultsPinsOther: "{count} repères",
+	resultsInTargetArea: "{count} dans la zone cible",
+	resultsPinLegend: "Les zones plus claires sont celles que la salle a le plus désignées.",
+	resultsSubmissionsOne: "{count} envoi",
+	resultsSubmissionsOther: "{count} envois",
+	resultsAnswered: "{count} ont répondu",
+	resultsSkipped: "{count} ignoré(s)",
+	resultsAverageOf: "moyenne de {count} réponses",
 };
 
 const es: Dict = {
@@ -1295,6 +1614,86 @@ const es: Dict = {
 	signInMismatchIntro:
 		"Este dispositivo ya participó en esta presentación con otra cuenta. Cambia a esa cuenta para continuar.",
 	signInSwitchAccount: "Cambiar de cuenta",
+	roomJoinAt: "Únete en",
+	roomScanToJoin: "Escanea para unirte",
+	roomOrGoTo: "o ve a",
+	roomJoinCode: "Código para unirte",
+	roomHeadCount: "{count} en la sala",
+	roomQrAlt: "Código QR para unirte en {url}",
+	roomScreenBlank: "La pantalla está en blanco",
+	slideTypeNames: {
+		"multiple-choice": "Opción múltiple",
+		"word-cloud": "Nube de palabras",
+		"open-text": "Preguntas",
+		scale: "Escala",
+		ranking: "Clasificación",
+		grid: "Cuadrícula 2x2",
+		points: "100 puntos",
+		"guess-number": "Adivina el número",
+		"pin-image": "Marca en la imagen",
+		quiz: "Cuestionario",
+		form: "Formulario",
+		leaderboard: "Tabla de puntuaciones",
+		text: "Texto",
+		image: "Imagen",
+		video: "Vídeo",
+		embed: "Presentación incrustada",
+		instruction: "Cómo unirse",
+		countdown: "Cuenta atrás",
+	},
+	instructionHeading: "Únete a la presentación",
+	instructionBody:
+		"Ve a la URL de abajo o escanea el código QR y luego introduce el código.",
+	instructionCode: "Código",
+	selectAllThatApply: "Selecciona todas las que correspondan",
+	selectUpTo: "Selecciona hasta {max}",
+	resultsMultiSelectAny:
+		"Los participantes podían elegir cualquier número de opciones — los porcentajes son sobre los {count} que respondieron, así que suman más del 100%.",
+	resultsMultiSelectUpTo:
+		"Los participantes podían elegir hasta {max} opciones — los porcentajes son sobre los {count} que respondieron, así que suman más del 100%.",
+	resultsCountOf: "{count} de {total}",
+	resultsWordCloud: "Nube de palabras",
+	resultsUpvote: "Apoyar",
+	resultsRemoveUpvote: "Quitar apoyo",
+	resultsPointsOne: "{count} pt",
+	resultsPointsOther: "{count} pts",
+	resultsNotRanked: "nadie lo clasificó",
+	resultsAveragePosition: "posición media {position}",
+	resultsLeftOutBy: "omitido por {count} de {total}",
+	resultsRankingNote:
+		"Los puntos se otorgan según la posición en cada clasificación — cuanto más arriba se coloca un elemento, más puntos obtiene.",
+	resultsNobodyFunded: "nadie le dio puntos",
+	resultsFunded: "{count} de {total} le dieron puntos · {average} pts cada uno de media",
+	resultsGaveNothing: "{count} no le dieron nada",
+	resultsBudgetOne:
+		"Cada participante repartió {budget} puntos entre estos elementos — {points} puntos de {count} respuesta en total.",
+	resultsBudgetOther:
+		"Cada participante repartió {budget} puntos entre estos elementos — {points} puntos de {count} respuestas en total.",
+	resultsGuesses: "Estimaciones",
+	resultsAverage: "Media",
+	resultsMedian: "Mediana",
+	resultsRange: "Rango",
+	resultsTolerance: "±{tolerance} se acepta — {min}–{max}",
+	resultsNoGuessesYet: "Aún no hay estimaciones",
+	resultsLandedInside: "{count} de {total} cayeron dentro · {share}%",
+	resultsGuessColumnOne: "{range} — {count} estimación",
+	resultsGuessColumnOther: "{range} — {count} estimaciones",
+	resultsNotPlaced: "sin colocar",
+	resultsNotAssessable: "{count} no evaluable(s)",
+	resultsGridNote:
+		"Cada punto numerado es donde la sala colocó ese elemento de media; los puntos tenues son las colocaciones individuales detrás.",
+	resultsAverageMark: "media",
+	resultsAveragePin: "Marca media — {x}, {y}",
+	resultsTargetArea: "Área objetivo",
+	resultsPinsOne: "{count} marca",
+	resultsPinsOther: "{count} marcas",
+	resultsInTargetArea: "{count} en el área objetivo",
+	resultsPinLegend: "Las zonas más claras son donde más gente de la sala señaló.",
+	resultsSubmissionsOne: "{count} envío",
+	resultsSubmissionsOther: "{count} envíos",
+	resultsAnswered: "{count} respondieron",
+	resultsSkipped: "{count} omitido(s)",
+	resultsAverageOf: "media de {count} respuestas",
 };
 
 const it: Dict = {
@@ -1510,6 +1909,86 @@ const it: Dict = {
 	signInMismatchIntro:
 		"Questo dispositivo ha già partecipato a questa presentazione con un altro account. Passa a quell'account per continuare.",
 	signInSwitchAccount: "Cambia account",
+	roomJoinAt: "Partecipa su",
+	roomScanToJoin: "Scansiona per partecipare",
+	roomOrGoTo: "oppure vai su",
+	roomJoinCode: "Codice per partecipare",
+	roomHeadCount: "{count} in sala",
+	roomQrAlt: "Codice QR per partecipare su {url}",
+	roomScreenBlank: "Lo schermo è oscurato",
+	slideTypeNames: {
+		"multiple-choice": "Scelta multipla",
+		"word-cloud": "Nuvola di parole",
+		"open-text": "Domande",
+		scale: "Scala",
+		ranking: "Classifica",
+		grid: "Griglia 2x2",
+		points: "100 punti",
+		"guess-number": "Indovina il numero",
+		"pin-image": "Segna sull'immagine",
+		quiz: "Quiz",
+		form: "Modulo",
+		leaderboard: "Classifica punteggi",
+		text: "Testo",
+		image: "Immagine",
+		video: "Video",
+		embed: "Presentazione incorporata",
+		instruction: "Come partecipare",
+		countdown: "Conto alla rovescia",
+	},
+	instructionHeading: "Partecipa alla presentazione",
+	instructionBody:
+		"Vai all'URL qui sotto o scansiona il codice QR, poi inserisci il codice.",
+	instructionCode: "Codice",
+	selectAllThatApply: "Seleziona tutte quelle pertinenti",
+	selectUpTo: "Seleziona fino a {max}",
+	resultsMultiSelectAny:
+		"I partecipanti potevano scegliere un numero qualsiasi di opzioni — le percentuali sono sui {count} che hanno risposto, quindi superano il 100%.",
+	resultsMultiSelectUpTo:
+		"I partecipanti potevano scegliere fino a {max} opzioni — le percentuali sono sui {count} che hanno risposto, quindi superano il 100%.",
+	resultsCountOf: "{count} su {total}",
+	resultsWordCloud: "Nuvola di parole",
+	resultsUpvote: "Sostieni",
+	resultsRemoveUpvote: "Ritira il sostegno",
+	resultsPointsOne: "{count} pt",
+	resultsPointsOther: "{count} pt",
+	resultsNotRanked: "non classificato da nessuno",
+	resultsAveragePosition: "posizione media {position}",
+	resultsLeftOutBy: "escluso da {count} su {total}",
+	resultsRankingNote:
+		"I punti si assegnano in base alla posizione in ogni classifica — più in alto è un elemento, più punti ottiene.",
+	resultsNobodyFunded: "nessuno ci ha messo punti",
+	resultsFunded: "{count} su {total} l'hanno finanziato · {average} pt a testa in media",
+	resultsGaveNothing: "{count} non gli hanno dato nulla",
+	resultsBudgetOne:
+		"Ogni partecipante ha distribuito {budget} punti tra questi elementi — {points} punti da {count} risposta in totale.",
+	resultsBudgetOther:
+		"Ogni partecipante ha distribuito {budget} punti tra questi elementi — {points} punti da {count} risposte in totale.",
+	resultsGuesses: "Stime",
+	resultsAverage: "Media",
+	resultsMedian: "Mediana",
+	resultsRange: "Intervallo",
+	resultsTolerance: "±{tolerance} è accettato — {min}–{max}",
+	resultsNoGuessesYet: "Ancora nessuna stima",
+	resultsLandedInside: "{count} su {total} ci sono finite dentro · {share}%",
+	resultsGuessColumnOne: "{range} — {count} stima",
+	resultsGuessColumnOther: "{range} — {count} stime",
+	resultsNotPlaced: "non posizionato",
+	resultsNotAssessable: "{count} non valutabile/i",
+	resultsGridNote:
+		"Ogni punto numerato è dove la sala ha messo quell'elemento in media; i punti tenui sono i singoli posizionamenti dietro.",
+	resultsAverageMark: "media",
+	resultsAveragePin: "Segnaposto medio — {x}, {y}",
+	resultsTargetArea: "Area obiettivo",
+	resultsPinsOne: "{count} segnaposto",
+	resultsPinsOther: "{count} segnaposti",
+	resultsInTargetArea: "{count} nell'area obiettivo",
+	resultsPinLegend: "Le zone più chiare sono quelle indicate da più persone in sala.",
+	resultsSubmissionsOne: "{count} invio",
+	resultsSubmissionsOther: "{count} invii",
+	resultsAnswered: "{count} hanno risposto",
+	resultsSkipped: "{count} saltato/i",
+	resultsAverageOf: "media di {count} risposte",
 };
 
 const pt: Dict = {
@@ -1725,6 +2204,86 @@ const pt: Dict = {
 	signInMismatchIntro:
 		"Este dispositivo já participou nesta apresentação com outra conta. Mude para essa conta para continuar.",
 	signInSwitchAccount: "Mudar de conta",
+	roomJoinAt: "Participe em",
+	roomScanToJoin: "Leia para participar",
+	roomOrGoTo: "ou acesse",
+	roomJoinCode: "Código de participação",
+	roomHeadCount: "{count} na sala",
+	roomQrAlt: "Código QR para participar em {url}",
+	roomScreenBlank: "O ecrã está em branco",
+	slideTypeNames: {
+		"multiple-choice": "Escolha múltipla",
+		"word-cloud": "Nuvem de palavras",
+		"open-text": "Perguntas",
+		scale: "Escala",
+		ranking: "Classificação",
+		grid: "Grelha 2x2",
+		points: "100 pontos",
+		"guess-number": "Adivinha o número",
+		"pin-image": "Marcar na imagem",
+		quiz: "Quiz",
+		form: "Formulário",
+		leaderboard: "Tabela de pontuação",
+		text: "Texto",
+		image: "Imagem",
+		video: "Vídeo",
+		embed: "Apresentação incorporada",
+		instruction: "Como participar",
+		countdown: "Contagem decrescente",
+	},
+	instructionHeading: "Participe da apresentação",
+	instructionBody:
+		"Acesse o URL abaixo ou leia o código QR e depois introduza o código.",
+	instructionCode: "Código",
+	selectAllThatApply: "Seleciona todas as que se aplicam",
+	selectUpTo: "Seleciona até {max}",
+	resultsMultiSelectAny:
+		"Os participantes podiam escolher qualquer número de opções — as percentagens referem-se aos {count} que responderam, por isso somam mais de 100%.",
+	resultsMultiSelectUpTo:
+		"Os participantes podiam escolher até {max} opções — as percentagens referem-se aos {count} que responderam, por isso somam mais de 100%.",
+	resultsCountOf: "{count} de {total}",
+	resultsWordCloud: "Nuvem de palavras",
+	resultsUpvote: "Apoiar",
+	resultsRemoveUpvote: "Retirar apoio",
+	resultsPointsOne: "{count} pt",
+	resultsPointsOther: "{count} pts",
+	resultsNotRanked: "ninguém o classificou",
+	resultsAveragePosition: "posição média {position}",
+	resultsLeftOutBy: "deixado de fora por {count} de {total}",
+	resultsRankingNote:
+		"Os pontos são atribuídos pela posição em cada classificação — quanto mais acima um item estiver, mais pontos recebe.",
+	resultsNobodyFunded: "ninguém lhe deu pontos",
+	resultsFunded: "{count} de {total} deram-lhe pontos · {average} pts cada em média",
+	resultsGaveNothing: "{count} não lhe deram nada",
+	resultsBudgetOne:
+		"Cada participante distribuiu {budget} pontos entre estes itens — {points} pontos de {count} resposta no total.",
+	resultsBudgetOther:
+		"Cada participante distribuiu {budget} pontos entre estes itens — {points} pontos de {count} respostas no total.",
+	resultsGuesses: "Estimativas",
+	resultsAverage: "Média",
+	resultsMedian: "Mediana",
+	resultsRange: "Intervalo",
+	resultsTolerance: "±{tolerance} é aceite — {min}–{max}",
+	resultsNoGuessesYet: "Ainda sem estimativas",
+	resultsLandedInside: "{count} de {total} ficaram dentro · {share}%",
+	resultsGuessColumnOne: "{range} — {count} estimativa",
+	resultsGuessColumnOther: "{range} — {count} estimativas",
+	resultsNotPlaced: "não colocado",
+	resultsNotAssessable: "{count} não avaliável(eis)",
+	resultsGridNote:
+		"Cada ponto numerado é onde a sala colocou esse item em média; os pontos esbatidos são as colocações individuais por trás.",
+	resultsAverageMark: "média",
+	resultsAveragePin: "Marcador médio — {x}, {y}",
+	resultsTargetArea: "Área-alvo",
+	resultsPinsOne: "{count} marcador",
+	resultsPinsOther: "{count} marcadores",
+	resultsInTargetArea: "{count} na área-alvo",
+	resultsPinLegend: "As áreas mais claras são onde mais pessoas da sala apontaram.",
+	resultsSubmissionsOne: "{count} envio",
+	resultsSubmissionsOther: "{count} envios",
+	resultsAnswered: "{count} responderam",
+	resultsSkipped: "{count} ignorado(s)",
+	resultsAverageOf: "média de {count} respostas",
 };
 
 const nl: Dict = {
@@ -1939,6 +2498,86 @@ const nl: Dict = {
 	signInMismatchIntro:
 		"Dit apparaat heeft al aan deze presentatie meegedaan met een ander account. Wissel naar dat account om verder te gaan.",
 	signInSwitchAccount: "Account wisselen",
+	roomJoinAt: "Doe mee op",
+	roomScanToJoin: "Scan om mee te doen",
+	roomOrGoTo: "of ga naar",
+	roomJoinCode: "Deelnamecode",
+	roomHeadCount: "{count} in de zaal",
+	roomQrAlt: "QR-code om mee te doen via {url}",
+	roomScreenBlank: "Het scherm is leeg",
+	slideTypeNames: {
+		"multiple-choice": "Meerkeuze",
+		"word-cloud": "Woordwolk",
+		"open-text": "Vragen",
+		scale: "Schaal",
+		ranking: "Rangorde",
+		grid: "2x2-raster",
+		points: "100 punten",
+		"guess-number": "Raad het getal",
+		"pin-image": "Speld op afbeelding",
+		quiz: "Quiz",
+		form: "Formulier",
+		leaderboard: "Scorebord",
+		text: "Tekst",
+		image: "Afbeelding",
+		video: "Video",
+		embed: "Ingesloten presentatie",
+		instruction: "Zo doe je mee",
+		countdown: "Aftellen",
+	},
+	instructionHeading: "Doe mee met de presentatie",
+	instructionBody:
+		"Ga naar de URL hieronder of scan de QR-code en vul daarna de code in.",
+	instructionCode: "Code",
+	selectAllThatApply: "Selecteer alles wat van toepassing is",
+	selectUpTo: "Selecteer er maximaal {max}",
+	resultsMultiSelectAny:
+		"Deelnemers konden zoveel opties kiezen als ze wilden — de percentages gaan over de {count} die antwoordden, dus samen komen ze boven 100%.",
+	resultsMultiSelectUpTo:
+		"Deelnemers konden tot {max} opties kiezen — de percentages gaan over de {count} die antwoordden, dus samen komen ze boven 100%.",
+	resultsCountOf: "{count} van {total}",
+	resultsWordCloud: "Woordwolk",
+	resultsUpvote: "Steunen",
+	resultsRemoveUpvote: "Steun intrekken",
+	resultsPointsOne: "{count} pt",
+	resultsPointsOther: "{count} ptn",
+	resultsNotRanked: "door niemand gerangschikt",
+	resultsAveragePosition: "gemiddelde positie {position}",
+	resultsLeftOutBy: "weggelaten door {count} van {total}",
+	resultsRankingNote:
+		"Punten worden toegekend op basis van de positie in elke rangschikking — hoe hoger een item staat, hoe meer punten het krijgt.",
+	resultsNobodyFunded: "niemand gaf hier punten aan",
+	resultsFunded: "{count} van {total} gaven punten · gemiddeld {average} ptn per persoon",
+	resultsGaveNothing: "{count} gaven niets",
+	resultsBudgetOne:
+		"Elke deelnemer verdeelde {budget} punten over deze items — in totaal {points} punten uit {count} antwoord.",
+	resultsBudgetOther:
+		"Elke deelnemer verdeelde {budget} punten over deze items — in totaal {points} punten uit {count} antwoorden.",
+	resultsGuesses: "Schattingen",
+	resultsAverage: "Gemiddelde",
+	resultsMedian: "Mediaan",
+	resultsRange: "Bereik",
+	resultsTolerance: "±{tolerance} telt mee — {min}–{max}",
+	resultsNoGuessesYet: "Nog geen schattingen",
+	resultsLandedInside: "{count} van {total} vielen erbinnen · {share}%",
+	resultsGuessColumnOne: "{range} — {count} schatting",
+	resultsGuessColumnOther: "{range} — {count} schattingen",
+	resultsNotPlaced: "niet geplaatst",
+	resultsNotAssessable: "{count} niet te beoordelen",
+	resultsGridNote:
+		"Elke genummerde stip is waar de zaal dat item gemiddeld plaatste; de vage stippen zijn de afzonderlijke plaatsingen erachter.",
+	resultsAverageMark: "gemiddelde",
+	resultsAveragePin: "Gemiddelde speld — {x}, {y}",
+	resultsTargetArea: "Doelgebied",
+	resultsPinsOne: "{count} speld",
+	resultsPinsOther: "{count} spelden",
+	resultsInTargetArea: "{count} in het doelgebied",
+	resultsPinLegend: "Lichtere gebieden zijn waar meer mensen in de zaal naar wezen.",
+	resultsSubmissionsOne: "{count} inzending",
+	resultsSubmissionsOther: "{count} inzendingen",
+	resultsAnswered: "{count} beantwoord",
+	resultsSkipped: "{count} overgeslagen",
+	resultsAverageOf: "gemiddelde van {count} antwoorden",
 };
 
 const dicts: Record<Lang, Dict> = { en, de, fr, es, it, pt, nl };

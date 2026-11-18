@@ -27,6 +27,7 @@ import {
 	presenterNotesSummary,
 	presenterNotesToggleLabel,
 } from "./PresenterNotes";
+import { interfaceTextFor } from "../interface-text";
 
 describe("presenterNotesFor — the single read site (REQ090)", () => {
 	test("gives back what the author wrote, trimmed", () => {
@@ -112,5 +113,23 @@ describe("the strip under the canvas (REQ156)", () => {
 
 	test("the privacy marker is one word about a fact the wire already keeps", () => {
 		expect(PRESENTER_NOTES_PRIVACY_LABEL).toBe("Only you");
+	});
+});
+
+describe("presenterNotesToggleLabel in the interface language (REQ248)", () => {
+	test("every German state names itself, and differently", () => {
+		const german = interfaceTextFor("de");
+		const labels = [true, false].flatMap((canRead) =>
+			[true, false].map((open) =>
+				presenterNotesToggleLabel({ canRead, open, hasNotes: true }, german),
+			),
+		);
+		expect(labels.every((label) => label.includes("Notizen"))).toBe(true);
+		expect(
+			presenterNotesToggleLabel(
+				{ canRead: true, open: true, hasNotes: true },
+				german,
+			),
+		).toBe("Notizen ausblenden");
 	});
 });

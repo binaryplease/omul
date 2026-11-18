@@ -11,6 +11,8 @@ import {
 	useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { useInterfaceText } from "../../interface-language";
+import { fillText } from "../../interface-text";
 import { DECK_THEME_SCOPE_ATTRIBUTE } from "../DeckTheme";
 
 // ── Bar menu: a trigger and its portaled panel (REQ190) ──
@@ -325,7 +327,9 @@ export function BarMenuRow({
 /**
  * A trigger opening a panel of `BarMenuRow`s under a heading. `children` gets
  * `close`, so a row that hands off to a dialog or a page closes the menu first
- * and a row that only toggles leaves it open.
+ * and a row that only toggles leaves it open. `triggerRef` is for a caller that
+ * puts focus back on the trigger itself — the presenter's Present menu, when
+ * the presenting view it opened is left (REQ247).
  */
 export function BarMenu({
 	label,
@@ -333,6 +337,7 @@ export function BarMenu({
 	heading,
 	triggerClassName,
 	trigger,
+	triggerRef: callerTriggerRef,
 	children,
 }: {
 	label: string;
@@ -340,13 +345,20 @@ export function BarMenu({
 	heading: ReactNode;
 	triggerClassName: string;
 	trigger: ReactNode;
+	triggerRef?: RefObject<HTMLButtonElement | null>;
 	children: (close: () => void) => ReactNode;
 }) {
+	const { text } = useInterfaceText();
 	const [open, setOpen] = useState(false);
 	const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
-	const triggerRef = useRef<HTMLButtonElement>(null);
+	const ownTriggerRef = useRef<HTMLButtonElement>(null);
+	const triggerRef = callerTriggerRef ?? ownTriggerRef;
 	const panelRef = useRef<HTMLDivElement>(null);
 	const panelId = useId();
+	// The backdrop is named as the app menu's is (REQ248).
+	const backdropLabel = fillText(text.appMenu.closeMenu, {
+		menu: text.appMenu.nameInList(title),
+	});
 
 	const close = useCallback(() => {
 		setOpen(false);
@@ -385,7 +397,7 @@ export function BarMenu({
 				portalHost &&
 				createPortal(
 					<>
-						<MenuBackdrop label={`Close ${title.toLowerCase()} menu`} onClose={close} />
+						<MenuBackdrop label={backdropLabel} onClose={close} />
 						<div
 							ref={panelRef}
 							id={panelId}

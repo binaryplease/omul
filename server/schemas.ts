@@ -1774,14 +1774,24 @@ export type SlideInput = z.infer<typeof SlideInputSchema>;
  * editor's own vocabulary (slides numbered from 1), and the index of the slide
  * it names so a surface can put the author in front of it — `null` for a
  * refusal of the whole list rather than of one slide.
+ *
+ * `message` is the English sentence. The facts it is built from ride beside it
+ * — the field's path (`""` for the slide or the list as a whole) and, for a
+ * ceiling, what was too long and the most it may be — so a surface in another
+ * language (the editor, REQ248) can say the same thing in its own words.
  */
-export function slideWriteRefusalFor(
-	slides: readonly unknown[],
-): { slideIndex: number | null; message: string } | null {
+export function slideWriteRefusalFor(slides: readonly unknown[]): {
+	slideIndex: number | null;
+	message: string;
+	field: string;
+	limit: { kind: "characters" | "items"; maximum: number } | null;
+} | null {
 	if (slides.length > SLIDE_LIMIT) {
 		return {
 			slideIndex: null,
 			message: `This deck holds ${slides.length} slides; a deck can hold at most ${SLIDE_LIMIT}.`,
+			field: "",
+			limit: { kind: "items", maximum: SLIDE_LIMIT },
 		};
 	}
 	for (const [slideIndex, slide] of slides.entries()) {
@@ -1790,9 +1800,22 @@ export function slideWriteRefusalFor(
 		const issue = parsed.error.issues[0];
 		const fieldPath =
 			issue.path.length > 0 ? issue.path.join(".") : "this slide";
+		const limit =
+			issue.code === "too_big" &&
+			(issue.type === "string" || issue.type === "array")
+				? {
+						kind:
+							issue.type === "string"
+								? ("characters" as const)
+								: ("items" as const),
+						maximum: Number(issue.maximum),
+					}
+				: null;
 		return {
 			slideIndex,
 			message: `Slide ${slideIndex + 1}, ${fieldPath}: ${issue.message}`,
+			field: issue.path.join("."),
+			limit,
 		};
 	}
 	return null;

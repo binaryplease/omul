@@ -26,6 +26,12 @@
 
 import { type ReactNode, useEffect, useState } from "react";
 import { api } from "../api";
+import { textWithElement } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceText,
+} from "../interface-text";
 import type { LegalLinks } from "../types";
 
 /** What a surface draws before — or without — a configured address. */
@@ -133,19 +139,26 @@ export function LegalLink({
 	);
 }
 
+/** The words of a notice, in one language (REQ248). */
+export type LegalNoticeWording = InterfaceText["legalNotice"];
+
 /**
  * The sentence at a contract-conclusion point, for a given set of addresses.
- * `action` completes "By …," — "creating an account", "joining". Names the
- * terms when they are configured and the privacy policy when it is; nothing
- * when neither is (the imprint is the menu's alone).
+ * `action` completes "By …," — "creating an account", "joining" — in the
+ * language of `wording`, which is English unless the point's surface follows
+ * the interface language (REQ248) and hands its own. Names the terms when they
+ * are configured and the privacy policy when it is; nothing when neither is
+ * (the imprint is the menu's alone).
  */
 export function LegalNoticeText({
 	links,
 	action,
+	wording = ENGLISH_INTERFACE_TEXT.legalNotice,
 	className = "",
 }: {
 	links: LegalLinks;
 	action: string;
+	wording?: LegalNoticeWording;
 	className?: string;
 }) {
 	const { termsUrl, privacyUrl } = links;
@@ -154,19 +167,19 @@ export function LegalNoticeText({
 		<p
 			className={`font-mono text-xs leading-relaxed text-text-dim ${className}`}
 		>
-			{termsUrl && (
-				<>
-					By {action}, you agree to the{" "}
-					<LegalLink href={termsUrl}>Terms of Service</LegalLink>.
-				</>
-			)}
+			{termsUrl &&
+				textWithElement(
+					fillText(wording.agreement, { action }),
+					"terms",
+					<LegalLink href={termsUrl}>{wording.termsOfService}</LegalLink>,
+				)}
 			{termsUrl && privacyUrl && " "}
-			{privacyUrl && (
-				<>
-					The <LegalLink href={privacyUrl}>Privacy Policy</LegalLink> explains
-					how your data is processed.
-				</>
-			)}
+			{privacyUrl &&
+				textWithElement(
+					wording.privacyExplains,
+					"privacy",
+					<LegalLink href={privacyUrl}>{wording.privacyPolicy}</LegalLink>,
+				)}
 		</p>
 	);
 }
@@ -174,15 +187,18 @@ export function LegalNoticeText({
 /** A contract-conclusion notice, reading this deployment's addresses. */
 export function LegalNotice({
 	action,
+	wording,
 	className,
 }: {
 	action: string;
+	wording?: LegalNoticeWording;
 	className?: string;
 }) {
 	return (
 		<LegalNoticeText
 			links={useLegalLinks()}
 			action={action}
+			wording={wording}
 			className={className}
 		/>
 	);

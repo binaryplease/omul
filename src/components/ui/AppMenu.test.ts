@@ -8,12 +8,17 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { getDict } from "../../i18n";
+import { type InterfaceLanguage, interfaceTextFor } from "../../interface-text";
 import {
 	type AppMenuLabels,
+	type AppMenuLanguageChoice,
 	AppMenuPanel,
+	appMenuCloseLabel,
 	appMenuLabelsFor,
 	appMenuName,
 	appMenuPlacement,
@@ -153,6 +158,199 @@ describe("the app menu in the screen's language (REQ225)", () => {
 				labels.closeFeedback,
 			];
 			for (const word of words) expect(word, language).toBeTruthy();
+		}
+	});
+});
+
+describe("the Language section (REQ248)", () => {
+	function choice(
+		language: InterfaceLanguage,
+		preference: AppMenuLanguageChoice["preference"] = "auto",
+		automaticLanguage: InterfaceLanguage = "de",
+	): AppMenuLanguageChoice {
+		return {
+			preference,
+			automaticLanguage,
+			onChange: () => {},
+			language,
+			text: interfaceTextFor(language).appMenu,
+		};
+	}
+
+	function markup(
+		languageChoice?: AppMenuLanguageChoice,
+		labels?: AppMenuLabels,
+	): string {
+		return renderToStaticMarkup(
+			createElement(AppMenuPanel, {
+				id: "app-menu",
+				links: {
+					imprintUrl: "https://example.com/imprint",
+					privacyUrl: null,
+					termsUrl: null,
+				},
+				theme: "dark",
+				onThemeChange: () => {},
+				feedbackEnabled: true,
+				labels,
+				languageChoice,
+				lang: languageChoice?.language,
+			}),
+		);
+	}
+
+	const words = (html: string) => html.replace(/<[^>]+>/g, " ");
+
+	test("sits directly below Appearance and above Send feedback", () => {
+		const text = words(markup(choice("en")));
+		const appearance = text.indexOf("Appearance");
+		const language = text.indexOf("Language");
+		const feedback = text.indexOf("Send feedback");
+		expect(appearance).toBeGreaterThanOrEqual(0);
+		expect(language).toBeGreaterThan(appearance);
+		expect(feedback).toBeGreaterThan(language);
+	});
+
+	test("Automatic names what it resolves to, then each language in itself", () => {
+		const text = words(markup(choice("en", "auto", "de"))).replace(/\s+/g, " ");
+		expect(text).toContain("Automatic ( Deutsch )");
+		expect(text).toContain("English");
+		expect(text.indexOf("Automatic")).toBeLessThan(text.indexOf("English"));
+		expect(text.lastIndexOf("Deutsch")).toBeGreaterThan(text.indexOf("English"));
+	});
+
+	test("one row is checked, and it is the group's one tab stop", () => {
+		const html = markup(choice("de", "de"));
+		const rows = [...html.matchAll(/<button[^>]*data-language-option="(\w+)"[^>]*>/g)];
+		expect(rows.map((row) => row[1])).toEqual(["auto", "en", "de"]);
+		for (const [row, option] of rows) {
+			const chosen = option === "de";
+			expect(row).toContain(`aria-checked="${chosen}"`);
+			expect(row).toContain(`tabindex="${chosen ? 0 : -1}"`);
+		}
+	});
+
+	test("each language row carries its own lang, and the panel the menu's", () => {
+		const html = markup(choice("de", "de"));
+		expect(html).toMatch(/<button[^>]*lang="en"[^>]*data-language-option="en"|<button[^>]*data-language-option="en"[^>]*lang="en"/);
+		expect(html).toMatch(/<button[^>]*data-language-option="de"[^>]*lang="de"/);
+		expect(html).toMatch(/^<div[^>]*lang="de"/);
+	});
+
+	test("a German heading keeps the English word after it, marked English", () => {
+		expect(markup(choice("de"))).toContain(
+			'Sprache · <span lang="en">Language</span>',
+		);
+		expect(words(markup(choice("en")))).not.toContain("·");
+	});
+
+	// Review NST17266 finding 2: in German, the presenter's phone More menu
+	// wrapped the still-English Deck rows in the panel's lang="de".
+	test("a leading section keeps the screen's language inside a German panel", () => {
+		const html = renderToStaticMarkup(
+			createElement(AppMenuPanel, {
+				id: "app-menu",
+				links: { imprintUrl: null, privacyUrl: null, termsUrl: null },
+				theme: "dark",
+				onThemeChange: () => {},
+				leading: createElement("p", null, "Deck"),
+				leadingLang: "en",
+				languageChoice: choice("de", "de"),
+				lang: "de",
+				labels: appMenuLabelsFor(getDict("de")),
+			}),
+		);
+		expect(html).toMatch(/^<div[^>]*lang="de"/);
+		expect(html).toContain('<div lang="en" class="contents"><p>Deck</p></div>');
+	});
+
+	test("an organizer's German menu is German throughout", () => {
+		const text = words(
+			markup(choice("de", "de"), appMenuLabelsFor(getDict("de"))),
+		);
+		for (const word of [
+			"Darstellung",
+			"Hell",
+			"Dunkel",
+			"Sprache",
+			"Automatisch",
+			"Feedback senden",
+			"Rechtliches",
+			"Impressum",
+		]) {
+			expect(text).toContain(word);
+		}
+		for (const word of ["Appearance", "Light", "Automatic", "Send feedback"]) {
+			expect(text).not.toContain(word);
+		}
+	});
+
+	test("absent without a language choice, as on the participant screen and the preview", () => {
+		const text = words(markup());
+		expect(text).not.toContain("Language");
+		expect(text).not.toContain("Deutsch");
+		expect(markup()).not.toContain("data-language-option");
+	});
+
+	test("the trigger's and the backdrop's names gain the Language section where it is drawn", () => {
+		const english = interfaceTextFor("en").appMenu;
+		expect(appMenuName(false, undefined, english)).toBe(
+			"Appearance, language and legal",
+		);
+		expect(appMenuName(true, undefined, english)).toBe(
+			"Appearance, language, feedback and legal",
+		);
+		expect(appMenuCloseLabel(true, undefined, english)).toBe(
+			"Close appearance, language, feedback and legal menu",
+		);
+		expect(appMenuCloseLabel(true)).toBe(
+			"Close appearance, feedback and legal menu",
+		);
+		const german = interfaceTextFor("de").appMenu;
+		const germanLabels = appMenuLabelsFor(getDict("de"));
+		expect(appMenuName(true, germanLabels, german)).toBe(
+			"Darstellung, Sprache, Feedback und Rechtliches",
+		);
+		expect(appMenuCloseLabel(false, germanLabels, german)).toBe(
+			"Menü „Darstellung, Sprache und Rechtliches“ schließen",
+		);
+	});
+
+	test("after a leading section English lowercases the menu's name and German does not", () => {
+		expect(
+			appMenuTriggerLabel(
+				false,
+				"More — preview",
+				undefined,
+				interfaceTextFor("en").appMenu,
+			),
+		).toBe("More — preview, appearance, language and legal");
+		expect(
+			appMenuTriggerLabel(
+				false,
+				"More — preview",
+				appMenuLabelsFor(getDict("de")),
+				interfaceTextFor("de").appMenu,
+			),
+		).toBe("More — preview, Darstellung, Sprache und Rechtliches");
+	});
+});
+
+describe("which screens offer the Language section (REQ248)", () => {
+	const source = (page: string) =>
+		readFileSync(join(import.meta.dir, "..", "..", "pages", page), "utf8");
+
+	test("every menu on the participant screen and the preview speaks the deck's language", () => {
+		for (const page of ["ParticipantPage.tsx", "PreviewPage.tsx"]) {
+			const menus = source(page).match(/<AppMenu\b[^>]*>/g) ?? [];
+			expect(menus.length, page).toBeGreaterThan(0);
+			for (const menu of menus) expect(menu, page).toContain("speaksDeckLanguage");
+		}
+	});
+
+	test("no organizer screen passes speaksDeckLanguage", () => {
+		for (const page of ["HomePage.tsx", "PresenterPage.tsx", "CreatePage.tsx"]) {
+			expect(source(page), page).not.toContain("speaksDeckLanguage");
 		}
 	});
 });

@@ -12,6 +12,8 @@ import {
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { getDict } from "../i18n";
+import { useInterfaceText } from "../interface-language";
+import type { InterfaceText } from "../interface-text";
 import { useStore } from "../store";
 import type { QAListEntry, QAVisibility } from "../types";
 import { QA_TEXT_MAX_LENGTH } from "../types";
@@ -87,7 +89,10 @@ export type QALabels = {
 	open: string;
 };
 
-/** The presenter's wording — the shared screen is not translated. */
+/**
+ * The presenter's wording in English, for the surfaces that are not translated
+ * yet — the presenter screen reads {@link presenterQALabels} instead.
+ */
 export const QA_LABELS_EN: QALabels = {
 	title: "Q&A",
 	ask: "Ask a question",
@@ -102,6 +107,28 @@ export const QA_LABELS_EN: QALabels = {
 	answered: "Answered",
 	open: "open",
 };
+
+/**
+ * The presenter screen's labels, in the interface language (REQ248) — the
+ * presenter's reading of the same list, which the room never sees.
+ */
+export function presenterQALabels(text: InterfaceText): QALabels {
+	const { panels } = text;
+	return {
+		title: panels.qaTitle,
+		ask: panels.qaAsk,
+		askPlaceholder: panels.qaAskPlaceholder,
+		submit: panels.qaSubmit,
+		submitted: panels.qaSubmitted,
+		empty: panels.qaEmpty,
+		emptyOwn: panels.qaEmptyOwn,
+		moderatedNote: panels.qaModeratedNote,
+		upvote: panels.qaUpvote,
+		upvoteOwn: panels.qaUpvoteOwn,
+		answered: panels.qaAnswered,
+		open: panels.qaOpen,
+	};
+}
 
 /**
  * The same list, in the deck's language (REQ084) — the one place the
@@ -218,8 +245,8 @@ export function useQAList(
  * question looks like or what its numbers mean.
  *
  * Only an editor's list ever carries a question awaiting approval (REQ038), so
- * the pending badge and its approve control are presenter-facing and wear the
- * presenter's English like the answered toggle's titles do.
+ * the pending badge and its approve control are presenter-facing and read the
+ * interface language (REQ248) like the answered toggle's titles do.
  */
 function QAQuestionRow({
 	question,
@@ -237,6 +264,13 @@ function QAQuestionRow({
 	/** Offered only to whoever can edit the deck (REQ038). */
 	onApprove?: (questionId: string) => void;
 }) {
+	const { text } = useInterfaceText();
+	const answeredToggleName = question.answered
+		? text.panels.qaPutBack
+		: text.panels.qaMarkAnswered;
+	const approveName = question.approved
+		? text.panels.qaAlreadyApproved
+		: text.panels.qaApprove;
 	return (
 		<li
 			className={`rounded-lg border p-3 flex items-start gap-3 transition-colors ${
@@ -264,7 +298,7 @@ function QAQuestionRow({
 				{!question.approved && (
 					<span className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-warning/10 px-1.5 py-0.5 text-[0.65rem] font-medium uppercase tracking-wider text-warning">
 						<Hourglass size={10} />
-						Awaiting approval
+						{text.panels.qaAwaitingApproval}
 					</span>
 				)}
 			</div>
@@ -300,16 +334,8 @@ function QAQuestionRow({
 					<button
 						type="button"
 						onClick={() => onToggleAnswered(question.id, !question.answered)}
-						title={
-							question.answered
-								? "Put this question back in the queue"
-								: "Mark this question answered"
-						}
-						aria-label={
-							question.answered
-								? "Put this question back in the queue"
-								: "Mark this question answered"
-						}
+						title={answeredToggleName}
+						aria-label={answeredToggleName}
 						className={`inline-flex items-center rounded-md border p-1.5 transition ${
 							question.answered
 								? "border-border bg-surface text-text-muted hover:border-accent hover:text-text"
@@ -327,16 +353,8 @@ function QAQuestionRow({
 						type="button"
 						onClick={() => !question.approved && onApprove(question.id)}
 						disabled={question.approved}
-						title={
-							question.approved
-								? "Already visible to the room"
-								: "Approve — show this question to the room"
-						}
-						aria-label={
-							question.approved
-								? "Already visible to the room"
-								: "Approve — show this question to the room"
-						}
+						title={approveName}
+						aria-label={approveName}
 						className={`inline-flex items-center rounded-md border p-1.5 transition ${
 							question.approved
 								? "cursor-default border-border bg-surface text-text-dim opacity-60"
@@ -474,47 +492,48 @@ export function QALayerControls({
 		approvalRequired?: boolean;
 	}) => void;
 }) {
+	const { panels } = useInterfaceText().text;
 	return (
 		<div className="flex flex-col gap-3">
 			<Toggle
-				label="Questions from the audience"
-				description="When on, participants can ask from any slide — not only from a Q&A slide."
+				label={panels.qaLayerToggle}
+				description={panels.qaLayerToggleDescription}
 				checked={enabled}
 				onChange={(next) => onChange({ enabled: next })}
 			/>
 			<div className="flex flex-col gap-1.5">
 				<span className="text-xs font-medium uppercase tracking-wider text-text-muted">
-					Who sees the questions
+					{panels.qaVisibilityHeading}
 				</span>
 				<Segmented<QAVisibility>
-					ariaLabel="Who sees the submitted questions"
+					ariaLabel={panels.qaVisibilityName}
 					value={visibility}
 					onChange={(next) => onChange({ visibility: next })}
 					options={[
 						{
 							value: "presenter",
-							label: "Only me",
+							label: panels.qaVisibilityPresenter,
 							icon: <EyeOff size={14} />,
 						},
 						{
 							value: "everyone",
-							label: "Everyone",
+							label: panels.qaVisibilityEveryone,
 							icon: <Eye size={14} />,
 						},
 					]}
 				/>
 				<p className="text-xs text-text-dim">
 					{visibility === "everyone"
-						? "Participants see the whole list and can upvote it, which is what orders your queue."
-						: "Participants see only the questions they asked themselves. Nobody can upvote."}
+						? panels.qaVisibilityEveryoneNote
+						: panels.qaVisibilityPresenterNote}
 				</p>
 			</div>
 			<Toggle
-				label="Approve questions first"
+				label={panels.qaApprovalToggle}
 				description={
 					approvalRequired
-						? "New questions wait here until you approve them — nobody else sees or upvotes them before that, not even whoever asked."
-						: "When on, each new question waits for your approval before anyone else can see or upvote it."
+						? panels.qaApprovalOnDescription
+						: panels.qaApprovalOffDescription
 				}
 				checked={approvalRequired}
 				onChange={(next) => onChange({ approvalRequired: next })}
@@ -536,6 +555,9 @@ export function QAHeading({
 	list: QAList | null;
 	compact?: boolean;
 }) {
+	// Only an editor's list carries pending questions, so their count is the
+	// presenter's and reads the interface language.
+	const { text } = useInterfaceText();
 	return (
 		<div className="flex items-center justify-between gap-3">
 			<h3
@@ -563,7 +585,7 @@ export function QAHeading({
 					{list.pendingCount > 0 && (
 						<span
 							className="inline-flex items-center gap-0.5 text-warning"
-							title="Awaiting approval"
+							title={text.panels.qaAwaitingApproval}
 						>
 							<Hourglass size={11} />
 							{list.pendingCount}

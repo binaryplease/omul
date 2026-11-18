@@ -2,6 +2,12 @@ import { type ReactNode, useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { authoredColorInputValue } from "./color";
 import { authoredColorFor } from "../types";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	type InterfaceText,
+} from "../interface-text";
 
 // ── Editor form primitives ────────────────────────────────────────────
 //
@@ -153,7 +159,7 @@ export function SettingsGroup({
 	title,
 	consequence,
 	departed = false,
-	departureLabel = "Changed",
+	departureLabel,
 	canReset,
 	resetUnavailableReason,
 	resetLabel,
@@ -175,7 +181,10 @@ export function SettingsGroup({
 	canReset?: boolean;
 	/** Why the reset is inert while the group is still marked. */
 	resetUnavailableReason?: string;
-	/** What the marker says — the kind of default this group departs from. */
+	/**
+	 * What the marker says — the kind of default this group departs from.
+	 * "Changed" in the interface language when not given.
+	 */
 	departureLabel?: string;
 	/** What the reset does, in the organizer's words; also its inert reason. */
 	resetLabel?: string;
@@ -189,6 +198,7 @@ export function SettingsGroup({
 	onReset?: () => void;
 	children: ReactNode;
 }) {
+	const copy = useInterfaceText().text.slideSettings;
 	return (
 		<section className="space-y-2 border-t border-border-subtle pt-3 first:border-t-0 first:pt-0">
 			<div className="flex items-center gap-2">
@@ -201,7 +211,7 @@ export function SettingsGroup({
 							aria-hidden="true"
 							className="h-1.5 w-1.5 rounded-full bg-accent"
 						/>
-						{departureLabel}
+						{departureLabel ?? copy.changed}
 					</span>
 				)}
 				{onReset && (
@@ -246,10 +256,14 @@ function ResetGroupButton({
 	resetLabel?: string;
 	onReset: () => void;
 }) {
+	const copy = useInterfaceText().text.slideSettings;
+	// The heading as drawn, and lower-cased for a language that lower-cases a
+	// heading inside a sentence; each language's template picks one.
+	const named = { title, titleLower: title.toLowerCase() };
 	const reason = !canReset
 		? departed && resetUnavailableReason
 			? resetUnavailableReason
-			: `Nothing to reset — ${title.toLowerCase()} is at its default.`
+			: fillText(copy.nothingToReset, named)
 		: undefined;
 	return (
 		<button
@@ -261,7 +275,9 @@ function ResetGroupButton({
 			}}
 			title={canReset ? resetLabel : reason}
 			aria-label={
-				canReset ? resetLabel : `Reset ${title.toLowerCase()} — ${reason}`
+				canReset
+					? resetLabel
+					: fillText(copy.resetUnavailable, { ...named, reason: reason ?? "" })
 			}
 		>
 			<RotateCcw size={13} />
@@ -372,13 +388,14 @@ export function ColorField({
 	// Only the swatch's colour is needed here; the picker, the hex box and the way
 	// back all live in `ColorFieldBody`, which reads the value for itself.
 	const resolved = authoredColorFor(value);
+	const { text } = useInterfaceText();
 
 	if (collapsible) {
 		return (
 			<DisclosureRow
 				label={label}
-				value={authoredColorLabel(value)}
-				openHint="Open the colour picker"
+				value={authoredColorLabel(value, text)}
+				openHint={text.slideSettings.openColourPicker}
 				marker={
 					<span
 						aria-hidden="true"
@@ -429,12 +446,13 @@ function ColorFieldBody({
 }) {
 	const authored = value.trim();
 	const resolved = authoredColorFor(value);
+	const copy = useInterfaceText().text.slideSettings;
 	return (
 		<Field label={label} hint={hint}>
 			<div className="flex items-center gap-2">
 				<input
 					type="color"
-					aria-label={`${label} picker`}
+					aria-label={fillText(copy.colourPicker, { label })}
 					className="h-10 w-12 flex-shrink-0 cursor-pointer rounded-lg border border-border bg-surface p-1"
 					value={authoredColorInputValue(value, placeholder)}
 					onChange={(event) => onChange(event.target.value)}
@@ -454,19 +472,14 @@ function ColorFieldBody({
 					className="btn-secondary flex-shrink-0 text-xs"
 					onClick={() => onChange("")}
 					disabled={authored === ""}
-					title={
-						authored === ""
-							? "Nothing is authored on this field."
-							: "Clear this colour and go back to the inherited one."
-					}
+					title={authored === "" ? copy.nothingAuthored : copy.clearColour}
 				>
-					Clear
+					{copy.clear}
 				</button>
 			</div>
 			{authored !== "" && resolved === "" && (
 				<p className="mt-1 text-xs text-warning">
-					Not a colour — write it as {placeholder} or #f63. The inherited value
-					stands until it is fixed.
+					{fillText(copy.notAColourHelp, { example: placeholder })}
 				</p>
 			)}
 			{authored === "" && unsetNote && (
@@ -507,6 +520,7 @@ export function DisclosureRow({
 	children: ReactNode;
 }) {
 	const [open, setOpen] = useState(false);
+	const copy = useInterfaceText().text.slideSettings;
 
 	if (!open) {
 		return (
@@ -536,7 +550,7 @@ export function DisclosureRow({
 				className="text-xs text-text-muted transition-colors hover:text-text"
 				onClick={() => setOpen(false)}
 			>
-				Done
+				{copy.done}
 			</button>
 		</div>
 	);
@@ -552,10 +566,14 @@ export function DisclosureRow({
  * (see {@link ColorField}), and a chip showing the typed string would claim a
  * colour that is not on the slide.
  */
-export function authoredColorLabel(value: string): string {
+export function authoredColorLabel(
+	value: string,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): string {
+	const copy = text.slideSettings;
 	const authored = (value ?? "").trim();
-	if (authored === "") return "Theme";
-	return authoredColorFor(authored) || "Not a colour";
+	if (authored === "") return copy.colourTheme;
+	return authoredColorFor(authored) || copy.notAColour;
 }
 
 /** One enumerated choice for the pickers below. */

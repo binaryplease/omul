@@ -1,5 +1,7 @@
 import { Clock } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useInterfaceText } from "../interface-language";
+import { fillText } from "../interface-text";
 import type { Presentation } from "../types";
 
 // ── Session clock (REQ108) ────────────────────────────────────
@@ -112,13 +114,16 @@ export function SessionClock({
 	clockOffsetMs: number;
 	className?: string;
 }) {
+	const { text } = useInterfaceText();
 	const elapsedMs = useSessionElapsed(deck, clockOffsetMs);
 	if (elapsedMs === null) return null;
 	const formatted = formatSessionElapsed(elapsedMs);
-	const label =
+	const label = fillText(
 		deck?.status === "ended"
-			? `Session ran for ${formatted}`
-			: `Session running for ${formatted}`;
+			? text.presenterPage.sessionRan
+			: text.presenterPage.sessionRunning,
+		{ time: formatted },
+	);
 	return (
 		<span
 			role="timer"

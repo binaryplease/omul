@@ -1,6 +1,8 @@
 import { LayoutTemplate } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
+import { useInterfaceText } from "../interface-language";
+import { fillText } from "../interface-text";
 import type {
 	DeckTemplateCategory,
 	Presentation,
@@ -12,7 +14,6 @@ import {
 	WORKSPACE_TEMPLATE_TAG_LIMIT,
 	WORKSPACE_TEMPLATE_TAG_MAX_LENGTH,
 } from "../types";
-import { DECK_TEMPLATE_CATEGORY_LABELS } from "./TemplateCard";
 import { Modal } from "./ui/Modal";
 
 // ── Publishing a deck as the workspace's template (REQ004) ────
@@ -27,13 +28,6 @@ import { Modal } from "./ui/Modal";
 // publishing takes a **snapshot** — editing the deck afterwards does not change
 // the template — and republishing an already-published deck refreshes that entry
 // rather than adding a second one. The server decides both; this only says so.
-
-/** The occasion picker's choices — the schema's vocabulary, in its own order. */
-const CATEGORY_OPTIONS: { value: DeckTemplateCategory; label: string }[] =
-	DECK_TEMPLATE_CATEGORIES.map((category) => ({
-		value: category,
-		label: DECK_TEMPLATE_CATEGORY_LABELS[category],
-	}));
 
 export function PublishTemplateDialog({
 	workspaceId,
@@ -62,6 +56,8 @@ export function PublishTemplateDialog({
 	);
 	const [tags, setTags] = useState((published?.tags ?? []).join(", "));
 	const [busy, setBusy] = useState(false);
+	const { text } = useInterfaceText();
+	const words = text.workspaces;
 
 	// A comma-separated line rather than a tag editor: this is a handful of extra
 	// search words, and the cap is the schema's so the field cannot compose a
@@ -85,9 +81,9 @@ export function PublishTemplateDialog({
 				tags: enteredTags,
 			});
 			onNotify(
-				published
-					? `“${template.title}” now holds this deck's slides as they are today`
-					: `“${template.title}” is a template this workspace can start from`,
+				fillText(published ? words.republished : words.published, {
+					title: template.title,
+				}),
 				"success",
 			);
 			onPublished(template);
@@ -96,7 +92,7 @@ export function PublishTemplateDialog({
 			onNotify(
 				publishError instanceof Error
 					? publishError.message
-					: "Could not publish this deck",
+					: words.publishFailed,
 				"error",
 			);
 		} finally {
@@ -106,19 +102,19 @@ export function PublishTemplateDialog({
 
 	return (
 		<Modal
-			title={published ? "Republish as template" : "Publish as template"}
+			title={
+				published ? words.republishDialogTitle : words.publishDialogTitle
+			}
 			icon={LayoutTemplate}
 			onClose={onClose}
 		>
 			<div className="flex flex-col gap-4">
 				<p className="text-sm text-text-muted">
-					{published
-						? "This deck is already a template here. Republishing replaces the entry's slides with the deck's as they are right now — decks somebody already made from it are untouched."
-						: "Everybody in this workspace will be able to start a new deck from a copy of this one. The copy is taken now: editing this deck afterwards will not change the template, and republishing is how you update it."}
+					{published ? words.republishIntro : words.publishIntro}
 				</p>
 
 				<label className="flex flex-col gap-1.5 text-sm">
-					<span className="text-text-muted">Name in the gallery</span>
+					<span className="text-text-muted">{words.galleryName}</span>
 					<input
 						className="input text-sm"
 						type="text"
@@ -130,7 +126,7 @@ export function PublishTemplateDialog({
 				</label>
 
 				<label className="flex flex-col gap-1.5 text-sm">
-					<span className="text-text-muted">What it is for</span>
+					<span className="text-text-muted">{words.whatFor}</span>
 					<select
 						className="input text-sm"
 						value={category}
@@ -139,9 +135,10 @@ export function PublishTemplateDialog({
 							setCategory(event.target.value as DeckTemplateCategory)
 						}
 					>
-						{CATEGORY_OPTIONS.map((option) => (
-							<option key={option.value} value={option.value}>
-								{option.label}
+						{/* The schema's vocabulary, in its own order. */}
+						{DECK_TEMPLATE_CATEGORIES.map((choice) => (
+							<option key={choice} value={choice}>
+								{words.templateCategories[choice]}
 							</option>
 						))}
 					</select>
@@ -149,35 +146,34 @@ export function PublishTemplateDialog({
 
 				<label className="flex flex-col gap-1.5 text-sm">
 					<span className="text-text-muted">
-						A sentence or two{" "}
-						<span className="text-text-dim">(optional)</span>
+						{words.descriptionLabel}{" "}
+						<span className="text-text-dim">{words.optional}</span>
 					</span>
 					<textarea
 						className="input text-sm min-h-20"
 						value={description}
 						disabled={busy}
 						maxLength={WORKSPACE_TEMPLATE_DESCRIPTION_MAX_LENGTH}
-						placeholder="What this deck is for, and when to reach for it."
+						placeholder={words.descriptionPlaceholder}
 						onChange={(event) => setDescription(event.target.value)}
 					/>
 				</label>
 
 				<label className="flex flex-col gap-1.5 text-sm">
 					<span className="text-text-muted">
-						Words to find it by{" "}
-						<span className="text-text-dim">(optional, comma-separated)</span>
+						{words.tagsLabel}{" "}
+						<span className="text-text-dim">{words.tagsOptional}</span>
 					</span>
 					<input
 						className="input text-sm"
 						type="text"
 						value={tags}
 						disabled={busy}
-						placeholder="retro, sprint, team"
+						placeholder={words.tagsPlaceholder}
 						onChange={(event) => setTags(event.target.value)}
 					/>
 					<span className="text-xs text-text-dim">
-						Up to {WORKSPACE_TEMPLATE_TAG_LIMIT}; every one of them is shown on
-						the card, so a search always has a visible reason.
+						{fillText(words.tagsNote, { limit: WORKSPACE_TEMPLATE_TAG_LIMIT })}
 					</span>
 				</label>
 
@@ -188,7 +184,7 @@ export function PublishTemplateDialog({
 						onClick={onClose}
 						disabled={busy}
 					>
-						Cancel
+						{words.cancel}
 					</button>
 					<button
 						type="button"
@@ -197,13 +193,17 @@ export function PublishTemplateDialog({
 						disabled={busy || title.trim() === ""}
 						title={
 							title.trim() === ""
-								? "Publish — give the template a name first"
+								? words.publishNameFirst
 								: published
-									? "Replace this template's slides with the deck's"
-									: "Publish this deck as a template for the workspace"
+									? words.republishAction
+									: words.publishAction
 						}
 					>
-						{busy ? "Publishing…" : published ? "Republish" : "Publish"}
+						{busy
+							? words.publishing
+							: published
+								? words.republishButton
+								: words.publishButton}
 					</button>
 				</div>
 			</div>

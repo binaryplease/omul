@@ -2,6 +2,15 @@ import { MessagesSquare, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { getDict } from "../i18n";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	formatNumber,
+	type InterfaceLanguage,
+	type InterfaceText,
+	pluralText,
+} from "../interface-text";
 import { useStore } from "../store";
 import type { ChatMessageEntry } from "../types";
 import { CHAT_HISTORY_LIMIT, CHAT_TEXT_MAX_LENGTH } from "../types";
@@ -54,7 +63,10 @@ export type ChatLabels = {
 	you: string;
 };
 
-/** The presenter's wording — the shared screen is not translated. */
+/**
+ * The presenter's wording in English, for the surfaces that are not translated
+ * yet — the presenter screen reads {@link presenterChatLabels} instead.
+ */
 export const CHAT_LABELS_EN: ChatLabels = {
 	title: "Chat",
 	placeholder: "Say something...",
@@ -63,6 +75,19 @@ export const CHAT_LABELS_EN: ChatLabels = {
 	closed: "The chat is closed. You can still read what was said.",
 	you: "You",
 };
+
+/** The presenter screen's labels, in the interface language (REQ248). */
+export function presenterChatLabels(text: InterfaceText): ChatLabels {
+	const { panels } = text;
+	return {
+		title: panels.chatTitle,
+		placeholder: panels.chatPlaceholder,
+		send: panels.chatSend,
+		empty: panels.chatEmpty,
+		closed: panels.chatClosed,
+		you: panels.chatYou,
+	};
+}
 
 /**
  * The same labels in the deck's language (REQ084) — the one place the
@@ -139,11 +164,17 @@ export function isChatSurfaceVisible(
  * for the rest of the hour. At the cap the phrasing says what the number
  * actually is instead of inventing a total the endpoint never sent.
  */
-export function chatCountLabel(feed: ChatFeed | null): string {
+export function chatCountLabel(
+	feed: ChatFeed | null,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+	language: InterfaceLanguage = "en",
+): string {
 	const count = feed?.messageCount ?? 0;
 	return count >= CHAT_HISTORY_LIMIT
-		? `the newest ${count} chat messages`
-		: `${count} chat messages`;
+		? fillText(text.panels.chatCountNewest, {
+				count: formatNumber(language, count),
+			})
+		: pluralText(language, count, text.panels.chatCount);
 }
 
 /**
@@ -360,10 +391,11 @@ export function ChatChannelControl({
 	enabled: boolean;
 	onChange: (enabled: boolean) => void;
 }) {
+	const { panels } = useInterfaceText().text;
 	return (
 		<Toggle
-			label="Live chat"
-			description="A channel the room talks in during the session — separate from the Q&A queue and from slide answers."
+			label={panels.chatChannelToggle}
+			description={panels.chatChannelDescription}
 			checked={enabled}
 			onChange={onChange}
 		/>

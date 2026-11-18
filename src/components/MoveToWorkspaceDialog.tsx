@@ -1,6 +1,8 @@
 import { Building2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { textWithElement, useInterfaceText } from "../interface-language";
+import { fillText } from "../interface-text";
 import type { Workspace, WorkspaceRole } from "../types";
 import { canCreateWorkspaceDecks } from "../types";
 import { workspaceRoleLabel } from "./WorkspaceRoles";
@@ -37,6 +39,8 @@ export function MoveToWorkspaceDialog({
 	const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
+	const { text } = useInterfaceText();
+	const words = text.workspaces;
 
 	useEffect(() => {
 		let cancelled = false;
@@ -60,14 +64,17 @@ export function MoveToWorkspaceDialog({
 		setBusy(true);
 		try {
 			await api.setPresentationWorkspace(presentationId, workspace.id);
-			onNotify(`“${deckTitle}” now belongs to ${workspace.name}`, "success");
+			onNotify(
+				fillText(words.moved, { title: deckTitle, workspace: workspace.name }),
+				"success",
+			);
 			onMoved(workspace);
 			onClose();
 		} catch (moveError: unknown) {
 			onNotify(
 				moveError instanceof Error
 					? moveError.message
-					: "Could not move this deck",
+					: words.moveFailed,
 				"error",
 			);
 		} finally {
@@ -76,23 +83,22 @@ export function MoveToWorkspaceDialog({
 	};
 
 	return (
-		<Modal title="Move to a workspace" icon={Building2} onClose={onClose}>
+		<Modal title={words.moveTitle} icon={Building2} onClose={onClose}>
 			<div className="flex flex-col gap-4">
 				<p className="text-sm text-text-muted">
-					Hand <span className="text-text">{deckTitle}</span> to a workspace.
-					Everybody in it can then open, edit and present it, and it stays there
-					whoever comes or goes — including you. It stops being yours: the deck's
-					existing edit link is retired by the move, and only a workspace owner
-					can take it back out.
+					{textWithElement(
+						words.moveIntro,
+						"title",
+						<span className="text-text">{deckTitle}</span>,
+					)}
 				</p>
 
 				<div className="rounded-lg border border-border bg-surface-raised px-4 py-3 text-sm">
 					{loading ? (
-						<span className="text-text-dim">Checking…</span>
+						<span className="text-text-dim">{words.checking}</span>
 					) : workspaces.length === 0 ? (
 						<span className="text-text-muted">
-							You are not in a workspace that takes new decks. Create one from
-							the Workspaces page, or ask somebody to add you to theirs.
+							{words.noWorkspaceTakesDecks}
 						</span>
 					) : (
 						<ul className="flex flex-col gap-2">
@@ -103,14 +109,14 @@ export function MoveToWorkspaceDialog({
 										className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 										onClick={() => move(workspace)}
 										disabled={busy}
-										title={`Hand this deck to ${workspace.name}`}
+										title={fillText(words.handTo, { workspace: workspace.name })}
 									>
 										<Building2 size={16} className="text-text-dim shrink-0" />
 										<span className="flex-1 min-w-0 truncate">
 											{workspace.name}
 										</span>
 										<span className="text-xs text-text-dim shrink-0">
-											{workspaceRoleLabel(workspace.role)}
+											{workspaceRoleLabel(workspace.role, text)}
 										</span>
 									</button>
 								</li>

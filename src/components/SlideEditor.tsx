@@ -20,6 +20,15 @@ import {
 	X,
 } from "lucide-react";
 import { Fragment, useId, useState } from "react";
+import { useInterfaceText } from "../interface-language";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	fillText,
+	formatNumber,
+	type InterfaceLanguage,
+	type InterfaceText,
+	pluralText,
+} from "../interface-text";
 import type {
 	DeckThemeSettings,
 	FormFieldInput,
@@ -52,7 +61,6 @@ import {
 	COUNTDOWN_MAX_SECONDS,
 	countdownSecondsFor,
 	effectiveResultsVisibility,
-	EMBED_PROVIDERS,
 	FORM_FIELD_LIMIT,
 	FORM_FIELD_OPTION_LIMIT,
 	formatCountdown,
@@ -110,6 +118,7 @@ import {
 	quizAudioChoiceFor,
 	quizAudioCueAuthoringNote,
 	quizAudioCueRowValue,
+	quizAudioPresetLabel,
 	quizAudioPreviewControlFor,
 	quizAudioUrlForOption,
 	useQuizAudioPreview,
@@ -120,16 +129,11 @@ import { deckThemeAppearance } from "./DeckTheme";
 import { slideLayoutOptions } from "./SlideAppearance";
 import { ReasonButton } from "./ui/ReasonTip";
 import { useTheme } from "./ui/Theme";
-import { MC_VALUE_DISPLAY_OPTIONS } from "./Results";
+import { mcValueDisplayOptions } from "./Results";
 import { ICON_BUTTON_HOVER } from "./ShareCluster";
-import { SLIDE_REMOVAL_FLOOR_REASON } from "./SlideBulkBar";
-import { SLIDE_MARKDOWN_HINT, SLIDE_TEXT_SIZE_OPTIONS } from "./SlideText";
+import { slideTextSizeOptions } from "./SlideText";
 import { SlideTypeIcon } from "./SlideTypeIcon";
-import {
-	SLIDE_TYPE_LABELS,
-	SLIDE_TYPE_SECTIONS,
-	SlideTypeMenu,
-} from "./SlideTypeMenu";
+import { SLIDE_TYPE_SECTIONS, SlideTypeMenu } from "./SlideTypeMenu";
 
 // ── The slide settings column ─────────────────────────────────────────
 //
@@ -179,33 +183,44 @@ export { SLIDE_TYPE_LABELS } from "./SlideTypeMenu";
 // by the deck-level default picker (CreatePage's DeckSettings) and the per-slide
 // override picker below so the two surfaces never drift. The per-slide
 // picker prepends an "inherit" option that defers to the deck default.
-export const RESULTS_VISIBILITY_OPTIONS: ChoiceOption<ResultsVisibility>[] = [
-	{
-		value: "instant",
-		label: "Instant",
-		description: "Results update on the main screen in real time.",
-		icon: <Eye size={18} />,
-	},
-	{
-		value: "on-click",
-		label: "On click",
-		description: "You reveal results manually when ready.",
-		icon: <MousePointerClick size={18} />,
-	},
-	{
-		value: "private",
-		label: "Private",
-		description: "Results are never shown on the main screen.",
-		icon: <EyeOff size={18} />,
-	},
-];
+// Labelled in the interface language (REQ248): the choice is the presenter's.
+export function resultsVisibilityOptions(
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): ChoiceOption<ResultsVisibility>[] {
+	const copy = text.slideSettings;
+	return [
+		{
+			value: "instant",
+			label: copy.visibilityInstant,
+			description: copy.visibilityInstantDescription,
+			icon: <Eye size={18} />,
+		},
+		{
+			value: "on-click",
+			label: copy.visibilityOnClick,
+			description: copy.visibilityOnClickDescription,
+			icon: <MousePointerClick size={18} />,
+		},
+		{
+			value: "private",
+			label: copy.visibilityPrivate,
+			description: copy.visibilityPrivateDescription,
+			icon: <EyeOff size={18} />,
+		},
+	];
+}
 
 /** Human label for a concrete visibility mode (used in the inherit hint). */
-export const RESULTS_VISIBILITY_LABEL: Record<ResultsVisibility, string> = {
-	instant: "Instant",
-	"on-click": "On click",
-	private: "Private",
-};
+export function resultsVisibilityLabels(
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): Record<ResultsVisibility, string> {
+	const copy = text.slideSettings;
+	return {
+		instant: copy.visibilityInstant,
+		"on-click": copy.visibilityOnClick,
+		private: copy.visibilityPrivate,
+	};
+}
 
 /**
  * What the reveal setting in force actually does, in one line (REQ102, REQ155's
@@ -224,19 +239,21 @@ export function resultsRevealConsequence(
 	authored: SlideResultsVisibility | undefined,
 	deckDefault: ResultsVisibility,
 	slideType: SlideType,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
 ): string {
+	const copy = text.slideSettings;
 	const effective = effectiveResultsVisibility(authored, deckDefault);
 	const meaning =
 		effective === "instant"
 			? slideType === "quiz"
-				? "results appear once the question is over (time up or submissions closed)"
-				: "results appear as answers arrive"
+				? copy.revealInstantQuiz
+				: copy.revealInstant
 			: effective === "on-click"
-				? "results wait until you reveal them"
-				: "results never reach the shared screen";
+				? copy.revealOnClick
+				: copy.revealPrivate;
 	const sentence = `${meaning.charAt(0).toUpperCase()}${meaning.slice(1)}.`;
 	return (authored ?? "inherit") === "inherit"
-		? `Deck default — ${meaning}.`
+		? fillText(copy.revealDeckDefault, { meaning })
 		: sentence;
 }
 
@@ -250,25 +267,19 @@ export function resultsRevealConsequence(
  * "this is a YouTube link" and "this is a file your browser will play" behave
  * differently in front of an audience and the author is choosing between them.
  */
-function videoUrlNote(slide: Slide): { text: string; broken: boolean } {
+function videoUrlNote(
+	slide: Slide,
+	copy: InterfaceText["slideSettings"],
+): { text: string; broken: boolean } {
 	if ((slide.mediaUrl ?? "").trim() === "") {
-		return {
-			text: "A YouTube or Vimeo link, or a direct file. The video stays where it is.",
-			broken: false,
-		};
+		return { text: copy.videoNoteEmpty, broken: false };
 	}
 	const video = slideVideoFor(slide);
 	if (!video) {
-		return {
-			text: "This link can't be played. Use an http:// or https:// address.",
-			broken: true,
-		};
+		return { text: copy.videoNoteBroken, broken: true };
 	}
 	return {
-		text:
-			video.kind === "embed"
-				? "Plays in the video platform's own player."
-				: "Plays as a video file in the browser.",
+		text: video.kind === "embed" ? copy.videoNoteEmbed : copy.videoNoteFile,
 		broken: false,
 	};
 }
@@ -283,30 +294,21 @@ function videoUrlNote(slide: Slide): { text: string; broken: boolean } {
  * resolved to a provider the author did not expect is a link they pasted from
  * the wrong tab.
  */
-function embedUrlNote(slide: Slide): { text: string; broken: boolean } {
+function embedUrlNote(
+	slide: Slide,
+	copy: InterfaceText["slideSettings"],
+): { text: string; broken: boolean } {
 	if ((slide.mediaUrl ?? "").trim() === "") {
-		return {
-			text: "A Google Slides, PowerPoint or Miro link. The deck stays where it is.",
-			broken: false,
-		};
+		return { text: copy.embedNoteEmpty, broken: false };
 	}
 	const embed = slideEmbedFor(slide);
 	if (!embed) {
 		// Named as a refusal rather than as a failure, because it is one: the
 		// allowlist is the whole rule, and a link outside it is not framed on a
 		// guess.
-		return {
-			text: "This link can't be embedded — only Google Slides, PowerPoint and Miro, over https.",
-			broken: true,
-		};
+		return { text: copy.embedNoteBroken, broken: true };
 	}
-	const { label, interactive } = EMBED_PROVIDERS[embed.provider];
-	return {
-		text: interactive
-			? `Frames this ${label} — participants can work in it.`
-			: `Frames this ${label} deck.`,
-		broken: false,
-	};
+	return { text: copy.embedFrames[embed.provider], broken: false };
 }
 
 /**
@@ -314,21 +316,25 @@ function embedUrlNote(slide: Slide): { text: string; broken: boolean } {
  * picker; what each mode *means* is enforced by `quizAnswerModeFor` and the
  * vote boundary, so the two can never offer a mode the server does not know.
  */
-export const QUIZ_ANSWER_MODE_OPTIONS: ChoiceOption<QuizAnswerMode>[] = [
-	{
-		value: "select",
-		label: "Select",
-		description: "Participants pick one of the options you write.",
-		icon: <ListChecks size={16} />,
-	},
-	{
-		value: "type",
-		label: "Type",
-		description:
-			"Participants type their answer with nothing to choose from — recall, not recognition.",
-		icon: <Keyboard size={16} />,
-	},
-];
+export function quizAnswerModeOptions(
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): ChoiceOption<QuizAnswerMode>[] {
+	const copy = text.slideSettings;
+	return [
+		{
+			value: "select",
+			label: copy.modeSelect,
+			description: copy.modeSelectDescription,
+			icon: <ListChecks size={16} />,
+		},
+		{
+			value: "type",
+			label: copy.modeType,
+			description: copy.modeTypeDescription,
+			icon: <Keyboard size={16} />,
+		},
+	];
+}
 
 /**
  * What one field of a form asks for (REQ061). One descriptor for the picker;
@@ -336,26 +342,31 @@ export const QUIZ_ANSWER_MODE_OPTIONS: ChoiceOption<QuizAnswerMode>[] = [
  * the vote boundary, so this list can never offer a type the server would not
  * validate.
  */
-export const FORM_FIELD_TYPE_OPTIONS: ChoiceOption<FormFieldType>[] = [
-	{
-		value: "text",
-		label: "Text",
-		description: "Anything the participant types.",
-		icon: <Keyboard size={16} />,
-	},
-	{
-		value: "email",
-		label: "Email",
-		description: "Only an address — anything else is turned away.",
-		icon: <Mail size={16} />,
-	},
-	{
-		value: "choice",
-		label: "Choice",
-		description: "One of the options you write.",
-		icon: <ListChecks size={16} />,
-	},
-];
+export function formFieldTypeOptions(
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): ChoiceOption<FormFieldType>[] {
+	const copy = text.slideSettings;
+	return [
+		{
+			value: "text",
+			label: copy.fieldText,
+			description: copy.fieldTextDescription,
+			icon: <Keyboard size={16} />,
+		},
+		{
+			value: "email",
+			label: copy.fieldEmail,
+			description: copy.fieldEmailDescription,
+			icon: <Mail size={16} />,
+		},
+		{
+			value: "choice",
+			label: copy.fieldChoice,
+			description: copy.fieldChoiceDescription,
+			icon: <ListChecks size={16} />,
+		},
+	];
+}
 
 /**
  * The four result visualizations a choice slide can wear (REQ010). One
@@ -363,32 +374,37 @@ export const FORM_FIELD_TYPE_OPTIONS: ChoiceOption<FormFieldType>[] = [
  * Results.tsx, which is what each of these names — and what the canvas draws
  * with when the picker sends it to the results view (REQ154).
  */
-export const MC_DISPLAY_STYLE_OPTIONS: ChoiceOption<McDisplayStyle>[] = [
-	{
-		value: "bars",
-		label: "Bars",
-		description: "One horizontal bar per option.",
-		icon: <BarChart3 size={18} />,
-	},
-	{
-		value: "donut",
-		label: "Donut",
-		description: "Proportional ring with the head count in the middle.",
-		icon: <Donut size={18} />,
-	},
-	{
-		value: "pie",
-		label: "Pie",
-		description: "Proportional disc — shares of the whole.",
-		icon: <ChartPie size={18} />,
-	},
-	{
-		value: "dots",
-		label: "Dots",
-		description: "One dot per vote, clustered per option.",
-		icon: <CircleDot size={18} />,
-	},
-];
+export function mcDisplayStyleOptions(
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): ChoiceOption<McDisplayStyle>[] {
+	const copy = text.slideSettings;
+	return [
+		{
+			value: "bars",
+			label: copy.chartBars,
+			description: copy.chartBarsDescription,
+			icon: <BarChart3 size={18} />,
+		},
+		{
+			value: "donut",
+			label: copy.chartDonut,
+			description: copy.chartDonutDescription,
+			icon: <Donut size={18} />,
+		},
+		{
+			value: "pie",
+			label: copy.chartPie,
+			description: copy.chartPieDescription,
+			icon: <ChartPie size={18} />,
+		},
+		{
+			value: "dots",
+			label: copy.chartDots,
+			description: copy.chartDotsDescription,
+			icon: <CircleDot size={18} />,
+		},
+	];
+}
 
 // ── Departure from the default (REQ155, invariant 1) ──────────────────
 //
@@ -659,9 +675,10 @@ function GridAxisFields({
 	lowPlaceholder: string;
 	highPlaceholder: string;
 }) {
+	const copy = useInterfaceText().text.slideSettings;
 	return (
 		<>
-			<Field label="Axis title">
+			<Field label={copy.axisTitle}>
 				<input
 					className="input"
 					placeholder={titlePlaceholder}
@@ -671,7 +688,7 @@ function GridAxisFields({
 				/>
 			</Field>
 			<div className="grid grid-cols-2 gap-2">
-				<Field label="Low value">
+				<Field label={copy.lowValue}>
 					<input
 						type="number"
 						className="input"
@@ -681,7 +698,7 @@ function GridAxisFields({
 						}
 					/>
 				</Field>
-				<Field label="High value">
+				<Field label={copy.highValue}>
 					<input
 						type="number"
 						className="input"
@@ -691,7 +708,7 @@ function GridAxisFields({
 						}
 					/>
 				</Field>
-				<Field label={`Low label (${axis.min})`}>
+				<Field label={fillText(copy.lowLabel, { value: axis.min })}>
 					<input
 						className="input"
 						placeholder={lowPlaceholder}
@@ -700,7 +717,7 @@ function GridAxisFields({
 						onChange={(event) => onChange({ minLabel: event.target.value })}
 					/>
 				</Field>
-				<Field label={`High label (${axis.max})`}>
+				<Field label={fillText(copy.highLabel, { value: axis.max })}>
 					<input
 						className="input"
 						placeholder={highPlaceholder}
@@ -822,9 +839,13 @@ export function SlideEditor({
 	deck?: DeckThemeSettings | null;
 }) {
 	const sections = SLIDE_TYPE_SECTIONS[slide.type];
+	const { text, language } = useInterfaceText();
+	const groupTitles = text.slideSettings.groupTitles;
 
 	return (
-		<div className="slide-in space-y-3">
+		// The column speaks the interface language (REQ248); the slide it edits
+		// is in the deck's, so the column says which one it is in.
+		<div className="slide-in space-y-3" lang={language}>
 			<SlideHeader
 				slide={slide}
 				index={index}
@@ -840,14 +861,14 @@ export function SlideEditor({
 					<ContentGroup
 						slide={slide}
 						onUpdate={onUpdate}
-						title={sections.content}
+						title={groupTitles[sections.content]}
 					/>
 				)}
 				{sections.answers && (
 					<AnswersGroup
 						slide={slide}
 						onUpdate={onUpdate}
-						title={sections.answers}
+						title={groupTitles[sections.answers]}
 						scrolls={sections.scrolls}
 						deckResultsVisibility={deckResultsVisibility}
 					/>
@@ -856,7 +877,7 @@ export function SlideEditor({
 					<ScoringGroup
 						slide={slide}
 						onUpdate={onUpdate}
-						title={sections.scoring}
+						title={groupTitles[sections.scoring]}
 						deckMode={deckMode}
 					/>
 				)}
@@ -864,7 +885,7 @@ export function SlideEditor({
 					<ResultsGroup
 						slide={slide}
 						onUpdate={onUpdate}
-						title={sections.results}
+						title={groupTitles[sections.results]}
 						onPreviewResults={onPreviewResults}
 						deckResultsVisibility={deckResultsVisibility}
 						deckQuizCount={deckQuizCount}
@@ -907,6 +928,8 @@ function SlideHeader({
 	// Ephemeral view state; the component remounts per slide (keyed on id), so
 	// switching slides naturally closes the menu.
 	const [typeMenuOpen, setTypeMenuOpen] = useState(false);
+	const { text } = useInterfaceText();
+	const copy = text.slideSettings;
 
 	const handleTypeChange = (type: SlideType) => {
 		const changes: Partial<Slide> = { type };
@@ -970,7 +993,7 @@ function SlideHeader({
 	};
 
 	return (
-		<div className="flex items-center justify-between gap-2">
+		<div className="relative flex items-center justify-between gap-2">
 			{/* Which slide of the deck this is, is not repeated here: the canvas says
 			    it in its caption (REQ152), and the column's height is the budget
 			    REQ155 spends on controls. */}
@@ -979,21 +1002,24 @@ function SlideHeader({
 				    picker of every type, so converting a slide is a discoverable
 				    choice rather than a hunt through a native dropdown. It stays in
 				    its column and truncates a long type name, so it never runs under
-				    the header's buttons beside it (REQ110). */}
-				<div className="relative">
+				    the header's buttons beside it (REQ110). The popover is anchored
+				    to this whole header row, not to the trigger, and is never wider
+				    than it: beside the canvas the column is narrower than the
+				    popover, which used to run off the viewport's right edge (REQ248). */}
+				<div>
 					<button
 						type="button"
 						onClick={() => setTypeMenuOpen((open) => !open)}
 						aria-expanded={typeMenuOpen}
 						aria-haspopup="menu"
-						aria-label="Change slide type"
+						aria-label={copy.changeSlideType}
 						className="inline-flex max-w-full items-center gap-2 rounded-xl border border-border bg-surface-raised py-1 pl-1 pr-2.5 transition-colors hover:border-text-dim"
 					>
 						<span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-void/50">
-							<SlideTypeIcon type={slide.type} />
+							<SlideTypeIcon type={slide.type} labels={text.slideView.slideTypes} />
 						</span>
 						<span className="min-w-0 truncate text-sm font-semibold text-text">
-							{SLIDE_TYPE_LABELS[slide.type]}
+							{text.editor.slideTypeNames[slide.type]}
 						</span>
 						<ChevronDown
 							size={15}
@@ -1007,13 +1033,13 @@ function SlideHeader({
 							{/* Click-away backdrop closes the popover. */}
 							<button
 								type="button"
-								aria-label="Close slide type menu"
+								aria-label={copy.closeSlideTypeMenu}
 								className="fixed inset-0 z-20 cursor-default"
 								onClick={() => setTypeMenuOpen(false)}
 							/>
-							<div className="absolute left-0 top-full z-30 mt-2 max-h-[70vh] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-border bg-surface p-2 shadow-2xl slide-in">
+							<div className="absolute left-0 top-full z-30 mt-2 max-h-[70vh] w-80 max-w-full overflow-y-auto rounded-xl border border-border bg-surface p-2 shadow-2xl slide-in">
 								<p className="px-2 pb-1.5 pt-1 text-xs font-semibold uppercase tracking-wider text-text-muted">
-									Change slide type
+									{copy.changeSlideType}
 								</p>
 								<SlideTypeMenu
 									current={slide.type}
@@ -1034,35 +1060,31 @@ function SlideHeader({
 					className={`rounded-lg p-1.5 hover:bg-surface-hover aria-pressed:bg-accent-dim aria-pressed:text-accent-text ${ICON_BUTTON_HOVER}`}
 					onClick={() => onUpdate({ skipped: !slide.skipped })}
 					aria-pressed={slide.skipped}
-					title={
-						slide.skipped
-							? "Skipped — Next and Previous step over this slide. Click to include it again"
-							: "Skip slide — Next and Previous step over it; it stays in the deck"
-					}
-					aria-label="Skip slide"
+					title={slide.skipped ? copy.skippedTitle : copy.skipTitle}
+					aria-label={copy.skipSlide}
 				>
 					<SkipForward size={15} />
 				</button>
 				{/* Unavailable, each says why on hover, focus or tap (ADR-0025). */}
 				<ReasonButton
-					label="Move slide up"
-					reason={index === 0 ? "Already the first slide" : null}
+					label={copy.moveSlideUp}
+					reason={index === 0 ? copy.alreadyFirst : null}
 					className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
 					onClick={() => onMove(-1)}
 				>
 					<ChevronUp size={15} />
 				</ReasonButton>
 				<ReasonButton
-					label="Move slide down"
-					reason={index === total - 1 ? "Already the last slide" : null}
+					label={copy.moveSlideDown}
+					reason={index === total - 1 ? copy.alreadyLast : null}
 					className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
 					onClick={() => onMove(1)}
 				>
 					<ChevronDown size={15} />
 				</ReasonButton>
 				<ReasonButton
-					label="Delete slide"
-					reason={canRemove ? null : SLIDE_REMOVAL_FLOOR_REASON}
+					label={copy.deleteSlide}
+					reason={canRemove ? null : text.editor.slideRemovalFloor}
 					className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-error"
 					onClick={onRemove}
 				>
@@ -1087,14 +1109,21 @@ function ContentGroup({
 	onUpdate,
 	title,
 }: SlideSettingsProps & { title: string }) {
+	const { text } = useInterfaceText();
+	const copy = text.slideSettings;
+	const isBodyText =
+		slide.type !== "image" &&
+		slide.type !== "video" &&
+		slide.type !== "embed" &&
+		slide.type !== "instruction";
 	const captionLabel =
 		slide.type === "image" || slide.type === "video" || slide.type === "embed"
-			? "Caption"
+			? copy.caption
 			: slide.type === "instruction"
-				? "Description"
-				: "Body text";
-	const videoNote = slide.type === "video" ? videoUrlNote(slide) : null;
-	const embedNote = slide.type === "embed" ? embedUrlNote(slide) : null;
+				? copy.description
+				: copy.bodyText;
+	const videoNote = slide.type === "video" ? videoUrlNote(slide, copy) : null;
+	const embedNote = slide.type === "embed" ? embedUrlNote(slide, copy) : null;
 	const note = videoNote ?? embedNote;
 	const isInteractiveMedia = !isContentSlideType(slide.type);
 
@@ -1102,10 +1131,10 @@ function ContentGroup({
 	// goes to (REQ132) — on a question, a text slide and an image slide alike.
 	const altTextField = (
 		<div {...accessibilityFieldMarker({ scope: "slide", name: "mediaAlt" })}>
-			<Field label="Alt text">
+			<Field label={copy.altText}>
 				<input
 					className="input"
-					placeholder="Describe the image"
+					placeholder={copy.describeImage}
 					maxLength={SLIDE_ITEM_TEXT_MAX_LENGTH}
 					value={slide.mediaAlt ?? ""}
 					onChange={(event) => onUpdate({ mediaAlt: event.target.value })}
@@ -1119,12 +1148,12 @@ function ContentGroup({
 			<Field
 				label={
 					slide.type === "video"
-						? "Video URL"
+						? copy.videoUrl
 						: slide.type === "embed"
-							? "Deck or board URL"
+							? copy.deckOrBoardUrl
 							: slide.type === "image"
-								? "Image URL"
-								: "Image / GIF URL"
+								? copy.imageUrl
+								: copy.imageOrGifUrl
 				}
 			>
 				<input
@@ -1157,9 +1186,9 @@ function ContentGroup({
 			{isInteractiveMedia ? (
 				<div {...accessibilityFieldMarker({ scope: "slide", name: "mediaAlt" })}>
 					<DisclosureRow
-						label="Image / GIF"
-						value={(slide.mediaUrl ?? "").trim() === "" ? "None" : "Set"}
-						openHint="Open the picture beside this question"
+						label={copy.imageOrGif}
+						value={(slide.mediaUrl ?? "").trim() === "" ? copy.none : copy.set}
+						openHint={copy.openQuestionPicture}
 					>
 						{mediaFields}
 					</DisclosureRow>
@@ -1176,15 +1205,15 @@ function ContentGroup({
 			{!isInteractiveMedia && slide.type !== "countdown" && (
 				<Field
 					label={captionLabel}
-					hint={captionLabel === "Body text" ? SLIDE_MARKDOWN_HINT : undefined}
+					hint={isBodyText ? text.editor.markdownHint : undefined}
 				>
 					<textarea
 						className="input"
 						rows={slide.type === "text" ? 5 : 2}
 						placeholder={
 							slide.type === "instruction"
-								? "Defaults to the room's own joining instructions."
-								: "Enter content..."
+								? copy.instructionBodyPlaceholder
+								: copy.bodyPlaceholder
 						}
 						maxLength={SLIDE_TEXT_MAX_LENGTH}
 						value={slide.body ?? ""}
@@ -1193,7 +1222,7 @@ function ContentGroup({
 				</Field>
 			)}
 			{slide.type === "text" && (
-				<Field label="Image URL">
+				<Field label={copy.imageUrl}>
 					<input
 						className="input"
 						placeholder="https://..."
@@ -1207,9 +1236,7 @@ function ContentGroup({
 			    — the accessibility check asks for it (REQ132). */}
 			{slide.type === "text" && (slide.mediaUrl ?? "") !== "" && altTextField}
 			{slide.type === "instruction" && (
-				<p className="text-xs text-text-muted">
-					The join code and QR code are generated from the presentation.
-				</p>
+				<p className="text-xs text-text-muted">{copy.instructionNote}</p>
 			)}
 		</SettingsGroup>
 	);
@@ -1222,6 +1249,7 @@ function ContentGroup({
  * a length outside 1 second…1 hour lands where every surface would draw it.
  */
 function CountdownLengthField({ slide, onUpdate }: SlideSettingsProps) {
+	const copy = useInterfaceText().text.slideSettings;
 	const total = countdownSecondsFor(slide);
 	const minutes = Math.floor(total / 60);
 	const seconds = total % 60;
@@ -1240,22 +1268,22 @@ function CountdownLengthField({ slide, onUpdate }: SlideSettingsProps) {
 	return (
 		<>
 			<div className="flex items-end gap-2">
-				<Field label="Minutes">
+				<Field label={copy.minutes}>
 					<input
 						type="number"
 						className="input w-20"
-						aria-label="Countdown minutes"
+						aria-label={copy.countdownMinutes}
 						min={0}
 						max={COUNTDOWN_MAX_SECONDS / 60}
 						value={minutes}
 						onChange={(event) => write(typed(event.target.value), seconds)}
 					/>
 				</Field>
-				<Field label="Seconds">
+				<Field label={copy.seconds}>
 					<input
 						type="number"
 						className="input w-20"
-						aria-label="Countdown seconds"
+						aria-label={copy.countdownSeconds}
 						min={0}
 						max={59}
 						value={seconds}
@@ -1264,9 +1292,10 @@ function CountdownLengthField({ slide, onUpdate }: SlideSettingsProps) {
 				</Field>
 			</div>
 			<p className="text-xs text-text-muted">
-				{`Counts down from ${formatCountdown(total)} — up to ${formatCountdown(
-					COUNTDOWN_MAX_SECONDS,
-				)}.`}
+				{fillText(copy.countsDownFrom, {
+					length: formatCountdown(total),
+					max: formatCountdown(COUNTDOWN_MAX_SECONDS),
+				})}
 			</p>
 		</>
 	);
@@ -1294,12 +1323,13 @@ function AnswersGroup({
 	deckResultsVisibility: ResultsVisibility;
 }) {
 	const departure = slideAnswerRulesDeparture(slide);
+	const { text, language } = useInterfaceText();
 	return (
 		<SettingsGroup
 			title={title}
-			consequence={answersConsequence(slide)}
+			consequence={answersConsequence(slide, text, language)}
 			departed={departure.departed}
-			resetLabel="Put the answer rules back to their defaults"
+			resetLabel={text.slideSettings.resetAnswerRules}
 			// A type with no answer rule at all gets no control, rather than one
 			// disabled forever: there is no unavailable action here to explain.
 			onReset={
@@ -1351,38 +1381,44 @@ function AnswersGroup({
 }
 
 /** The one line the answers group is allowed (REQ155): what the rules do now. */
-function answersConsequence(slide: Slide): string | undefined {
+function answersConsequence(
+	slide: Slide,
+	text: InterfaceText,
+	language: InterfaceLanguage,
+): string | undefined {
+	const copy = text.slideSettings;
 	if (slide.type === "multiple-choice") {
-		if (!isMultiSelect(slide)) return "Participants pick one option.";
+		if (!isMultiSelect(slide)) return copy.pickOne;
 		const limit = maxSelectionsFor(slide);
 		return limit === 0
-			? "Participants pick as many options as they like."
-			: `Participants pick up to ${limit} options.`;
+			? copy.pickAny
+			: fillText(copy.pickUpTo, { limit: formatNumber(language, limit) });
 	}
 	if (slide.type === "word-cloud" || slide.type === "open-text") {
 		const limit = maxResponsesFor(slide);
 		return limit === 0
-			? "Each participant may send as many answers as they like."
-			: `Each participant may send ${limit} answer${limit === 1 ? "" : "s"}.`;
+			? copy.responsesAny
+			: pluralText(language, limit, copy.responsesLimit);
 	}
 	if (slide.type === "quiz") {
 		return quizAnswerModeFor(slide) === "type"
-			? "Typed answers count when they match one below."
-			: "Pick one option; mark the answer on the slide.";
+			? copy.quizTypedConsequence
+			: copy.quizSelectConsequence;
 	}
 	if (slide.type === "form") {
-		return "Answers go to you only — the room sees how many replied.";
+		return copy.formConsequence;
 	}
 	return undefined;
 }
 
 /** REQ014 — how many of the answer set one participant may take. */
 function McSelectionField({ slide, onUpdate }: SlideSettingsProps) {
+	const copy = useInterfaceText().text.slideSettings;
 	return (
-		<Field label="Selections" inline>
+		<Field label={copy.selections} inline>
 			<Segmented
 				compact
-				ariaLabel="Options a participant may select"
+				ariaLabel={copy.selectionsName}
 				value={String(maxSelectionsFor(slide))}
 				onChange={(value) => {
 					const count = Number(value);
@@ -1398,7 +1434,7 @@ function McSelectionField({ slide, onUpdate }: SlideSettingsProps) {
 					{ value: "3", label: "3" },
 					{ value: "4", label: "4" },
 					{ value: "5", label: "5" },
-					{ value: "0", label: "Any" },
+					{ value: "0", label: copy.any },
 				]}
 			/>
 		</Field>
@@ -1407,12 +1443,13 @@ function McSelectionField({ slide, onUpdate }: SlideSettingsProps) {
 
 /** REQ022/REQ024/REQ025 — how much one participant may write, and may upvote. */
 function ResponseRulesFields({ slide, onUpdate }: SlideSettingsProps) {
+	const copy = useInterfaceText().text.slideSettings;
 	return (
 		<>
-			<Field label="Answers each" inline>
+			<Field label={copy.answersEach} inline>
 				<Segmented
 					compact
-					ariaLabel="Maximum answers per participant"
+					ariaLabel={copy.answersEachName}
 					value={String(maxResponsesFor(slide))}
 					onChange={(value) => {
 						const count = Number(value);
@@ -1428,13 +1465,13 @@ function ResponseRulesFields({ slide, onUpdate }: SlideSettingsProps) {
 						{ value: "3", label: "3" },
 						{ value: "4", label: "4" },
 						{ value: "5", label: "5" },
-						{ value: "0", label: "Any" },
+						{ value: "0", label: copy.any },
 					]}
 				/>
 			</Field>
 			{slide.type === "open-text" && (
 				<Toggle
-					label="Allow upvoting responses"
+					label={copy.allowUpvoting}
 					checked={slide.allowResponseVotes ?? false}
 					onChange={(checked) => onUpdate({ allowResponseVotes: checked })}
 				/>
@@ -1449,6 +1486,8 @@ function ResponseRulesFields({ slide, onUpdate }: SlideSettingsProps) {
  * against.
  */
 function QuizAnswerFields({ slide, onUpdate }: SlideSettingsProps) {
+	const { text, language } = useInterfaceText();
+	const copy = text.slideSettings;
 	const isTyped = quizAnswerModeFor(slide) === "type";
 	/**
 	 * Two accepted answers that only differ in the ways matching already ignores
@@ -1471,7 +1510,7 @@ function QuizAnswerFields({ slide, onUpdate }: SlideSettingsProps) {
 			{/* No caption: the group is called Answers, its consequence line says
 			    what the mode in force does, and the two tiles name themselves. */}
 			<ChoiceCards<QuizAnswerMode>
-				ariaLabel="How participants answer"
+				ariaLabel={copy.quizModeName}
 				variant="tile"
 				columns={2}
 				value={quizAnswerModeFor(slide)}
@@ -1490,10 +1529,10 @@ function QuizAnswerFields({ slide, onUpdate }: SlideSettingsProps) {
 					}
 					onUpdate(changes);
 				}}
-				options={QUIZ_ANSWER_MODE_OPTIONS}
+				options={quizAnswerModeOptions(text)}
 			/>
 			{isTyped && (
-				<Field label="Accepted answers">
+				<Field label={copy.acceptedAnswers}>
 					<div className="space-y-2">
 						{(slide.quizAnswers ?? []).map((accepted, answerIndex) => (
 							<div key={accepted.id} className="flex items-center gap-1.5">
@@ -1501,8 +1540,10 @@ function QuizAnswerFields({ slide, onUpdate }: SlideSettingsProps) {
 									className="input flex-1"
 									placeholder={
 										answerIndex === 0
-											? "The answer, as you would write it"
-											: `Also accept ${answerIndex + 1}`
+											? copy.acceptedFirstPlaceholder
+											: fillText(copy.acceptedMorePlaceholder, {
+													number: answerIndex + 1,
+												})
 									}
 									maxLength={SLIDE_ITEM_TEXT_MAX_LENGTH}
 									value={accepted.text}
@@ -1514,7 +1555,9 @@ function QuizAnswerFields({ slide, onUpdate }: SlideSettingsProps) {
 										};
 										onUpdate({ quizAnswers: next });
 									}}
-									aria-label={`Accepted answer ${answerIndex + 1}`}
+									aria-label={fillText(copy.acceptedAnswerName, {
+										number: answerIndex + 1,
+									})}
 								/>
 								{(slide.quizAnswers?.length ?? 0) > 1 && (
 									<RemoveRowButton
@@ -1524,7 +1567,9 @@ function QuizAnswerFields({ slide, onUpdate }: SlideSettingsProps) {
 											);
 											onUpdate({ quizAnswers: next });
 										}}
-										label={`Remove accepted answer ${answerIndex + 1}`}
+										label={fillText(copy.removeAcceptedAnswer, {
+											number: answerIndex + 1,
+										})}
 									/>
 								)}
 							</div>
@@ -1535,15 +1580,15 @@ function QuizAnswerFields({ slide, onUpdate }: SlideSettingsProps) {
 									quizAnswers: [...(slide.quizAnswers ?? []), newQuizAnswer()],
 								})
 							}
-							label="Add accepted answer"
+							label={copy.addAcceptedAnswer}
 							disabled={(slide.quizAnswers?.length ?? 0) >= QUIZ_ANSWER_LIMIT}
-							disabledLabel={`At most ${QUIZ_ANSWER_LIMIT} accepted answers`}
+							disabledLabel={fillText(copy.acceptedAnswerLimit, {
+								limit: formatNumber(language, QUIZ_ANSWER_LIMIT),
+							})}
 						/>
 						{duplicates > 0 && (
 							<p className="text-xs text-text-muted">
-								{duplicates === 1
-									? "One answer is already accepted by another row — matching ignores case, accents and spacing."
-									: `${duplicates} answers are already accepted by another row — matching ignores case, accents and spacing.`}
+								{pluralText(language, duplicates, copy.duplicateAnswers)}
 							</p>
 						)}
 					</div>
@@ -1560,10 +1605,11 @@ function QuizAnswerFields({ slide, onUpdate }: SlideSettingsProps) {
 
 /** REQ029–REQ032 — the scale itself, the points named on it, and its statements. */
 function ScaleFields({ slide, onUpdate }: SlideSettingsProps) {
+	const copy = useInterfaceText().text.slideSettings;
 	return (
 		<>
 			<div className="grid grid-cols-2 gap-2">
-				<Field label="Min value">
+				<Field label={copy.minValue}>
 					<input
 						type="number"
 						className="input"
@@ -1575,7 +1621,7 @@ function ScaleFields({ slide, onUpdate }: SlideSettingsProps) {
 						max={10}
 					/>
 				</Field>
-				<Field label="Max value">
+				<Field label={copy.maxValue}>
 					<input
 						type="number"
 						className="input"
@@ -1587,19 +1633,19 @@ function ScaleFields({ slide, onUpdate }: SlideSettingsProps) {
 						max={10}
 					/>
 				</Field>
-				<Field label={`Low label (${slide.scaleMin})`}>
+				<Field label={fillText(copy.lowLabel, { value: slide.scaleMin ?? 1 })}>
 					<input
 						className="input"
-						placeholder="e.g. Disagree"
+						placeholder={copy.disagreeExample}
 						maxLength={SLIDE_ITEM_TEXT_MAX_LENGTH}
 						value={slide.scaleMinLabel ?? ""}
 						onChange={(event) => onUpdate({ scaleMinLabel: event.target.value })}
 					/>
 				</Field>
-				<Field label={`High label (${slide.scaleMax})`}>
+				<Field label={fillText(copy.highLabel, { value: slide.scaleMax ?? 5 })}>
 					<input
 						className="input"
-						placeholder="e.g. Agree"
+						placeholder={copy.agreeExample}
 						maxLength={SLIDE_ITEM_TEXT_MAX_LENGTH}
 						value={slide.scaleMaxLabel ?? ""}
 						onChange={(event) => onUpdate({ scaleMaxLabel: event.target.value })}
@@ -1608,7 +1654,7 @@ function ScaleFields({ slide, onUpdate }: SlideSettingsProps) {
 			</div>
 
 			{/* REQ032 — points between the endpoints an author may name. */}
-			<Field label="Intermediate labels">
+			<Field label={copy.intermediateLabels}>
 				<div className="space-y-2">
 					{(slide.scaleLabels ?? []).map((scaleLabel, labelIndex) => (
 						<div
@@ -1619,7 +1665,7 @@ function ScaleFields({ slide, onUpdate }: SlideSettingsProps) {
 							<input
 								type="number"
 								className="input w-16"
-								placeholder="Value"
+								placeholder={copy.value}
 								value={scaleLabel.value}
 								onChange={(event) => {
 									const next = [...(slide.scaleLabels ?? [])];
@@ -1629,11 +1675,11 @@ function ScaleFields({ slide, onUpdate }: SlideSettingsProps) {
 									};
 									onUpdate({ scaleLabels: next });
 								}}
-								aria-label={`Label ${labelIndex + 1} value`}
+								aria-label={fillText(copy.labelValueName, { number: labelIndex + 1 })}
 							/>
 							<input
 								className="input flex-1"
-								placeholder="Label"
+								placeholder={copy.label}
 								maxLength={SLIDE_ITEM_TEXT_MAX_LENGTH}
 								value={scaleLabel.label}
 								onChange={(event) => {
@@ -1644,7 +1690,7 @@ function ScaleFields({ slide, onUpdate }: SlideSettingsProps) {
 									};
 									onUpdate({ scaleLabels: next });
 								}}
-								aria-label={`Label ${labelIndex + 1} text`}
+								aria-label={fillText(copy.labelTextName, { number: labelIndex + 1 })}
 							/>
 							<RemoveRowButton
 								onClick={() => {
@@ -1653,7 +1699,7 @@ function ScaleFields({ slide, onUpdate }: SlideSettingsProps) {
 									);
 									onUpdate({ scaleLabels: next });
 								}}
-								label={`Remove label ${labelIndex + 1}`}
+								label={fillText(copy.removeLabel, { number: labelIndex + 1 })}
 							/>
 						</div>
 					))}
@@ -1669,19 +1715,19 @@ function ScaleFields({ slide, onUpdate }: SlideSettingsProps) {
 								],
 							});
 						}}
-						label="Add label"
+						label={copy.addLabel}
 					/>
 				</div>
 			</Field>
 
 			{/* REQ029 — several statements rated on the same scale. */}
-			<Field label="Statements">
+			<Field label={copy.statements}>
 				<div className="space-y-2">
 					{(slide.scaleStatements ?? []).map((statement, statementIndex) => (
 						<div key={statement.id} className="flex items-center gap-1.5">
 							<input
 								className="input flex-1"
-								placeholder={`Statement ${statementIndex + 1}`}
+								placeholder={fillText(copy.statement, { number: statementIndex + 1 })}
 								maxLength={SLIDE_ITEM_TEXT_MAX_LENGTH}
 								value={statement.text}
 								onChange={(event) => {
@@ -1692,7 +1738,7 @@ function ScaleFields({ slide, onUpdate }: SlideSettingsProps) {
 									};
 									onUpdate({ scaleStatements: next });
 								}}
-								aria-label={`Statement ${statementIndex + 1}`}
+								aria-label={fillText(copy.statement, { number: statementIndex + 1 })}
 							/>
 							<RemoveRowButton
 								onClick={() => {
@@ -1701,7 +1747,7 @@ function ScaleFields({ slide, onUpdate }: SlideSettingsProps) {
 									);
 									onUpdate({ scaleStatements: next });
 								}}
-								label={`Remove statement ${statementIndex + 1}`}
+								label={fillText(copy.removeStatement, { number: statementIndex + 1 })}
 							/>
 						</div>
 					))}
@@ -1721,16 +1767,16 @@ function ScaleFields({ slide, onUpdate }: SlideSettingsProps) {
 									: [...current, { id: crypto.randomUUID(), text: "" }];
 							onUpdate({ scaleStatements: next });
 						}}
-						label="Add statement"
+						label={copy.addStatement}
 						disabled={(slide.scaleStatements ?? []).length >= 5}
-						disabledLabel="Max 5 statements"
+						disabledLabel={fillText(copy.statementLimit, { limit: 5 })}
 					/>
 				</div>
 			</Field>
 
 			{/* REQ031 */}
 			<Toggle
-				label="Allow skipping statements"
+				label={copy.allowSkippingStatements}
 				checked={slide.scaleAllowSkip ?? false}
 				onChange={(checked) => onUpdate({ scaleAllowSkip: checked })}
 			/>
@@ -1740,14 +1786,15 @@ function ScaleFields({ slide, onUpdate }: SlideSettingsProps) {
 
 /** REQ034 — the list participants put in their own order. */
 function RankingItemFields({ slide, onUpdate }: SlideSettingsProps) {
+	const copy = useInterfaceText().text.slideSettings;
 	return (
-		<Field label="Items">
+		<Field label={copy.items}>
 			<div className="space-y-2">
 				{(slide.rankingItems ?? []).map((item, itemIndex) => (
 					<div key={item.id} className="flex items-center gap-1.5">
 						<input
 							className="input flex-1"
-							placeholder={`Item ${itemIndex + 1}`}
+							placeholder={fillText(copy.item, { number: itemIndex + 1 })}
 							maxLength={SLIDE_ITEM_TEXT_MAX_LENGTH}
 							value={item.text}
 							onChange={(event) => {
@@ -1755,7 +1802,7 @@ function RankingItemFields({ slide, onUpdate }: SlideSettingsProps) {
 								next[itemIndex] = { ...next[itemIndex], text: event.target.value };
 								onUpdate({ rankingItems: next });
 							}}
-							aria-label={`Item ${itemIndex + 1}`}
+							aria-label={fillText(copy.item, { number: itemIndex + 1 })}
 						/>
 						{/* Two items is the floor — one item is not an ordering. */}
 						{(slide.rankingItems?.length ?? 0) > 2 && (
@@ -1766,7 +1813,7 @@ function RankingItemFields({ slide, onUpdate }: SlideSettingsProps) {
 									);
 									onUpdate({ rankingItems: next });
 								}}
-								label={`Remove item ${itemIndex + 1}`}
+								label={fillText(copy.removeItem, { number: itemIndex + 1 })}
 							/>
 						)}
 					</div>
@@ -1779,9 +1826,9 @@ function RankingItemFields({ slide, onUpdate }: SlideSettingsProps) {
 							rankingItems: [...current, { id: crypto.randomUUID(), text: "" }],
 						});
 					}}
-					label="Add item"
+					label={copy.addItem}
 					disabled={(slide.rankingItems ?? []).length >= RANKING_ITEM_LIMIT}
-					disabledLabel={`Max ${RANKING_ITEM_LIMIT} items`}
+					disabledLabel={fillText(copy.itemLimit, { limit: RANKING_ITEM_LIMIT })}
 				/>
 			</div>
 		</Field>
@@ -1790,14 +1837,20 @@ function RankingItemFields({ slide, onUpdate }: SlideSettingsProps) {
 
 /** REQ045 — what the hundred-point budget gets split across. */
 function PointsItemFields({ slide, onUpdate }: SlideSettingsProps) {
+	const { text, language } = useInterfaceText();
+	const copy = text.slideSettings;
 	return (
-		<Field label={`Items — ${POINTS_BUDGET} points to split`}>
+		<Field
+			label={fillText(copy.pointsItems, {
+				budget: formatNumber(language, POINTS_BUDGET),
+			})}
+		>
 			<div className="space-y-2">
 				{(slide.pointsItems ?? []).map((item, itemIndex) => (
 					<div key={item.id} className="flex items-center gap-1.5">
 						<input
 							className="input flex-1"
-							placeholder={`Item ${itemIndex + 1}`}
+							placeholder={fillText(copy.item, { number: itemIndex + 1 })}
 							maxLength={SLIDE_ITEM_TEXT_MAX_LENGTH}
 							value={item.text}
 							onChange={(event) => {
@@ -1805,7 +1858,7 @@ function PointsItemFields({ slide, onUpdate }: SlideSettingsProps) {
 								next[itemIndex] = { ...next[itemIndex], text: event.target.value };
 								onUpdate({ pointsItems: next });
 							}}
-							aria-label={`Item ${itemIndex + 1}`}
+							aria-label={fillText(copy.item, { number: itemIndex + 1 })}
 						/>
 						{/* Two items is the floor — with one, the whole budget has nowhere
 						    else to go, so nothing is traded off. */}
@@ -1817,7 +1870,7 @@ function PointsItemFields({ slide, onUpdate }: SlideSettingsProps) {
 									);
 									onUpdate({ pointsItems: next });
 								}}
-								label={`Remove item ${itemIndex + 1}`}
+								label={fillText(copy.removeItem, { number: itemIndex + 1 })}
 							/>
 						)}
 					</div>
@@ -1830,9 +1883,9 @@ function PointsItemFields({ slide, onUpdate }: SlideSettingsProps) {
 							pointsItems: [...current, { id: crypto.randomUUID(), text: "" }],
 						});
 					}}
-					label="Add item"
+					label={copy.addItem}
 					disabled={(slide.pointsItems ?? []).length >= POINTS_ITEM_LIMIT}
-					disabledLabel={`Max ${POINTS_ITEM_LIMIT} items`}
+					disabledLabel={fillText(copy.itemLimit, { limit: POINTS_ITEM_LIMIT })}
 				/>
 			</div>
 		</Field>
@@ -1842,15 +1895,16 @@ function PointsItemFields({ slide, onUpdate }: SlideSettingsProps) {
 /** REQ047–REQ050 — what is placed on the field, and what its two axes mean. */
 function GridFields({ slide, onUpdate }: SlideSettingsProps) {
 	const { xAxis, yAxis } = gridAxesFor(slide);
+	const copy = useInterfaceText().text.slideSettings;
 	return (
 		<>
-			<Field label="Items">
+			<Field label={copy.items}>
 				<div className="space-y-2">
 					{(slide.gridItems ?? []).map((item, itemIndex) => (
 						<div key={item.id} className="flex items-center gap-1.5">
 							<input
 								className="input flex-1"
-								placeholder={`Item ${itemIndex + 1}`}
+								placeholder={fillText(copy.item, { number: itemIndex + 1 })}
 								maxLength={SLIDE_ITEM_TEXT_MAX_LENGTH}
 								value={item.text}
 								onChange={(event) => {
@@ -1861,7 +1915,7 @@ function GridFields({ slide, onUpdate }: SlideSettingsProps) {
 									};
 									onUpdate({ gridItems: next });
 								}}
-								aria-label={`Item ${itemIndex + 1}`}
+								aria-label={fillText(copy.item, { number: itemIndex + 1 })}
 							/>
 							{/* One item is still a grid — unlike a ranking, each item is
 							    judged on its own — so the floor is one. */}
@@ -1873,7 +1927,7 @@ function GridFields({ slide, onUpdate }: SlideSettingsProps) {
 										);
 										onUpdate({ gridItems: next });
 									}}
-									label={`Remove item ${itemIndex + 1}`}
+									label={fillText(copy.removeItem, { number: itemIndex + 1 })}
 								/>
 							)}
 						</div>
@@ -1886,34 +1940,34 @@ function GridFields({ slide, onUpdate }: SlideSettingsProps) {
 								gridItems: [...current, { id: crypto.randomUUID(), text: "" }],
 							});
 						}}
-						label="Add item"
+						label={copy.addItem}
 						disabled={(slide.gridItems ?? []).length >= GRID_ITEM_LIMIT}
-						disabledLabel={`Max ${GRID_ITEM_LIMIT} items`}
+						disabledLabel={fillText(copy.itemLimit, { limit: GRID_ITEM_LIMIT })}
 					/>
 				</div>
 			</Field>
 			{/* REQ050 */}
 			<Toggle
-				label="Allow skipping items"
+				label={copy.allowSkippingItems}
 				checked={slide.gridAllowSkip ?? false}
 				onChange={(checked) => onUpdate({ gridAllowSkip: checked })}
 			/>
-			<Field label="Horizontal axis">
+			<Field label={copy.horizontalAxis}>
 				<GridAxisFields
 					axis={xAxis}
 					onChange={(changes) => onUpdate({ gridXAxis: { ...xAxis, ...changes } })}
-					titlePlaceholder="e.g. Effort"
-					lowPlaceholder="e.g. Low effort"
-					highPlaceholder="e.g. High effort"
+					titlePlaceholder={copy.effortExample}
+					lowPlaceholder={copy.lowEffortExample}
+					highPlaceholder={copy.highEffortExample}
 				/>
 			</Field>
-			<Field label="Vertical axis">
+			<Field label={copy.verticalAxis}>
 				<GridAxisFields
 					axis={yAxis}
 					onChange={(changes) => onUpdate({ gridYAxis: { ...yAxis, ...changes } })}
-					titlePlaceholder="e.g. Impact"
-					lowPlaceholder="e.g. Low impact"
-					highPlaceholder="e.g. High impact"
+					titlePlaceholder={copy.impactExample}
+					lowPlaceholder={copy.lowImpactExample}
+					highPlaceholder={copy.highImpactExample}
 				/>
 			</Field>
 		</>
@@ -1923,8 +1977,10 @@ function GridFields({ slide, onUpdate }: SlideSettingsProps) {
 /** REQ061 — the typed questions one participant fills in and sends at once. */
 function FormFields({ slide, onUpdate }: SlideSettingsProps) {
 	const fields = slide.formFields ?? [];
+	const { text } = useInterfaceText();
+	const copy = text.slideSettings;
 	return (
-		<Field label="Fields">
+		<Field label={copy.fields}>
 			<div className="space-y-2.5">
 				{fields.map((field, fieldIndex) => {
 					const updateField = (changes: Partial<FormFieldInput>) => {
@@ -1941,11 +1997,11 @@ function FormFields({ slide, onUpdate }: SlideSettingsProps) {
 							<div className="flex items-center gap-1.5">
 								<input
 									className="input flex-1"
-									placeholder={`Field ${fieldIndex + 1}`}
+									placeholder={fillText(copy.field, { number: fieldIndex + 1 })}
 									maxLength={SLIDE_ITEM_TEXT_MAX_LENGTH}
 									value={field.label ?? ""}
 									onChange={(event) => updateField({ label: event.target.value })}
-									aria-label={`Field ${fieldIndex + 1} label`}
+									aria-label={fillText(copy.fieldLabelName, { number: fieldIndex + 1 })}
 								/>
 								{/* One field is still a form — a signup that only wants an
 								    address is a real slide — so there is no floor to keep. */}
@@ -1957,7 +2013,7 @@ function FormFields({ slide, onUpdate }: SlideSettingsProps) {
 											),
 										})
 									}
-									label={`Remove field ${fieldIndex + 1}`}
+									label={fillText(copy.removeField, { number: fieldIndex + 1 })}
 								/>
 							</div>
 							<div className="flex flex-wrap items-center gap-2">
@@ -1976,8 +2032,8 @@ function FormFields({ slide, onUpdate }: SlideSettingsProps) {
 													: fieldOptions,
 										})
 									}
-									options={FORM_FIELD_TYPE_OPTIONS}
-									ariaLabel={`Field ${fieldIndex + 1} type`}
+									options={formFieldTypeOptions(text)}
+									ariaLabel={fillText(copy.fieldTypeName, { number: fieldIndex + 1 })}
 								/>
 								<label className="flex items-center gap-1.5 text-xs text-text-muted">
 									<input
@@ -1987,7 +2043,7 @@ function FormFields({ slide, onUpdate }: SlideSettingsProps) {
 											updateField({ required: event.target.checked })
 										}
 									/>
-									Required
+									{copy.required}
 								</label>
 							</div>
 							{field.type === "choice" && (
@@ -1996,7 +2052,7 @@ function FormFields({ slide, onUpdate }: SlideSettingsProps) {
 										<div key={option.id} className="flex items-center gap-1.5">
 											<input
 												className="input flex-1"
-												placeholder={`Option ${optionIndex + 1}`}
+												placeholder={fillText(copy.option, { number: optionIndex + 1 })}
 												maxLength={SLIDE_ITEM_TEXT_MAX_LENGTH}
 												value={option.text}
 												onChange={(event) => {
@@ -2007,7 +2063,10 @@ function FormFields({ slide, onUpdate }: SlideSettingsProps) {
 													};
 													updateField({ options: nextOptions });
 												}}
-												aria-label={`Field ${fieldIndex + 1} option ${optionIndex + 1}`}
+												aria-label={fillText(copy.fieldOptionName, {
+													field: fieldIndex + 1,
+													number: optionIndex + 1,
+												})}
 											/>
 											{/* Two options is the floor — with one there is nothing
 											    to choose between. */}
@@ -2020,7 +2079,7 @@ function FormFields({ slide, onUpdate }: SlideSettingsProps) {
 															),
 														})
 													}
-													label={`Remove option ${optionIndex + 1}`}
+													label={fillText(copy.removeOption, { number: optionIndex + 1 })}
 												/>
 											)}
 										</div>
@@ -2032,9 +2091,9 @@ function FormFields({ slide, onUpdate }: SlideSettingsProps) {
 												options: [...fieldOptions, newFormFieldOption()],
 											});
 										}}
-										label="Add option"
+										label={copy.addOption}
 										disabled={fieldOptions.length >= FORM_FIELD_OPTION_LIMIT}
-										disabledLabel={`Max ${FORM_FIELD_OPTION_LIMIT} options`}
+										disabledLabel={fillText(copy.optionLimit, { limit: FORM_FIELD_OPTION_LIMIT })}
 									/>
 								</div>
 							)}
@@ -2046,9 +2105,9 @@ function FormFields({ slide, onUpdate }: SlideSettingsProps) {
 						if (fields.length >= FORM_FIELD_LIMIT) return;
 						onUpdate({ formFields: [...fields, newFormField()] });
 					}}
-					label="Add field"
+					label={copy.addField}
 					disabled={fields.length >= FORM_FIELD_LIMIT}
-					disabledLabel={`Max ${FORM_FIELD_LIMIT} fields`}
+					disabledLabel={fillText(copy.fieldLimit, { limit: FORM_FIELD_LIMIT })}
 				/>
 			</div>
 		</Field>
@@ -2069,8 +2128,10 @@ function GuessFields({ slide, onUpdate }: SlideSettingsProps) {
 		onUpdate({ guessRange: { ...range, ...changes } });
 	const reference = guessReferenceFor(slide);
 	const accepted = correctGuessRangeFor(reference);
-	const reason =
-		"Turn on a correct answer first — a tolerance around no number accepts nothing.";
+	const { text, language } = useInterfaceText();
+	const copy = text.slideSettings;
+	const number = (value: number) => formatNumber(language, value);
+	const reason = copy.guessReferenceOff;
 	// A reference nobody can reach is worse than no reference: the slide claims a
 	// correct answer while every participant is scored wrong forever. Said here,
 	// where it can be corrected, and refused at save (CreatePage) so it cannot
@@ -2080,7 +2141,7 @@ function GuessFields({ slide, onUpdate }: SlideSettingsProps) {
 	return (
 		<>
 			<div className="grid grid-cols-3 gap-2">
-				<Field label="Lowest">
+				<Field label={copy.lowest}>
 					<input
 						type="number"
 						className="input"
@@ -2090,7 +2151,7 @@ function GuessFields({ slide, onUpdate }: SlideSettingsProps) {
 						}
 					/>
 				</Field>
-				<Field label="Highest">
+				<Field label={copy.highest}>
 					<input
 						type="number"
 						className="input"
@@ -2100,7 +2161,7 @@ function GuessFields({ slide, onUpdate }: SlideSettingsProps) {
 						}
 					/>
 				</Field>
-				<Field label="Step">
+				<Field label={copy.step}>
 					<input
 						type="number"
 						className="input"
@@ -2118,8 +2179,11 @@ function GuessFields({ slide, onUpdate }: SlideSettingsProps) {
 			</div>
 			<p className="text-xs text-text-muted">
 				{usable
-					? `${stepCount} selectable value${stepCount === 1 ? "" : "s"}, ${range.min} to ${range.max}.`
-					: "The highest value must be above the lowest, and the step no wider than the range."}
+					? pluralText(language, stepCount, copy.selectableValues, {
+							min: number(range.min),
+							max: number(range.max),
+						})
+					: copy.guessRangeUnusable}
 			</p>
 
 			{/* REQ041/REQ042. The reference is optional, and its absence is a real
@@ -2127,7 +2191,7 @@ function GuessFields({ slide, onUpdate }: SlideSettingsProps) {
 			    correctness at all — so the toggle states it rather than leaving an
 			    empty field to be read as "zero is correct". */}
 			<Toggle
-				label="This question has a correct answer"
+				label={copy.hasCorrectAnswer}
 				checked={reference !== null}
 				onChange={(checked) =>
 					onUpdate({
@@ -2147,7 +2211,7 @@ function GuessFields({ slide, onUpdate }: SlideSettingsProps) {
 			    disabled and with the reason spelled out, rather than disappearing
 			    and leaving the setting undiscoverable. */}
 			<div className="grid grid-cols-2 gap-2">
-				<Field label="Correct number">
+				<Field label={copy.correctNumber}>
 					<input
 						type="number"
 						className="input"
@@ -2164,7 +2228,7 @@ function GuessFields({ slide, onUpdate }: SlideSettingsProps) {
 						}
 					/>
 				</Field>
-				<Field label="Tolerance (±)">
+				<Field label={copy.tolerance}>
 					<input
 						type="number"
 						className="input"
@@ -2191,13 +2255,20 @@ function GuessFields({ slide, onUpdate }: SlideSettingsProps) {
 					? reason
 					: reachable
 						? accepted.min === accepted.max
-							? `Only ${accepted.min} counts as correct.`
-							: `${accepted.min} to ${accepted.max} counts as correct.`
-						: `No selectable value falls inside ${
-								accepted.min === accepted.max
-									? accepted.min
-									: `${accepted.min} to ${accepted.max}`
-							} — nobody could ever be right. Pick a number the slide offers, or widen the tolerance.`}
+							? fillText(copy.onlyCorrect, { value: number(accepted.min) })
+							: fillText(copy.rangeCorrect, {
+									min: number(accepted.min),
+									max: number(accepted.max),
+								})
+						: fillText(copy.guessUnreachable, {
+								range:
+									accepted.min === accepted.max
+										? number(accepted.min)
+										: fillText(copy.rangeSpan, {
+												min: number(accepted.min),
+												max: number(accepted.max),
+											}),
+							})}
 			</p>
 		</>
 	);
@@ -2219,8 +2290,8 @@ function PinFields({
 	// resolves a usable one, so the picker reads the raw field to keep drawing
 	// the box while the pointer is down.
 	const drawn = (slide.pinArea ?? null) as PinArea | null;
-	const reason =
-		"Turn on a correct area first — there is nothing to place without one.";
+	const copy = useInterfaceText().text.slideSettings;
+	const reason = copy.pinAreaOff;
 	const visibility = effectiveResultsVisibility(
 		slide.resultsVisibility,
 		deckResultsVisibility,
@@ -2242,7 +2313,7 @@ function PinFields({
 
 	return (
 		<>
-			<Field label="Image URL">
+			<Field label={copy.imageUrl}>
 				<input
 					className="input"
 					placeholder="https://..."
@@ -2251,10 +2322,10 @@ function PinFields({
 				/>
 			</Field>
 			<div {...accessibilityFieldMarker({ scope: "slide", name: "mediaAlt" })}>
-				<Field label="Alt text">
+				<Field label={copy.altText}>
 					<input
 						className="input"
-						placeholder="Describe the image"
+						placeholder={copy.describeImage}
 						value={slide.mediaAlt ?? ""}
 						onChange={(event) => onUpdate({ mediaAlt: event.target.value })}
 					/>
@@ -2265,7 +2336,7 @@ function PinFields({
 			    it can be fixed, and refused at save (CreatePage) so it cannot ship. */}
 			{!image.url && (
 				<p className="rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
-					No image yet — participants cannot answer this slide.
+					{copy.noPinImage}
 				</p>
 			)}
 
@@ -2274,7 +2345,7 @@ function PinFields({
 			    toggle states it rather than leaving four empty fields to be read as
 			    "the top-left corner is correct". */}
 			<Toggle
-				label="This question has a correct area"
+				label={copy.hasCorrectArea}
 				checked={drawn !== null}
 				onChange={(checked) =>
 					// Turning a target on also authors the reveal it needs
@@ -2295,35 +2366,35 @@ function PinFields({
 				<PinCanvas
 					image={image}
 					area={drawn}
-					areaLabel="Correct area"
+					areaLabel={copy.correctArea}
 					onDragArea={(next) => onUpdate({ pinArea: next })}
 					className="mx-auto"
 				/>
 			)}
 			<div className="grid grid-cols-2 gap-2">
 				<PinAreaField
-					label="Left (%)"
+					label={copy.areaLeft}
 					value={drawn?.x ?? 0}
 					onChange={(next) => moveCorner({ x: next })}
 					disabled={drawn === null}
 					disabledReason={reason}
 				/>
 				<PinAreaField
-					label="Top (%)"
+					label={copy.areaTop}
 					value={drawn?.y ?? 0}
 					onChange={(next) => moveCorner({ y: next })}
 					disabled={drawn === null}
 					disabledReason={reason}
 				/>
 				<PinAreaField
-					label="Width (%)"
+					label={copy.areaWidth}
 					value={drawn?.width ?? 0}
 					onChange={(next) => moveCorner({ width: Math.max(1, next) })}
 					disabled={drawn === null}
 					disabledReason={reason}
 				/>
 				<PinAreaField
-					label="Height (%)"
+					label={copy.areaHeight}
 					value={drawn?.height ?? 0}
 					onChange={(next) => moveCorner({ height: Math.max(1, next) })}
 					disabled={drawn === null}
@@ -2334,18 +2405,14 @@ function PinFields({
 			    nobody can reach would make "how many were inside?" a number about the
 			    image rather than about the room. */}
 			{drawn !== null && area === null && (
-				<p className="text-xs text-error">
-					This area runs off the image — keep left plus width, and top plus
-					height, inside 100%.
-				</p>
+				<p className="text-xs text-error">{copy.pinAreaOffImage}</p>
 			)}
 			{/* When the room learns where the target is. The reveal is the
 			    results-visibility setting this slide already has (REQ102) — a pin
 			    slide gets no second reveal switch. */}
 			{drawn !== null && visibility === "instant" && (
 				<p className="text-xs text-warning">
-					Results are instant, so the target is on screen while participants
-					aim. Set the reveal to "On click" to hold it back.
+					{fillText(copy.pinAreaInstant, { onClick: copy.visibilityOnClick })}
 				</p>
 			)}
 		</>
@@ -2369,16 +2436,25 @@ function ScoringGroup({
 	// The editor remounts per slide (`key={activeSlide.id}`), so this cannot leak
 	// onto the next slide.
 	const [customAudioOpen, setCustomAudioOpen] = useState(false);
+	const { text, language } = useInterfaceText();
+	const copy = text.slideSettings;
+	const maxPoints = formatNumber(language, QUIZ_MAX_POINTS);
+	const secondsShort = fillText(copy.secondsShort, {
+		seconds: formatNumber(language, seconds),
+	});
 	return (
 		<SettingsGroup
 			title={title}
 			consequence={
 				seconds === 0
-					? "No countdown — every correct answer scores the same."
-					: `${seconds}s to answer; sooner scores more, up to ${QUIZ_MAX_POINTS}.`
+					? copy.noCountdown
+					: fillText(copy.countdownConsequence, {
+							seconds: formatNumber(language, seconds),
+							points: maxPoints,
+						})
 			}
 			departed={departure.departed}
-			resetLabel="Put the countdown back to 30 seconds"
+			resetLabel={fillText(copy.resetCountdown, { seconds: 30 })}
 			onReset={() => onUpdate(departure.reset)}
 		>
 			{/* A time limit needs a shared instant to count from, and only a
@@ -2387,20 +2463,22 @@ function ScoringGroup({
 			    say plainly that what they type here will not fire. */}
 			{deckMode === "survey" && (
 				<p className="rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
-					Not in effect: this deck is audience-paced, so the countdown never
-					runs and every correct answer scores the full {QUIZ_MAX_POINTS}{" "}
-					points.
+					{fillText(copy.countdownNotInEffect, { points: maxPoints })}
 				</p>
 			)}
 			{/* The number rests as a row, because the line above already says what
 			    it does: the value is legible without opening anything, which is what
 			    the column's height buys (REQ155). */}
 			<DisclosureRow
-				label="Time limit"
-				value={seconds === 0 ? "Off" : `${seconds}s`}
-				openHint="Open the countdown"
+				label={copy.timeLimit}
+				value={seconds === 0 ? copy.off : secondsShort}
+				openHint={copy.openCountdown}
 			>
-				<QuizTimeLimitField seconds={seconds} onUpdate={onUpdate} />
+				<QuizTimeLimitField
+					seconds={seconds}
+					onUpdate={onUpdate}
+					label={copy.timeLimitSeconds}
+				/>
 			</DisclosureRow>
 			{/* REQ058 — what the presenter's screen plays while the question is
 			    open. It rests as a row, like the picture behind a slide: whether
@@ -2409,9 +2487,9 @@ function ScoringGroup({
 			    throws away something authored — so the way to no cue is its own
 			    Remove. */}
 			<DisclosureRow
-				label="Audio cue"
-				value={quizAudioCueRowValue(slide)}
-				openHint="Open the track played while the question is open"
+				label={copy.audioCue}
+				value={quizAudioCueRowValue(slide, text)}
+				openHint={copy.openAudioCue}
 			>
 				<QuizAudioCueFields
 					slide={slide}
@@ -2425,8 +2503,9 @@ function ScoringGroup({
 	);
 }
 
-/** The words over the quiz countdown's number box, and its accessible name. */
-export const QUIZ_TIME_LIMIT_LABEL = "Time limit (seconds)";
+/** The words over the quiz countdown's number box, and its accessible name, in English. */
+export const QUIZ_TIME_LIMIT_LABEL =
+	ENGLISH_INTERFACE_TEXT.slideSettings.timeLimitSeconds;
 
 /**
  * The quiz countdown's number box — {@link ScoringGroup}'s open state.
@@ -2439,15 +2518,18 @@ export const QUIZ_TIME_LIMIT_LABEL = "Time limit (seconds)";
 export function QuizTimeLimitField({
 	seconds,
 	onUpdate,
+	label = QUIZ_TIME_LIMIT_LABEL,
 }: {
 	seconds: number;
 	onUpdate: SlideSettingsProps["onUpdate"];
+	/** The caption in the interface language (REQ248); English by default. */
+	label?: string;
 }) {
 	return (
-		<Field label={QUIZ_TIME_LIMIT_LABEL} inline>
+		<Field label={label} inline>
 			<input
 				type="number"
-				aria-label={QUIZ_TIME_LIMIT_LABEL}
+				aria-label={label}
 				className="input w-20"
 				value={seconds}
 				onChange={(event) => {
@@ -2494,9 +2576,16 @@ export function QuizAudioCueFields({
 	customOpen: boolean;
 	onCustomOpenChange: (customOpen: boolean) => void;
 }) {
+	const { text } = useInterfaceText();
+	const copy = text.slideSettings;
 	const authoredAudio = slide.quizAudioUrl ?? "";
 	const choice = quizAudioChoiceFor(authoredAudio, customOpen);
-	const audioNote = quizAudioCueAuthoringNote(slide, deckMode, choice === "custom");
+	const audioNote = quizAudioCueAuthoringNote(
+		slide,
+		deckMode,
+		choice === "custom",
+		text,
+	);
 	const preview = useQuizAudioPreview();
 	const previewReasonId = useId();
 	const selectOption = (option: QuizAudioOption) => {
@@ -2505,32 +2594,36 @@ export function QuizAudioCueFields({
 	};
 	return (
 		<>
-			<Field label="Audio track">
+			<Field label={copy.audioTrack}>
 				<div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1.5 gap-y-1.5">
 					{QUIZ_AUDIO_PRESETS.map((preset) => {
 						const previewState = preview.stateOf(preset.id);
+						const presetLabel = quizAudioPresetLabel(preset, text);
 						const { reason } = quizAudioPreviewControlFor(
-							preset.label,
+							presetLabel,
 							previewState,
+							text,
 						);
 						const reasonId = `${previewReasonId}-${preset.id}`;
 						return (
 							<Fragment key={preset.id}>
 								<ChoiceCards<QuizAudioChoice>
-									ariaLabel={`Audio track: ${preset.label}`}
+									ariaLabel={fillText(copy.audioTrackNamed, {
+										track: presetLabel,
+									})}
 									variant="tile"
 									value={choice}
 									onChange={() => selectOption(preset.id)}
 									options={[
 										{
 											value: preset.id,
-											label: preset.label,
+											label: presetLabel,
 											icon: <Music2 size={13} />,
 										},
 									]}
 								/>
 								<QuizAudioPreviewButton
-									trackLabel={preset.label}
+									trackLabel={presetLabel}
 									state={previewState}
 									reasonId={reasonId}
 									onToggle={() => preview.toggle(preset)}
@@ -2544,22 +2637,28 @@ export function QuizAudioCueFields({
 						);
 					})}
 					<ChoiceCards<QuizAudioChoice>
-						ariaLabel="Audio track: Custom"
+						ariaLabel={fillText(copy.audioTrackNamed, {
+							track: copy.audioCustom,
+						})}
 						variant="tile"
 						value={choice}
 						onChange={() => selectOption("custom")}
 						options={[
-							{ value: "custom", label: "Custom", icon: <Link2 size={13} /> },
+							{
+								value: "custom",
+								label: copy.audioCustom,
+								icon: <Link2 size={13} />,
+							},
 						]}
 					/>
 				</div>
 			</Field>
 			{choice === "custom" && (
-				<Field label="Audio track URL">
+				<Field label={copy.audioTrackUrl}>
 					<input
 						className="input"
 						placeholder="https://..."
-						aria-label="Audio track URL"
+						aria-label={copy.audioTrackUrl}
 						maxLength={SLIDE_MEDIA_URL_MAX_LENGTH}
 						value={authoredAudio}
 						onChange={(event) => {
@@ -2585,13 +2684,11 @@ export function QuizAudioCueFields({
 				}}
 				disabled={authoredAudio === ""}
 				title={
-					authoredAudio === ""
-						? "This question carries no audio cue."
-						: "Remove this question's audio cue."
+					authoredAudio === "" ? copy.noAudioCue : copy.removeAudioCueTitle
 				}
 			>
 				<X size={12} />
-				Remove audio cue
+				{copy.removeAudioCue}
 			</button>
 		</>
 	);
@@ -2626,6 +2723,8 @@ function ResultsGroup({
 	const overridesDeck =
 		(slide.resultsVisibility ?? "inherit") !==
 		defaultResultsVisibilityFor(slide, deckResultsVisibility);
+	const { text, language } = useInterfaceText();
+	const copy = text.slideSettings;
 	return (
 		<SettingsGroup
 			title={title}
@@ -2633,21 +2732,22 @@ function ResultsGroup({
 				slide.resultsVisibility,
 				deckResultsVisibility,
 				slide.type,
+				text,
 			)}
 			departed={departure.departed}
-			departureLabel={overridesDeck ? "Overrides deck" : "Changed"}
+			departureLabel={overridesDeck ? copy.overridesDeck : copy.changed}
 			// A reveal closed further than this slide's default is marked and not
 			// undone from here: the reset only ever tightens, so re-opening a slide
 			// is the reveal's own control above (the button says so).
 			canReset={Object.keys(departure.reset).length > 0}
-			resetUnavailableReason="This slide's reveal is tighter than its default — re-open it with the Reveal control above."
-			resetLabel="Put the reveal and the chart back to their defaults"
+			resetUnavailableReason={copy.resetRevealUnavailable}
+			resetLabel={copy.resetResults}
 			onReset={() => onUpdate(departure.reset)}
 		>
 			{slideHasResults(slide.type) && (
-				<Field label="Reveal">
+				<Field label={copy.reveal}>
 					<ChoiceCards<SlideResultsVisibility>
-						ariaLabel="When results appear on the shared screen"
+						ariaLabel={copy.revealName}
 						variant="tile"
 						columns={2}
 						value={slide.resultsVisibility ?? "inherit"}
@@ -2655,14 +2755,16 @@ function ResultsGroup({
 						options={[
 							{
 								value: "inherit",
-								label: `Deck (${RESULTS_VISIBILITY_LABEL[deckResultsVisibility]})`,
+								label: fillText(copy.deckInherit, {
+									mode: resultsVisibilityLabels(text)[deckResultsVisibility],
+								}),
 								icon: <Settings2 size={16} />,
 							},
 							// The descriptor's own entries, minus the sentence each carries:
 							// what a mode does is the group's one consequence line, said
 							// once about the mode in force rather than four times about the
 							// three that are not (REQ155).
-							...RESULTS_VISIBILITY_OPTIONS.map((option) => ({
+							...resultsVisibilityOptions(text).map((option) => ({
 								...option,
 								description: undefined,
 							})),
@@ -2672,9 +2774,9 @@ function ResultsGroup({
 			)}
 			{isChoice && (
 				<>
-					<Field label="Chart">
+					<Field label={copy.chart}>
 						<ChoiceCards
-							ariaLabel="Result style"
+							ariaLabel={copy.chartName}
 							variant="tile"
 							columns={2}
 							value={slide.mcDisplayStyle ?? "bars"}
@@ -2682,45 +2784,45 @@ function ResultsGroup({
 								onUpdate({ mcDisplayStyle: value });
 								onPreviewResults();
 							}}
-							options={MC_DISPLAY_STYLE_OPTIONS.map((option) => ({
+							options={mcDisplayStyleOptions(text).map((option) => ({
 								...option,
 								description: undefined,
 							}))}
 						/>
 					</Field>
-					<Field label="Values" inline>
+					<Field label={copy.values} inline>
 						<Segmented<McValueDisplay>
 							compact
-							ariaLabel="Result values"
+							ariaLabel={copy.valuesName}
 							value={slide.mcValueDisplay ?? "both"}
 							onChange={(value) => {
 								onUpdate({ mcValueDisplay: value });
 								onPreviewResults();
 							}}
-							options={MC_VALUE_DISPLAY_OPTIONS}
+							options={mcValueDisplayOptions(text)}
 						/>
 					</Field>
 				</>
 			)}
 			{slide.type === "open-text" && (
-				<Field label="Layout">
+				<Field label={copy.layout}>
 					<Segmented
-						ariaLabel="Result layout"
+						ariaLabel={copy.resultLayoutName}
 						value={slide.openTextLayout ?? "speech-bubbles"}
 						onChange={(value) => {
 							onUpdate({ openTextLayout: value });
 							onPreviewResults();
 						}}
 						options={[
-							{ value: "speech-bubbles", label: "Bubbles" },
-							{ value: "grid", label: "Grid" },
+							{ value: "speech-bubbles", label: copy.bubbles },
+							{ value: "grid", label: copy.grid },
 						]}
 					/>
 				</Field>
 			)}
 			{slide.type === "leaderboard" && (
 				<>
-					<Field label="Places shown">
+					<Field label={copy.placesShown}>
 						<input
 							type="number"
 							className="input w-24"
@@ -2746,10 +2848,8 @@ function ResultsGroup({
 					    rather than left for the author to discover on the projector. */}
 					<p className="text-xs text-text-muted">
 						{deckQuizCount === 0
-							? "This deck has no quiz slides yet, so the board will be empty."
-							: `Ranking the ${deckQuizCount} quiz question${
-									deckQuizCount === 1 ? "" : "s"
-								} in this deck.`}
+							? copy.noQuizSlides
+							: pluralText(language, deckQuizCount, copy.rankingQuizQuestions)}
 					</p>
 				</>
 			)}
@@ -2774,6 +2874,8 @@ function StyleGroup({
 	// Which colour scheme the organizer is authoring in — the chips below show
 	// what is inherited *now*, and a deck theme carries both.
 	const { resolvedTheme } = useTheme();
+	const { text } = useInterfaceText();
+	const copy = text.slideSettings;
 	const inheritedTokens = deckThemeAppearance(deck)[resolvedTheme].tokens;
 	const inherited = {
 		canvas: inheritedTokens["--color-surface"] ?? "",
@@ -2785,36 +2887,32 @@ function StyleGroup({
 
 	return (
 		<SettingsGroup
-			title="Style"
-			consequence={
-				departure.departed
-					? "This slide departs from the deck's theme; anything left alone follows it."
-					: "Following the deck's theme."
-			}
+			title={copy.style}
+			consequence={departure.departed ? copy.departsTheme : copy.followsTheme}
 			departed={departure.departed}
-			departureLabel="Off theme"
-			resetLabel="Put this slide back in the deck's theme"
+			departureLabel={copy.offTheme}
+			resetLabel={copy.resetStyle}
 			onReset={() => onUpdate(departure.reset)}
 		>
-			<Field label="Layout" inline>
+			<Field label={copy.layout} inline>
 				<Segmented<SlideLayout>
 					compact
-					ariaLabel="Where this slide's elements sit"
+					ariaLabel={copy.slideLayoutName}
 					value={slide.layout ?? "inherit"}
 					onChange={(layout) => onUpdate({ layout })}
-					options={slideLayoutOptions()}
+					options={slideLayoutOptions(text)}
 				/>
 			</Field>
 			{/* The four fields here an accessibility finding can name (REQ132) are
 			    marked, so a finding brings up the one that clears it. */}
 			<div {...accessibilityFieldMarker({ scope: "slide", name: "textSize" })}>
-				<Field label="Text size" inline>
+				<Field label={copy.textSize} inline>
 					<Segmented<SlideTextSize>
 						compact
-						ariaLabel="Size of this slide's heading and body text"
+						ariaLabel={copy.textSizeName}
 						value={slideTextSizeFor(slide)}
 						onChange={(size) => onUpdate({ textSize: size })}
-						options={SLIDE_TEXT_SIZE_OPTIONS}
+						options={slideTextSizeOptions(text)}
 					/>
 				</Field>
 			</div>
@@ -2822,44 +2920,46 @@ function StyleGroup({
 				<div {...accessibilityFieldMarker({ scope: "slide", name: "backgroundColor" })}>
 					<ColorField
 						collapsible
-						label="Background"
+						label={copy.background}
 						placeholder={inherited.canvas}
 						value={slide.backgroundColor ?? ""}
-						unsetNote="Following the deck's theme."
+						unsetNote={copy.followsTheme}
 						onChange={(backgroundColor) => onUpdate({ backgroundColor })}
 					/>
 				</div>
 				<div {...accessibilityFieldMarker({ scope: "slide", name: "textColor" })}>
 					<ColorField
 						collapsible
-						label="Text"
+						label={copy.textColour}
 						placeholder={inherited.text}
 						value={slide.textColor ?? ""}
-						unsetNote="Following the deck's theme."
+						unsetNote={copy.followsTheme}
 						onChange={(textColor) => onUpdate({ textColor })}
 					/>
 				</div>
 				<ColorField
 					collapsible
-					label="Chart"
+					label={copy.chartColour}
 					hint={
 						hasResults
 							? undefined
-							: "This slide draws no chart, so nothing reads this yet."
+							: copy.noChartHint
 					}
 					placeholder={inherited.chart}
 					value={slide.chartColor ?? ""}
-					unsetNote="Following the deck's theme."
+					unsetNote={copy.followsTheme}
 					onChange={(chartColor) => onUpdate({ chartColor })}
 				/>
 			</div>
 			<div {...accessibilityFieldMarker({ scope: "slide", name: "backgroundImage" })}>
 				<DisclosureRow
-					label="Background image"
-					value={slideAppearanceFor(slide).backgroundImage === "" ? "None" : "Set"}
-					openHint="Open the picture behind this slide"
+					label={copy.backgroundImage}
+					value={
+						slideAppearanceFor(slide).backgroundImage === "" ? copy.none : copy.set
+					}
+					openHint={copy.openBackgroundImage}
 				>
-					<Field label="Background image URL">
+					<Field label={copy.backgroundImageUrl}>
 						<input
 							className="input"
 							placeholder="https://..."
@@ -2874,8 +2974,7 @@ function StyleGroup({
 					{(slide.backgroundImage ?? "") !== "" &&
 						slideAppearanceFor(slide).backgroundImage === "" && (
 							<p className="text-xs text-warning">
-								That address can't be loaded as a picture — use an http(s) or
-								root-relative URL.
+								{copy.backgroundImageUnloadable}
 							</p>
 						)}
 					{/* The way back to no picture. It stands whether or not there is one to
@@ -2887,12 +2986,12 @@ function StyleGroup({
 						disabled={(slide.backgroundImage ?? "") === ""}
 						title={
 							(slide.backgroundImage ?? "") === ""
-								? "This slide carries no background image."
-								: "Remove this slide's background image."
+								? copy.noBackgroundImage
+								: copy.removeBackgroundImageTitle
 						}
 					>
 						<X size={12} />
-						Remove background image
+						{copy.removeBackgroundImage}
 					</button>
 				</DisclosureRow>
 			</div>

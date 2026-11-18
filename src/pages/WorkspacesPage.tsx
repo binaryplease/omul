@@ -7,6 +7,8 @@ import { workspaceRoleLabel } from "../components/WorkspaceRoles";
 import { AppMenu } from "../components/ui/AppMenu";
 import { LoadingState } from "../components/ui/Loading";
 import { useToast } from "../components/ui/Toast";
+import { useDocumentLanguage, useInterfaceText } from "../interface-language";
+import { fillText, formatDate } from "../interface-text";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
 import type { Workspace } from "../types";
@@ -31,8 +33,11 @@ export function WorkspacesPage({ go }: { go: (r: Route) => void }) {
 	const { addToast } = useToast();
 	const { data: session } = useSession();
 	const userId = session?.user?.id ?? null;
+	const { text, language } = useInterfaceText();
+	const words = text.workspaces;
 
-	usePageTitle("Workspaces");
+	usePageTitle(words.pageTitle);
+	useDocumentLanguage(language);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -60,13 +65,13 @@ export function WorkspacesPage({ go }: { go: (r: Route) => void }) {
 		try {
 			const created = await api.createWorkspace(trimmed);
 			setName("");
-			addToast(`“${created.name}” created — you are its owner`, "success");
+			addToast(fillText(words.created, { name: created.name }), "success");
 			go({ page: "workspace", id: created.id });
 		} catch (createError: unknown) {
 			addToast(
 				createError instanceof Error
 					? createError.message
-					: "Could not create that workspace",
+					: words.createFailed,
 				"error",
 			);
 		} finally {
@@ -89,22 +94,20 @@ export function WorkspacesPage({ go }: { go: (r: Route) => void }) {
 						onClick={() => go({ page: "home" })}
 					>
 						<ChevronLeft size={16} />
-						Back
+						{words.back}
 					</button>
 					<div className="flex items-center gap-3 mb-2">
 						<Building2 size={16} className="text-accent" />
 						<span className="font-mono text-sm text-text-muted tracking-wider uppercase">
-							workspaces
+							{words.eyebrow}
 						</span>
 					</div>
 					<h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-3">
-						Decks a <span className="text-accent-text">team</span> owns
+						{words.headingStart}
+						<span className="text-accent-text">{words.headingAccent}</span>
+						{words.headingEnd}
 					</h1>
-					<p className="text-text-muted max-w-xl">
-						A workspace owns its decks itself. Everybody in it can open, edit and
-						present every one of them, and removing somebody leaves the decks
-						exactly where they were — no deck belongs to one account.
-					</p>
+					<p className="text-text-muted max-w-xl">{words.intro}</p>
 				</header>
 
 				{/* Creating one sits above the list it adds to. Drawn signed
@@ -115,8 +118,8 @@ export function WorkspacesPage({ go }: { go: (r: Route) => void }) {
 						<input
 							className="input text-sm"
 							type="text"
-							placeholder="Name your workspace"
-							aria-label="Workspace name"
+							placeholder={words.namePlaceholder}
+							aria-label={words.workspaceName}
 							maxLength={WORKSPACE_NAME_MAX_LENGTH}
 							value={name}
 							disabled={!userId}
@@ -132,35 +135,25 @@ export function WorkspacesPage({ go }: { go: (r: Route) => void }) {
 							disabled={!userId || creating || !name.trim()}
 							title={
 								!userId
-									? "Create a workspace — sign in first"
+									? words.createSignedOut
 									: name.trim()
-										? "Create this workspace"
-										: "Create a workspace — give it a name first"
+										? words.createThis
+										: words.createNameFirst
 							}
 						>
 							<Plus size={14} />
-							{creating ? "Creating…" : "Create"}
+							{creating ? words.creating : words.create}
 						</button>
 					</div>
-					<p className="text-xs text-text-dim">
-						You become its owner: the only role that can rename it, delete it,
-						hand out the owner role, or move one of its decks back into a
-						personal account.
-					</p>
+					<p className="text-xs text-text-dim">{words.ownerNote}</p>
 				</div>
 
 				{loading ? (
 					<LoadingState />
 				) : !userId ? (
-					<EmptyState
-						title="Sign in to use workspaces"
-						body="A workspace is shared between accounts, so it needs one. Sign in from the top right and your workspaces appear here."
-					/>
+					<EmptyState title={words.signInTitle} body={words.signInBody} />
 				) : workspaces.length === 0 ? (
-					<EmptyState
-						title="You are not in a workspace yet"
-						body="Create one above, or ask somebody who has one to add you by the email address you signed up with."
-					/>
+					<EmptyState title={words.noneTitle} body={words.noneBody} />
 				) : (
 					<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
 						{workspaces.map((workspace) => (
@@ -181,10 +174,10 @@ export function WorkspacesPage({ go }: { go: (r: Route) => void }) {
 										{/* What this account may do here, in the same words the
 										    roster's picker chooses a role by. */}
 										<span className="text-accent-text">
-											{workspaceRoleLabel(workspace.role)}
+											{workspaceRoleLabel(workspace.role, text)}
 										</span>
 										<span>
-											{new Date(workspace.createdAt).toLocaleDateString()}
+											{formatDate(language, workspace.createdAt)}
 										</span>
 									</div>
 								</div>
