@@ -254,6 +254,7 @@ Prose outside the markers is preserved.
 | [REQ244.md](requirements/REQ244.md) | The editor offers a built-in set of slide backgrounds that a slide or a whole deck takes in one click, bundled with omul and legible under any text | Rendering & Theming | P2 | pending | BR152 |
 | [REQ245.md](requirements/REQ245.md) | A slide's body text can be edited directly on the editor canvas, as its question already can | Deck & Slides | P2 | pending | internal |
 | [REQ246.md](requirements/REQ246.md) | Account deletion requires the account's password whatever the session's age | Accounts & Workspaces | P1 | done | internal |
+| [REQ250.md](requirements/REQ250.md) | The server binds to an explicit host that defaults to loopback | Platform & Operations | P2 | pending | internal |
 
-_236 entries — one row per file in `requirements/`._
+_237 entries — one row per file in `requirements/`._
 <!-- index:end -->
