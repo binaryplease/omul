@@ -100,6 +100,11 @@
  * key or `## ` heading is a hard parse error, because the writer only emits the
  * ones above and would silently drop anything else on the next write.
  *
+ * A known heading with an empty or whitespace-only body parses as `""`, and an
+ * absent heading as `null` (`undefined` for the triage note). The writer emits
+ * `""` as the bare heading and omits `null`, so a rewrite keeps a bare heading
+ * and adds none that was absent.
+ *
  * Body sections are delimited by `## ` headings, so requirement prose must not
  * contain a line starting with `## `.
  */
@@ -142,7 +147,8 @@ export interface Requirement {
 	priority: string;
 	/** `BR042`, `BR042, BR116`, or `internal` — see `SOURCE_PATTERN`. */
 	source: string | null;
-	description: string;
+	/** `null` when the file has no `## Description` heading. */
+	description: string | null;
 	notes: string | null;
 	/** Append-only work log: what happened to this requirement, newest last. */
 	updates: string | null;
@@ -199,9 +205,13 @@ function yamlList(key: string, values: string[] | undefined): string[] {
 
 // ─── serialize ───────────────────────────────────────────────────────────────
 
-/** One `## Heading` block, or nothing when the field is empty. */
+/**
+ * One `## Heading` block: nothing for an absent field, the bare heading for an
+ * empty one.
+ */
 function section(heading: string, body: string | null | undefined): string[] {
-	if (!body) return [];
+	if (body === null || body === undefined) return [];
+	if (body === "") return [`## ${heading}`];
 	return [`## ${heading}\n\n${body}`];
 }
 
@@ -257,8 +267,7 @@ const FRONTMATTER_KEYS = [
 /**
  * Split the body on `## ` headings. Unknown headings are a hard error: the
  * writer only emits the sections above, so silently accepting one would mean
- * losing it on the next write. A known heading with no body is a hard error
- * for the same reason.
+ * losing it on the next write. A known heading with no body maps to `""`.
  */
 function parseBodySections(body: string, file: string): Record<string, string> {
 	const sections: Record<string, string> = {};
@@ -275,15 +284,7 @@ function parseBodySections(body: string, file: string): Record<string, string> {
 				).join(", ")}`,
 			);
 		}
-		const content = buffer.join("\n").trim();
-		// The writer omits an empty section, so a bare heading would parse as ""
-		// and come back as no heading at all on the next `triage set`/`log`.
-		if (content === "") {
-			throw new Error(
-				`${file}: section "## ${heading}" has no body — write its content or delete the heading`,
-			);
-		}
-		sections[field] = content;
+		sections[field] = buffer.join("\n").trim();
 		buffer = [];
 	};
 
@@ -373,7 +374,7 @@ export function parseRequirement(text: string, file: string): Requirement {
 
 	const triage: Triage = { status: status as Status };
 	if (tags && tags.length > 0) triage.tags = tags;
-	if (sections.note) triage.note = sections.note;
+	if (sections.note !== undefined) triage.note = sections.note;
 	const updated = optionalString(front.updated, "updated", file);
 	if (updated) triage.updated = updated;
 
@@ -383,7 +384,7 @@ export function parseRequirement(text: string, file: string): Requirement {
 		category: requireString(front.category, "category", file),
 		priority: requireString(front.priority, "priority", file),
 		source,
-		description: sections.description ?? "",
+		description: sections.description ?? null,
 		notes: sections.notes ?? null,
 		updates: sections.updates ?? null,
 		triage,
@@ -435,12 +436,15 @@ export function appendUpdate(
 	req.updates = req.updates ? `${req.updates}\n${entry}` : entry;
 }
 
-/** True while a requirement carries no triage information at all. */
+/**
+ * True while a requirement carries no triage information at all. An empty
+ * `## Triage note` heading carries none.
+ */
 export function isUntriaged(req: Requirement): boolean {
 	const t = req.triage;
 	return (
 		t.status === "pending" &&
 		(t.tags === undefined || t.tags.length === 0) &&
-		t.note === undefined
+		!t.note
 	);
 }
