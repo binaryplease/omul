@@ -130,6 +130,79 @@ describe("requirement file format", () => {
 		).toThrow(/unknown section "## Open questions"/);
 	});
 
+	describe("keeps a section heading with no body", () => {
+		const frontmatter =
+			"---\nid: REQ250\ncategory: X\npriority: P0\nstatus: pending\n---\n\n";
+		const file = "docs/requirements/REQ250.md";
+		/** parse → serialize must give back the exact text. */
+		const rewrite = (text: string) =>
+			serializeRequirement(parseRequirement(text, file));
+
+		for (const heading of ["Description", "Notes", "Triage note", "Updates"]) {
+			const before =
+				heading === "Description" ? "" : "## Description\n\nx\n\n";
+			const after =
+				heading === "Updates" ? "## Triage note\n\nn" : "## Updates\n\n- entry";
+			// Triage note sits before Updates in the canonical order, so the
+			// heading that follows a bare `## Updates` is checked by its own case.
+			const atEnd = `${frontmatter}${before}## ${heading}\n`;
+
+			test(`a bare ## ${heading} at the end of the file`, () => {
+				expect(rewrite(atEnd)).toBe(atEnd);
+			});
+
+			if (heading !== "Updates") {
+				test(`a bare ## ${heading} before another heading`, () => {
+					const text = `${frontmatter}${before}## ${heading}\n\n${after}\n`;
+					expect(rewrite(text)).toBe(text);
+				});
+			}
+
+			test(`a whitespace-only ## ${heading} keeps its heading`, () => {
+				const text = `${frontmatter}${before}## ${heading}\n\n  \n\t\n`;
+				expect(rewrite(text)).toBe(atEnd);
+			});
+		}
+
+		test("a bare ## Updates followed by a heading the writer puts first", () => {
+			const text = `${frontmatter}## Description\n\nx\n\n## Updates\n\n## Notes\n\ny\n`;
+			const parsed = parseRequirement(text, file);
+			expect(parsed.updates).toBe("");
+			expect(parsed.notes).toBe("y");
+			expect(rewrite(text)).toBe(
+				`${frontmatter}## Description\n\nx\n\n## Notes\n\ny\n\n## Updates\n`,
+			);
+		});
+
+		test("parses an empty heading as an empty string and an absent one as null", () => {
+			const parsed = parseRequirement(
+				`${frontmatter}## Description\n\n## Triage note\n\n## Updates\n`,
+				file,
+			);
+			expect(parsed.description).toBe("");
+			expect(parsed.notes).toBeNull();
+			expect(parsed.triage.note).toBe("");
+			expect(parsed.updates).toBe("");
+			expect(isUntriaged(parsed)).toBe(true);
+		});
+
+		test("an absent heading stays absent", () => {
+			const text = `${frontmatter}## Description\n\nx\n`;
+			expect(rewrite(text)).toBe(text);
+		});
+
+		test("appendUpdate fills a bare ## Updates instead of adding a second", () => {
+			const parsed = parseRequirement(
+				`${frontmatter}## Description\n\nx\n\n## Updates\n`,
+				file,
+			);
+			appendUpdate(parsed, "First change", "2026-11-18");
+			expect(serializeRequirement(parsed)).toBe(
+				`${frontmatter}## Description\n\nx\n\n## Updates\n\n- 2026-11-18 — First change\n`,
+			);
+		});
+	});
+
 	test("rejects an unknown frontmatter field instead of dropping it", () => {
 		expect(() =>
 			parseRequirement(

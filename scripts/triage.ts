@@ -100,7 +100,7 @@ function matchesFilters(
 	if (typeof flags.search === "string") {
 		const q = flags.search.toLowerCase();
 		const hay =
-			`${req.id} ${req.summary ?? ""} ${req.description} ${req.category} ${req.notes ?? ""}`.toLowerCase();
+			`${req.id} ${req.summary ?? ""} ${req.description ?? ""} ${req.category} ${req.notes ?? ""}`.toLowerCase();
 		if (!hay.includes(q)) return false;
 	}
 	return true;
@@ -185,7 +185,7 @@ async function cmdShow(args: Args): Promise<void> {
 		if (t.updated) console.log(`Updated:     ${t.updated}`);
 		console.log(`Derives:     ${r.source ?? "-"}`);
 		console.log(`File:        docs/requirements/${r.id}.md`);
-		console.log(`\nDescription:\n  ${r.description}`);
+		console.log(`\nDescription:\n  ${r.description ?? ""}`);
 		if (r.notes) console.log(`\nNotes:\n  ${r.notes.replace(/\n/g, "\n  ")}`);
 		if (r.updates)
 			console.log(`\nUpdates:\n  ${r.updates.replace(/\n/g, "\n  ")}`);
@@ -222,7 +222,10 @@ async function cmdSet(args: Args): Promise<void> {
 		const req = byId.get(id)!;
 		const t = req.triage;
 		if (status) t.status = status as Status;
-		if (typeof args.flags.note === "string") t.note = args.flags.note;
+		// `--note ""` removes the note; an empty heading already in the file stays.
+		if (typeof args.flags.note === "string") {
+			t.note = args.flags.note || undefined;
+		}
 		if (args.flags["clear-tags"]) t.tags = [];
 		if (args.multi.tag && args.multi.tag.length > 0) {
 			const set = new Set(t.tags ?? []);
@@ -233,7 +236,6 @@ async function cmdSet(args: Args): Promise<void> {
 
 		// prune empty optional fields
 		if (t.tags && t.tags.length === 0) t.tags = undefined;
-		if (!t.note) t.note = undefined;
 
 		await saveRequirement(req);
 		console.log(`${id}: ${JSON.stringify(t)}`);
@@ -365,7 +367,9 @@ async function cmdValidate(): Promise<void> {
 		const previous = seen.get(req.id);
 		if (previous) problems.push(`${path}: duplicate id, also in ${previous}`);
 		seen.set(req.id, path);
-		if (!req.description) problems.push(`${path}: empty Description section`);
+		if (req.description === null) {
+			problems.push(`${path}: no "## Description" section`);
+		}
 	}
 
 	if (problems.length > 0) {

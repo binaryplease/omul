@@ -92,6 +92,13 @@ Those four are the **only** permitted sections, and the keys above the **only**
 permitted frontmatter fields — any other `## ` heading or key is a hard parse
 error, so nothing can be silently dropped when a file is rewritten.
 
+A section heading with an empty or whitespace-only body is valid: the file
+parses and `bun scripts/triage.ts validate` accepts it. When `triage set` or
+`triage log` rewrites the file, the heading stays as a bare `## <Heading>` line,
+and a heading the file did not have is not added. `triage log` writes its entry
+under a bare `## Updates`. `validate` still refuses a file that has no
+`## Description` heading at all.
+
 **Catalog fields** describe what has to be built: `summary`, `category`,
 `priority`, `source`, and the `## Description` and `## Notes` sections. Optional
 ones are omitted rather than written as `null`.
