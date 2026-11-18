@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-18
+
+### Added
+
+- An operator can close account sign-up with `OMUL_SIGNUP_DISABLED=true`:
+  - `POST /api/auth/sign-up/email` then answers `400` with code `EMAIL_PASSWORD_SIGN_UP_DISABLED`. The sign-in dialog keeps its "Create account" tab visible and disabled, with the reason "Sign-ups are closed on this instance. Ask its operator for an account." (in German as well). The home page's offer to keep this browser's decks with an account offers only signing in.
+  - Existing accounts keep signing in, resetting their password, verifying and changing their email, deleting themselves and using API keys. Joining a presentation by code needs no account and is unaffected. A deck that asks participants to sign in can then be joined only by people who already have an account on the instance.
+  - The switch closes sign-up for the operator too. Create your own account before you set it, or start with `"false"`, sign up, and restart with `"true"`.
+  - Unset, empty or `"false"` keeps sign-up open, which is the default and how every earlier release behaved. `"true"` closes it. Any other value stops the server at startup with an error naming the variable, so a typo such as `"1"` cannot leave the instance open by mistake. The value is read when the server starts, so a change takes a restart, and every start prints which setting is in force.
+- An operator can close creating presentations without an account with `OMUL_GUEST_CREATION_DISABLED=true`:
+  - `POST /api/presentations` and `POST /api/deck-generation` then answer `401` to a caller without an account, with the error "This instance creates presentations for signed-in accounts only — sign in to create a presentation". That covers a blank deck, a template, a duplicate, an import, a generated draft and `omul create` in the command-line client, which prints the server's reason. A refused request does not count toward the rate limits.
+  - For a signed-out visitor, the home page keeps Create Presentation, Use template, Generate a draft, Import and each deck's Duplicate visible and disabled, with the reason "This instance creates presentations for signed-in accounts only. Sign in to create a presentation." (in German as well). The create, template and generate pages disable their create action in the same way, because they can be opened by address. Browsing the template catalog stays open.
+  - A signed-in account creates as before, with a session or an API key. Joining a presentation by code needs no account. Presentations that already exist keep working: a deck without an owner stays editable with its edit link, claiming one still requires an account, and nothing is deleted.
+  - `GET /api/deck-generation` reports `requiresAccount: true` while the switch is on, whatever `OMUL_GENERATION_ALLOW_ANONYMOUS` says.
+  - The two switches are independent. Every account may create, so an instance that wants to stop visitors from opening an account and then creating sets both.
+  - The accepted values are the same as for `OMUL_SIGNUP_DISABLED`: unset, empty or `"false"` keeps creation without an account open, which is the default and how every earlier release behaved; `"true"` closes it; any other value stops the server at startup with an error naming the variable. Every start prints which setting is in force.
+- `GET /api/instance-access` reports what the instance lets a visitor do, as `{ signUpOpen, guestCreationOpen }`. Both fields are always present, and the route needs no account. `signUpOpen` is `false` while `OMUL_SIGNUP_DISABLED=true`, and `guestCreationOpen` is `false` while `OMUL_GUEST_CREATION_DISABLED=true`.
+- `docs/deployment.md` describes both switches under "Closing account sign-up" and "Closing presentation creation without an account", and `.env.example` lists them.
+
+### Fixed
+
+- In a workspace's template gallery, the "Use" button of a member whose role does not allow creating decks can now be reached with the keyboard and on a touch screen. It shows its reason ("Create a deck from this template — your role in this workspace does not allow it") on hover, on focus and on a tap, and a screen reader reads the reason with the button. Before, the button was disabled and showed the reason only as a tooltip under the mouse pointer.
+
 ## [1.3.0] - 2026-11-18
 
 ### Added
