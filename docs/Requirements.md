@@ -259,5 +259,5 @@ Prose outside the markers is preserved.
 | [REQ249.md](requirements/REQ249.md) | An operator can build and run a self-hosted omul on a plain Linux host without Docker, following one documented path with persistent data and a restart-on-boot service | Platform & Operations | P2 | done | internal |
 | [REQ250.md](requirements/REQ250.md) | The server binds to an explicit host that defaults to loopback | Platform & Operations | P2 | pending | internal |
 
-_239 entries — one row per file in `requirements/`._
+_240 entries — one row per file in `requirements/`._
 <!-- index:end -->
