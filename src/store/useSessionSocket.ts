@@ -7,7 +7,8 @@
 // matching session-slice reducer. Both pages call it; neither owns the wiring.
 
 import { useEffect } from "react";
-import { connectWs, disconnectWs, onWsEvent } from "../api";
+import { connectWs, disconnectWs, noteWsAccount, onWsEvent } from "../api";
+import { useSession } from "../auth-client";
 import { useStoreApi } from "./StoreProvider";
 
 export function useSessionSocket(
@@ -15,6 +16,15 @@ export function useSessionSocket(
 	role: "presenter" | "participant",
 ) {
 	const store = useStoreApi();
+	// The account this browser is signed in to (REQ134). A deck that
+	// requires signing in seats a socket by the account its upgrade carried, so a
+	// sign-in or sign-out replaces the socket (`noteWsAccount`). `undefined`
+	// while the session is still loading, which reports nothing.
+	const { data: session, isPending } = useSession();
+	const accountId = isPending ? undefined : (session?.user.id ?? null);
+	useEffect(() => {
+		if (accountId !== undefined) noteWsAccount(accountId);
+	}, [accountId]);
 
 	useEffect(() => {
 		if (!presentationId) return;

@@ -52,6 +52,9 @@ export const en = {
 	resultsLinkFootnote:
 		"Revoking takes effect at once and applies to every copy of the link — there is one per deck, not one per recipient. A results page somebody already has open keeps the numbers it was last sent until it refreshes, and anything they have already read stays with them.",
 	resultsLinkCreated: "Results link created and copied to clipboard",
+	/** A mint whose link could not be put on the clipboard. */
+	resultsLinkCreatedNotCopied:
+		"Results link created, but it could not be copied. Select it in this dialog to copy it.",
 	resultsLinkCopiedToast: "Results link copied to clipboard",
 	resultsLinkRevoked: "Results link revoked — it no longer opens anything",
 	resultsLinkCreateFailed: "Could not create the results link",
@@ -107,6 +110,8 @@ export const de: Partial<typeof en> = {
 	resultsLinkFootnote:
 		"Der Widerruf wirkt sofort und gilt für jede Kopie des Links — es gibt einen pro Präsentation, nicht einen pro Empfänger. Eine Ergebnisseite, die schon jemand offen hat, behält die zuletzt gesendeten Zahlen, bis sie neu lädt, und was schon gelesen wurde, bleibt gelesen.",
 	resultsLinkCreated: "Ergebnislink erstellt und in die Zwischenablage kopiert",
+	resultsLinkCreatedNotCopied:
+		"Ergebnislink erstellt, aber er konnte nicht kopiert werden. Markiere ihn in diesem Dialog, um ihn zu kopieren.",
 	resultsLinkCopiedToast: "Ergebnislink in die Zwischenablage kopiert",
 	resultsLinkRevoked: "Ergebnislink widerrufen — er öffnet nichts mehr",
 	resultsLinkCreateFailed: "Der Ergebnislink konnte nicht erstellt werden",

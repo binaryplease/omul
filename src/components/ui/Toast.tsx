@@ -13,6 +13,13 @@ const ToastContext = createContext<{
 	addToast: (message: string, type?: Toast["type"]) => void;
 }>({ addToast: () => {} });
 
+/**
+ * A toast's id names it only inside this page's list, so a counter is enough.
+ * `crypto.randomUUID` is missing on a page served over plain HTTP (REQ212), and
+ * a toast is how a copy control says it could not copy there.
+ */
+let toastCount = 0;
+
 export function useToast() {
 	return useContext(ToastContext);
 }
@@ -22,7 +29,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
 	const addToast = useCallback(
 		(message: string, type: Toast["type"] = "info") => {
-			const id = crypto.randomUUID();
+			toastCount += 1;
+			const id = `toast-${toastCount}`;
 			setToasts((prev) => [...prev, { id, message, type }]);
 			setTimeout(
 				() => setToasts((prev) => prev.filter((t) => t.id !== id)),

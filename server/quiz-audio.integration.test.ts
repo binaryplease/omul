@@ -11,7 +11,7 @@
  *     collaborator's (who read what was authored), and without a credential, with
  *     a wrong token and as a signed-in stranger (who read what the room reads);
  *   - the join payload, which is the participants' door and is never an editor's;
- *   - the public list;
+ *   - the account's own audience-projected list (`GET /api/presentations`);
  *   - the `slide.changed` WebSocket broadcast, which every socket in the room
  *     receives whatever role it claimed on join;
  *   - the results endpoints and the spreadsheet export, which carry no cue.
@@ -269,7 +269,7 @@ describe("Quiz audio cue (REQ058)", () => {
 			.ws("/ws", {
 				open(connection) {
 					const clientId = ws.registerClient(connection);
-					// See server/index.ts for the rationale — mutate ws.raw.data.
+					// See server/routes/live-socket.ts for the rationale — mutate ws.raw.data.
 					(connection.raw as any).data = {
 						...((connection.raw as any).data ?? {}),
 						clientId,
@@ -507,9 +507,9 @@ describe("Quiz audio cue (REQ058)", () => {
 		}
 	});
 
-	test("the public list carries no cue", async () => {
-		await create();
-		const response = await fetch(`${baseUrl}/api/presentations`);
+	test("the account's audience-projected list carries no cue", async () => {
+		await createOwnedSharedDeck();
+		const response = await asAccount("/api/presentations", ownerKey);
 		expect(response.status).toBe(200);
 		const list = (await response.json()) as AnyJson[];
 		expect(list.length).toBeGreaterThan(0);

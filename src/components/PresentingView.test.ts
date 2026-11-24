@@ -317,7 +317,7 @@ describe("what the room sees, and the strip (REQ247)", () => {
 
 	test("the join line is quiet, goes with the blank, and is in the deck's language", () => {
 		// The room reads it, so it is the deck's `Dict` and says so (REQ248).
-		expect(source).toMatch(/\{!blanked && \(\s*<p\s+lang=\{roomLanguage\}\s+className="pointer-events-none [^"]*text-sm text-text-muted"\s*>\s*\{getDict\(join\.language\)\.roomJoinAt\} \{join\.host\}/);
+		expect(source).toMatch(/\{!blanked && \(\s*<p\s+lang=\{roomLanguage\}\s+className="pointer-events-none [^"]*text-sm text-text-muted"\s+onCopy=\{copyAddressAs\(join\.address\)\}\s*>\s*\{getDict\(join\.language\)\.roomJoinAt\} \{join\.address\.host\}/);
 		expect(source).toContain("const roomLanguage = resolveLang(join.language);");
 		expect(page).toMatch(/join=\{\{[^}]*language: pres\.language,/);
 		expect(source).toContain(

@@ -59,6 +59,7 @@ import {
 	submissionPassFor,
 	type DeckBrand,
 	type DeckThemeId,
+	deckRequiresParticipantSignIn,
 	EDIT_TOKEN_HEADER,
 	EMPTY_DECK_BRAND,
 	encodeFormSubmission,
@@ -83,6 +84,7 @@ import {
 	leaderboardEntryLabel,
 	leaderboardSizeFor,
 	type LeaderboardTotals,
+	LiveRoomRefusalSchema,
 	LiveRoomSnapshotSchema,
 	type LiveRoomState,
 	maxResponsesFor,
@@ -134,6 +136,7 @@ import {
 	type QuizAnswerMode,
 	quizAnswerModeFor,
 	quizDeadlineFor,
+	quizKeyPublishedInWindow,
 	quizResultVisibleToCaller,
 	quizTimeLimitFor,
 	quizVerdictVisibleToAudience,
@@ -174,7 +177,16 @@ import {
 	segmentedTallyIsAggregate,
 	segmentRefusalFor,
 } from "../segmentation";
-import { broadcastToPresentation, joinRoom, sendToClient } from "../ws";
+import {
+	broadcastToPresentation,
+	isLatestJoin,
+	isSignedIn,
+	joinRoom,
+	leaveRoom,
+	sendToClient,
+	startJoin,
+	unseatClientsWithoutSignIn,
+} from "../ws";
 
 // Index the fields each collection filters on so lookups hit a json_extract
 // expression index instead of scanning (see the where-clauses below).
@@ -1022,9 +1034,12 @@ export async function getPresentationByCode(code: string) {
 	return results[0] ?? null;
 }
 
-export async function listPresentations(creatorId?: string) {
-	const filter = creatorId ? { creatorId } : {};
-	const results = await presentations.find(filter);
+/**
+ * The decks one account owns, newest first. `creatorId` is required, so this
+ * function cannot read the whole collection.
+ */
+export async function listPresentations(creatorId: string) {
+	const results = await presentations.find({ creatorId });
 	return results.sort(
 		(a, b) =>
 			new Date(b.createdAt as string).getTime() -
@@ -1195,6 +1210,12 @@ export async function updatePresentation(
 	// REQ216 — a saved time limit moves the window of a question that is open
 	// now, so its close is re-armed on the deck as saved.
 	armQuizWindowCloses(id, updated);
+	// REQ134 — a deck that requires signing in keeps no socket in its
+	// room that has not passed it. A socket seated while the switch was off is
+	// taken out here, before any frame of this write is sent, so the slides below
+	// do not reach it. On a deck that already required signing in nobody is
+	// unseated: such a socket was never seated.
+	if (deckRequiresParticipantSignIn(updated)) refuseUnsignedSockets(id);
 	// REQ229 — and the slides themselves reach the room. Sent before the
 	// settings frames below, so a phone re-reading the deck off one of those asks
 	// after it already holds the slides as saved.
@@ -1418,6 +1439,19 @@ function slideClosedAtIn(
 }
 
 /**
+ * Read a presentation's quiz key publication stamps (REQ216)
+ * with every key present.
+ */
+function quizKeyPublishedAtIn(
+	pres: Record<string, unknown>,
+): Record<string, string> {
+	const stamps = pres.quizKeyPublishedAt;
+	return stamps && typeof stamps === "object"
+		? { ...(stamps as Record<string, string>) }
+		: {};
+}
+
+/**
  * The question-opening stamps after a slide is reached (REQ057), or `null` when
  * nothing changes because the slide was already opened.
  *
@@ -1478,7 +1512,8 @@ export async function setActiveSlide(
 	// broadcast to by presentation and the `role` a socket claims proves nothing,
 	// so this frame is read by every connected client whatever they said they
 	// were. The presenter reads solutions and notes from its own authenticated
-	// fetch, not from this broadcast.
+	// fetch, not from this broadcast. On a deck that requires signing in
+	// (REQ134), only sockets that passed it sit in the room (`joinLiveRoom`).
 	broadcastToPresentation(presentationId, "slide.changed", {
 		presentationId,
 		slideIndex,
@@ -1662,14 +1697,98 @@ export async function applyCountdownAction(
  *
  * What it carries is `LiveRoomSnapshotSchema`. A deck that does not exist is
  * answered with nothing.
+ *
+ * A deck that requires participants to sign in (REQ134) seats only a socket
+ * that passed that sign-in, which the HTTP join route asks of every caller: its
+ * upgrade request resolved an account, or its join carried the deck's edit
+ * token, which is how a presenter screen with no account gets in. Any other
+ * socket is answered `room.refused` and is not seated, so none of the deck's
+ * broadcasts — `presentation.slides`, the slide `slide.changed` carries, the
+ * tallies — reach it. Such a join waits for the account lookup
+ * that started when the socket opened; that wait is the only step before the
+ * seat, which still reads the deck and answers in one synchronous step. A join
+ * on any other deck never waits, and is seated exactly as before.
+ *
+ * Called without credentials, a join holds no account and no token.
  */
-export function joinLiveRoom(
+export async function joinLiveRoom(
 	clientId: string,
 	presentationId: string,
 	role: "presenter" | "participant",
+	credentials: LiveRoomCredentials = NO_LIVE_ROOM_CREDENTIALS,
+): Promise<void> {
+	const join = startJoin(clientId);
+	const deck = presentations.findOneNow(presentationId);
+	if (
+		deck &&
+		deckRequiresParticipantSignIn(deck) &&
+		!tokenMatches(deck, credentials.editToken)
+	) {
+		await credentials.signedIn.catch(() => false);
+		// A later join on the same socket has already decided where it sits.
+		if (!isLatestJoin(clientId, join)) return;
+	}
+	seatInLiveRoom(clientId, presentationId, role, credentials.editToken);
+}
+
+/**
+ * What a socket proves about itself when it joins a room (REQ134).
+ *
+ * `signedIn` settles once the account lookup on the socket's upgrade request
+ * has answered, and never rejects; `editToken` is the token the join carried.
+ */
+export type LiveRoomCredentials = {
+	signedIn: Promise<boolean>;
+	editToken: string | null;
+};
+
+const NO_LIVE_ROOM_CREDENTIALS: LiveRoomCredentials = {
+	signedIn: Promise.resolve(false),
+	editToken: null,
+};
+
+/**
+ * Take every socket that has not passed a deck's participant sign-in out of its
+ * room, and tell each one with `room.refused` (REQ134).
+ */
+function refuseUnsignedSockets(presentationId: string): void {
+	const refusal = signInRefusal(presentationId);
+	for (const clientId of unseatClientsWithoutSignIn(presentationId)) {
+		sendToClient(clientId, "room.refused", refusal);
+	}
+}
+
+/** The `room.refused` frame for a deck's participant sign-in (REQ134). */
+function signInRefusal(presentationId: string) {
+	return LiveRoomRefusalSchema.parse({
+		presentationId,
+		refused: "sign-in-required",
+	});
+}
+
+/**
+ * The synchronous half of {@link joinLiveRoom}: decide against the deck as it
+ * stands now, then seat and answer, or refuse.
+ */
+function seatInLiveRoom(
+	clientId: string,
+	presentationId: string,
+	role: "presenter" | "participant",
+	editToken: string | null,
 ): void {
-	joinRoom(clientId, presentationId, role);
 	const pres = presentations.findOneNow(presentationId);
+	const holdsEditToken = pres ? tokenMatches(pres, editToken) : false;
+	if (
+		pres &&
+		deckRequiresParticipantSignIn(pres) &&
+		!holdsEditToken &&
+		!isSignedIn(clientId)
+	) {
+		leaveRoom(clientId);
+		sendToClient(clientId, "room.refused", signInRefusal(presentationId));
+		return;
+	}
+	joinRoom(clientId, presentationId, role, holdsEditToken);
 	if (!pres) return;
 	const slides = pres.slides as Slide[];
 	sendToClient(
@@ -1820,6 +1939,7 @@ export async function resetPresentation(presentationId: string) {
 		sessionEndedAt: null,
 		closedSlideIds: [],
 		slideClosedAt: {},
+		quizKeyPublishedAt: {},
 		audienceBlanked: false,
 		// The countdowns the last session started (REQ107) go with it, running,
 		// paused or finished: a re-run opens every clock at its full length.
@@ -1940,23 +2060,51 @@ export async function setSlideParticipation(
 			if (!pres) return null;
 
 			const slides = pres.slides as Slide[];
-			if (!slides.some((slide) => slide.id === slideId)) return null;
+			const slide = slides.find((candidate) => candidate.id === slideId);
+			if (!slide) return null;
 
+			const now = Date.now();
+			const switchedAt = new Date(now).toISOString();
 			// The close instant travels with the closed set (REQ216): it is what
 			// tells a quiz question the presenter ended from one they closed before
 			// it was ever asked (`quizClosedAfterOpening`).
+			const closedSlideIds = withSlideParticipation(
+				(pres.closedSlideIds as string[] | undefined) ?? [],
+				slideId,
+				open,
+			);
+			const slideClosedAt = withSlideClosedAt(
+				slideClosedAtIn(pres),
+				slideId,
+				open,
+				switchedAt,
+			);
+			// If the room holds this quiz question's key on
+			// either side of the switch, a reopen cannot take it back from the
+			// phones that received it, so the switch records that the key went out
+			// and the vote boundary refuses further answers in this window
+			// (`quizKeyPublishedInWindow`). Checked before and after: a close
+			// under "Instant" publishes the key, and a reopen of a question the
+			// presenter revealed while it was closed finds it published already.
+			const keyInRoom =
+				slide.type === "quiz" &&
+				(quizVerdictVisibleToAudience(slide, pres, now) ||
+					quizVerdictVisibleToAudience(
+						slide,
+						{ ...pres, closedSlideIds, slideClosedAt },
+						now,
+					));
 			return presentations.update(presentationId, {
-				closedSlideIds: withSlideParticipation(
-					(pres.closedSlideIds as string[] | undefined) ?? [],
-					slideId,
-					open,
-				),
-				slideClosedAt: withSlideClosedAt(
-					slideClosedAtIn(pres),
-					slideId,
-					open,
-					new Date().toISOString(),
-				),
+				closedSlideIds,
+				slideClosedAt,
+				...(keyInRoom
+					? {
+							quizKeyPublishedAt: {
+								...quizKeyPublishedAtIn(pres),
+								[slideId]: switchedAt,
+							},
+						}
+					: {}),
 			});
 		},
 	);
@@ -1969,9 +2117,11 @@ export async function setSlideParticipation(
 		});
 		// REQ216 — closing a quiz question that has opened ends it, so its key
 		// and typed answers become the room's (`solutionVisibleToAudience`), and
-		// reopening one still inside its window withholds them again. Either way
-		// the room's copy of the tally changed without a row changing, so it is
-		// re-sent here rather than left for the next answer to carry.
+		// reopening one still inside its window withholds them again (though a
+		// question whose key went out takes no further answer in that window).
+		// Either way the room's copy of the tally changed
+		// without a row changing, so it is re-sent here rather than left for the
+		// next answer to carry.
 		const slide = (updated.slides as Slide[]).find(
 			(candidate) => candidate.id === slideId,
 		);
@@ -2066,6 +2216,10 @@ function broadcastDeckResultsVisibility(
  * nothing else on it — `creatorTokenHash`, `creatorId` — can ride along. A
  * presenter screen does not take its slides from this frame: it re-reads its own
  * credentialed copy on it, which is where it gets the solutions and notes from.
+ *
+ * On a deck that requires participants to sign in (REQ134), the room holds only
+ * sockets that passed that sign-in ({@link joinLiveRoom}), so this frame
+ * reaches no socket the join route would have refused.
  */
 function broadcastDeckSlides(
 	presentationId: string,
@@ -2909,6 +3063,22 @@ export async function submitVote(
 					quizTimeLimitFor(slide),
 				);
 				if (!isQuizWindowOpen(deadline, Date.now())) {
+					return { refused: "quiz-window-closed" };
+				}
+				// A question the presenter closed under "Instant" sent the room its
+				// key, and reopening it does not take the key back from the phones
+				// that hold it. The window the key went out in is
+				// over for scoring, so an answer given in it now is refused as one
+				// given after the deadline is.
+				if (
+					quizKeyPublishedInWindow(
+						{
+							slideStartedAt: slideStartedAtIn(pres),
+							quizKeyPublishedAt: quizKeyPublishedAtIn(pres),
+						},
+						slideId,
+					)
+				) {
 					return { refused: "quiz-window-closed" };
 				}
 

@@ -331,7 +331,7 @@ describe("Profanity filter on free text (REQ085)", () => {
 			.ws("/ws", {
 				open(connection) {
 					const clientId = ws.registerClient(connection);
-					// See server/index.ts for the rationale — mutate ws.raw.data.
+					// See server/routes/live-socket.ts for the rationale — mutate ws.raw.data.
 					(connection.raw as any).data = {
 						...((connection.raw as any).data ?? {}),
 						clientId,

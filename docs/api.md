@@ -165,8 +165,8 @@ omul** below).
 | GET | `/api/templates/:id` | — | One catalog entry by its id (REQ005) |
 | GET | `/api/deck-generation` | — | Whether this deployment can draft a deck from a prompt, and on what terms (REQ007) — see **Generating a deck from a prompt** below |
 | POST | `/api/deck-generation` | ✅ session/key by default | Draft a deck from `{ prompt, language? }` and return it as an ordinary editable presentation (REQ007). The account requirement is the operator's to lift (`OMUL_GENERATION_ALLOW_ANONYMOUS`), and `OMUL_GUEST_CREATION_DISABLED=true` puts it back whatever that says (REQ252) |
-| GET | `/api/presentations` | — | List presentations (`?creatorId=`) |
-| GET | `/api/presentations/mine` | ✅ session/key | List the signed-in account's owned decks |
+| GET | `/api/presentations` | ✅ session/key | List the signed-in account's owned decks with every slide projected as an audience sees it. `?creatorId=` filters them: the caller's own id returns them and any other id returns `[]`. `401` without an account |
+| GET | `/api/presentations/mine` | ✅ session/key | List the signed-in account's owned decks as they were authored |
 | GET | `/api/presentations/shared` | ✅ session/key | List the decks other accounts have shared with the caller — on the deck or through a folder it is filed in — each with its `accessLevel` (REQ075, REQ126) — see **Sharing a deck with other accounts** below |
 | POST | `/api/presentations` | optional session/key | Create; returns `creatorToken` once (null for API-key create; records owner when signed in). `templateId` starts the deck from a catalog entry, copying its slides (REQ006) — see **Deck templates** below. `workspaceId` makes the deck the **workspace's** instead: no account owner, no edit token, and a role check on the caller (REQ128) — see **Workspaces** below. `workspaceTemplateId`, alongside it, starts that deck from one of the workspace's own published templates (REQ004). While `OMUL_GUEST_CREATION_DISABLED=true`, a create without an account answers `401` and spends no rate-limit budget (REQ252) |
 | GET | `/api/presentations/:id` | — | Get presentation by ID. Reports the caller's own `accessLevel` (REQ075) and account-standing `commentAccess` (REQ074) on it |
@@ -961,8 +961,9 @@ with no grant, or a `view` grant on the write, is `403`.
 **Never visible to participants, and that is a property of the storage model.**
 Comments live in their own `slideComments` collection, read by their own routes,
 and no other surface loads one — so there is no projection for a future read site
-to forget. Nothing about a comment reaches the join lookup, the deck read, the
-public list, a `slide.changed` broadcast, any tally (including through the
+to forget. Nothing about a comment reaches the join lookup, the deck read,
+`GET /api/presentations`, a `slide.changed` broadcast, any tally (including
+through the
 results link, REQ098), the Q&A, the chat, a scorecard, the preview or the
 spreadsheet. `server/slide-comments.integration.test.ts` fetches every one of
 those and searches the payload rather than taking it on trust.
@@ -1121,7 +1122,7 @@ whatever its author remembered.
 |---|---|
 | `GET /api/presentations/:id` **with** the owner's session or edit token | the notes, in full |
 | `GET /api/presentations/:id` without one | `notes: ""` |
-| `GET /api/presentations` (public list) | `notes: ""` |
+| `GET /api/presentations` (the signed-in account's own decks) | `notes: ""` |
 | `GET /api/join/:code` | `notes: ""` — always, whoever asks; an organizer opening their own join link is in the room as a participant |
 | `slide.changed` WebSocket broadcast | `notes: ""` — a room is broadcast to by presentation and the `role` a socket claims proves nothing |
 | `GET /api/presentations/:id/results…`, `/scorecard`, `results.xlsx`, `deck.pdf` | nothing: no results payload carries notes, no sheet of the workbook has a notes column, and no section of the PDF draws them — a document a presenter hands round is not the place their private cue reappears |
@@ -1188,9 +1189,10 @@ beside the field.
 
 **Presenter-only on the wire, like the notes.** `withAudienceSlides()` empties
 the field to `""` for every caller the deck is not authored for, on every
-surface the notes table above names — the deck fetch without standing, the
-public list, `GET /api/join/:code` whoever asks, and the `slide.changed`
-broadcast — and no results payload or export carries it, so a participant's
+surface the notes table above names — the deck fetch without standing,
+`GET /api/presentations` (which reads the same for the account that owns the
+deck), `GET /api/join/:code` whoever asks, and the `slide.changed` broadcast —
+and no results payload or export carries it, so a participant's
 phone is never handed an address it could load. Writing one is the deck
 PATCH's ordinary gate (owner, edit token or `edit` collaborator); a `view` or
 `comment` collaborator reads it, as they read the notes, and is refused `403`
@@ -1912,7 +1914,12 @@ Five properties worth stating outright:
   tally goes on being readable and reveal-able, and reopening does not clear what
   arrived before. That is the whole difference between this and a reset, and it
   is what lets a presenter close a question, discuss it, and open it again for
-  the people who were still typing.
+  the people who were still typing. One exception applies to a quiz question
+  (REQ216): if the room held its answer key at the close or
+  at the reopen — a close under "Instant", or a reveal under "On click" still in
+  force — the reopened question refuses every further answer in that window as
+  `quiz-window-closed`, because the phones that received the key still hold it.
+  Restarting its timer opens a new window, which takes answers again.
 - **The stored set is the slides that are *closed*.** The polarity is
   load-bearing: a deck's ordinary state is that every slide takes answers, which
   is what an unopened deck, a deck written before this field existed, and a deck
@@ -2744,10 +2751,21 @@ the edit token, and the room reads the projector as well as its phones: counting
 a running question there would hand the same oracle to anyone answering under
 fresh ids and watching the wall, and under "Private" it would project what the
 organizer kept from the room. That read is the room's board for every caller, an
-editor included. An editor reads every question's points only on the organizer's
-own surfaces, which are never drawn for the room: the results page
-(`GET /api/presentations/:id/results`) and its breakdown (`…/segments`), the
-results export, and the preview's dry run. In code this is
+editor included.
+
+**So does the shared results page.** The page at `/results/:id`
+(REQ098) reads `GET /api/presentations/:id/results?filtered=include` with the
+results-link token and, in the organizer's own browser, with the edit token as
+well, and an organizer can project that page while a quiz question is running
+(REQ214). That read's leaderboard entry is therefore the room's board for every
+caller too: owner, edit token, results link and anonymous alike read standings
+summed only over the released questions, and a running question moves no row.
+The edit token still lifts the reveal mode, a running question's own tally and
+key, and `?filtered=include` on that read.
+
+An editor reads every question's points only on the breakdown
+(`GET /api/presentations/:id/results/:slideId/segments`), the results export
+(`results.xlsx`, `deck.pdf`), and the preview's dry run. In code this is
 `ResultsCaller.wholeStandings`, honoured only beside `canEdit` and set only by
 those surfaces, so a surface that does not say which it is gets the room's board.
 
@@ -3504,8 +3522,11 @@ Each refusal carries the English `error` beside the `refused` code, and
 `Cache-Control: no-store` so a browser does not keep a participant out after
 they sign in. The check runs after the rate limit (REQ145) and before anything
 else the route decides. Public **reads** — the deck read, results, the Q&A list,
-the chat feed — are not gated, and neither is the participant's live WebSocket
-connection.
+the chat feed — are not gated.
+
+The live WebSocket is gated: a socket that has not passed the
+sign-in is refused the deck's room with `room.refused` and is sent none of its
+frames, slides included — see **WebSocket events** below.
 
 **One participant id, one account.** The first write a signed-in caller makes
 under a `participantId` on such a deck binds that id, on that deck, to their
@@ -4186,9 +4207,42 @@ confirms the reset with what it costs (`src/pages/PresenterPage.tsx`).
 
 ## WebSocket events
 
-Single endpoint: `ws://host/ws`. Clients send `{ type: "join", presentationId, role }`,
-and `{ type: "ping" }` as a heartbeat. Server broadcasts to all subscribers of a
-presentationId.
+Single endpoint: `ws://host/ws`. Clients send `{ type: "join", presentationId, role, editToken }`,
+and `{ type: "ping" }` as a heartbeat (`LiveSocketMessageSchema`). `role` is
+`"presenter"` or `"participant"`; a missing or unknown one reads as
+`"participant"`. `editToken` is optional: the browser's presenter screen sends
+the deck's edit token there, or `null` when it holds none, and a participant's
+join leaves it out. Any other message is ignored. Server broadcasts to all
+subscribers of a presentationId.
+
+**The participant sign-in gate (REQ134).** A deck with
+`requireParticipantSignIn` seats a socket in its room only when the socket
+passed the sign-in that `GET /api/join/:code` asks for, in one of two ways:
+
+- its upgrade request resolves an account, from the session cookie or an API
+  key in `x-api-key`, read exactly as an HTTP route reads them; this covers a
+  signed-in participant, and the owner and collaborators on their presenter
+  screens;
+- its `join` carries the deck's edit token in `editToken`, or the upgrade
+  request carries it in `x-omul-edit-token` or `Authorization: Bearer`; this is
+  how a presenter screen with no account gets in. A browser cannot set headers
+  on a WebSocket upgrade, so the browser client uses `editToken`.
+
+Every other socket is answered `room.refused` and is **not seated**: no
+`room.joined`, no `presentation.slides`, no `slide.changed`, no tally and no
+count reaches it, and it is not counted in `participants.count`. The socket
+stays open and its `ping` is still answered; a later `join` is judged again.
+When a deck PATCH turns the switch on while sockets sit in the room, every
+seated socket that has not passed the sign-in is taken out before any frame of
+that write is sent, and is sent `room.refused`. The account is looked up once,
+when the socket opens: a socket signed in later has to open a new socket, and a
+session that ends keeps its socket seated until that socket closes. The browser
+client opens a new socket and joins again whenever the page's signed-in account
+changes, so a participant who signs in after a `room.refused` is seated. On a
+`room.refused` while the page is signed in, it also opens one new socket, since
+that refusal can come from a socket whose account lookup had not answered yet;
+a second refusal in a row is kept. On a deck without the switch, sockets are
+seated and sent frames as before.
 
 Every join is answered, to that client alone, with `room.joined` (REQ209). A
 client's own copy of the deck was read before its socket joined: the join lookup
@@ -4202,7 +4256,8 @@ foreground or the network comes back. Each new socket joins again.
 
 | Event | Direction | Payload |
 |---|---|---|
-| `room.joined` | server → the joining client | `{ presentationId, status, activeSlideIndex, activeSlideId, sessionStartedAt, sessionEndedAt, slideStartedAt, revealedSlideIds, closedSlideIds, audienceBlanked, countdownRuns }`: the deck's runtime fields as stored (`LiveRoomSnapshotSchema`), each already on the deck a participant receives, plus `activeSlideId`, the id of the slide at `activeSlideIndex` (`null` when there is none), so a client whose copy of the slides predates an edit can tell it is stale (REQ208). Not sent for a deck that does not exist |
+| `room.joined` | server → the joining client | `{ presentationId, status, activeSlideIndex, activeSlideId, sessionStartedAt, sessionEndedAt, slideStartedAt, revealedSlideIds, closedSlideIds, slideClosedAt, audienceBlanked, countdownRuns }`: the deck's runtime fields as stored (`LiveRoomSnapshotSchema`), each already on the deck a participant receives, plus `activeSlideId`, the id of the slide at `activeSlideIndex` (`null` when there is none), so a client whose copy of the slides predates an edit can tell it is stale (REQ208). Not sent for a deck that does not exist |
+| `room.refused` | server → the joining client | `{ presentationId, refused: "sign-in-required" }` (`LiveRoomRefusalSchema`): the deck requires participants to sign in and this socket has not passed it (REQ134), so it was not seated. Also sent to every seated socket that has not passed it when a deck PATCH turns `requireParticipantSignIn` on. Carries nothing of the deck |
 | `pong` | server → the pinging client | `{}`, the answer to a `ping` |
 | `slide.changed` | server → clients | `{ presentationId, slideIndex, slide }` — the slide as the audience may see it: answer key withheld while the question runs (REQ056), presenter notes and a quiz's audio cue empty (REQ090/REQ058) |
 | `results.updated` | server → clients | `{ presentationId, slideId, results }` — the tally as the **audience** may read it, so a slide whose mode withholds it broadcasts `{ type, withheld: true }` and no numbers (REQ016/REQ017), and an editor-only block on it (a word cloud's `answers`, a form's `submissions`) is `null`. A quiz question that is not over carries how many answered and **nothing of what they answered**: every `options[].count` and the correctness half of `scoring` are `null` (REQ215, `quizResultWithheld()`), to every socket alike. An answer the deck's profanity filter withholds is in no frame at all, only counted in `filteredCount` (REQ085). Sent when an answer *lands* and when one is *taken down* (REQ027) — a tally moves both ways — for every free-text slide when the filter is switched or its list moves, and on a quiz question when the room's copy changes with no answer at all (REQ216): at the instant its window runs out (deadline plus the submission grace, on the server's own timer), and when the presenter closes or reopens it to submissions. That is the frame that first carries the key and, on a typed question, the grouped answers. **Frames may merge, values never do** (REQ150): a slide broadcasts at most once per 100 ms, so a room answering faster than that is folded into one frame carrying the settled tally rather than one frame per answer. A client that reads each frame as the current state is right; one that counted frames to count answers never was |
@@ -4214,7 +4269,7 @@ foreground or the network comes back. Each new socket joins again.
 | `presentation.results-visibility` | server → clients | `{ presentationId, resultsVisibility }` — the deck's reveal mode moved (REQ015–REQ018). Sent by both its writers: the deck-wide endpoint, and a deck PATCH that names the field. Carries the deck-level setting only; clients re-read the deck for the per-slide overrides — see **The deck's reveal mode** above |
 | `slide.started` | server → clients | `{ presentationId, slideId, startedAt }` — a slide's question was opened, which is what a quiz countdown runs from (REQ057) |
 | `slide.countdown` | server → clients | `{ presentationId, slideId, run }` — a countdown slide's clock was started, paused, resumed or reset (REQ107). `run` is the deck's new `countdownRuns[slideId]`, `{ remainingMs, resumedAt }` with `resumedAt: null` while paused, or `null` after a reset. Applied through `withCountdownRun`, the function the server writes with. An action that changed nothing sends no frame |
-| `slide.participation` | server → clients | `{ presentationId, slideId, open, closedAt }` — one slide was opened or closed to submissions (REQ111); `closedAt` is the stored close instant (`slideClosedAt`), `null` on an open. Carries its value, like the settings frames below: a phone that learned about a closed question only by having an answer bounce is the failure the switch exists to prevent. Closing a quiz question that has opened **ends it** (REQ216): its answer key becomes the audience's, exactly as at the end of its window, and a `results.updated` follows; reopening it inside its window withholds the key again. A close made **before** the question opened ends nothing — reaching the question later does not publish its key |
+| `slide.participation` | server → clients | `{ presentationId, slideId, open, closedAt }` — one slide was opened or closed to submissions (REQ111); `closedAt` is the stored close instant (`slideClosedAt`), `null` on an open. Carries its value, like the settings frames below: a phone that learned about a closed question only by having an answer bounce is the failure the switch exists to prevent. Closing a quiz question that has opened **ends it** (REQ216): its answer key becomes the audience's, exactly as at the end of its window, and a `results.updated` follows; reopening it inside its window withholds the key again. A question whose key the room held at the close or at the reopen takes no further answer in that window: the vote is refused as `quiz-window-closed`. A close made **before** the question opened ends nothing — reaching the question later does not publish its key |
 | `presentation.blanked` | server → clients | `{ presentationId, blanked }` — the shared screen was blanked, or brought back (REQ109). Broadcast because the screen being projected may be a second browser rather than the presenter's own |
 | `presentation.participant-name` | server → clients | `{ presentationId, requireParticipantName }` — the deck started or stopped asking joiners for a name (REQ076). Sent by its one writer, the deck PATCH. Carries the **switch and nothing else**: a frame naming somebody would put a name on every phone in the room, and the roster is fetched by a credentialed caller instead |
 | `presentation.repeat-passes` | server → clients | `{ presentationId, allowRepeatPasses }` — the deck started or stopped letting a device go through it again (REQ083). Sent by its one writer, the deck PATCH. The switch as stored; a client reads it with the deck's pace through `deckAllowsRepeatPasses()`. Nothing about who has made how many passes rides it |

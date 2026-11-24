@@ -25,7 +25,7 @@ process.env.DATABASE_PATH = ":memory:";
 process.env.NODE_ENV = "test";
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { DECK_TEMPLATE_CATEGORIES } from "./schemas";
+import { DECK_TEMPLATE_CATEGORIES, StoredPresentationSchema } from "./schemas";
 import { DECK_TEMPLATES } from "./templates";
 
 let connectDb: () => Promise<void>;
@@ -333,11 +333,16 @@ describe("Deck templates integration", () => {
 	});
 
 	test("an id nothing is filed under is refused, and writes nothing", async () => {
-		const before = await getJson("/api/presentations");
+		// An anonymous create has no owner, so no route lists it. `createStore` is
+		// idempotent per collection name, so this reads the table the service
+		// writes.
+		const { createStore } = await import("./db");
+		const decks = createStore("presentations", StoredPresentationSchema);
+		const before = await decks.find({});
 		const res = await create({ templateId: "no-such-template" });
 		expect(res.status).toBe(400);
 		expect((await res.json()).error).toBe("No such template");
-		expect((await getJson("/api/presentations")).length).toBe(before.length);
+		expect((await decks.find({})).length).toBe(before.length);
 	});
 
 	test("a create with neither a template nor slides is still refused", async () => {

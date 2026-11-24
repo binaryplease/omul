@@ -58,6 +58,11 @@ const shareSection = readFileSync(
 	"utf8",
 );
 const german = interfaceTextFor("de");
+// The join address the share controls are built with in these tests.
+const JOIN_ADDRESS = {
+	host: "omul.example",
+	url: "https://omul.example/join/123456",
+};
 const topBarStart = source.indexOf("{/* Top bar (REQ190)");
 const topBar = source.slice(topBarStart, source.indexOf("</header>", topBarStart));
 const identity = topBar.indexOf("{/* Identity zone */}");
@@ -203,7 +208,7 @@ describe("the presenter top bar is three ordered zones (REQ190)", () => {
 		for (const isOwner of [true, false]) {
 			const { join, actions } = buildShareControls({
 				code: "123456",
-				host: "omul.example",
+				address: JOIN_ADDRESS,
 				isOwner,
 				copied: { code: false, link: false, embed: false, editLink: false },
 				onCopyCode: noop,
@@ -212,7 +217,7 @@ describe("the presenter top bar is three ordered zones (REQ190)", () => {
 				onCopyEmbed: noop,
 				onShareEdit: noop,
 			});
-			expect(join.host).toBe("omul.example");
+			expect(join.address).toEqual(JOIN_ADDRESS);
 			expect(actions.map((action) => action.key)).toContain("qr");
 			const menuActions = actions.filter((action) => action.key !== "qr");
 			expect(shareMenuLabel(menuActions)).toBe(
@@ -659,7 +664,7 @@ describe("below 1280px the bar is laid out for whoever holds the screen (REQ199)
 		for (const isOwner of [true, false]) {
 			const { actions } = buildShareControls({
 				code: "123456",
-				host: "omul.example",
+				address: JOIN_ADDRESS,
 				isOwner,
 				copied: { code: false, link: false, embed: false, editLink: false },
 				onCopyCode: noop,
@@ -784,7 +789,7 @@ describe("the presenter screen in the interface language (REQ248)", () => {
 			const { actions } = buildShareControls(
 				{
 					code: "123456",
-					host: "omul.example",
+					address: JOIN_ADDRESS,
 					isOwner,
 					copied: { code: false, link: false, embed: false, editLink: false },
 					onCopyCode: noop,

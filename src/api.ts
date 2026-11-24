@@ -1201,6 +1201,14 @@ export const api = {
 	 * — a deck whose organizer never minted a link is still openable at this URL,
 	 * and what it shows is what the public endpoint publishes.
 	 *
+	 * A leaderboard slide's entry counts only the quiz questions whose verdicts
+	 * the audience may see (REQ228, REQ233), whichever credentials ride: the
+	 * server sums the room's board on this endpoint for every caller, the edit
+	 * token included, because an organizer can project this page while a quiz
+	 * question is running (REQ214). A running question moves no row
+	 * here. The edit token still lifts what it lifts elsewhere: the reveal mode,
+	 * a running question's own tally and key, and the filtered answers below.
+	 *
 	 * It is the one read that asks for what the profanity filter withheld
 	 * (`filtered=include`, REQ085): this page is the results surface those
 	 * answers stay reachable on. The server answers that only for a caller who
@@ -1840,6 +1848,15 @@ let lastHeardAt = 0;
 let awaitingAnswer = false;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let pulseTimer: ReturnType<typeof setInterval> | null = null;
+/**
+ * The account this browser is signed in to, as the page last reported it
+ * (`noteWsAccount`): an id, `null` when signed out, `undefined` until the page
+ * has said. The server reads the account once, off the socket's upgrade request
+ * (REQ134), so the socket has to be replaced for a change to count.
+ */
+let socketAccount: string | null | undefined = undefined;
+/** Whether a `room.refused` has already replaced the socket since the last seat. */
+let reopenedAfterRefusal = false;
 
 /**
  * Back in the foreground after longer than a beat: the socket may have died
@@ -1886,6 +1903,59 @@ export function pulseWs() {
 }
 
 /**
+ * Tell the live socket which account this browser is now signed in to, or
+ * `null` when it is signed out (REQ134).
+ *
+ * A deck that requires participants to sign in seats a socket by the account
+ * its upgrade request resolved, which the server reads once, when the socket
+ * opens. A participant who signs in after the deck turned them away — the
+ * presenter switched sign-in on while they sat in the room — would otherwise
+ * keep a socket the room never seats again, whose `ping` is still answered so
+ * the heartbeat never replaces it. So a change of account replaces the socket,
+ * and the new one carries the new session and joins again. The first report
+ * only records the account: the socket that is open already carries it.
+ */
+export function noteWsAccount(accountId: string | null) {
+	const previous = socketAccount;
+	socketAccount = accountId;
+	if (previous === undefined || previous === accountId) return;
+	reopenedAfterRefusal = false;
+	openSocket();
+}
+
+/**
+ * Whether a `room.refused` frame should replace the socket: once, and only while
+ * the page says it is signed in. Such a refusal can come from a socket the
+ * server turned away while it was still looking the account up, and a fresh
+ * socket's join waits for that lookup. A second refusal in a row is the
+ * server's answer and is kept; a signed-out browser has nothing to retry with.
+ */
+function shouldReopenAfterRefusal(): boolean {
+	if (!socketAccount || reopenedAfterRefusal) return false;
+	reopenedAfterRefusal = true;
+	return true;
+}
+
+/**
+ * The `join` message a socket opens with (`LiveRoomJoinSchema`).
+ *
+ * A presenter screen adds the deck's edit token, or `null` when this browser
+ * holds none. On a deck that requires participants to sign in (REQ134) the
+ * server seats only a socket whose session resolves an account or whose join
+ * carries the edit token, and a browser cannot put the token on the socket's
+ * upgrade request as a header, so it rides the message. A participant's join
+ * carries no token: a phone holds none for the deck it joins.
+ */
+function joinMessageFor(joining: NonNullable<typeof room>) {
+	if (joining.role !== "presenter") return { type: "join", ...joining };
+	return {
+		type: "join",
+		...joining,
+		editToken: getCreatorToken(joining.presentationId),
+	};
+}
+
+/**
  * Open a socket for the current room, replacing any other. Every open joins the
  * room again, and the server answers each join with where the deck stands
  * (`room.joined`), so a reconnect catches up on whatever it missed.
@@ -1906,7 +1976,7 @@ function openSocket() {
 	awaitingAnswer = false;
 
 	socket.onopen = () => {
-		socket.send(JSON.stringify({ type: "join", ...joining }));
+		socket.send(JSON.stringify(joinMessageFor(joining)));
 	};
 
 	socket.onmessage = (evt) => {
@@ -1917,6 +1987,11 @@ function openSocket() {
 		awaitingAnswer = false;
 		try {
 			const msg = JSON.parse(evt.data);
+			if (msg.event === "room.joined") reopenedAfterRefusal = false;
+			if (msg.event === "room.refused" && shouldReopenAfterRefusal()) {
+				openSocket();
+				return;
+			}
 			const handlers = listeners.get(msg.event);
 			if (handlers) {
 				for (const handler of handlers) handler(msg.data);
@@ -1956,6 +2031,7 @@ export function disconnectWs() {
 	reconnectTimer = null;
 	if (pulseTimer) clearInterval(pulseTimer);
 	pulseTimer = null;
+	reopenedAfterRefusal = false;
 	if (typeof document !== "undefined") {
 		document.removeEventListener("visibilitychange", reopenIfQuietOnReturn);
 	}

@@ -61,6 +61,7 @@ import {
 	getParticipantPass,
 	getStatedParticipantName,
 	ImportFileError,
+	noteWsAccount,
 	rememberParticipantPass,
 	onWsEvent,
 	pulseWs,
@@ -764,6 +765,9 @@ describe("the live socket (REQ209)", () => {
 
 	afterEach(() => {
 		disconnectWs();
+		// Every test starts from a signed-out browser; with no room this opens
+		// nothing.
+		noteWsAccount(null);
 		jest.useRealTimers();
 		setSystemTime();
 		globalThis.WebSocket = realWebSocket;
@@ -789,6 +793,95 @@ describe("the live socket (REQ209)", () => {
 		const second = FakeSocket.created[1];
 		second.open();
 		expect(second.sent).toEqual([JOIN]);
+	});
+
+	// A deck that requires participants to sign in seats a presenter
+	// screen with no account only on the deck's edit token, and a browser cannot
+	// send it as a header on the socket's upgrade.
+	test("a presenter's join carries the deck's edit token, a participant's none (REQ134)", () => {
+		storage.set(TOKEN_KEY, JSON.stringify({ "deck-1": "token-1" }));
+		connectWs("deck-1", "presenter");
+		FakeSocket.created[0].open();
+		expect(FakeSocket.created[0].sent).toEqual([
+			{
+				type: "join",
+				presentationId: "deck-1",
+				role: "presenter",
+				editToken: "token-1",
+			},
+		]);
+		disconnectWs();
+
+		connectWs("deck-1", "participant");
+		FakeSocket.created[1].open();
+		expect(FakeSocket.created[1].sent).toEqual([JOIN]);
+	});
+
+	test("a presenter's join on a deck this browser holds no token for says so", () => {
+		connectWs("deck-2", "presenter");
+		FakeSocket.created[0].open();
+		expect(FakeSocket.created[0].sent).toEqual([
+			{
+				type: "join",
+				presentationId: "deck-2",
+				role: "presenter",
+				editToken: null,
+			},
+		]);
+	});
+
+	// Review NST18529, finding 1: the presenter switched sign-in on, the server
+	// turned the phone's socket away, the participant signed in — and the old
+	// socket, still answering pings, was never replaced.
+	test("signing in after a refusal replaces the socket, and the new one joins again (REQ134)", () => {
+		noteWsAccount(null);
+		const refusals: unknown[] = [];
+		connectWs("deck-1", "participant");
+		onWsEvent("room.refused", (data) => refusals.push(data));
+		const first = FakeSocket.created[0];
+		first.open();
+		first.hear("room.refused", {
+			presentationId: "deck-1",
+			refused: "sign-in-required",
+		});
+		// Signed out, a refusal is the answer: nothing to retry with.
+		expect(FakeSocket.created).toHaveLength(1);
+		expect(refusals).toHaveLength(1);
+
+		noteWsAccount("user-1");
+		expect(FakeSocket.created).toHaveLength(2);
+		const second = FakeSocket.created[1];
+		second.open();
+		expect(second.sent).toEqual([JOIN]);
+	});
+
+	test("signing out replaces the socket too, and an unchanged account does not", () => {
+		noteWsAccount("user-1");
+		connectWs("deck-1", "participant");
+		FakeSocket.created[0].open();
+		noteWsAccount("user-1");
+		expect(FakeSocket.created).toHaveLength(1);
+		noteWsAccount(null);
+		expect(FakeSocket.created).toHaveLength(2);
+	});
+
+	test("a refusal while signed in replaces the socket once, and a second refusal is kept", () => {
+		noteWsAccount("user-1");
+		const refusals: unknown[] = [];
+		connectWs("deck-1", "participant");
+		onWsEvent("room.refused", (data) => refusals.push(data));
+		const refusal = { presentationId: "deck-1", refused: "sign-in-required" };
+		FakeSocket.created[0].open();
+		FakeSocket.created[0].hear("room.refused", refusal);
+		// Turned away while the server was still looking the account up: a fresh
+		// socket's join waits for that lookup.
+		expect(FakeSocket.created).toHaveLength(2);
+		expect(refusals).toEqual([]);
+
+		FakeSocket.created[1].open();
+		FakeSocket.created[1].hear("room.refused", refusal);
+		expect(FakeSocket.created).toHaveLength(2);
+		expect(refusals).toEqual([refusal]);
 	});
 
 	test("a socket that answers its ping is kept", () => {

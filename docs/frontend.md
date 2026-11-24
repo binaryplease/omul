@@ -38,6 +38,18 @@ that already exist — compose these, never re-hand-roll:
   `sm` the same descriptor draws one button with the code on its face, opening a
   Join menu — Show QR code, Copy join code, then the Share menu's rows
   (REQ199); `joinMenuLabel()` beside `shareMenuLabel()` names it.
+- **Copied links and the clipboard** — `src/share-links.ts` and
+  `src/clipboard.ts`. Every link the presenter copies is built from
+  the page's origin by `joinLinkUrl()`, `embedSnippet()` or `editLinkUrl()`
+  (the results link by `resultsLinkUrl()` in `api.ts`), so it carries its
+  `http:` or `https:` scheme. A copy control writes through
+  `copyWithFeedback()`, which shows the confirmation or an error toast and never
+  throws: `navigator.clipboard` is missing on a page served over plain HTTP. An
+  element that shows the join address in its bare spelling (REQ179, REQ191)
+  takes `onCopy={copyAddressAs(address)}`, so selecting it and copying writes
+  the absolute link. Never call `navigator.clipboard` from a surface, and never
+  spell a link as `` `${window.location.origin}/…` `` by hand;
+  `src/share-links.test.ts` fails on either in the presenter surfaces.
 - **Icon-button hover** — `ICON_BUTTON_HOVER` in `ShareCluster.tsx` is the shared
   muted→accent interaction-state token. Compose it; don't inline
   `text-text-muted hover:text-accent` per surface.

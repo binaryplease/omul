@@ -24,8 +24,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { api, RESULTS_LINK_FRAGMENT, resultsLinkUrl } from "./api";
 import {
 	resultsLinkIssuedLabel,
+	resultsLinkMintedNotice,
 	resultsLinkView,
 } from "./components/ResultsLinkDialog";
+import { ENGLISH_INTERFACE_TEXT, interfaceTextFor } from "./interface-text";
 import { readSharedResultsFailure } from "./pages/SharedResultsPage";
 
 const realFetch = globalThis.fetch;
@@ -53,6 +55,30 @@ describe("resultsLinkUrl — where a minted link points", () => {
 		expect(
 			new URLSearchParams(new URL(url).hash.slice(1)).get(RESULTS_LINK_FRAGMENT),
 		).toBe("a&b=c d");
+	});
+});
+
+describe("resultsLinkMintedNotice — what a mint says", () => {
+	test("a copied link says it was created and copied", () => {
+		expect(resultsLinkMintedNotice("copied")).toEqual({
+			message: ENGLISH_INTERFACE_TEXT.dialogs.resultsLinkCreated,
+			tone: "success",
+		});
+	});
+
+	test("a page without a clipboard says the link was made but not copied", () => {
+		for (const outcome of ["unavailable", "refused"] as const) {
+			const notice = resultsLinkMintedNotice(outcome);
+			expect(notice).toEqual({
+				message: ENGLISH_INTERFACE_TEXT.dialogs.resultsLinkCreatedNotCopied,
+				tone: "info",
+			});
+			expect(notice.message).not.toContain("copied to clipboard");
+		}
+		const german = interfaceTextFor("de");
+		expect(resultsLinkMintedNotice("unavailable", german).message).toBe(
+			german.dialogs.resultsLinkCreatedNotCopied,
+		);
 	});
 });
 

@@ -48,7 +48,7 @@ import {
 	type DeckDraftModel,
 	GENERATED_SLIDE_TYPES,
 } from "./deck-generator";
-import { DECK_PROMPT_MAX_LENGTH } from "./schemas";
+import { DECK_PROMPT_MAX_LENGTH, StoredPresentationSchema } from "./schemas";
 
 /** The draft the stub answers with unless a case installs another. */
 const DEFAULT_DRAFT = {
@@ -414,11 +414,15 @@ describe("Deck generation integration (REQ007)", () => {
 
 		test("a draft with no usable slide in it is a 502, and writes nothing", async () => {
 			answerOnceWith(async () => ({ title: "Empty", slides: [] }));
-			const before = await (await fetch(`${baseUrl}/api/presentations`)).json();
+			// An anonymous draft has no owner, so no route lists it. `createStore` is
+			// idempotent per collection name, so this reads the table the service
+			// writes.
+			const { createStore } = await import("./db");
+			const decks = createStore("presentations", StoredPresentationSchema);
+			const before = await decks.find({});
 			const res = await generate({ prompt: "a retro" });
 			expect(res.status).toBe(502);
-			const after = await (await fetch(`${baseUrl}/api/presentations`)).json();
-			expect(after.length).toBe(before.length);
+			expect((await decks.find({})).length).toBe(before.length);
 		});
 
 		test("an empty prompt is refused at the boundary", async () => {

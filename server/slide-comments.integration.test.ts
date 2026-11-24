@@ -12,9 +12,9 @@
  *     comment is written carrying a marker string, and every payload a caller
  *     without an account on the deck can reach is fetched and searched for it:
  *     the join lookup, the deck read (anonymous, participant and edit-token),
- *     the public list, both results reads, the results **link**, the Q&A, the
- *     chat, a scorecard, the organizer's own preview and export input, and the
- *     `slide.changed` frame the whole room is broadcast.
+ *     both results reads, the results **link**, the Q&A, the chat, a scorecard,
+ *     the organizer's own audience-projected list, preview and export input, and
+ *     the `slide.changed` frame the whole room is broadcast.
  *
  * Stands up the real Elysia app (auth handler + presentation routes + the `/ws`
  * mount) against a throw-away in-memory docstore and a temp auth DB, exactly as
@@ -662,7 +662,6 @@ describe("comment threads on slides (REQ074)", () => {
 					headers: { Authorization: "Bearer nonsense" },
 				}),
 			],
-			["public list", fetch(`${baseUrl}/api/presentations`)],
 			// Every tally read, including the one the results link opens (REQ098).
 			["results", fetch(`${baseUrl}/api/presentations/${deck.id}/results`)],
 			[
@@ -692,7 +691,14 @@ describe("comment threads on slides (REQ074)", () => {
 			],
 			// And the organizer's own two, whose participant panes are the room's
 			// view rendered back to them (REQ103) — a dry run that leaked a comment
-			// would be showing the organizer a phone that does not exist.
+			// would be showing the organizer a phone that does not exist. The list is
+			// the audience projection of the organizer's own decks.
+			[
+				"list (the owner's account)",
+				fetch(`${baseUrl}/api/presentations`, {
+					headers: { "x-api-key": ownerKey },
+				}),
+			],
 			[
 				"preview",
 				fetch(`${baseUrl}/api/presentations/${deck.id}/preview`, {

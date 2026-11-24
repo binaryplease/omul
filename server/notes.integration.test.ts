@@ -9,7 +9,7 @@
  *
  *   - the deck fetch, with the edit token and without it;
  *   - the join payload, which is the participants' door and is never an editor;
- *   - the public list;
+ *   - the account's own audience-projected list (`GET /api/presentations`);
  *   - the `slide.changed` WebSocket broadcast, which every socket in the room
  *     receives whatever role it claimed on join;
  *   - the results endpoints and the spreadsheet export (REQ095), which carry no
@@ -29,13 +29,23 @@ process.env.DATABASE_PATH = ":memory:";
 process.env.NODE_ENV = "test";
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import ExcelJS from "exceljs";
+
+// The list test below needs an account, and accounts live in the auth DB.
+process.env.OMUL_AUTH_DB = join(
+	mkdtempSync(join(tmpdir(), "omul-notes-")),
+	"auth.sqlite",
+);
 
 let connectDb: () => Promise<void>;
 
 let baseUrl = "";
 let wsUrl = "";
 let server: { stop: () => Promise<void>; port: number } | null = null;
+let ownerKey = "";
 
 // API responses are loosely typed, like the neighbouring harnesses.
 type AnyJson = any;
@@ -163,16 +173,31 @@ describe("Presenter notes (REQ090)", () => {
 		// Load server modules AFTER DATABASE_PATH is set.
 		const db = await import("./db");
 		connectDb = db.connectDb;
+		const { auth, ensureAuthSchema } = await import("./accounts");
 		const { presentationRoutes } = await import("./routes/presentations");
 		const ws = await import("./ws");
 		const { Elysia } = await import("elysia");
 
 		await connectDb();
+		await ensureAuthSchema();
+
+		const account = await auth.api.signUpEmail({
+			body: {
+				email: "notes-owner@example.com",
+				password: "correct-horse-battery",
+				name: "Owner",
+			},
+		});
+		ownerKey = (
+			await auth.api.createApiKey({
+				body: { userId: account.user.id, name: "k" },
+			})
+		).key;
 
 		const app = new Elysia().use(presentationRoutes).ws("/ws", {
 			open(connection) {
 				const clientId = ws.registerClient(connection);
-				// See server/index.ts for the rationale — mutate ws.raw.data.
+				// See server/routes/live-socket.ts for the rationale — mutate ws.raw.data.
 				(connection.raw as any).data = {
 					...((connection.raw as any).data ?? {}),
 					clientId,
@@ -217,6 +242,12 @@ describe("Presenter notes (REQ090)", () => {
 
 	afterAll(async () => {
 		await server?.stop();
+		if (process.env.OMUL_AUTH_DB) {
+			rmSync(join(process.env.OMUL_AUTH_DB, ".."), {
+				recursive: true,
+				force: true,
+			});
+		}
 	});
 
 	// ── The half that makes the feature a feature ─────────
@@ -331,9 +362,16 @@ describe("Presenter notes (REQ090)", () => {
 		expect(notesOf(await response.json())).toEqual(["", ""]);
 	});
 
-	test("the public list carries no notes", async () => {
-		await create();
-		const response = await fetch(`${baseUrl}/api/presentations`);
+	test("the account's audience-projected list carries no notes", async () => {
+		const created = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "x-api-key": ownerKey },
+			body: JSON.stringify({ title: "Owned notes", slides: DECK }),
+		});
+		expect(created.status).toBe(201);
+		const response = await fetch(`${baseUrl}/api/presentations`, {
+			headers: { "x-api-key": ownerKey },
+		});
 		expect(response.status).toBe(200);
 		const list = (await response.json()) as AnyJson[];
 		expect(list.length).toBeGreaterThan(0);
