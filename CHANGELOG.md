@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-25
+
 ### Fixed
+
+- Every link a presenter copies keeps its `http://` or `https://` scheme, and a copy that fails now says so:
+  - The presenter screen shows the join address without its scheme, so it can be read aloud and typed in, for example beside the QR code in the QR code dialog. Selecting that address and copying it used to put the bare host and path on the clipboard, which a chat or an email does not turn into a link. Now a copy whose selection holds the whole host and stays inside the address writes the full join link with its scheme. A selection of the join code alone, or of part of the host, is copied as selected.
+  - Copy join code, Copy join link, Copy embed code, the edit link and the results link dialog's copy button now report a failed copy. Where the browser offers no clipboard, as on a page served over plain HTTP, they show "Could not copy: this browser allows copying only on a page served over HTTPS."; where the browser refuses the write, "Could not copy: the browser refused access to the clipboard." (in German as well). Before, such a copy showed no message at all. A control shows its copied state only after a copy that happened, and no message contains the copied link.
+  - Creating a results link whose copy fails now reports "Results link created, but it could not be copied. Select it in this dialog to copy it." Before, the dialog reported an error although the link had been created.
+  - Notifications now also appear on a page served over plain HTTP. Before, showing one failed there, so a copy on a LAN instance without HTTPS gave no feedback either way.
+- A phone that re-joins the room after the presenter closed a running quiz question now shows that question as closed, like a phone that stayed connected. Before, the `room.joined` frame left out when the question was closed (`slideClosedAt`), so the re-joined phone kept showing the question as running.
 
 - A participant can no longer score on a quiz question by answering after the room was sent its answer key. Under "Instant", closing a running question sends the room the key and the results; reopening it inside its window used to take answers again, and a participant holding the key could answer correctly and earn points. Now every answer to that question in that window is refused with `quiz-window-closed`, the same refusal an answer after the deadline gets. The same holds for a question the presenter revealed while it was closed and then reopened. A question closed under "On click" or "Private" sent no key, so reopening it still takes answers that score. Restarting the timer opens a new window, which takes answers again.
 
