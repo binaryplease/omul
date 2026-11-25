@@ -1,5 +1,5 @@
 {
-  description = "omul – live interactive presentations: the dev shell, and the command-line client as a runnable output (the server runtime is built as a Docker image via .github/workflows/build.yaml)";
+  description = "omul – live interactive presentations: the dev shell, the command-line client (packages.omul), the server (packages.omul-server) and the NixOS module services.omul (nixosModules.default) that runs it";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -12,10 +12,30 @@
       nixpkgs,
       flake-utils,
     }:
+    let
+      # sha256 of the server's installed `node_modules`, per system (REQ254,
+      # nix/server-package.nix). Bun installs only the running platform's native
+      # optional dependencies, so each system has its own value, and a system
+      # without one gets no `omul-server` package. Every change to `bun.lock`
+      # needs new values here — docs/maintaining.md says how to obtain them.
+      serverNodeModulesHashes = {
+        x86_64-linux = "sha256-ZmX0Y5FQBiE3zNPSdlTX1r6wES2VC6T4E2eAUongt00=";
+      };
+    in
     flake-utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        lib = nixpkgs.lib;
+
+        # ── The server (REQ254) ─────────────────────────────────────────────
+        #
+        # The same build as `.mise.toml` `[tasks.build]` and the Dockerfile,
+        # run by Bun from the Nix store; `services.omul` runs it.
+        omulServer = pkgs.callPackage ./nix/server-package.nix {
+          nodeModulesHash = serverNodeModulesHashes.${system};
+        };
+        hasServer = serverNodeModulesHashes ? ${system};
 
         # ── The command-line client (REQ180) ────────────────────────────────
         #
@@ -75,8 +95,23 @@
         };
       in
       {
-        packages.default = omulCli;
-        packages.omul = omulCli;
+        packages =
+          {
+            default = omulCli;
+            omul = omulCli;
+          }
+          // lib.optionalAttrs hasServer {
+            omul-server = omulServer;
+          };
+
+        # The VM test boots a NixOS machine that enables `services.omul`, so it
+        # needs a Linux system with the server package.
+        checks = lib.optionalAttrs (hasServer && pkgs.stdenv.hostPlatform.isLinux) {
+          nixos-module = import ./nix/vm-test.nix {
+            inherit pkgs;
+            omulModule = self.nixosModules.default;
+          };
+        };
 
         apps.default = {
           type = "app";
@@ -146,5 +181,9 @@
           '';
         };
       }
-    );
+    )
+    // {
+      # `services.omul` (REQ254): the recommended way to self-host on NixOS.
+      nixosModules.default = import ./nix/module.nix self;
+    };
 }

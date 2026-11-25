@@ -34,6 +34,7 @@ import {
 	BOTTOM_DOCK_ATTRIBUTE,
 	disabledReason,
 } from "../components/ui/BarMenu";
+import { cancelOnEscape } from "../components/ui/ConfirmModal";
 import { fillText, interfaceTextFor } from "../interface-text";
 import {
 	blankMenuRow,
@@ -592,6 +593,33 @@ describe("below 1280px the bar is laid out for whoever holds the screen (REQ199)
 		expect(barMenu).toMatch(
 			/if \(event\.key !== "Escape"\) return;\s*event\.preventDefault\(\);\s*close\(\);/,
 		);
+	});
+
+	test("an Escape a ConfirmModal answered leaves the panel sheet up", () => {
+		// The "no correct answer" prompt over an open sheet: the dialog marks its
+		// Escape handled, and the window's handler passes that on as answered.
+		const escape = { key: "Escape", defaultPrevented: false };
+		cancelOnEscape(
+			{
+				key: escape.key,
+				preventDefault: () => {
+					escape.defaultPrevented = true;
+				},
+			},
+			() => {},
+		);
+		for (const focusInSheet of [false, true]) {
+			expect(
+				panelSheetEscape({
+					sheetShown: true,
+					answered: escape.defaultPrevented,
+					focusInSheet,
+					composing: false,
+					inField: false,
+				}),
+			).toBeNull();
+		}
+		expect(source).toContain("<ConfirmModal\n\t\t\t\topen={answerKeyWarning !== null}");
 	});
 
 	test("Escape typed in a field inside the sheet is the field's, and keeps the draft", () => {

@@ -16,6 +16,8 @@ export const en = {
 	scanQr: "Scan QR Code",
 	cancelScan: "Cancel scan",
 	backHome: "Back to home",
+	/** The participant error screen's button when the join lookup failed (`participantErrorScreen`). */
+	retry: "Try again",
 
 	codeIncomplete: "Enter a 6-digit code",
 	codeNotFound: "No presentation uses this code. Check the code on the screen and try again.",
@@ -38,6 +40,7 @@ export const de: Partial<typeof en> = {
 	scanQr: "QR-Code scannen",
 	cancelScan: "Scannen abbrechen",
 	backHome: "Zurück zur Startseite",
+	retry: "Erneut versuchen",
 
 	codeIncomplete: "Gib einen sechsstelligen Code ein",
 	codeNotFound:

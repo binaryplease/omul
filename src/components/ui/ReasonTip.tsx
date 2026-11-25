@@ -65,13 +65,14 @@ export function ReasonTipBubble({
 }
 
 /**
- * An icon control that is either available, or unavailable with `reason`.
- * `className` is the control's own frame and hover token; the unavailable look
- * is composed here.
+ * A control — an icon or a text-labelled button — that is either available, or
+ * unavailable with `reason`. `className` is the control's own frame and hover
+ * token; the unavailable look is composed here.
  */
 export function ReasonButton({
 	label,
 	reason,
+	hint,
 	pressed,
 	className,
 	onClick,
@@ -81,12 +82,20 @@ export function ReasonButton({
 	label: string;
 	/** Why the control is unavailable; `null` when it is available. */
 	reason: string | null;
+	/**
+	 * What the available control does beyond its name: its tooltip in place of
+	 * the label, and its accessible description. While unavailable the reason
+	 * takes both places. Without it the available control is described by
+	 * nothing and titled with its label.
+	 */
+	hint?: string;
 	pressed?: boolean | "mixed";
 	className: string;
 	onClick: () => void;
 	children: ReactNode;
 }) {
 	const tipId = useId();
+	const hintId = useId();
 	const buttonRef = useRef<HTMLButtonElement>(null);
 	const tipRef = useRef<HTMLSpanElement>(null);
 	const [hovered, setHovered] = useState(false);
@@ -174,11 +183,18 @@ export function ReasonButton({
 				aria-disabled={unavailable}
 				aria-pressed={pressed}
 				aria-label={label}
-				aria-describedby={unavailable ? tipId : undefined}
-				title={unavailable ? undefined : label}
+				aria-describedby={
+					unavailable ? tipId : hint !== undefined ? hintId : undefined
+				}
+				title={unavailable ? undefined : (hint ?? label)}
 			>
 				{children}
 			</button>
+			{!unavailable && hint !== undefined && (
+				<span id={hintId} className="sr-only">
+					{hint}
+				</span>
+			)}
 			{unavailable &&
 				(shown && buttonRef.current
 					? createPortal(tip, menuPortalHost(buttonRef.current))

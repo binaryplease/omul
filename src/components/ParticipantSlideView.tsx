@@ -318,14 +318,14 @@ export function routeSubmissionFailure(
 	thrown: unknown,
 	dict: Dict,
 	report: {
-		refused: (message: string) => void;
+		refused: (message: string, code: VoteRefusalCode) => void;
 		movedOn: (message: string) => void;
 		failed: (message: string) => void;
 	},
 ): void {
 	const refused = thrown instanceof ApiError ? thrown.refused : null;
 	if (isVoteRefusalCode(refused)) {
-		report.refused(VOTE_REFUSAL_WORDING[refused](dict));
+		report.refused(VOTE_REFUSAL_WORDING[refused](dict), refused);
 		return;
 	}
 	const movedOn = thrown instanceof ApiError ? thrown.movedOn : null;
@@ -334,6 +334,59 @@ export function routeSubmissionFailure(
 		return;
 	}
 	report.failed(thrown instanceof Error ? thrown.message : String(thrown));
+}
+
+/**
+ * A stated refusal of the last answer on a slide (REQ232), as the slide view
+ * keeps it: the slide it was about, its code, its wording in the deck's
+ * language, and the quiz window the refused answer was sent into.
+ */
+export type StoredRefusal = {
+	slideId: string;
+	code: VoteRefusalCode;
+	message: string;
+	/**
+	 * The slide's `slideStartedAt` entry when the answer was refused, on a quiz
+	 * slide; `null` on any other slide, or on a quiz not started yet.
+	 */
+	quizStartedAt: string | null;
+};
+
+/**
+ * Which refusal the answer status line shows (REQ221, REQ232), read from the
+ * slide as it stands now. The refusal stays stored until the next answer is
+ * sent; this decides whether it is still news, so no effect has to clear it.
+ *
+ * - A refusal about another slide is not shown.
+ * - Once the quiz question is over, no refusal is shown: a participant whose
+ *   late answer was refused reads what everybody who did not answer in time
+ *   reads.
+ * - A `participation-closed` refusal is not shown once the slide accepts
+ *   answers again (REQ232): the presenter reopened it, and "closed" under
+ *   live controls would be false.
+ * - A refusal sent into one quiz window is not shown once the question has a
+ *   different start time: the presenter started or restarted it, and a "not
+ *   started" or "time is over" from before is about a window that is gone.
+ *
+ * Any other refusal stays shown; a reopen does not answer "your answer is
+ * final", for example.
+ */
+export function refusalOnStatusLine(
+	refusal: StoredRefusal | null,
+	slideNow: {
+		slideId: string;
+		quizOver: boolean;
+		participationOpen: boolean;
+		quizStartedAt: string | null;
+	},
+): string | null {
+	if (refusal === null || refusal.slideId !== slideNow.slideId) return null;
+	if (slideNow.quizOver) return null;
+	if (refusal.code === "participation-closed" && slideNow.participationOpen) {
+		return null;
+	}
+	if (refusal.quizStartedAt !== slideNow.quizStartedAt) return null;
+	return refusal.message;
 }
 
 /**
@@ -651,6 +704,53 @@ export function liveVoteTransport(
 	};
 }
 
+/**
+ * Reads this participant's scorecard once and applies it to the phone: the card
+ * itself, and the answer lock for the slide on screen when the card says this
+ * participant has answered it.
+ *
+ * Returns a cleanup that marks the read stale. A stale read applies nothing when
+ * it resolves, so a response that arrives after a newer read was asked for is
+ * discarded (REQ228). Without it responses were applied in arrival order: a
+ * read sent before the verdict was released (withheld, REQ228) that resolved
+ * after the read sent at the release overwrote the released verdict.
+ */
+export function readScorecardOnce(
+	transport: Pick<ParticipantVoteTransport, "scorecard">,
+	slideId: string,
+	apply: {
+		setScorecard: (card: any) => void;
+		setVoted: (
+			update: (previous: Record<string, string>) => Record<string, string>,
+		) => void;
+	},
+): () => void {
+	let stale = false;
+	transport
+		.scorecard()
+		.then((card) => {
+			if (stale) return;
+			apply.setScorecard(card);
+			const own = (card?.slides ?? []).find(
+				(entry: { slideId: string }) => entry.slideId === slideId,
+			);
+			// Whichever way the question was answered (REQ054 option id, REQ055
+			// typed text), the record of *having* answered is the same lock.
+			const submitted = own?.optionId ?? own?.answer ?? null;
+			if (own?.answered && submitted) {
+				apply.setVoted((previous) =>
+					previous[slideId] === submitted
+						? previous
+						: { ...previous, [slideId]: submitted },
+				);
+			}
+		})
+		.catch(() => {});
+	return () => {
+		stale = true;
+	};
+}
+
 // ── What a phone draws ───────────────────────────────────────
 
 /**
@@ -799,11 +899,10 @@ export function ParticipantSlideView({
 	/**
 	 * Why the server turned the last answer on a slide away (REQ232), in the
 	 * deck's language — kept with the slide it was about, so paging on leaves it
-	 * behind, and cleared by the next answer sent.
+	 * behind, and cleared by the next answer sent. Whether it is still shown is
+	 * derived (`refusalOnStatusLine`).
 	 */
-	const [refusal, setRefusal] = useState<{ slideId: string; message: string } | null>(
-		null,
-	);
+	const [refusal, setRefusal] = useState<StoredRefusal | null>(null);
 	/** What names the answer controls: the question above them (REQ221). */
 	const questionHeadingId = useId();
 	const { addToast } = useToast();
@@ -867,6 +966,14 @@ export function ParticipantSlideView({
 	 */
 	const quizRunning = useQuizQuestionRunning(slide, pres, serverClockOffsetMs);
 	const quizOver = isQuizSlide && !quizRunning;
+	/**
+	 * When this quiz question's current window opened, as the server stamped it
+	 * — what a stored refusal is compared against, so a start or restart retires
+	 * a refusal from the window before (REQ232).
+	 */
+	const quizStartedAt = isQuizSlide
+		? (pres.slideStartedAt?.[slide.id] ?? null)
+		: null;
 
 	// ── Participation (REQ111) ──────────────────────────────────
 	//
@@ -894,7 +1001,7 @@ export function ParticipantSlideView({
 	 */
 	const refusedWhileClosed = (): boolean => {
 		if (participationOpen) return false;
-		reportRefusal(participationLabels.closed);
+		reportRefusal(participationLabels.closed, "participation-closed");
 		return true;
 	};
 
@@ -912,8 +1019,8 @@ export function ParticipantSlideView({
 	 * toast where the line is drawn — that is a live region of its own, and the
 	 * reason would be read out twice.
 	 */
-	const reportRefusal = (message: string) => {
-		setRefusal({ slideId: slide.id, message });
+	const reportRefusal = (message: string, code: VoteRefusalCode) => {
+		setRefusal({ slideId: slide.id, code, message, quizStartedAt });
 		if (!answerStatusShown) addToast(message, "error");
 	};
 
@@ -1016,28 +1123,11 @@ export function ParticipantSlideView({
 	// A refused answer re-reads it too (REQ232): the server knew something this
 	// phone did not, and "already answered" means an answer is on record — from
 	// another tab, say — that the cards should show as the locked choice.
+	// Each run's cleanup marks its read stale, so only the most recently
+	// requested read is applied (REQ228, `readScorecardOnce`).
 	useEffect(() => {
 		if (slide.type !== "quiz" && slide.type !== "leaderboard") return;
-		const slideId = slide.id;
-		transport
-			.scorecard()
-			.then((card) => {
-				setScorecard(card);
-				const own = (card?.slides ?? []).find(
-					(entry: { slideId: string }) => entry.slideId === slideId,
-				);
-				// Whichever way the question was answered (REQ054 option id, REQ055
-				// typed text), the record of *having* answered is the same lock.
-				const submitted = own?.optionId ?? own?.answer ?? null;
-				if (own?.answered && submitted) {
-					setVoted((prev) =>
-						prev[slideId] === submitted
-							? prev
-							: { ...prev, [slideId]: submitted },
-					);
-				}
-			})
-			.catch(() => {});
+		return readScorecardOnce(transport, slide.id, { setScorecard, setVoted });
 		// `standingsRevision` is the board payload's identity, and only on a
 		// leaderboard slide: a quiz slide's tally changes on every answer in the
 		// room, and depending on it there would re-fetch this card once per vote
@@ -1292,12 +1382,15 @@ export function ParticipantSlideView({
 	 * What the answer status line says (REQ221, REQ232): "Sending…" while an
 	 * answer is on its way, else why the control is locked, else why the server
 	 * turned the last answer away. The lock comes first because it is the state
-	 * the phone is in now; the refusal is news about one tap. Once the question
-	 * is over the refusal is dropped, so a participant whose late answer was
-	 * refused reads what everybody who did not answer in time reads.
+	 * the phone is in now; the refusal is news about one tap, and stops showing
+	 * once the slide no longer says what it reported (`refusalOnStatusLine`).
 	 */
-	const refusalShown =
-		refusal?.slideId === slide.id && !quizOver ? refusal.message : null;
+	const refusalShown = refusalOnStatusLine(refusal, {
+		slideId: slide.id,
+		quizOver,
+		participationOpen,
+		quizStartedAt,
+	});
 	const answerStatusMessage = submitting
 		? t.answerSending
 		: (quizLockReason ?? refusalShown);

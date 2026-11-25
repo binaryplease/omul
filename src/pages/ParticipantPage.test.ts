@@ -30,6 +30,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SOCKET_PULSE_MS } from "../api";
+import { interfaceTextFor } from "../interface-text";
 import { createAppStore } from "../store/store";
 import type { Presentation } from "../types";
 import {
@@ -432,11 +433,42 @@ describe("participantErrorScreen (REQ236)", () => {
 		});
 	});
 
+	test("no deck yet: the button speaks the interface language, like the join form it returns to (REQ248)", () => {
+		expect(
+			participantErrorScreen(null, "Presentation not found", interfaceTextFor("de").join),
+		).toEqual({
+			message: "Presentation not found",
+			button: "Erneut versuchen",
+			retry: "join",
+		});
+		expect(
+			participantErrorScreen(null, "Presentation not found", interfaceTextFor("en").join),
+		).toEqual({
+			message: "Presentation not found",
+			button: "Try again",
+			retry: "join",
+		});
+	});
+
+	test("a deck's screen ignores the interface language and speaks the deck's", () => {
+		expect(
+			participantErrorScreen(deckIn("en"), ROUTE_ERROR, interfaceTextFor("de").join),
+		).toEqual(participantErrorScreen(deckIn("en"), ROUTE_ERROR));
+	});
+
 	test("the page draws its error screen from it", () => {
 		const page = readFileSync(join(import.meta.dir, "ParticipantPage.tsx"), "utf8");
-		expect(page).toContain("const screen = participantErrorScreen(pres, error);");
+		expect(page).toContain(
+			"const screen = participantErrorScreen(pres, error, interfaceText.join);",
+		);
 		expect(page).toContain("{screen.message}");
 		expect(page).toContain("{screen.button}");
+		// The document keeps lang="en" without a deck, so the deckless button,
+		// which reads the interface language, declares it (REQ248, review NST18707).
+		expect(page).toContain(
+			'lang={screen.retry === "join" ? interfaceLanguage : undefined}',
+		);
+		expect(page).toMatch(/language: interfaceLanguage\s*\}\s*=\s*useInterfaceText\(\)/);
 		expect(page).not.toMatch(/>\s*Try again\s*</);
 	});
 });

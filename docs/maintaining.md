@@ -47,3 +47,42 @@ Both are hidden from `mise tasks`; `mise tasks --hidden` lists them.
 |---|---|
 | `mise run publish:gate -- <base> <head> --terms <file>` | Check a range before it is promoted to this repository (`scripts/publish-gate.ts`) |
 | `mise run sync:public-main` | Fast-forward the private copy's `main` to the public `main` |
+
+## The server package's dependency hash
+
+This section applies in a fork too: it concerns anyone who changes `bun.lock`.
+
+The flake builds the server (`packages.omul-server`, REQ254) in a sandbox
+without network. Its npm dependencies are installed by a fixed-output
+derivation, `bun install --frozen-lockfile`, whose result Nix checks against the
+hash in `serverNodeModulesHashes` in `flake.nix`. **Every change to `bun.lock`
+needs a new hash in the same change.** An update of the `nixpkgs` input can
+change it as well, because it can bring a different Bun.
+
+A stale hash does not always fail. Nix stores a fixed-output derivation's result
+under its hash, so a machine that still holds the tree for the old hash reuses
+it and builds the server against the old dependencies. A machine without it
+fails with `hash mismatch in fixed-output derivation`. So replace the hash
+before you build, never after:
+
+```sh
+# 1. In flake.nix, set serverNodeModulesHashes.x86_64-linux to
+#    "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+# 2. Build the dependency tree. It fails and prints the hash it got:
+nix build .#omul-server.nodeModules
+#    error: hash mismatch in fixed-output derivation '…-omul-server-node-modules-…':
+#             specified: sha256-AAAA…
+#                got:    sha256-<new value>
+# 3. Put the "got:" value into flake.nix, then build the server and run the
+#    NixOS module's VM test:
+nix build .#omul-server
+nix build -L .#checks.x86_64-linux.nixos-module
+# 4. Optional: install again from scratch and compare, which confirms that the
+#    install is reproducible.
+nix build .#omul-server.nodeModules --rebuild
+```
+
+The hash is per system, because Bun installs only the running platform's native
+optional dependencies. Only `x86_64-linux` has one, so only `x86_64-linux` has
+the server package; adding a system means running step 2 on that system and
+adding its value.

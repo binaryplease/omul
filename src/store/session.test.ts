@@ -511,17 +511,13 @@ describe("session slice — WebSocket reducers", () => {
 		const store = seededStore({ status: "draft", activeSlideIndex: 1 });
 		store.getState().applyStarted({
 			startedAt: SECOND_OPENED,
+			slideIndex: 0,
+			slideId: "slide-a",
 			slideStartedAt: {},
-			activeSlideIndex: 0,
 		});
 		expect(store.getState().presentation?.status).toBe("live");
 		expect(store.getState().presentation?.activeSlideIndex).toBe(0);
-	});
-
-	test("a start frame without a slide index leaves the one held (an older server)", () => {
-		const store = seededStore({ status: "draft", activeSlideIndex: 1 });
-		store.getState().applyStarted({ startedAt: SECOND_OPENED });
-		expect(store.getState().presentation?.activeSlideIndex).toBe(1);
+		expect(store.getState().liveSlideId).toBe("slide-a");
 	});
 
 	test("a start frame without stamps leaves the ones held (an older server)", () => {

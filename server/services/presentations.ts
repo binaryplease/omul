@@ -1863,16 +1863,15 @@ export async function startPresentation(presentationId: string) {
 		// every tap of which is refused, or "Time's up" on a question that is
 		// waiting to be started.
 		//
-		// And `activeSlideIndex`, the slide it went live on (REQ230): a draft is
-		// navigated, so a phone or second screen that followed it sits on whatever
-		// slide was last picked there. It carries the same slide as `slideIndex`.
+		// `slideIndex` also moves a screen that followed the draft's navigation
+		// (REQ230): a draft is navigated, so a phone or second screen sits on
+		// whatever slide was last picked there until this frame names the first.
 		broadcastToPresentation(presentationId, "presentation.started", {
 			presentationId,
 			startedAt: sessionStartedAt,
 			slideIndex: 0,
 			slideId: first?.id ?? null,
 			slideStartedAt: slideStartedAtIn(updated),
-			activeSlideIndex: updated.activeSlideIndex,
 		});
 		if (opened && first) {
 			broadcastToPresentation(presentationId, "slide.started", {

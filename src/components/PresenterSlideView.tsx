@@ -28,6 +28,7 @@ import {
 import { SLIDE_PLACEMENT_CLASSES } from "./SlideAppearance";
 import { SlideText } from "./SlideText";
 import { SlideTypeIcon } from "./SlideTypeIcon";
+import { ReasonButton } from "./ui/ReasonTip";
 import { type ReactNode, useState } from "react";
 import { ApiError } from "../api";
 import { type Dict, getDict, resolveLang } from "../i18n";
@@ -415,7 +416,6 @@ export function PresenterSlideView({
 	// only while live, so the control is drawn disabled with that reason rather
 	// than offering a start the server turns away.
 	const timerUnavailable = quizTimerUnavailableText(pres, text);
-	const timerHint = timerUnavailable ?? timerControl.hint;
 
 	const {
 		canControl,
@@ -617,39 +617,30 @@ export function PresenterSlideView({
 							/>
 						)}
 						{canControl && onRestartTimer && (
-							<>
-								<button
-									type="button"
-									// Starting is the one thing left to do on a waiting
-									// question, so it wears the primary action; a restart
-									// is a correction and stays the quiet link it was. A
-									// waiting question the presenter has closed is not
-									// waiting on this, so it goes quiet too.
-									className={
-										awaitingStart && participationOpen
-											? "btn-primary inline-flex items-center gap-2"
-											: "text-xs text-text-muted hover:text-text underline aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:text-text-muted"
-									}
-									// Disabled with its reason, never hidden (ADR-0025) —
-									// and `aria-disabled` rather than `disabled`, so the
-									// control keeps focus and the reason stays reachable.
-									aria-disabled={timerUnavailable !== null}
-									onClick={() => {
-										if (timerUnavailable === null) onRestartTimer(slide.id);
-									}}
-									title={timerHint}
-									aria-describedby={`restart-timer-hint-${slide.id}`}
-								>
-									{awaitingStart && <Play size={16} aria-hidden="true" />}
-									{timerControl.label}
-								</button>
-								{/* Described as well as tooltipped: a title alone reaches
-								    neither every screen reader nor a touch screen. Outside
-								    the button, so the name stays the label. */}
-								<span id={`restart-timer-hint-${slide.id}`} className="sr-only">
-									{timerHint}
-								</span>
-							</>
+							// Disabled with its reason, never hidden (ADR-0025): a
+							// `ReasonButton` keeps focus while unavailable and shows
+							// the reason on hover, focus or a tap, so a touch screen
+							// reads it too (REQ237); available, its hint is the
+							// tooltip and the accessible description.
+							<ReasonButton
+								label={timerControl.label}
+								reason={timerUnavailable}
+								hint={timerControl.hint}
+								// Starting is the one thing left to do on a waiting
+								// question, so it wears the primary action; a restart
+								// is a correction and stays the quiet link it was. A
+								// waiting question the presenter has closed is not
+								// waiting on this, so it goes quiet too.
+								className={
+									awaitingStart && participationOpen
+										? "btn-primary inline-flex items-center gap-2"
+										: "text-xs text-text-muted hover:text-text underline"
+								}
+								onClick={() => onRestartTimer(slide.id)}
+							>
+								{awaitingStart && <Play size={16} aria-hidden="true" />}
+								{timerControl.label}
+							</ReasonButton>
 						)}
 						{audioCue && <QuizAudioCueControl cue={audioCue} />}
 					</div>

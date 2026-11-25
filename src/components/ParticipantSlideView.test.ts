@@ -34,7 +34,10 @@ import {
 	liveVoteTransport,
 	ownQuizResultFor,
 	ParticipantSlideView,
+	readScorecardOnce,
+	refusalOnStatusLine,
 	routeSubmissionFailure,
+	type StoredRefusal,
 } from "./ParticipantSlideView";
 
 const TIME_LIMIT_SECONDS = 30;
@@ -442,6 +445,93 @@ describe("a participant's own verdict while the server withholds it (REQ228)", (
 	});
 });
 
+describe("a scorecard read overtaken by a newer one (REQ228)", () => {
+	const WITHHELD_CARD = {
+		slides: [
+			{ slideId: "q1", answered: true, optionId: "mercury", isCorrect: null, points: null },
+		],
+	};
+	const RELEASED_CARD = {
+		slides: [
+			{ slideId: "q1", answered: true, optionId: "mercury", isCorrect: true, points: 943 },
+		],
+	};
+
+	/**
+	 * A transport stand-in whose reads resolve only when the test says so, in
+	 * whatever order it says so.
+	 */
+	function delayedTransport() {
+		const pending: Array<(card: unknown) => void> = [];
+		return {
+			pending,
+			transport: {
+				scorecard: () =>
+					new Promise<unknown>((resolve) => {
+						pending.push(resolve);
+					}),
+			},
+		};
+	}
+
+	function recordingApply() {
+		const applied: unknown[] = [];
+		let voted: Record<string, string> = {};
+		return {
+			applied,
+			voted: () => voted,
+			apply: {
+				setScorecard: (card: unknown) => applied.push(card),
+				setVoted: (
+					update: (previous: Record<string, string>) => Record<string, string>,
+				) => {
+					voted = update(voted);
+				},
+			},
+		};
+	}
+
+	test("the earlier read resolving last leaves the later read's card applied", async () => {
+		const { pending, transport } = delayedTransport();
+		const { applied, voted, apply } = recordingApply();
+		// Two effect runs: the first read is sent while the verdict is withheld;
+		// the release re-runs the effect, whose cleanup marks the first read
+		// stale before the second is sent.
+		const cleanupFirst = readScorecardOnce(transport, "q1", apply);
+		cleanupFirst();
+		readScorecardOnce(transport, "q1", apply);
+		expect(pending).toHaveLength(2);
+
+		pending[1](RELEASED_CARD);
+		await Promise.resolve();
+		await Promise.resolve();
+		pending[0](WITHHELD_CARD);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(applied).toEqual([RELEASED_CARD]);
+		expect(voted()).toEqual({ q1: "mercury" });
+	});
+
+	test("a read that is not overtaken applies its card and the answer lock", async () => {
+		const { pending, transport } = delayedTransport();
+		const { applied, voted, apply } = recordingApply();
+		readScorecardOnce(transport, "q1", apply);
+		pending[0](WITHHELD_CARD);
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(applied).toEqual([WITHHELD_CARD]);
+		expect(voted()).toEqual({ q1: "mercury" });
+	});
+
+	test("the scorecard effect returns the read's cleanup", () => {
+		const source = readFileSync(join(import.meta.dir, "ParticipantSlideView.tsx"), "utf8");
+		expect(source).toContain(
+			"return readScorecardOnce(transport, slide.id, { setScorecard, setVoted });",
+		);
+	});
+});
+
 describe("a connected phone after the presenter edits and saves the deck (REQ229)", () => {
 	/**
 	 * A phone that joined while the deck ran on `instant` with this question on
@@ -565,7 +655,7 @@ describe("a phone that followed the draft when the deck goes live (REQ230)", () 
 		// Start: the server and the presenter are on the first slide.
 		store
 			.getState()
-			.applyStarted({ slideStartedAt: {}, activeSlideIndex: 0 });
+			.applyStarted({ slideIndex: 0, slideId: "warm-up", slideStartedAt: {} });
 
 		const pres = store.getState().presentation as Presentation;
 		const markup = phone(pres.slides[pres.activeSlideIndex], pres, null);
@@ -738,6 +828,132 @@ describe("a refused quiz answer keeps the participant on the slide (REQ232)", ()
 		expect(source).toMatch(/const reportFailure = \(message: string\) => \{\s*onError\(message\);/);
 		const page = readFileSync(join(import.meta.dir, "..", "pages", "ParticipantPage.tsx"), "utf8");
 		expect(page).toContain("onError={setError}");
+	});
+});
+
+describe("a stored refusal once the slide no longer says what it reported (REQ232)", () => {
+	const GERMAN = getDict("de");
+	const CLOSED_REASON = "Der Präsentator hat diese Frage geschlossen";
+	const STARTED_AT = "2026-11-25T10:00:00.000Z";
+	const RESTARTED_AT = "2026-11-25T10:05:00.000Z";
+
+	/**
+	 * The refusal the slide view stores for a code the server sent, on `slideId`
+	 * with the quiz window `quizStartedAt` the answer was sent into — the same
+	 * fields `reportRefusal` writes, with the wording the router picked.
+	 */
+	function refusedByServer(
+		code: VoteRefusalCode,
+		slideId: string,
+		quizStartedAt: string | null,
+	): StoredRefusal {
+		const stored: StoredRefusal[] = [];
+		routeSubmissionFailure(new ApiError("refused", code, 400), GERMAN, {
+			refused: (message, refusedCode) => {
+				stored.push({ slideId, code: refusedCode, message, quizStartedAt });
+			},
+			movedOn: () => {},
+			failed: () => {},
+		});
+		if (stored.length !== 1) throw new Error(`${code} was not routed as a refusal`);
+		return stored[0];
+	}
+
+	/** A multiple-choice slide: never a quiz, so never "over". */
+	function choiceSlideNow(participationOpen: boolean) {
+		return { slideId: "mc", quizOver: false, participationOpen, quizStartedAt: null };
+	}
+
+	test("close, tap, reopen on a choice slide: the line drops the closed refusal without a new tap", () => {
+		// The tap on the closed slide stores the refusal (`refusedWhileClosed`).
+		const refusal: StoredRefusal = {
+			slideId: "mc",
+			code: "participation-closed",
+			message: CLOSED_REASON,
+			quizStartedAt: null,
+		};
+		expect(refusalOnStatusLine(refusal, choiceSlideNow(false))).toBe(CLOSED_REASON);
+		// The presenter reopens the slide; the refusal is still stored.
+		expect(refusalOnStatusLine(refusal, choiceSlideNow(true))).toBe(null);
+	});
+
+	test("the server's participation-closed refusal is dropped by a reopen the same way", () => {
+		const refusal = refusedByServer("participation-closed", "mc", null);
+		expect(refusal.message).toBe(CLOSED_REASON);
+		expect(refusalOnStatusLine(refusal, choiceSlideNow(false))).toBe(CLOSED_REASON);
+		expect(refusalOnStatusLine(refusal, choiceSlideNow(true))).toBe(null);
+	});
+
+	test("a quiz closed and reopened inside its window drops the closed refusal", () => {
+		const refusal = refusedByServer("participation-closed", "q1", STARTED_AT);
+		// Closing a quiz ends it (REQ216); the reopen lets it run again.
+		const reopened = {
+			slideId: "q1",
+			quizOver: false,
+			participationOpen: true,
+			quizStartedAt: STARTED_AT,
+		};
+		expect(refusalOnStatusLine(refusal, reopened)).toBe(null);
+	});
+
+	test("a refusal of another kind is not dropped by a reopen", () => {
+		const refusal = refusedByServer("quiz-already-answered", "q1", STARTED_AT);
+		const closed = {
+			slideId: "q1",
+			quizOver: false,
+			participationOpen: false,
+			quizStartedAt: STARTED_AT,
+		};
+		const reopened = { ...closed, participationOpen: true };
+		expect(refusalOnStatusLine(refusal, reopened)).toBe(
+			refusalOnStatusLine(refusal, closed),
+		);
+		expect(refusalOnStatusLine(refusal, reopened)).toBe("Deine Antwort steht fest");
+	});
+
+	test("a quiz the presenter starts drops the not-started refusal", () => {
+		const refusal = refusedByServer("quiz-not-started", "q1", null);
+		const waiting = { slideId: "q1", quizOver: false, participationOpen: true, quizStartedAt: null };
+		expect(refusalOnStatusLine(refusal, waiting)).toBe(
+			"Warten, bis diese Frage gestartet wird",
+		);
+		expect(refusalOnStatusLine(refusal, { ...waiting, quizStartedAt: STARTED_AT })).toBe(null);
+	});
+
+	test("a quiz the presenter restarts drops a refusal from the window before", () => {
+		const refusal = refusedByServer("quiz-window-closed", "q1", STARTED_AT);
+		const restarted = {
+			slideId: "q1",
+			quizOver: false,
+			participationOpen: true,
+			quizStartedAt: RESTARTED_AT,
+		};
+		expect(refusalOnStatusLine(refusal, restarted)).toBe(null);
+		// In the same window, still running (the grace), it stays.
+		expect(refusalOnStatusLine(refusal, { ...restarted, quizStartedAt: STARTED_AT })).toBe(
+			"Die Zeit für diese Frage ist vorbei",
+		);
+	});
+
+	test("an ended question or another slide shows no refusal", () => {
+		const refusal = refusedByServer("quiz-window-closed", "q1", STARTED_AT);
+		const now = { slideId: "q1", quizOver: true, participationOpen: true, quizStartedAt: STARTED_AT };
+		expect(refusalOnStatusLine(refusal, now)).toBe(null);
+		expect(refusalOnStatusLine(refusal, { ...now, slideId: "q2", quizOver: false })).toBe(null);
+		expect(refusalOnStatusLine(null, now)).toBe(null);
+	});
+
+	test("the slide view stores the kind and window and derives its line through the rule", () => {
+		const source = readFileSync(join(import.meta.dir, "ParticipantSlideView.tsx"), "utf8");
+		expect(source).toContain(
+			'reportRefusal(participationLabels.closed, "participation-closed");',
+		);
+		expect(source).toContain(
+			"setRefusal({ slideId: slide.id, code, message, quizStartedAt });",
+		);
+		expect(source).toMatch(
+			/const refusalShown = refusalOnStatusLine\(refusal, \{\s*slideId: slide\.id,\s*quizOver,\s*participationOpen,\s*quizStartedAt,\s*\}\);/,
+		);
 	});
 });
 

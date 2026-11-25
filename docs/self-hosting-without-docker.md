@@ -8,6 +8,11 @@ single process and the same state directory as the container described in
 [deployment.md](deployment.md#running-the-image). Nothing new is packaged for it
 (REQ249).
 
+On NixOS, use the flake's NixOS module instead (`services.omul`, REQ254): it
+does what this page does by hand, from the system configuration. A minimal
+configuration is in
+[README.md](../README.md#on-nixos-the-flakes-module-recommended).
+
 This page is the path from a fresh Linux host to an instance that keeps its data
 and comes back after a reboot. **What each variable means, and what breaks
 without it, is in [deployment.md](deployment.md#environment-variables)**, and
