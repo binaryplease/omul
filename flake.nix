@@ -52,7 +52,7 @@
         # is not triggered by every edit elsewhere in the tree.
         omulCli = pkgs.stdenv.mkDerivation {
           pname = "omul-cli";
-          version = "1.4.1";
+          version = "1.5.0";
 
           src = pkgs.lib.fileset.toSource {
             root = ./.;

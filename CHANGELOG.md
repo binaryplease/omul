@@ -7,9 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-25
+
 ### Added
 
-- The flake builds the server as `packages.omul-server` and exports a NixOS module, `nixosModules.default`, that runs it as the systemd service `omul.service`. On NixOS, `services.omul.enable = true` with a `secretFile` is enough for a running instance, and the README now recommends this path on NixOS. The module keeps every database in `/var/lib/omul`, runs the server as an unprivileged user, and passes the signing secret and the optional model provider key as systemd credentials, so neither enters the Nix store. It opens no firewall port unless `services.omul.openFirewall` is set. A NixOS VM test in the flake's `checks` starts the module, creates and joins a deck, restarts the service and finds the deck again. The container image is unchanged and remains the path for hosts without NixOS.
+- The flake builds the server and runs it on NixOS:
+  - `packages.omul-server` is the server, the same production build as the container image, run by Bun. The flake builds it for `x86_64-linux`.
+  - `nixosModules.default` is a NixOS module that runs it as the systemd service `omul.service`. `services.omul.enable = true` with a `secretFile` starts an instance on port 3000. On a public host, `services.omul.baseHost` has to be set as well before anyone can sign in. The README now recommends this path on NixOS, and `docs/deployment.md` lists which module option sets which environment variable.
+  - The module keeps every database in `/var/lib/omul` and runs the server as an unprivileged user. It passes the signing secret (`secretFile`) and the optional model provider key (`generationApiKeyFile`) as systemd credentials, so neither enters the Nix store, and it refuses either path when it points into the Nix store. It opens no firewall port unless `services.omul.openFirewall` is set.
+  - A NixOS VM test in the flake's `checks` starts the module, creates and joins a deck, restarts the service and finds the deck again.
+  - The container image is unchanged and remains the path for hosts without NixOS.
 
 ### Removed
 
@@ -18,8 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A participant's quiz scorecard now applies only the most recently requested read. Before, a read sent while the verdict was still withheld could resolve after the read sent at its release and overwrite it, so the released verdict stayed hidden until the scorecard was read again.
-- On a participant's phone, the "closed" message under a slide's answer controls now goes away when the presenter reopens the slide. Before, an answer tapped while the slide was closed left the message under the reopened controls until the participant tapped again. On a quiz question, a message about an earlier window, such as "waiting to start" or "time is over", also goes away when the presenter starts or restarts the question's timer.
-- On a narrow screen, pressing Escape in a confirmation prompt now closes only the prompt. Before, Escape in the "no correct answer" prompt also closed the presenter's open panel sheet behind it.
+- On a participant's phone, the message "The presenter has closed this question" under a slide's answer controls now goes away when the presenter reopens the slide. Before, an answer tapped while the slide was closed left the message under the reopened controls until the participant tapped again. On a quiz question, a message about an earlier window, such as "Waiting for the presenter to start this question" or "The time for this question is over", also goes away when the presenter starts or restarts the question's timer.
+- On a screen narrower than 640 px, pressing Escape in a confirmation prompt on the presenter screen now closes only the prompt. Before, Escape in the prompt that warns, on Start, of a quiz question without a correct answer also closed the presenter's open panel sheet behind it.
 - When a join code leads to no presentation, the participant error screen's button now reads in the interface language, the same language as the join form it returns to: a German interface shows "Erneut versuchen". Before, the button always read "Try again". The error message above it is unchanged.
 - On the presenter screen, the Start timer and Restart timer button now shows why it is unavailable on a touch screen too: a tap shows the reason, such as "Start the presentation first — question timers run only while the deck is live", beside the button. The reason also shows while the pointer rests on the button or the button has keyboard focus, and Escape hides it. Before, the reason was only a browser tooltip, which a touch screen never shows.
 
