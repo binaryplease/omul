@@ -1276,6 +1276,86 @@ describe("quiz competition integration", () => {
 		expect((await scorecard(pres.id, "p1")).totalPoints).toBe(0);
 	});
 
+	// ── REQ216 — a reopen after the key went out ───────────────
+
+	/** Open or close one slide to submissions as the presenter (REQ111). */
+	async function setParticipation(
+		pres: AnyJson,
+		open: boolean,
+		slideId = "qz",
+	): Promise<void> {
+		const switched = await authed(
+			`/api/presentations/${pres.id}/participation`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId, open }) },
+		);
+		expect(switched.status).toBe(200);
+	}
+
+	test("reopening an Instant question after its key went out scores no late answer (REQ216)", async () => {
+		const pres = await createAndStart([quizSlide({ timeLimit: 30 })]);
+		expect((await answer(pres.id, "early", "mercury")).status).toBe(200);
+
+		// Closing the running question ends it: under "Instant" the room is sent
+		// the key with the results.
+		await setParticipation(pres, false);
+		expect((await results(pres.id)).options[1].isCorrect).toBe(true);
+
+		// Reopened inside its window, new payloads withhold the key again, but
+		// every phone that received it on the close still holds it.
+		await setParticipation(pres, true);
+		expect((await results(pres.id)).options[1].isCorrect).toBe(null);
+
+		const late = await answer(pres.id, "late", "mercury");
+		expect(late.status).toBe(400);
+		expect((await late.json()).refused).toBe("quiz-window-closed");
+		expect((await scorecard(pres.id, "late")).totalPoints).toBe(0);
+		// The answer given before the close keeps what it earned.
+		expect((await scorecard(pres.id, "early")).totalPoints).toBeGreaterThan(
+			QUIZ_CORRECT_POINTS,
+		);
+	});
+
+	test("a question closed and reopened under On click never sent its key, so a late answer scores (REQ216)", async () => {
+		const pres = await createAndStart([
+			quizSlide({ timeLimit: 30, resultsVisibility: "on-click" }),
+		]);
+		await setParticipation(pres, false);
+		await setParticipation(pres, true);
+
+		expect((await answer(pres.id, "late", "mercury")).status).toBe(200);
+		expect((await scorecard(pres.id, "late")).totalPoints).toBeGreaterThan(
+			QUIZ_CORRECT_POINTS,
+		);
+	});
+
+	test("a question revealed while closed under On click takes no answer once reopened (REQ216)", async () => {
+		const pres = await createAndStart([
+			quizSlide({ timeLimit: 30, resultsVisibility: "on-click" }),
+		]);
+		await setParticipation(pres, false);
+		const revealed = await authed(`/api/presentations/${pres.id}/reveal`, pres.creatorToken, {
+			method: "POST",
+			body: JSON.stringify({ slideId: "qz" }),
+		});
+		expect(revealed.status).toBe(200);
+		await setParticipation(pres, true);
+
+		const late = await answer(pres.id, "late", "mercury");
+		expect(late.status).toBe(400);
+		expect((await late.json()).refused).toBe("quiz-window-closed");
+		expect((await scorecard(pres.id, "late")).totalPoints).toBe(0);
+	});
+
+	test("the key publication stamp never reaches a client", async () => {
+		const pres = await createAndStart([quizSlide({ timeLimit: 30 })]);
+		await setParticipation(pres, false);
+		expect(await fetchPresentation(pres.id, pres.creatorToken)).not.toHaveProperty(
+			"quizKeyPublishedAt",
+		);
+		expect(await fetchPresentation(pres.id)).not.toHaveProperty("quizKeyPublishedAt");
+	});
+
 	// ── A plain choice slide keeps no score ────────────────────
 
 	test("a multiple-choice slide reveals its solution but scores nothing (REQ013)", async () => {

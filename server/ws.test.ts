@@ -12,9 +12,14 @@ import {
 	broadcastToAll,
 	broadcastToPresentation,
 	getParticipantCount,
+	isLatestJoin,
 	joinRoom,
+	leaveRoom,
+	markSignedIn,
 	registerClient,
 	removeClient,
+	startJoin,
+	unseatClientsWithoutSignIn,
 } from "./ws";
 
 type Sent = string;
@@ -254,5 +259,56 @@ describe("ws broadcaster", () => {
 		// @ts-expect-error — intentionally passing an empty string
 		joinRoom(c.id, "pres-DEF", "");
 		expect(getParticipantCount("pres-DEF")).toBe(1);
+	});
+
+	// REQ134: a deck that starts requiring sign-in keeps only the
+	// sockets that passed it.
+	test("unseating keeps signed-in and edit-token sockets, and takes out the rest", () => {
+		const anonymous = spawn();
+		const signedIn = spawn();
+		const tokenHolder = spawn();
+		const elsewhere = spawn();
+		markSignedIn(signedIn.id, true);
+		joinRoom(anonymous.id, "pres-GATE", "participant");
+		joinRoom(signedIn.id, "pres-GATE", "participant");
+		joinRoom(tokenHolder.id, "pres-GATE", "presenter", true);
+		joinRoom(elsewhere.id, "pres-OTHER", "participant");
+		expect(getParticipantCount("pres-GATE")).toBe(2);
+
+		expect(unseatClientsWithoutSignIn("pres-GATE")).toEqual([anonymous.id]);
+		expect(getParticipantCount("pres-GATE")).toBe(1);
+		expect(getParticipantCount("pres-OTHER")).toBe(1);
+
+		// The unseated socket hears nothing more from the room.
+		anonymous.sent.length = 0;
+		broadcastToPresentation("pres-GATE", "presentation.slides", {});
+		expect(anonymous.sent).toEqual([]);
+		expect(parseEnvelope(signedIn.sent.at(-1) ?? "").event).toBe(
+			"presentation.slides",
+		);
+		expect(parseEnvelope(tokenHolder.sent.at(-1) ?? "").event).toBe(
+			"presentation.slides",
+		);
+	});
+
+	test("leaveRoom takes a client out of its room and tells the room", () => {
+		const leaving = spawn();
+		const staying = spawn();
+		joinRoom(leaving.id, "pres-LEAVE", "participant");
+		joinRoom(staying.id, "pres-LEAVE", "participant");
+		leaveRoom(leaving.id);
+		expect(getParticipantCount("pres-LEAVE")).toBe(1);
+		expect(parseEnvelope(staying.sent.at(-1) ?? "").data).toEqual({
+			count: 1,
+			presentationId: "pres-LEAVE",
+		});
+	});
+
+	test("only the latest join a client started is the latest", () => {
+		const client = spawn();
+		const first = startJoin(client.id);
+		const second = startJoin(client.id);
+		expect(isLatestJoin(client.id, first)).toBe(false);
+		expect(isLatestJoin(client.id, second)).toBe(true);
 	});
 });

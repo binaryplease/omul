@@ -32,6 +32,7 @@ import {
 	quizClosedAfterOpening,
 	quizDeadlineFor,
 	quizHasAnswerKey,
+	quizKeyPublishedInWindow,
 	quizQuestionIsRunning,
 	quizResultVisibleToCaller,
 	quizResultWithheld,
@@ -624,6 +625,66 @@ describe("solutionVisibleToAudience on a closed quiz question (REQ216)", () => {
 			solutionVisibleToAudience(quiz, restarted, Date.parse("2026-01-01T12:01:01Z")),
 		).toBe(false);
 		expect(quizClosedAfterOpening(restarted, "qz")).toBe(false);
+	});
+});
+
+describe("quizKeyPublishedInWindow (REQ216)", () => {
+	const PUBLISHED_AT = "2026-01-01T12:00:05.000Z";
+
+	test("a key published after the window opened ends that window for answers", () => {
+		expect(
+			quizKeyPublishedInWindow(
+				{ slideStartedAt: { qz: OPENED_AT }, quizKeyPublishedAt: { qz: PUBLISHED_AT } },
+				"qz",
+			),
+		).toBe(true);
+	});
+
+	test("a question whose key never went out is not over", () => {
+		expect(
+			quizKeyPublishedInWindow(
+				{ slideStartedAt: { qz: OPENED_AT }, quizKeyPublishedAt: {} },
+				"qz",
+			),
+		).toBe(false);
+		// A deck read before the stamp existed carries no record at all.
+		expect(quizKeyPublishedInWindow({ slideStartedAt: { qz: OPENED_AT } }, "qz")).toBe(
+			false,
+		);
+	});
+
+	test("a restart opens a window the earlier publication does not reach", () => {
+		expect(
+			quizKeyPublishedInWindow(
+				{
+					slideStartedAt: { qz: "2026-01-01T12:01:00.000Z" },
+					quizKeyPublishedAt: { qz: PUBLISHED_AT },
+				},
+				"qz",
+			),
+		).toBe(false);
+	});
+
+	test("a question with no opening instant reads as not published", () => {
+		// An audience-paced deck opens nothing, and a close there sends no key.
+		expect(
+			quizKeyPublishedInWindow(
+				{ slideStartedAt: {}, quizKeyPublishedAt: { qz: PUBLISHED_AT } },
+				"qz",
+			),
+		).toBe(false);
+	});
+
+	test("reads only the slide it is asked about", () => {
+		expect(
+			quizKeyPublishedInWindow(
+				{
+					slideStartedAt: { qz: OPENED_AT, other: OPENED_AT },
+					quizKeyPublishedAt: { other: PUBLISHED_AT },
+				},
+				"qz",
+			),
+		).toBe(false);
 	});
 });
 

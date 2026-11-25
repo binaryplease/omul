@@ -17,6 +17,7 @@ import {
 import { flushSync } from "react-dom";
 import { getDict, resolveLang } from "../i18n";
 import { useInterfaceText } from "../interface-language";
+import { copyAddressAs, type JoinAddress } from "../share-links";
 import { AudienceBlankIcon } from "./LiveRoom";
 import { BAR_GROUP, BAR_GROUP_ITEM } from "./ShareCluster";
 
@@ -209,9 +210,10 @@ export function PresentingView({
 }: {
 	/**
 	 * Where the room joins. The join line is the room's, so it is in the deck's
-	 * `language` (REQ084) rather than the interface language (REQ248).
+	 * `language` (REQ084) rather than the interface language (REQ248). A copy
+	 * of the line writes the address's absolute link.
 	 */
-	join: { host: string; code: string; language?: string };
+	join: { address: JoinAddress; code: string; language?: string };
 	/** Whether the room's screen is blanked (REQ109): the stage is then controls only. */
 	blanked: boolean;
 	/** The slide, or on a blanked screen its curtain's controls. */
@@ -369,8 +371,9 @@ export function PresentingView({
 				<p
 					lang={roomLanguage}
 					className="pointer-events-none absolute inset-x-0 top-3 z-20 px-4 text-center text-sm text-text-muted"
+					onCopy={copyAddressAs(join.address)}
 				>
-					{getDict(join.language).roomJoinAt} {join.host}{" "}
+					{getDict(join.language).roomJoinAt} {join.address.host}{" "}
 					<span className="font-mono font-bold text-accent-text tracking-widest">
 						{join.code}
 					</span>

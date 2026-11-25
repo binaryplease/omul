@@ -685,9 +685,9 @@ export type Presentation = Omit<
 	 *
 	 * A **report**, never a credential — every gated route re-resolves it from the
 	 * request's own credentials, so a client that got this wrong only mis-draws its
-	 * own buttons. Optional here because the routes that hand a deck to the *room*
-	 * (the join door, the public list) do not report one, and a surface that reads
-	 * it must treat its absence as "no standing".
+	 * own buttons. Optional here because the join door and the account's
+	 * audience-projected list (`GET /api/presentations`) do not report one, and a
+	 * surface that reads it must treat its absence as "no standing".
 	 */
 	accessLevel?: DeckAccessLevel | null;
 	/**

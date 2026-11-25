@@ -11,6 +11,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { Presentation } from "../types";
 import { slideAcceptsSubmissions } from "../types";
+import {
+	LiveRoomSnapshotSchema,
+	quizClosedAfterOpening,
+} from "../../server/schemas";
 import { clockOffsetFrom, sessionStampsIn } from "./session";
 import { createAppStore } from "./store";
 
@@ -141,11 +145,45 @@ describe("session slice — WebSocket reducers", () => {
 			slideStartedAt: { "slide-a": FIRST_OPENED, "slide-b": SECOND_OPENED },
 			revealedSlideIds: [],
 			closedSlideIds: [],
+			slideClosedAt: {},
 			audienceBlanked: false,
 			countdownRuns: {},
+			activeSlideId: "slide-b",
 			...overrides,
 		};
 	}
+
+	test("the join frame fixture names every field the snapshot carries", () => {
+		// A runtime field added to the snapshot without a case here is a field no
+		// test shows a re-joining phone receiving.
+		expect(Object.keys(joinedFrame()).sort()).toEqual(
+			Object.keys(LiveRoomSnapshotSchema.shape).sort(),
+		);
+	});
+
+	test("a join after a quiz was closed hands the phone its close stamp", () => {
+		// The phone saw the question open, its socket dropped, and the presenter
+		// closed the question before it came back. Without the stamp the phone
+		// holds the slide as closed and still treats the question as running.
+		const CLOSED_AT = "2026-01-01T12:01:00.000Z";
+		const store = seededStore({
+			activeSlideIndex: 1,
+			slideStartedAt: { "slide-a": FIRST_OPENED, "slide-b": SECOND_OPENED },
+			closedSlideIds: [],
+			slideClosedAt: {},
+		});
+		store.getState().applyJoined(
+			joinedFrame({
+				closedSlideIds: ["slide-b"],
+				slideClosedAt: { "slide-b": CLOSED_AT },
+			}),
+		);
+
+		const deck = store.getState().presentation;
+		expect(deck?.closedSlideIds).toEqual(["slide-b"]);
+		expect(deck?.slideClosedAt).toEqual({ "slide-b": CLOSED_AT });
+		expect(quizClosedAfterOpening(deck as never, "slide-b")).toBe(true);
+	});
 
 	test("a join answered live takes a phone that read the deck as a draft off the waiting screen (REQ209)", () => {
 		// The tester's report: a participant was told "Waiting for presenter"

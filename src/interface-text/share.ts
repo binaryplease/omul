@@ -14,6 +14,13 @@ export const en = {
 	copied: "Copied!",
 	copyJoinCode: "Copy join code",
 
+	// A copy control that could not write to the clipboard (`clipboard.ts`).
+	// Neither names what was being copied: the edit link and the
+	// results link carry a secret.
+	copyUnavailable:
+		"Could not copy: this browser allows copying only on a page served over HTTPS.",
+	copyRefused: "Could not copy: the browser refused access to the clipboard.",
+
 	// The join chip from `sm`: "Join:" below `2xl`, "Join at <host>" from it.
 	joinChip: "Join:",
 	joinChipAt: "Join at",
@@ -47,6 +54,11 @@ export const de: Partial<typeof en> = {
 	editLinkShort: "Bearbeitungslink",
 	copied: "Kopiert!",
 	copyJoinCode: "Code zum Mitmachen kopieren",
+
+	copyUnavailable:
+		"Kopieren nicht möglich: Dieser Browser kopiert nur auf Seiten, die über HTTPS ausgeliefert werden.",
+	copyRefused:
+		"Kopieren nicht möglich: Der Browser hat den Zugriff auf die Zwischenablage verweigert.",
 
 	joinChip: "Code:",
 	joinChipAt: "Mitmachen unter",

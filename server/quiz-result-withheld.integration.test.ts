@@ -264,7 +264,7 @@ describe("a quiz question's result while it is not the room's (REQ215)", () => {
 		const app = new Elysia().use(presentationRoutes).ws("/ws", {
 			open(connection) {
 				const clientId = ws.registerClient(connection);
-				// See server/index.ts for the rationale — mutate ws.raw.data.
+				// See server/routes/live-socket.ts for the rationale — mutate ws.raw.data.
 				(connection.raw as any).data = {
 					...((connection.raw as any).data ?? {}),
 					clientId,

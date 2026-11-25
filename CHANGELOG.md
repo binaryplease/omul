@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A participant can no longer score on a quiz question by answering after the room was sent its answer key. Under "Instant", closing a running question sends the room the key and the results; reopening it inside its window used to take answers again, and a participant holding the key could answer correctly and earn points. Now every answer to that question in that window is refused with `quiz-window-closed`, the same refusal an answer after the deadline gets. The same holds for a question the presenter revealed while it was closed and then reopened. A question closed under "On click" or "Private" sent no key, so reopening it still takes answers that score. Restarting the timer opens a new window, which takes answers again.
+
+### Security
+
+- `GET /api/presentations` now requires a signed-in account, by cookie session or personal API key, and lists only that account's own decks. Without an account it answers `401`. `?creatorId=` with any id but the caller's own returns an empty list. Before this change the route answered every caller with every deck on the instance, including drafts and decks in private folders and workspaces, each with its id and join code. A deck's own read by its id and the join by code do not change.
+- The leaderboard on the shared results page no longer counts a quiz question the room is still answering when the page is opened in a browser that can edit the presentation. Before, an organizer who opened their own results link during a live quiz, for example on a projector, saw a leaderboard that counted every question, including the running one. A participant could answer under new participant ids and watch which row gained points, which showed the right answer. Now `GET /api/presentations/:id/results` returns the same leaderboard to every caller, the edit token included: it counts a question only once the room may see its result, like the presenter screen and the phones. The organizer still sees a running question's own results and answer key there, the answers the profanity filter held back, and slides the reveal setting keeps private. The breakdown by group, the results export (`results.xlsx`, `deck.pdf`) and the preview still count every question for anyone who can edit the presentation. The command-line client's `omul results` reads the same leaderboard as the shared results page.
+- A presentation that requires participants to sign in now applies that rule to the live WebSocket as well. Before, a socket that sent `join` with the presentation's id was seated in its room without any check, and received every slide on each save (`presentation.slides`) and the slide on each navigation (`slide.changed`), although `GET /api/join/:code` refuses the same caller with `401`.
+  - The server now seats a socket in such a presentation's room only when its connection carries a session cookie or API key that resolves an account, or its `join` carries the presentation's edit token. Any other socket is answered with the new `room.refused` frame, `{ presentationId, refused: "sign-in-required" }`, and receives no frame of that presentation.
+  - Turning the setting on while sockets are connected takes every socket that has not signed in out of the room, before the slides of that save are sent.
+  - The presenter screen now sends the edit token it holds in its `join` message, so a presenter without an account keeps the live updates on such a presentation.
+  - The presenter and participant screens open a new socket when the signed-in account changes, so a participant who signs in after being refused receives live updates again.
+  - Presentations without the setting are unchanged: any socket is seated and receives every frame as before.
+
 ## [1.4.0] - 2026-11-18
 
 ### Added

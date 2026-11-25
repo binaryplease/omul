@@ -1,6 +1,11 @@
 import { Check, Copy, Link2, Link2Off, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api, getResultsToken, resultsLinkUrl } from "../api";
+import {
+	type ClipboardOutcome,
+	copyWithFeedback,
+	writeClipboardText,
+} from "../clipboard";
 import { useInterfaceText } from "../interface-language";
 import {
 	dateLocale,
@@ -89,6 +94,20 @@ export function resultsLinkIssuedLabel(
 	});
 }
 
+/**
+ * What a mint says once the server has made the link: created and
+ * copied, or created and not copied, with where to find it. The link itself is
+ * never in the message, because it carries the secret.
+ */
+export function resultsLinkMintedNotice(
+	outcome: ClipboardOutcome,
+	text: InterfaceText = ENGLISH_INTERFACE_TEXT,
+): { message: string; tone: "success" | "info" } {
+	return outcome === "copied"
+		? { message: text.dialogs.resultsLinkCreated, tone: "success" }
+		: { message: text.dialogs.resultsLinkCreatedNotCopied, tone: "info" };
+}
+
 export function ResultsLinkDialog({
 	presentationId,
 	onClose,
@@ -142,18 +161,23 @@ export function ResultsLinkDialog({
 			const link = await api.mintResultsLink(presentationId);
 			setStatus(link);
 			setHeld(getResultsToken(presentationId));
-			if (link.resultsToken) {
-				await navigator.clipboard.writeText(
-					resultsLinkUrl(
-						window.location.origin,
-						presentationId,
-						link.resultsToken,
-					),
-				);
+			// A copy that fails does not fail the mint: the link is made and the
+			// dialog shows it, so the notice says to select it there.
+			const outcome = link.resultsToken
+				? await writeClipboardText(
+						resultsLinkUrl(
+							window.location.origin,
+							presentationId,
+							link.resultsToken,
+						),
+					)
+				: "copied";
+			if (link.resultsToken && outcome === "copied") {
 				setCopied(true);
 				setTimeout(() => setCopied(false), 2000);
 			}
-			onNotify(dialogs.resultsLinkCreated, "success");
+			const notice = resultsLinkMintedNotice(outcome, text);
+			onNotify(notice.message, notice.tone);
 		} catch (mintError: unknown) {
 			onNotify(
 				mintError instanceof Error
@@ -168,10 +192,15 @@ export function ResultsLinkDialog({
 
 	const copy = async () => {
 		if (view.kind !== "held") return;
-		await navigator.clipboard.writeText(view.url);
+		const copiedLink = await copyWithFeedback({
+			value: view.url,
+			copiedMessage: dialogs.resultsLinkCopiedToast,
+			notify: onNotify,
+			text,
+		});
+		if (!copiedLink) return;
 		setCopied(true);
 		setTimeout(() => setCopied(false), 2000);
-		onNotify(dialogs.resultsLinkCopiedToast, "success");
 	};
 
 	const revoke = async () => {

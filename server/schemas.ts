@@ -289,12 +289,13 @@ export function tallyVisibleToAudience(
  * And one thing a caller says about the surface it reads for, not about itself:
  *
  *  - `wholeStandings` — the reading is for one of the organizer's own surfaces
- *    that is never drawn for the room (the results page, its breakdown, the
- *    export, the preview's dry run), so a leaderboard may be summed over every
- *    quiz question rather than only the released ones (REQ233). Honoured only
- *    beside `canEdit`. Without it an editor reads the board the room reads,
- *    because the presenting view and a second screen are editors drawing for
- *    the room, and a credential cannot tell a projector from a laptop.
+ *    (the results breakdown, the export, the preview's dry run), so a
+ *    leaderboard may be summed over every quiz question rather than only the
+ *    released ones (REQ233). Honoured only beside `canEdit`. Without it an
+ *    editor reads the board the room reads, because the presenting view, a
+ *    second screen and the shared results page are read with the
+ *    edit token and can be on the wall, and a credential cannot tell a
+ *    projector from a laptop.
  *
  * All three default to the withholding value where they are read, so a surface
  * that forgets to say who is asking publishes nothing.
@@ -4364,6 +4365,38 @@ export function quizClosedAfterOpening(
 }
 
 /**
+ * Whether a quiz question's answer key reached the room inside the window that
+ * is open now (REQ216) — the reason the vote boundary refuses
+ * a further answer to it as `quiz-window-closed`.
+ *
+ * A presenter who closes a running question under "Instant" ends it, and the
+ * room is sent its key and results. Reopening it inside its window withholds
+ * the key from every payload sent afterwards, but a phone that received it
+ * still holds it, and an answer given with the key in hand cannot be scored
+ * fairly. So the question stays over for scoring: the window is the one the
+ * key went out in, and nobody answers in it again.
+ *
+ * Compared with the opening instant rather than read as a flag, so a restarted
+ * timer (REQ057), which opens a new window after the stamp, asks the question
+ * again exactly as it does for a question whose window ran out. A missing
+ * stamp or opening instant reads as "not published" — an audience-paced deck
+ * opens nothing, and a close there publishes no key
+ * ({@link quizClosedAfterOpening}).
+ */
+export function quizKeyPublishedInWindow(
+	deck: {
+		slideStartedAt?: Record<string, string> | undefined;
+		quizKeyPublishedAt?: Record<string, string> | undefined;
+	},
+	slideId: string,
+): boolean {
+	const openedAt = Date.parse(deck.slideStartedAt?.[slideId] ?? "");
+	const publishedAt = Date.parse(deck.quizKeyPublishedAt?.[slideId] ?? "");
+	if (Number.isNaN(openedAt) || Number.isNaN(publishedAt)) return false;
+	return publishedAt >= openedAt;
+}
+
+/**
  * The close stamps after one slide is opened or closed (REQ111) — the instant
  * half of {@link withSlideParticipation}, composed by the route that writes the
  * pair and by the session store that applies its broadcast.
@@ -6744,6 +6777,11 @@ export const LiveRoomSnapshotSchema = PresentationSchema.pick({
 	slideStartedAt: true,
 	revealedSlideIds: true,
 	closedSlideIds: true,
+	// The close stamp travels with the close: without it a phone that re-joins
+	// after a quiz question was closed holds the slide in `closedSlideIds` and no
+	// instant, so `quizClosedAfterOpening` reads `false` and the question keeps
+	// running on that phone.
+	slideClosedAt: true,
 	audienceBlanked: true,
 	countdownRuns: true,
 }).extend({
@@ -6752,6 +6790,57 @@ export const LiveRoomSnapshotSchema = PresentationSchema.pick({
 });
 
 export type LiveRoomSnapshot = z.infer<typeof LiveRoomSnapshotSchema>;
+
+// ── What a socket sends, and the refusal of its join (REQ134) ─
+
+/**
+ * A socket's `join` message: the deck whose room it asks to sit in, the role it
+ * claims, and — from a presenter screen — the deck's edit token.
+ *
+ * `role` is a claim and proves nothing; it decides only whether the socket is
+ * counted as a participant. A missing or unknown role reads as `participant`,
+ * as a missing one always has.
+ *
+ * `editToken` is what lets a presenter screen with no account into the room of
+ * a deck that requires participants to sign in (REQ134). A browser
+ * cannot put an `Authorization` header on a WebSocket upgrade, so the token
+ * travels in the message instead. A socket signed in to an account needs none:
+ * its upgrade request carries the session cookie or API key the server reads.
+ */
+export const LiveRoomJoinSchema = z.object({
+	type: z.literal("join"),
+	presentationId: z.string(),
+	role: z.enum(["presenter", "participant"]).catch("participant"),
+	editToken: z.string().nullable().default(null),
+});
+
+export type LiveRoomJoin = z.infer<typeof LiveRoomJoinSchema>;
+
+/** A socket's heartbeat (REQ209), answered with `pong`. */
+export const LiveSocketPingSchema = z.object({ type: z.literal("ping") });
+
+/** Every message a socket may send. Anything else is ignored. */
+export const LiveSocketMessageSchema = z.discriminatedUnion("type", [
+	LiveRoomJoinSchema,
+	LiveSocketPingSchema,
+]);
+
+/**
+ * The `room.refused` frame: the answer to a join the deck's participant
+ * sign-in turned away (REQ134), and the frame a seated socket is
+ * sent when the deck starts requiring sign-in while it sits in the room.
+ *
+ * A refused socket is not in the room, so no broadcast of that deck reaches it:
+ * no slide, no tally, no count. It stays open, and a later `join` is judged
+ * again. The frame names the deck and the reason, the same `refused` code the
+ * join route answers `401` with, and nothing else.
+ */
+export const LiveRoomRefusalSchema = z.object({
+	presentationId: z.string(),
+	refused: z.literal("sign-in-required"),
+});
+
+export type LiveRoomRefusal = z.infer<typeof LiveRoomRefusalSchema>;
 
 // ── The shareable results link (REQ098) ──────────────────────
 
@@ -7834,6 +7923,20 @@ export const StoredPresentationSchema = z.object({
 	 * rather than publishing it — see {@link quizClosedAfterOpening}.
 	 */
 	slideClosedAt: z.record(z.string(), z.string()).default({}),
+	/**
+	 * When the room was last found holding each quiz question's answer key at a
+	 * participation switch, ISO by slide id (REQ216). Read
+	 * through {@link quizKeyPublishedInWindow}: an answer to a question whose key
+	 * went out inside its current window is refused, because a reopen withholds
+	 * the key from new payloads but cannot take it back from the phones that
+	 * received it.
+	 *
+	 * Server-only: {@link PresentationSchema} does not declare it, so no client
+	 * payload carries it and no PATCH body can write it. Defaulted `{}`, which
+	 * reads as "never published" — what every deck written before the field
+	 * existed was recorded as, since the hole it closes was open then.
+	 */
+	quizKeyPublishedAt: z.record(z.string(), z.string()).default({}),
 	/** When each slide's question was opened, ISO by slide id (REQ057). */
 	slideStartedAt: z.record(z.string(), z.string()).default({}),
 	/**
@@ -7908,8 +8011,9 @@ export const StoredPresentationSchema = z.object({
 	themeLogoUrl: z.string().default(""),
 	themeLogoAlt: z.string().default(""),
 	/**
-	 * Optional owner id backing the `?creatorId=` list filter. Null until creator
-	 * accounts exist; kept here so the filter field is always present.
+	 * The id of the account that owns the deck, or `null` for a deck no account
+	 * owns. `GET /api/presentations` and `/presentations/mine` list a signed-in
+	 * caller's decks by it.
 	 *
 	 * Also `null` — deliberately and always — on a deck a **workspace** owns
 	 * (REQ128): the two ownership fields are alternatives rather than layers, and

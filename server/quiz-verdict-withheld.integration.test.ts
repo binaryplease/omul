@@ -288,7 +288,7 @@ describe("a participant's quiz verdict while it is not theirs yet (REQ228)", () 
 		const app = new Elysia().use(presentationRoutes).ws("/ws", {
 			open(connection) {
 				const clientId = ws.registerClient(connection);
-				// See server/index.ts for the rationale — mutate ws.raw.data.
+				// See server/routes/live-socket.ts for the rationale — mutate ws.raw.data.
 				(connection.raw as any).data = {
 					...((connection.raw as any).data ?? {}),
 					clientId,
@@ -639,9 +639,12 @@ describe("a participant's quiz verdict while it is not theirs yet (REQ228)", () 
 		expectNoTotals(await presentersBoard(pres));
 	});
 
-	test("the organizer's results page still counts every question", async () => {
-		// Not drawn for the room, and already the surface that reads a running
-		// question's own tally (REQ215): its standings are the editor's whole ones.
+	test("under 'private' the results page's board never counts the question either", async () => {
+		// The shared results page is a surface the room can see (REQ214):
+		// an organizer projects their own results link. So the all-slides
+		// read is the room's board for an editor too. The editor still reads the
+		// board at all under "Private" — the reveal gate lifts for them — but it
+		// counts nothing the room may not see.
 		const pres = await goLive([quizSlide(), leaderboardSlide()], {
 			resultsVisibility: "private",
 		});
@@ -649,22 +652,23 @@ describe("a participant's quiz verdict while it is not theirs yet (REQ228)", () 
 		await answer(pres.id, "p1", "mercury");
 
 		const board = await resultsPageBoard(pres);
-		expect(board.rankedCount).toBe(1);
-		expect(board.entries[0].correctCount).toBe(1);
-		// The same page read without the edit token is the room's board.
+		expect(board.withheld).not.toBe(true);
+		expectNoTotals(board);
+		// The same page read without the edit token is withheld outright.
 		const publicRows = await read(`/api/presentations/${pres.id}/results`);
 		const publicBoard = publicRows.find((row: AnyJson) => row.slideId === "lb");
 		expect(publicBoard.withheld).toBe(true);
 	});
 
-	// ── Who the results page's whole standings are for (REQ233) ──
+	// ── Who reads the whole standings (REQ233) ──
 	//
-	// The results page and its breakdown ask for the whole standings, and only an
-	// editor may be given them. Under "Private" the reveal gate withholds the board
-	// from everyone else before the standings are summed at all, so these run under
-	// "Instant": the room's board is published, and the one thing standing between
-	// a caller without the edit token and a running question's points is that
-	// `wholeStandings` is honoured only beside `canEdit`.
+	// The breakdown, the results export and the preview's dry run ask for the
+	// whole standings, and only an editor may be given them. The all-slides read
+	// feeds the shared results page, which the room can see, so it is the room's
+	// board for every caller. Under "Private" the reveal gate withholds the board
+	// from a non-editor before the standings are summed at all, so these run
+	// under "Instant": the room's board is published, and one question is over
+	// while another is still running.
 
 	/**
 	 * A deck whose board is published while one question still runs: "first" is
@@ -725,25 +729,123 @@ describe("a participant's quiz verdict while it is not theirs yet (REQ228)", () 
 		return rows.find((row: AnyJson) => row.slideId === "lb");
 	}
 
-	test("the results page gives the whole standings to an editor and to nobody else", async () => {
+	test("the all-slides results read gives every caller the room's board", async () => {
 		const pres = await boardWithARunningQuestion();
 		const resultsToken = await resultsLinkFor(pres);
 
-		// Anonymous, and the results link: the room's board, which the running
-		// question has not moved.
+		// Anonymous, the results link, the edit token, and both credentials at
+		// once: the room's board, which the running question has not moved.
 		expectReleasedOnly(await resultsPageBoardAs(pres, {}));
 		expectReleasedOnly(
 			await resultsPageBoardAs(pres, { [RESULTS_TOKEN_HEADER]: resultsToken }),
 		);
-
-		// The edit token: every question counted.
-		expectWholeStandings(
+		expectReleasedOnly(
 			await resultsPageBoardAs(pres, {
 				Authorization: `Bearer ${pres.creatorToken}`,
 			}),
 		);
-		// And the projector's read with the same token is still the room's (REQ233).
+		expectReleasedOnly(
+			await resultsPageBoardAs(pres, {
+				Authorization: `Bearer ${pres.creatorToken}`,
+				[RESULTS_TOKEN_HEADER]: resultsToken,
+			}),
+		);
+		// And the projector's read with the same token is the room's too (REQ233).
 		expectReleasedOnly(await presentersBoard(pres));
+	});
+
+	/**
+	 * Run `body` as a browser that holds the deck's edit token and its results
+	 * link, with the client's `/api/...` requests sent to this suite's server.
+	 * `localStorage` and `fetch` are put back afterwards.
+	 */
+	async function inOrganizersBrowser<T>(
+		pres: AnyJson,
+		resultsToken: string,
+		body: () => Promise<T>,
+	): Promise<T> {
+		const { TOKEN_KEY, RESULTS_TOKEN_KEY } = await import("../src/storage");
+		const entries = new Map<string, string>([
+			[TOKEN_KEY, JSON.stringify({ [pres.id]: pres.creatorToken })],
+			[
+				RESULTS_TOKEN_KEY,
+				JSON.stringify({ [pres.id]: { token: resultsToken, issuedAt: "" } }),
+			],
+		]);
+		const globals = globalThis as { localStorage?: unknown };
+		const previousStorage = globals.localStorage;
+		const realFetch = globalThis.fetch;
+		globals.localStorage = {
+			getItem: (key: string) => entries.get(key) ?? null,
+			setItem: (key: string, value: string) => {
+				entries.set(key, value);
+			},
+			removeItem: (key: string) => {
+				entries.delete(key);
+			},
+		};
+		globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+			realFetch(
+				typeof input === "string" && input.startsWith("/api/")
+					? `${baseUrl}${input}`
+					: input,
+				init,
+			)) as typeof fetch;
+		try {
+			return await body();
+		} finally {
+			globalThis.fetch = realFetch;
+			globals.localStorage = previousStorage;
+		}
+	}
+
+	test("the shared results page, opened by the organizer, counts no running question", async () => {
+		const pres = await boardWithARunningQuestion();
+		const resultsToken = await resultsLinkFor(pres);
+		const { api } = await import("../src/api");
+
+		const rows = await inOrganizersBrowser(pres, resultsToken, () =>
+			api.getSharedResults(pres.id),
+		);
+		const board = rows.find((row: AnyJson) => row.slideId === "lb");
+		expect(board.results).not.toBe(null);
+		expectReleasedOnly(board.results);
+
+		// The edit token still does what it rides along for: the running
+		// question's own tally is an editor's (REQ215), not the withheld shape a
+		// link holder reads.
+		const running = rows.find((row: AnyJson) => row.slideId === "qz");
+		expect(running.results.scoring.correctCount).toBe(1);
+	});
+
+	test("the results export still sums every question for the editor", async () => {
+		// The export is authorized as an edit and is never drawn for the room, so
+		// its board is the whole standings (REQ233), running question included.
+		const pres = await boardWithARunningQuestion();
+		const { getResultsExport } = await import("./services/presentations");
+		const exported = await getResultsExport(pres.id, {
+			exportedAt: new Date().toISOString(),
+		});
+		const board = exported?.results.find((row: AnyJson) => row.slideId === "lb");
+		expectWholeStandings(board);
+	});
+
+	test("wholeStandings without canEdit lifts nothing", async () => {
+		// No route sends a non-editor through with `wholeStandings` set any more,
+		// so this pins the `canEdit &&` half of the guard in `quizDeckCountedFor`
+		// directly: a surface that set the flag for every caller would otherwise
+		// leak a running question to a link holder with no failing test.
+		const pres = await boardWithARunningQuestion();
+		const { getAllResults } = await import("./services/presentations");
+		for (const caller of [
+			{ wholeStandings: true },
+			{ canEdit: false, wholeStandings: true },
+			{ hasResultsLink: true, wholeStandings: true },
+		]) {
+			const rows = await getAllResults(pres.id, caller);
+			const board = rows?.find((row: AnyJson) => row.slideId === "lb");
+			expectReleasedOnly(board);
+		}
 	});
 
 	test("the breakdown gives the whole standings to an editor and to nobody else", async () => {

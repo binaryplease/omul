@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, getCreatorToken, getParticipantId } from "../api";
+import { copyWithFeedback } from "../clipboard";
 import {
 	ChatChannelControl,
 	chatCountLabel,
@@ -132,6 +133,13 @@ import {
 } from "../interface-text";
 import type { Route } from "../router";
 import { usePageTitle } from "../router";
+import {
+	copyAddressAs,
+	editLinkUrl,
+	embedSnippet,
+	joinAddressFor,
+	joinLinkUrl,
+} from "../share-links";
 import { useSessionSocket, useStore } from "../store";
 import type { CountdownAction } from "../types";
 import {
@@ -894,30 +902,34 @@ export function PresenterPage({
 		}
 	};
 
+	/**
+	 * Copy one of the share controls' values. Every link among them
+	 * comes from `share-links.ts` with its scheme, and a page that may not write
+	 * to the clipboard shows an error toast rather than throwing before any toast.
+	 */
+	const copyShareValue = (value: string, copiedMessage: string) =>
+		copyWithFeedback({ value, copiedMessage, notify: addToast, text });
+
 	const copyCode = async () => {
 		if (!pres) return;
-		await navigator.clipboard.writeText(pres.code);
+		if (!(await copyShareValue(pres.code, pageText.joinCodeCopied))) return;
 		setCodeCopied(true);
-		addToast(pageText.joinCodeCopied, "success");
 		setTimeout(() => setCodeCopied(false), 2000);
 	};
 
 	const copyLink = async () => {
 		if (!pres) return;
-		const url = `${window.location.origin}/join/${pres.code}`;
-		await navigator.clipboard.writeText(url);
+		const url = joinLinkUrl(window.location.origin, pres.code);
+		if (!(await copyShareValue(url, pageText.joinLinkCopied))) return;
 		setLinkCopied(true);
-		addToast(pageText.joinLinkCopied, "success");
 		setTimeout(() => setLinkCopied(false), 2000);
 	};
 
 	const copyEmbed = async () => {
 		if (!pres) return;
-		const url = `${window.location.origin}/join/${pres.code}`;
-		const snippet = `<iframe src="${url}" width="100%" height="600" frameborder="0" allow="clipboard-write" style="border:0;border-radius:12px;"></iframe>`;
-		await navigator.clipboard.writeText(snippet);
+		const snippet = embedSnippet(joinLinkUrl(window.location.origin, pres.code));
+		if (!(await copyShareValue(snippet, pageText.embedCodeCopied))) return;
 		setEmbedCopied(true);
-		addToast(pageText.embedCodeCopied, "success");
 		setTimeout(() => setEmbedCopied(false), 2000);
 	};
 
@@ -929,11 +941,11 @@ export function PresenterPage({
 			setConfirmShareEdit(false);
 			return;
 		}
-		const url = `${window.location.origin}/edit/${pres.id}#share=${encodeURIComponent(token)}`;
-		await navigator.clipboard.writeText(url);
-		setEditLinkCopied(true);
+		const url = editLinkUrl(window.location.origin, pres.id, token);
+		const copied = await copyShareValue(url, pageText.editLinkCopied);
 		setConfirmShareEdit(false);
-		addToast(pageText.editLinkCopied, "success");
+		if (!copied) return;
+		setEditLinkCopied(true);
 		setTimeout(() => setEditLinkCopied(false), 2000);
 	};
 
@@ -1252,7 +1264,9 @@ export function PresenterPage({
 	// the QR dialog's and the presenting view's join line (REQ248).
 	const roomText = getDict(pres.language);
 	const roomLanguage = resolveLang(pres.language);
-	const joinUrl = `${window.location.origin}/join/${pres.code}`;
+	// The join address the screen shows, and the link a copy of it writes.
+	const joinAddress = joinAddressFor(window.location, pres.code);
+	const joinUrl = joinAddress.url;
 	// The presenter's own labels for the panels shared with the phone.
 	const qaLabels = presenterQALabels(text);
 	const chatLabels = presenterChatLabels(text);
@@ -1475,8 +1489,12 @@ export function PresenterPage({
 					<p className="flex flex-wrap items-baseline justify-center lg:justify-start gap-x-2 text-sm sm:text-lg text-text-muted">
 						<span>{roomText.roomOrGoTo}</span>
 						{/* May break before `/join` and nowhere else. */}
-						<span className="font-mono text-accent-text [overflow-wrap:anywhere]">
-							{window.location.host}
+						{/* Copied by selection, it writes the absolute link. */}
+						<span
+							className="font-mono text-accent-text [overflow-wrap:anywhere]"
+							onCopy={copyAddressAs(joinAddress)}
+						>
+							{joinAddress.host}
 							<wbr />
 							<span className="whitespace-nowrap">/join/{pres.code}</span>
 						</span>
@@ -1598,7 +1616,7 @@ export function PresenterPage({
 			<div className="min-h-screen w-full bg-void bg-grid bg-noise">
 				<PresentingView
 					join={{
-						host: window.location.host,
+						address: joinAddress,
 						code: pres.code,
 						language: pres.language,
 					}}
@@ -1689,7 +1707,7 @@ export function PresenterPage({
 	const shareControls = buildShareControls(
 		{
 			code: pres.code,
-			host: window.location.host,
+			address: joinAddress,
 			// The edit-link control alone stays on the token rather than on control
 			// of the deck: the link *is* the token, so a collaborator who was never
 			// given one has nothing to copy into it (see `buildShareControls`).

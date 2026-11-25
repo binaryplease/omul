@@ -35,11 +35,20 @@
  *   reaction.sent     – somebody reacted to what is on screen (REQ077)
  *   chat.updated      – the live chat has a new message (REQ078)
  *
- * Two frames go to one client rather than to a room (REQ209):
+ * Three frames go to one client rather than to a room (REQ209, REQ134):
  *   room.joined       – the answer to every `join`: where the deck stands now
  *                       (`joinLiveRoom` in services/presentations.ts)
+ *   room.refused      – the answer to a `join` the deck's participant sign-in
+ *                       turned away, and the frame a seated socket gets when the
+ *                       deck starts requiring sign-in; the socket is not seated
  *   pong              – the answer to a `ping`, which is how a client tells a
  *                       live socket from one that died without closing
+ *
+ * A deck that requires participants to sign in (REQ134) seats only a socket
+ * that passed that sign-in: its upgrade request resolved an account, or its
+ * join carried the deck's edit token. Every other socket is refused
+ * the room, so no broadcast below reaches it. On every other deck a socket is
+ * seated as it always was.
  *
  * Every frame here is read by **every** client in the room: a room is broadcast
  * to by presentation, and the `role` below is whatever the connecting client
@@ -81,6 +90,16 @@ interface Client {
 	ws: { send(data: string | ArrayBuffer): void };
 	presentationId: string | null;
 	role: "presenter" | "participant";
+	/**
+	 * Whether the socket's upgrade request resolved an account (REQ134). `false`
+	 * until that lookup has answered, so a socket whose lookup is still running
+	 * counts as not signed in.
+	 */
+	signedIn: boolean;
+	/** Whether the join that seated it carried its deck's edit token. */
+	holdsEditToken: boolean;
+	/** How many joins the socket has started; see {@link startJoin}. */
+	joins: number;
 }
 
 const clients = new Map<string, Client>();
@@ -88,23 +107,108 @@ const clients = new Map<string, Client>();
 /** Register a new WS connection. Returns the client id. */
 export function registerClient(ws: Client["ws"]): string {
 	const id = crypto.randomUUID();
-	clients.set(id, { ws, presentationId: null, role: "participant" });
+	clients.set(id, {
+		ws,
+		presentationId: null,
+		role: "participant",
+		signedIn: false,
+		holdsEditToken: false,
+		joins: 0,
+	});
 	console.log(`[ws] client connected (${clients.size} total)`);
 	return id;
 }
 
-/** Handle a "join" message – associate a client with a presentation room. */
+/**
+ * Handle a "join" message – associate a client with a presentation room.
+ *
+ * `holdsEditToken` records whether the join proved the deck's edit token, which
+ * is one of the two ways a socket passes a deck's participant sign-in (REQ134);
+ * see {@link passedSignIn}. It defaults to `false`, the answer that keeps a
+ * socket out of a deck that requires signing in.
+ */
 export function joinRoom(
 	clientId: string,
 	presentationId: string,
 	role: "presenter" | "participant",
+	holdsEditToken = false,
 ): void {
 	const client = clients.get(clientId);
 	if (client) {
 		client.presentationId = presentationId;
 		client.role = role || "participant";
+		client.holdsEditToken = holdsEditToken;
 		broadcastParticipantCount(presentationId);
 	}
+}
+
+/**
+ * Take a client out of whatever room it sits in, and tell that room. A join
+ * refused at a deck that requires signing in (REQ134) calls it, so the refused
+ * socket keeps no seat in a room it sat in before.
+ */
+export function leaveRoom(clientId: string): void {
+	const client = clients.get(clientId);
+	const previous = client?.presentationId;
+	if (!client || !previous) return;
+	client.presentationId = null;
+	client.holdsEditToken = false;
+	broadcastParticipantCount(previous);
+}
+
+/** Record whether a client's upgrade request resolved an account (REQ134). */
+export function markSignedIn(clientId: string, signedIn: boolean): void {
+	const client = clients.get(clientId);
+	if (client) client.signedIn = signedIn;
+}
+
+/** Whether a client's upgrade request resolved an account (REQ134). */
+export function isSignedIn(clientId: string): boolean {
+	return clients.get(clientId)?.signedIn ?? false;
+}
+
+/**
+ * Number a client's next join. A join that has to wait for the account lookup
+ * (REQ134) can finish after a later join on the same socket; comparing its
+ * number with {@link isLatestJoin} lets it drop itself instead of moving the
+ * socket back to the room it asked for first.
+ */
+export function startJoin(clientId: string): number {
+	const client = clients.get(clientId);
+	if (!client) return 0;
+	client.joins += 1;
+	return client.joins;
+}
+
+/** Whether `join` is the latest join a client started. */
+export function isLatestJoin(clientId: string, join: number): boolean {
+	return clients.get(clientId)?.joins === join;
+}
+
+/**
+ * Whether a seated client passed its deck's participant sign-in (REQ134): its
+ * upgrade request resolved an account, or its join carried the deck's edit
+ * token.
+ */
+function passedSignIn(client: Client): boolean {
+	return client.signedIn || client.holdsEditToken;
+}
+
+/**
+ * Take every client that has not passed the participant sign-in out of a room,
+ * and return their ids. Called when a deck starts requiring sign-in while
+ * sockets sit in its room (REQ134); the caller tells each one why.
+ */
+export function unseatClientsWithoutSignIn(presentationId: string): string[] {
+	const unseated: string[] = [];
+	for (const [clientId, client] of clients) {
+		if (client.presentationId !== presentationId) continue;
+		if (passedSignIn(client)) continue;
+		client.presentationId = null;
+		unseated.push(clientId);
+	}
+	if (unseated.length > 0) broadcastParticipantCount(presentationId);
+	return unseated;
 }
 
 /** Remove a client on disconnect. */

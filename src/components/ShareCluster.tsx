@@ -14,6 +14,7 @@ import {
 	type InterfaceText,
 } from "../interface-text";
 import { useInterfaceText } from "../interface-language";
+import { copyAddressAs, type JoinAddress } from "../share-links";
 import { BarMenu, BarMenuRow, MENU_DIVIDER } from "./ui/BarMenu";
 
 // ── Share cluster (REQ: join-code / link / QR / embed / edit-link) ─────
@@ -96,8 +97,11 @@ export type ShareAction = {
 /** The leading join-code control, which renders the code inline. */
 export type ShareJoin = {
 	code: string;
-	/** Where the room joins, named beside the code from `2xl` (REQ191). */
-	host: string;
+	/**
+	 * Where the room joins: its host is named beside the code from `2xl`
+	 * (REQ191), and a copy of that text writes its absolute link.
+	 */
+	address: JoinAddress;
 	copied: boolean;
 	onClick: () => void;
 };
@@ -114,7 +118,7 @@ export type ShareControls = { join: ShareJoin; actions: ShareAction[] };
 export function buildShareControls(
 	params: {
 		code: string;
-		host: string;
+		address: JoinAddress;
 		isOwner: boolean;
 		copied: { code: boolean; link: boolean; embed: boolean; editLink: boolean };
 		onCopyCode: () => void;
@@ -169,7 +173,7 @@ export function buildShareControls(
 	return {
 		join: {
 			code: params.code,
-			host: params.host,
+			address: params.address,
 			copied: params.copied.code,
 			onClick: params.onCopyCode,
 		},
@@ -272,6 +276,7 @@ export function ShareCluster({
 					type="button"
 					className={`${BAR_GROUP_ITEM} px-2.5`}
 					onClick={join.onClick}
+					onCopy={copyAddressAs(join.address)}
 					title={shareText.copyJoinCode}
 				>
 					<span className="text-xs text-text-muted">
@@ -279,7 +284,7 @@ export function ShareCluster({
 						<span className="hidden 2xl:inline">
 							{shareText.joinChipAt}{" "}
 							<span className="inline-block max-w-56 truncate align-bottom font-mono text-text">
-								{join.host}
+								{join.address.host}
 							</span>
 						</span>
 					</span>

@@ -317,7 +317,7 @@ describe("WebSocket integration", () => {
 			.ws("/ws", {
 				open(wsConn) {
 					const clientId = ws.registerClient(wsConn);
-					// See server/index.ts for the rationale — mutate ws.raw.data, not ws.data.
+					// See server/routes/live-socket.ts for the rationale — mutate ws.raw.data, not ws.data.
 					// raw.data is Bun's settable slot
 					(wsConn.raw as any).data = {
 						// spreading existing context
@@ -1966,6 +1966,56 @@ describe("WebSocket integration", () => {
 		const env = await again.waitFor("room.joined");
 		expect(env.data.status).toBe("live");
 		expect(env.data.activeSlideIndex).toBe(0);
+
+		await again.close();
+	});
+
+	test("a socket that re-joins after a quiz was closed receives the close stamp", async () => {
+		// A phone's socket drops on a running untimed quiz question, the presenter
+		// closes it, and the phone joins again. The join frame must carry the
+		// instant of the close, or the phone keeps treating the question as running.
+		const created = await fetch(`${baseUrl}/api/presentations`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "WS quiz closed while away",
+				slides: [
+					{
+						id: "qz",
+						type: "quiz",
+						question: "Closest to the sun?",
+						timeLimit: 0,
+						options: [
+							{ id: "venus", text: "Venus" },
+							{ id: "mercury", text: "Mercury", isCorrect: true },
+						],
+					},
+				],
+			}),
+		});
+		expect(created.status).toBe(201);
+		const pres = (await created.json()) as { id: string; creatorToken: string };
+		await authed(`/api/presentations/${pres.id}/start`, pres.creatorToken, {
+			method: "POST",
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		const close = await authed(
+			`/api/presentations/${pres.id}/participation`,
+			pres.creatorToken,
+			{ method: "POST", body: JSON.stringify({ slideId: "qz", open: false }) },
+		);
+		expect(close.status).toBe(200);
+
+		const again = openWs();
+		await again.ready;
+		await join(again, pres.id, "participant");
+		const env = await again.waitFor("room.joined");
+		const { quizClosedAfterOpening } = await import("./schemas");
+		expect(env.data.closedSlideIds).toEqual(["qz"]);
+		expect(typeof (env.data.slideClosedAt as Record<string, string>).qz).toBe(
+			"string",
+		);
+		expect(quizClosedAfterOpening(env.data as never, "qz")).toBe(true);
 
 		await again.close();
 	});

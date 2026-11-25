@@ -24,6 +24,7 @@ import { feedbackRoutes } from "./routes/feedback";
 import { folderRoutes } from "./routes/folders";
 import { createInstanceAccessRoutes } from "./routes/instance-access";
 import { legalRoutes } from "./routes/legal";
+import { liveSocketRoutes } from "./routes/live-socket";
 import { rateLimitStartupReport } from "./rate-limit";
 import { presentationRoutes } from "./routes/presentations";
 import { rearmQuizWindowCloses } from "./services/presentations";
@@ -31,9 +32,7 @@ import { staticRoutes } from "./routes/static";
 import { templateRoutes } from "./routes/templates";
 import { websiteRoutes } from "./routes/website";
 import { workspaceRoutes } from "./routes/workspaces";
-import { joinLiveRoom } from "./services/presentations";
 import { websiteLinksStartupReport } from "./website-links";
-import { registerClient, removeClient, sendToClient } from "./ws";
 
 const PORT = process.env.PORT || 3000;
 const isDev = process.env.NODE_ENV !== "production";
@@ -238,41 +237,9 @@ const app = new Elysia()
 	.use(adminFeedbackRoutes)
 
 	// ── WebSocket ─────────────────────────────────────────────
-	.ws("/ws", {
-		open(ws) {
-			const clientId = registerClient(ws);
-			// NOTE: We must mutate `ws.raw.data` (the underlying Bun ServerWebSocket's
-			// data slot), not `ws.data`. The Elysia wrapper is reconstructed for each
-			// handler call (open/message/close) and its `.data` is re-derived from the
-			// per-call Context, so assignments to it do NOT persist. `ws.raw.data`
-			// belongs to Bun and survives for the lifetime of the connection.
-			// raw.data is Bun's settable slot
-			(ws.raw as any).data = { ...((ws.raw as any).data ?? {}), clientId };
-		},
-		message(ws, message) {
-			try {
-				const msg = typeof message === "string" ? JSON.parse(message) : message;
-				// The client id lives on ws.raw.data — see the open() note above.
-				const clientId = (ws.raw as any).data?.clientId as string | undefined;
-				if (!clientId) return;
-				if (msg.type === "join") {
-					// Answered with the deck's live state (REQ209).
-					joinLiveRoom(clientId, msg.presentationId, msg.role || "participant");
-				} else if (msg.type === "ping") {
-					// The client's heartbeat (REQ209): a socket that stops answering
-					// is one the client replaces.
-					sendToClient(clientId, "pong", {});
-				}
-			} catch {
-				// ignore malformed messages
-			}
-		},
-		close(ws) {
-			// The client id lives on ws.raw.data — see the open() note above.
-			const clientId = (ws.raw as any).data?.clientId as string | undefined;
-			if (clientId) removeClient(clientId);
-		},
-	});
+	// The live room (REQ209), and the participant sign-in a deck that requires
+	// it asks of a socket before seating it (REQ134) — server/routes/live-socket.ts.
+	.use(liveSocketRoutes);
 
 // In production, serve Vite build output from dist/client/ as static files.
 // Must be registered last (catch-all route).
