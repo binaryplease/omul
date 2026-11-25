@@ -260,6 +260,7 @@ Prose outside the markers is preserved.
 | [REQ250.md](requirements/REQ250.md) | The server binds to an explicit host that defaults to loopback | Platform & Operations | P2 | pending | internal |
 | [REQ251.md](requirements/REQ251.md) | The operator can close account sign-up with OMUL_SIGNUP_DISABLED, and existing accounts keep signing in | Accounts & Workspaces | P2 | done | BR156 |
 | [REQ252.md](requirements/REQ252.md) | The operator can close presentation creation without an account with OMUL_GUEST_CREATION_DISABLED, enforced on every server route that creates a deck | Access & Sharing | P2 | done | BR156 |
+| [REQ254.md](requirements/REQ254.md) | A NixOS host runs omul through the flake's NixOS module services.omul, built from the flake's server package and proven by a VM test | Platform & Operations | P2 | done | internal |
 
-_242 entries — one row per file in `requirements/`._
+_243 entries — one row per file in `requirements/`._
 <!-- index:end -->

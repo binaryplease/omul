@@ -8,9 +8,11 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ConfirmModal } from "./ConfirmModal";
+import { cancelOnEscape, ConfirmModal } from "./ConfirmModal";
 
 const render = (open: boolean) =>
 	renderToStaticMarkup(
@@ -41,5 +43,42 @@ describe("ConfirmModal (REQ219)", () => {
 
 	test("closed, it renders nothing", () => {
 		expect(render(false)).toBe("");
+	});
+});
+
+describe("Escape in ConfirmModal (REQ199)", () => {
+	const press = (key: string) => {
+		const pressed = { key, defaultPrevented: false, cancelled: 0 };
+		cancelOnEscape(
+			{
+				key,
+				preventDefault: () => {
+					pressed.defaultPrevented = true;
+				},
+			},
+			() => {
+				pressed.cancelled += 1;
+			},
+		);
+		return pressed;
+	};
+
+	test("Escape cancels the dialog and is marked handled", () => {
+		const escape = press("Escape");
+		expect(escape.cancelled).toBe(1);
+		expect(escape.defaultPrevented).toBe(true);
+	});
+
+	test("any other key neither cancels nor is marked handled", () => {
+		for (const key of ["Enter", " ", "Tab", "ArrowRight", "a"]) {
+			const other = press(key);
+			expect(other.cancelled).toBe(0);
+			expect(other.defaultPrevented).toBe(false);
+		}
+	});
+
+	test("the dialog's key handler is the one that marks Escape", () => {
+		const source = readFileSync(join(import.meta.dir, "ConfirmModal.tsx"), "utf8");
+		expect(source).toContain("onKeyDown={(event) => cancelOnEscape(event, onCancel)}");
 	});
 });

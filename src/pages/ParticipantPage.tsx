@@ -58,8 +58,13 @@ import { browserLanguage, getDict, resolveLang } from "../i18n";
 import {
 	InterfaceLanguageScope,
 	useDocumentLanguage,
+	useInterfaceText,
 } from "../interface-language";
-import { resolveInterfaceLanguage } from "../interface-text";
+import {
+	ENGLISH_INTERFACE_TEXT,
+	type InterfaceText,
+	resolveInterfaceLanguage,
+} from "../interface-text";
 import type { Route } from "../router";
 import { urlForRoute, usePageTitle } from "../router";
 import { useSessionSocket, useStore } from "../store";
@@ -87,13 +92,16 @@ import {
  * English for an API caller and is never shown here. Without a deck — the join
  * lookup itself failed — there is no deck language to speak and nothing to
  * reload, so the screen keeps the lookup's own message and sends them back to
- * the join form, in English like that form.
+ * the join form. Its button reads `joinText.retry` from the interface
+ * dictionary (REQ248), the same language as the join form it leads to; the
+ * page passes the interface language's `join` section.
  */
 export function participantErrorScreen(
 	deck: Presentation | null,
 	error: string,
+	joinText: InterfaceText["join"] = ENGLISH_INTERFACE_TEXT.join,
 ): { message: string; button: string; retry: "reload" | "join" } {
-	if (!deck) return { message: error, button: "Try again", retry: "join" };
+	if (!deck) return { message: error, button: joinText.retry, retry: "join" };
 	const dict = getDict(deck.language);
 	return {
 		message: dict.participantErrorMessage,
@@ -305,6 +313,13 @@ export function ParticipantPage({
 	const resetSession = useStore((state) => state.resetSession);
 	/** Bumped when the presenter clears the session (REQ101) — see below. */
 	const sessionResetRevision = useStore((state) => state.sessionResetRevision);
+	/**
+	 * The interface language's text and its language, for the deckless error
+	 * screen's button (REQ248): the document stays `lang="en"` without a deck,
+	 * so the button declares its own language.
+	 */
+	const { text: interfaceText, language: interfaceLanguage } =
+		useInterfaceText();
 
 	/** Survey-mode only: local slide index (audience-paced navigation, REQ003/REQ082). */
 	const [surveyIndex, setSurveyIndex] = useState(0);
@@ -835,7 +850,7 @@ export function ParticipantPage({
 		);
 	}
 	if (error) {
-		const screen = participantErrorScreen(pres, error);
+		const screen = participantErrorScreen(pres, error, interfaceText.join);
 		return themed(
 			<div className="participant-view bg-void bg-noise">
 				<div className="absolute top-4 right-4 z-20">
@@ -846,6 +861,7 @@ export function ParticipantPage({
 					<button
 						type="button"
 						className="btn-secondary"
+						lang={screen.retry === "join" ? interfaceLanguage : undefined}
 						onClick={() => {
 							if (screen.retry === "join") {
 								go({ page: "join" });

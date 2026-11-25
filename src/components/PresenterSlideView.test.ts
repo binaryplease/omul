@@ -128,6 +128,58 @@ function sharedScreen(slide: Slide, pres: Presentation, results: unknown) {
 	);
 }
 
+/** The opening tag of the button named `label`. */
+function buttonNamed(markup: string, label: string): string {
+	const tag = markup
+		.match(/<button[^>]*>/g)
+		?.find((candidate) => candidate.includes(`aria-label="${label}"`));
+	if (!tag) throw new Error(`no button named "${label}"`);
+	return tag;
+}
+
+/**
+ * What the button named `label` is described by (`aria-describedby`): the
+ * element's text, and whether it is the reason tip (`role="tooltip"`) or a
+ * screen-reader-only hint.
+ */
+function describedBy(
+	markup: string,
+	label: string,
+): { text: string; tip: boolean } | null {
+	const id = buttonNamed(markup, label).match(/aria-describedby="([^"]+)"/)?.[1];
+	if (!id) return null;
+	const element = markup.match(
+		new RegExp(`<span id="${id}"([^>]*)>([^<]*)</span>`),
+	);
+	if (!element) return null;
+	const attributes = element[1] ?? "";
+	return {
+		text: element[2] ?? "",
+		tip: attributes.includes('role="tooltip"'),
+	};
+}
+
+/**
+ * The timer control while unavailable (ADR-0025): a focusable
+ * button marked `aria-disabled`, its reason in the tip a hover, focus or tap
+ * shows — never only in a `title`, which no touch screen shows.
+ */
+function expectTimerExplained(markup: string, label: string, reason: string) {
+	const button = buttonNamed(markup, label);
+	expect(button).not.toContain(" disabled=");
+	expect(button).toContain('aria-disabled="true"');
+	expect(button).not.toContain("title=");
+	expect(describedBy(markup, label)).toEqual({ text: reason, tip: true });
+}
+
+/** The timer control while available: usable, its hint tooltipped and described. */
+function expectTimerHinted(markup: string, label: string, hint: string) {
+	const button = buttonNamed(markup, label);
+	expect(button).toContain('aria-disabled="false"');
+	expect(button).toContain(`title="${hint}"`);
+	expect(describedBy(markup, label)).toEqual({ text: hint, tip: false });
+}
+
 /** Five seconds in: the window is open. */
 const RUNNING = 5_000;
 /** A minute in: the 30-second window and its grace are long gone. */
@@ -280,11 +332,10 @@ describe("restarting a quiz question's timer (REQ217)", () => {
 		const markup = sharedScreen(SELECT_QUIZ, liveDeck(SELECT_QUIZ, OVER), SELECT_TALLY);
 		// The tooltip and the accessible description say the same thing, and the
 		// button's name stays the words on it.
-		expect(markup).toContain(`title="${RESTART_TIMER_HINT}"`);
-		expect(markup).toContain('aria-describedby="restart-timer-hint-q1"');
-		expect(markup).toContain(
-			`<span id="restart-timer-hint-q1" class="sr-only">${RESTART_TIMER_HINT}</span>`,
-		);
+		expectTimerHinted(markup, "Restart timer", RESTART_TIMER_HINT);
+		expect(markup).toContain(">Restart timer</button>");
+		// A restart is a correction: the quiet link, not the primary action.
+		expect(buttonNamed(markup, "Restart timer")).not.toContain("btn-primary");
 		expect(RESTART_TIMER_HINT).toContain("answers already given keep their points");
 		expect(RESTART_TIMER_HINT).toContain("who have not answered");
 	});
@@ -299,10 +350,12 @@ describe("a quiz question waiting at go-live (REQ226)", () => {
 		const markup = sharedScreen(SELECT_QUIZ, waiting(), SELECT_TALLY);
 		expect(markup).toContain("Start timer");
 		expect(markup).not.toContain("Restart timer");
-		expect(markup).toContain(`title="${START_TIMER_HINT}"`);
-		expect(markup).toContain(
-			`<span id="restart-timer-hint-q1" class="sr-only">${START_TIMER_HINT}</span>`,
-		);
+		expectTimerHinted(markup, "Start timer", START_TIMER_HINT);
+		// Starting is the one thing left to do, so it wears the primary action
+		// and the play icon.
+		const button = buttonNamed(markup, "Start timer");
+		expect(button).toContain("btn-primary inline-flex");
+		expect(markup).toMatch(/lucide-play[^>]*>.*Start timer<\/button>/);
 		expect(markup).toContain("Waiting for the presenter to start this question");
 		// No countdown runs before the window does.
 		expect(markup).not.toContain("s left");
@@ -370,11 +423,7 @@ describe("the timer control before the deck is live (REQ227)", () => {
 	test("is drawn disabled with its reason on a draft, never hidden", () => {
 		const markup = sharedScreen(SELECT_QUIZ, draft(), null);
 		expect(markup).toContain("Restart timer");
-		expect(markup).toContain('aria-disabled="true"');
-		expect(markup).toContain(`title="${QUIZ_TIMER_NOT_LIVE_REASON}"`);
-		expect(markup).toContain(
-			`<span id="restart-timer-hint-q1" class="sr-only">${QUIZ_TIMER_NOT_LIVE_REASON}</span>`,
-		);
+		expectTimerExplained(markup, "Restart timer", QUIZ_TIMER_NOT_LIVE_REASON);
 	});
 
 	test("is disabled on an ended deck too, saying it has ended (REQ237)", () => {
@@ -383,16 +432,15 @@ describe("the timer control before the deck is live (REQ227)", () => {
 			liveDeck(SELECT_QUIZ, OVER, { status: "ended" }),
 			SELECT_TALLY,
 		);
-		expect(markup).toContain('aria-disabled="true"');
-		expect(markup).toContain(`title="${QUIZ_TIMER_DECK_ENDED_REASON}"`);
+		expectTimerExplained(markup, "Restart timer", QUIZ_TIMER_DECK_ENDED_REASON);
 		expect(markup).not.toContain(QUIZ_TIMER_NOT_LIVE_REASON);
 	});
 
 	test("stays usable on a live deck and on a survey draft", () => {
 		const live = sharedScreen(SELECT_QUIZ, liveDeck(SELECT_QUIZ, OVER), SELECT_TALLY);
-		expect(live).toContain('aria-disabled="false"');
+		expectTimerHinted(live, "Restart timer", RESTART_TIMER_HINT);
 		const survey = sharedScreen(SELECT_QUIZ, draft({ mode: "survey" }), null);
-		expect(survey).toContain('aria-disabled="false"');
+		expectTimerHinted(survey, "Restart timer", RESTART_TIMER_HINT);
 		expect(survey).not.toContain(QUIZ_TIMER_NOT_LIVE_REASON);
 	});
 
@@ -475,7 +523,7 @@ describe("a timer refused on a screen behind the deck (REQ237)", () => {
 		expect(presentation?.sessionEndedAt).toBe("2026-10-30T10:00:00.000Z");
 		expect(notices).toEqual([QUIZ_TIMER_DECK_ENDED_REASON]);
 		const markup = sharedScreen(SELECT_QUIZ, presentation as Presentation, SELECT_TALLY);
-		expect(markup).toContain(`title="${QUIZ_TIMER_DECK_ENDED_REASON}"`);
+		expectTimerExplained(markup, "Restart timer", QUIZ_TIMER_DECK_ENDED_REASON);
 	});
 
 	test("a deck that was reset: the view catches up to the draft and keeps the draft wording", async () => {
@@ -566,7 +614,7 @@ describe("the shared screen in the deck's language (REQ225)", () => {
 			SELECT_TALLY,
 		);
 		expect(markup).toContain("Restart timer");
-		expect(markup).toContain(`title="${RESTART_TIMER_HINT}"`);
+		expectTimerHinted(markup, "Restart timer", RESTART_TIMER_HINT);
 		expect(markup).toContain("Show results as counts or percentages");
 		const onClick = sharedScreen(
 			SELECT_QUIZ,

@@ -99,9 +99,11 @@ that already exist — compose these, never re-hand-roll:
   reason reaches a touch screen and a screen reader, not only a hover. A row
   that hands off to a dialog or a page closes the menu first; a toggle or a copy
   leaves it open.
-- **An icon control that says why it is unavailable** —
+- **Any control that says why it is unavailable** —
   `<ReasonButton label reason/>` in `src/components/ui/ReasonTip.tsx` (REQ127).
-  With a `reason` it stays a focusable button marked `aria-disabled`, its click
+  The rule covers every control with an unavailable reason: an icon control,
+  and a text-labelled button too, whose words go in as `children` and match its
+  `label`. With a `reason` it stays a focusable button marked `aria-disabled`, its click
   guarded, and shows the reason as a visible tip while hovered, focused or after
   a tap, dismissible with Escape and linked by `aria-describedby`. The tip is
   portaled and placed with the bar menus' `appMenuPlacement()`, so a scrolling
@@ -110,7 +112,11 @@ that already exist — compose these, never re-hand-roll:
   The editor's slide-list bulk bar and the slide header's move and delete
   controls wear it, and so do the sign-in dialog's "Create account" tab while
   sign-up is closed (REQ251) and every create control while creating without an
-  account is closed (REQ252, through `CreateControl` and `UseTemplateButton`). A `disabled` button with the reason in its `title` or
+  account is closed (REQ252, through `CreateControl` and `UseTemplateButton`),
+  and the presenter's Start/Restart timer button while the deck is not live
+  (REQ237). An optional `hint` is what the available control explains beyond
+  its name: its tooltip and its accessible description, which the reason
+  replaces while the control is unavailable. A `disabled` button with the reason in its `title` or
   accessible name only is what it replaces: a keyboard cannot reach it and a
   pointer is rarely shown it.
 - **Theme switch and legal texts** — `<AppMenu/>` in

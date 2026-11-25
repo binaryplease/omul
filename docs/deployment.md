@@ -156,6 +156,20 @@ OMUL_GUEST_CREATION_DISABLED=true
   is in force is printed on every boot (`[accounts] Creating presentations
   without an account is …`).
 
+### Running on NixOS
+
+On NixOS the recommended path is the flake's NixOS module, `services.omul`
+(REQ254). It builds the server from this repository, runs it as an unprivileged
+systemd service with `/var/lib/omul` as its state directory, and hands the
+signing secret over as a systemd credential. Its options set the variables on
+this page: `secretFile` sets `BETTER_AUTH_SECRET`, `baseHost` sets
+`OMUL_BASE_HOST`, `trustProxy` sets `OMUL_TRUST_PROXY`, `adminEmails` sets
+`OMUL_ADMIN_EMAILS`, and `generationApiKeyFile` sets
+`GOOGLE_GENERATIVE_AI_API_KEY`. Any other variable goes in `environment`, or in
+`environmentFile` if it is a secret. A minimal configuration is in
+[README.md](../README.md#on-nixos-the-flakes-module-recommended), and every
+option's description is in `nix/module.nix`.
+
 ### Running without Docker
 
 The image is not required. It builds this repository with Bun and runs

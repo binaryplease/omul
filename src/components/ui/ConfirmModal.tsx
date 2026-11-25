@@ -9,6 +9,21 @@ import { useInterfaceText } from "../../interface-language";
 // Without that a keyboard or screen-reader user who pressed "Start" was left on
 // the button behind the prompt, with the question it asked them out of reach.
 
+/**
+ * Escape in the dialog cancels it and is marked handled, so a window-level
+ * Escape handler behind it reads `defaultPrevented` and leaves its own work —
+ * the presenter's panel sheet below `sm` stays open (REQ199). Every
+ * other key passes through unmarked.
+ */
+export function cancelOnEscape(
+	event: { key: string; preventDefault: () => void },
+	onCancel: () => void,
+) {
+	if (event.key !== "Escape") return;
+	event.preventDefault();
+	onCancel();
+}
+
 export function ConfirmModal({
 	open,
 	title,
@@ -66,9 +81,7 @@ export function ConfirmModal({
 				aria-describedby={messageId}
 				className="relative bg-surface border border-border rounded-2xl p-6 max-w-sm w-full slide-in shadow-2xl"
 				onClick={(e) => e.stopPropagation()}
-				onKeyDown={(event) => {
-					if (event.key === "Escape") onCancel();
-				}}
+				onKeyDown={(event) => cancelOnEscape(event, onCancel)}
 			>
 				<h3 id={titleId} className="text-lg font-semibold mb-2">
 					{title}

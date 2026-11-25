@@ -510,8 +510,6 @@ describe("WebSocket integration", () => {
 			slideId: "s1",
 			// And the opening stamps the deck went live with (REQ227).
 			slideStartedAt: started.slideStartedAt,
-			// And the slide it went live on (REQ230).
-			activeSlideIndex: started.activeSlideIndex,
 		});
 		expect(typeof env.data.startedAt).toBe("string");
 
@@ -663,7 +661,9 @@ describe("WebSocket integration", () => {
 		const started = await res.json();
 		expect(started.activeSlideIndex).toBe(0);
 		const env = await viewer.waitFor("presentation.started");
-		expect(env.data.activeSlideIndex).toBe(0);
+		expect(env.data.slideIndex).toBe(0);
+		expect(env.data.slideId).toBe("s1");
+		expect(env.data).not.toHaveProperty("activeSlideIndex");
 
 		await viewer.close();
 	});
