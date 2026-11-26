@@ -159,18 +159,16 @@ instance:
 ```sh
 cp .env.example .env
 openssl rand -base64 32     # paste the output into BETTER_AUTH_SECRET= in .env
-# uncomment the `build: .` line in compose.yaml — see the note right below
-docker compose up -d --build
+docker compose up -d
 ```
 
-**Build the image, don't pull it — for now.** The workflow publishes to
-`ghcr.io/binaryplease/omul`, but that package is **not public yet**: an
-anonymous pull is refused, so a plain `docker compose up -d` fails at the pull
-with a permission error rather than at anything in your setup. Uncommenting
-`compose.yaml`'s one `build:` line builds the identical image from this tree —
-same `Dockerfile` the workflow uses — and needs no registry account at all.
-When the package is made public this note goes and the pull becomes the shorter
-path; nothing else about the deployment changes.
+`docker compose up -d` pulls `ghcr.io/binaryplease/omul:latest`. The package is
+public, so the pull needs no registry account and no `docker login`.
+
+**To build the image from this tree instead**, uncomment `compose.yaml`'s one
+`build:` line and run `docker compose up -d --build`. The build uses the same
+`Dockerfile` as the workflow, so it produces the same image without contacting
+`ghcr.io` for it.
 
 That serves a working instance at `http://localhost:3000` **on the machine you
 ran it on, and nowhere else**: the container is published on the host's
@@ -209,15 +207,10 @@ docker run -d --name omul \
   ghcr.io/binaryplease/omul:latest
 ```
 
-**`compose.yaml` needs no registry, either** — and today it needs the build
-line. Its default is the published image, but that package is not public yet
-(see the note above), so uncommenting the one `build:` line is what makes a
-clone a complete deployment: same `Dockerfile`, no `ghcr.io` account, nothing
-else to change.
-
-The same applies to the `docker run` line above: it names
-`ghcr.io/binaryplease/omul:latest`, which an anonymous Docker cannot pull today.
-Build it locally first — `docker build -t omul .` — and run that tag instead.
+The `docker run` line pulls the published image the same way, with no
+`docker login`. To run an image built from this tree, run
+`docker build -t omul .` first and replace `ghcr.io/binaryplease/omul:latest`
+with `omul` in the command.
 
 **Without Docker**, build with the Dockerfile's two build commands and run the
 result under systemd. You need Bun, and no database service.
